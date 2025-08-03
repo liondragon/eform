@@ -2,6 +2,7 @@
 // includes/logger.php
 
 function enhanced_icf_log($message, $context = [], $form_data = null) {
+    $server = $_SERVER;
     $log_file = WP_CONTENT_DIR . '/forms.log';
 
     if (defined('DEBUG_LEVEL') && DEBUG_LEVEL == 2 && $form_data !== null) {
@@ -12,8 +13,8 @@ function enhanced_icf_log($message, $context = [], $form_data = null) {
     $context['ip'] = enhanced_icf_get_ip();
     $context['source'] = 'Enhanced iContact Form';
     $context['message'] = $message;
-    $context['user_agent'] = isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field($_SERVER['HTTP_USER_AGENT']) : '';
-    $context['referrer'] = isset($_SERVER['HTTP_REFERER']) ? sanitize_text_field($_SERVER['HTTP_REFERER']) : 'No referrer';
+    $context['user_agent'] = isset($server['HTTP_USER_AGENT']) ? sanitize_text_field($server['HTTP_USER_AGENT']) : '';
+    $context['referrer'] = isset($server['HTTP_REFERER']) ? sanitize_text_field($server['HTTP_REFERER']) : 'No referrer';
 
     $jsonLogEntry = json_encode($context, JSON_PRETTY_PRINT);
     if (json_last_error() !== JSON_ERROR_NONE) {
@@ -28,6 +29,7 @@ function enhanced_icf_log($message, $context = [], $form_data = null) {
 }
 
 function enhanced_icf_get_ip() {
+    $server = $_SERVER;
     $candidates = [
         'HTTP_X_FORWARDED_FOR',
         'HTTP_CLIENT_IP',
@@ -36,8 +38,8 @@ function enhanced_icf_get_ip() {
     ];
 
     foreach ($candidates as $key) {
-        if (!empty($_SERVER[$key])) {
-            $ipList = explode(',', $_SERVER[$key]);
+        if (!empty($server[$key])) {
+            $ipList = explode(',', $server[$key]);
             foreach ($ipList as $ip) {
                 $ip = trim($ip);
 
@@ -53,8 +55,8 @@ function enhanced_icf_get_ip() {
 
     // Fallback (still return something, even if private)
     foreach ($candidates as $key) {
-        if (!empty($_SERVER[$key])) {
-            $ipList = explode(',', $_SERVER[$key]);
+        if (!empty($server[$key])) {
+            $ipList = explode(',', $server[$key]);
             foreach ($ipList as $ip) {
                 $ip = trim($ip);
                 if (filter_var($ip, FILTER_VALIDATE_IP)) {
