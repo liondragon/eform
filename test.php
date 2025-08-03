@@ -4,43 +4,33 @@
 class Enhanced_Internal_Contact_Form {
     private $form_errors = [];
     private $ipaddress;
-    private $redirect_url='/?page_id=20'; // Set to empty string to disable redirect
+    private $redirect_url; // Set to empty string to disable redirect
     private $success_message = '<div class="form-message success">Thank you! Your message has been sent.</div>';
-    private $error_message = '';
     private $form_submitted = false;
-    private $submission_response = '';      // ← hold HTML from process_form_submission()
     private $inline_css = ''; // New property to hold inline CSS
 
     public function __construct() {
         $this->ipaddress = enhanced_icf_get_ip();
 
-        // Process form early
-        add_action('init',              [$this, 'maybe_handle_form']);
-        // Perform redirect at template stage
-        add_action('template_redirect', [$this, 'maybe_do_redirect'], 1);
-        // Register shortcode to render form
+        // ✅ Handle form submission early to allow redirect
+        add_action('init', [$this, 'maybe_handle_form']);
+
+        // ✅ Register shortcode to render form
         add_shortcode('enhanced_icf_shortcode', [$this, 'handle_shortcode']);
     }
     public function maybe_handle_form() {
-        if ('POST' !== $_SERVER['REQUEST_METHOD']) {
-            return;
-        }
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $template = sanitize_key($_POST['enhanced_template'] ?? 'default');
 
-        $template = sanitize_key($_POST['enhanced_template'] ?? 'default');
-        $submit_key = 'enhanced_form_submit_' . $template;
+            if (isset($_POST['enhanced_form_submit_' . $template])) {
+                $result = $this->process_form_submission($template);
 
-        if (isset($_POST[$submit_key])) {
-            // Process and store response; sets $this->form_submitted on success
-            $this->submission_response = $this->process_form_submission($template);
-        }
-    }
-    /**
-     * Redirect after successful submission, before rendering template.
-     */
-    public function maybe_do_redirect() {
-        if ($this->form_submitted && ! empty($this->redirect_url)) {
-            wp_safe_redirect( esc_url_raw($this->redirect_url) );
-            exit;
+                if ($this->form_submitted && !headers_sent() && !empty($this->redirect_url)) {
+                    // ✅ Bypass WordPress safety filter to avoid login redirect trap
+                    header('Location: ' . esc_url_raw($this->redirect_url));
+                    exit;
+                }
+            }
         }
     }
 
@@ -51,16 +41,16 @@ class Enhanced_Internal_Contact_Form {
         }
     }
 
-    public function handle_shortcode( $atts ) {
-    $atts = shortcode_atts( [
-        'template' => 'default',
-        'style'    => 'false',
-    ], $atts );
+    public function handle_shortcode($atts) {
+        $atts = shortcode_atts([
+            'template' => 'default',
+            'style' => 'false'
+        ], $atts);
 
-    $template = sanitize_key( $atts['template'] );
-    $load_css = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
+        $template = sanitize_key($atts['template']);
+        $load_css = filter_var($atts['style'], FILTER_VALIDATE_BOOLEAN);
 
-    // Load template-specific CSS if style="true" as inline
+        // Load template-specific CSS if style="true" as inline
         if ($load_css) {
             $css_file = "assets/{$template}.css";
             $css_path = plugin_dir_path(__FILE__) . '/../' . $css_file;
@@ -76,35 +66,23 @@ class Enhanced_Internal_Contact_Form {
             }
         }
 
-     // If we succeeded *and* have a redirect URL, bail out (we’ll redirect instead)
-    if ( $this->form_submitted && ! empty( $this->redirect_url ) ) {
-        return '';
-    }
+        $response = '';
+        if ($this->form_submitted && !empty($this->redirect_url)) {
+            return ''; // Form was submitted and we redirected, don't show anything
+        }
 
-    // Capture the form HTML
-    $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
-    ob_start();
-    if ( file_exists( $template_path ) ) {
-        include $template_path;
-    } else {
-        echo '<p>Form template not found.</p>';
-    }
-    $form_html = ob_get_clean();
+        $template_path = plugin_dir_path(__FILE__) . "../templates/form-$template.php";
+        ob_start();
+        if (file_exists($template_path)) {
+            include $template_path;
+        } else {
+            echo '<p>Form template not found.</p>';
+        }
+        $form_html = ob_get_clean();
+        $response = $this->form_submitted ? $this->success_message : '';
+        return $response . $form_html;
 
-    // 1) If there was an error or notice from process_form_submission(), show it
-    if ( $this->submission_response ) {
-        // submission_response is the HTML you returned from process_form_submission()
-        return $this->submission_response . $form_html;
     }
-
-    // 2) If the mail went out but redirect is disabled, show success
-    if ( $this->form_submitted ) {
-        return $this->success_message . $form_html;
-    }
-
-    // 3) Otherwise just show the blank form
-    return $form_html;
-}
 
     private function process_form_submission($template) {
         if (empty($_POST)) {
@@ -151,25 +129,25 @@ class Enhanced_Internal_Contact_Form {
     }
 
     private function validate_form($data) {
-        $this->form_errors = [];
+        $errors = [];
         if (strlen($data['name']) < 3) {
-            $this->form_errors[] = 'Name too short.';
+            $errors[] = 'Name too short.';
         }
         if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
-            $this->form_errors[] = 'Invalid email.';
+            $errors[] = 'Invalid email.';
         }
         if (!preg_match('/^\d{5}$/', $data['zip'])) {
-            $this->form_errors[] = 'Zip must be 5 digits.';
+            $errors[] = 'Zip must be 5 digits.';
         }
         if (strlen($data['message']) < 10) {
-            $this->form_errors[] = 'Message too short.';
+            $errors[] = 'Message too short.';
         }
-        return $this->form_errors;
+        return $errors;
     }
 
     private function send_email($data) {
         $to = get_option('admin_email');
-        $subject = 'Quote Request - ' . sanitize_text_field( $data['name'] );
+        $subject = 'Quote Request - ' . $data['name'];
         $ip = esc_html($this->ipaddress);
 
         $message = '<table cellpadding="4" cellspacing="0" border="0">'

@@ -1,0 +1,83 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/includes/class-enhanced-icf.php b/includes/class-enhanced-icf.php
+index da80871d8c06631a88cf4e28dc74418fa2b7c680..434d588e0a7b5987905d4be9396ea49c475b1e99 100644
+--- a/includes/class-enhanced-icf.php
++++ b/includes/class-enhanced-icf.php
+@@ -1,69 +1,65 @@
+ <?php
+ // includes/class-enhanced-icf.php
+ 
+ class Enhanced_Internal_Contact_Form {
+     private $form_errors = [];
+     private $ipaddress;
+     private $redirect_url = 'https://flooringartists.com/your-message-was-sent/'; // Set to empty string to disable redirect
+     private $form_submitted = false;
+     private $inline_css = ''; // New property to hold inline CSS
+ 
+     public function __construct() {
+         $this->ipaddress = enhanced_icf_get_ip();
+         add_shortcode('enhanced_icf_shortcode', [$this, 'handle_shortcode']);
+-        add_action('template_redirect', [$this, 'start_buffer']); // Changed to output buffer
++        // Inline CSS will be printed later via wp_head when needed
+     }
+ 
+-    public function start_buffer() {
+-        ob_start([$this, 'inject_inline_css']);
+-    }
+-
+-    public function inject_inline_css($html) {
++    // Method hooked to wp_head when inline CSS is needed
++    public function print_inline_css() {
+         if (!empty($this->inline_css)) {
+-            $style_tag = '<style id="enhanced-icf-inline-style">' . $this->inline_css . '</style>';
+-            $html = preg_replace('/(<\/head>)/i', $style_tag . '$1', $html, 1);
++            echo '<style id="enhanced-icf-inline-style">' . $this->inline_css . '</style>';
+         }
+-        return $html;
+     }
+ 
+     public function handle_shortcode($atts) {
+         $atts = shortcode_atts([
+             'template' => 'default',
+             'style' => 'false'
+         ], $atts);
+ 
+         $template = sanitize_key($atts['template']);
+         $load_css = filter_var($atts['style'], FILTER_VALIDATE_BOOLEAN);
+ 
+         // Load template-specific CSS if style="true" as inline
+         if ($load_css) {
+             $css_file = "assets/{$template}.css";
+             $css_path = plugin_dir_path(__FILE__) . '/../' . $css_file;
+ 
+             if (file_exists($css_path)) {
+                 $this->inline_css = file_get_contents($css_path);
++                add_action('wp_head', [$this, 'print_inline_css']);
+             }
+         }
+ 
+         $response = '';
+         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+             if (isset($_POST['enhanced_form_submit_' . $template])) {
+                 $response = $this->process_form_submission($template);
+             }
+         }
+ 
+         if ($this->form_submitted && !empty($this->redirect_url)) {
+             return ''; // Form was submitted and we redirected, don't show anything
+         }
+ 
+         $template_path = plugin_dir_path(__FILE__) . "../templates/form-$template.php";
+         ob_start();
+         if (file_exists($template_path)) {
+             include $template_path;
+         } else {
+             echo '<p>Form template not found.</p>';
+         }
+         $form_html = ob_get_clean();
+ 
+         return $response . $form_html;
+     }
+ 
+EOF
+)

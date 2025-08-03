@@ -7,6 +7,7 @@
     <form class="contactform" id="maincontactform" aria-label="Contact Form" method="post" action="">
         <?php echo wp_nonce_field('enhanced_icf_form_action', 'enhanced_icf_form_nonce', true, false); ?>
         <input type="hidden" name="enhanced_form_time" value="<?php echo time(); ?>">
+        <input type="hidden" name="enhanced_template" value="default">
         <input type="hidden" name="enhanced_js_check" class="enhanced_js_check" value="">
         <div style="display:none;">
             <input type="text" name="enhanced_url" value="">
