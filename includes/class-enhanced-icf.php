@@ -190,28 +190,30 @@ class Enhanced_Internal_Contact_Form {
         }
         return $this->form_errors;
     }
+    private function build_email_body($data, $ip) {
+    $rows = [
+        ['label' => 'Name',    'value' => esc_html($data['name'])],
+        ['label' => 'Email',   'value' => esc_html($data['email'])],
+        ['label' => 'Phone',   'value' => esc_html($data['phone'])],
+        ['label' => 'Zip',     'value' => esc_html($data['zip'])],
+        ['label' => 'Message', 'value' => nl2br(esc_html($data['message'])), 'valign' => 'top'],
+        ['label' => 'Sent from', 'value' => esc_html($ip)],
+    ];
+
+    $message_rows = '';
+    foreach ($rows as $row) {
+        $valign = isset($row['valign']) ? " valign='{$row['valign']}'" : '';
+        $message_rows .= "<tr><td{$valign}><strong>{$row['label']}:</strong></td><td>{$row['value']}</td></tr>";
+    }
+
+    return '<table cellpadding="4" cellspacing="0" border="0">' . $message_rows . '</table>';
+    }
 
     private function send_email($data) {
         $to = get_option('admin_email');
         $subject = 'Quote Request - ' . sanitize_text_field( $data['name'] );
         $ip = esc_html($this->ipaddress);
-
-        $rows = [
-            ['label' => 'Name',       'value' => esc_html($data['name'])],
-            ['label' => 'Email',      'value' => esc_html($data['email'])],
-            ['label' => 'Phone',      'value' => esc_html($data['phone'])],
-            ['label' => 'Zip',        'value' => esc_html($data['zip'])],
-            ['label' => 'Message',    'value' => nl2br(esc_html($data['message'])), 'valign' => 'top'],
-            ['label' => 'Sent from',  'value' => $ip],
-        ];
-
-        $message_rows = '';
-        foreach ($rows as $row) {
-            $valign = isset($row['valign']) ? " valign='{$row['valign']}'" : '';
-            $message_rows .= "<tr><td{$valign}><strong>{$row['label']}:</strong></td><td>{$row['value']}</td></tr>";
-        }
-
-        $message = '<table cellpadding="4" cellspacing="0" border="0">' . $message_rows . '</table>';
+        $message = $this->build_email_body($data, $ip);
 
         $noreply = 'noreply@flooringartists.com';
         $headers = [];
