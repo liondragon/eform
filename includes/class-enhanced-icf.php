@@ -187,6 +187,11 @@ class Enhanced_Internal_Contact_Form {
         if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
             $this->form_errors[] = 'Invalid email.';
         }
+        if (empty($data['phone'])) {
+            $this->form_errors[] = 'Phone is required.';
+        } elseif (!preg_match('/^\+?[0-9\-\s]{7,15}$/', $data['phone'])) {
+            $this->form_errors[] = 'Invalid phone number.';
+        }
         if (!preg_match('/^\d{5}$/', $data['zip'])) {
             $this->form_errors[] = 'Zip must be 5 digits.';
         }
