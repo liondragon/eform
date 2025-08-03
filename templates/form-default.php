@@ -5,14 +5,7 @@
 ?>
 <div id="maincontactform" class="contactform">
     <form class="contactform" id="maincontactform" aria-label="Contact Form" method="post" action="">
-        <?php echo wp_nonce_field('enhanced_icf_form_action', 'enhanced_icf_form_nonce', true, false); ?>
-        <input type="hidden" name="enhanced_form_time" value="<?php echo time(); ?>">
-        <input type="hidden" name="enhanced_template" value="default">
-        <input type="hidden" name="enhanced_js_check" class="enhanced_js_check" value="">
-        <div style="display:none;">
-            <input type="text" name="enhanced_url" value="">
-        </div>
-
+        <?php Enhanced_Internal_Contact_Form::render_hidden_fields('default'); ?>
         <div class="inputwrap">
             <input class="form_field" type="text" name="name_input" autocomplete="name" required aria-required="true" aria-label="Your Name" placeholder="Your Name" value="">
         </div>

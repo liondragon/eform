@@ -51,6 +51,17 @@ class Enhanced_Internal_Contact_Form {
         }
     }
 
+    /**
+     * Output hidden fields used across form templates.
+     */
+    public static function render_hidden_fields($template) {
+        echo wp_nonce_field('enhanced_icf_form_action', 'enhanced_icf_form_nonce', true, false);
+        echo '<input type="hidden" name="enhanced_form_time" value="' . time() . '">';
+        echo '<input type="hidden" name="enhanced_template" value="' . esc_attr($template) . '">';
+        echo '<input type="hidden" name="enhanced_js_check" class="enhanced_js_check" value="">';
+        echo '<div style="display:none;"><input type="text" name="enhanced_url" value=""></div>';
+    }
+
     public function handle_shortcode( $atts ) {
     $atts = shortcode_atts( [
         'template' => 'default',
@@ -172,14 +183,22 @@ class Enhanced_Internal_Contact_Form {
         $subject = 'Quote Request - ' . sanitize_text_field( $data['name'] );
         $ip = esc_html($this->ipaddress);
 
-        $message = '<table cellpadding="4" cellspacing="0" border="0">'
-                 . "<tr><td><strong>Name:</strong></td><td>{$data['name']}</td></tr>"
-                 . "<tr><td><strong>Email:</strong></td><td>{$data['email']}</td></tr>"
-                 . "<tr><td><strong>Phone:</strong></td><td>{$data['phone']}</td></tr>"
-                 . "<tr><td><strong>Zip:</strong></td><td>{$data['zip']}</td></tr>"
-                 . "<tr><td valign='top'><strong>Message:</strong></td><td>" . nl2br($data['message']) . "</td></tr>"
-                 . "<tr><td><strong>Sent from:</strong></td><td>{$ip}</td></tr>"
-                 . '</table>';
+        $rows = [
+            ['label' => 'Name',       'value' => esc_html($data['name'])],
+            ['label' => 'Email',      'value' => esc_html($data['email'])],
+            ['label' => 'Phone',      'value' => esc_html($data['phone'])],
+            ['label' => 'Zip',        'value' => esc_html($data['zip'])],
+            ['label' => 'Message',    'value' => nl2br(esc_html($data['message'])), 'valign' => 'top'],
+            ['label' => 'Sent from',  'value' => $ip],
+        ];
+
+        $message_rows = '';
+        foreach ($rows as $row) {
+            $valign = isset($row['valign']) ? " valign='{$row['valign']}'" : '';
+            $message_rows .= "<tr><td{$valign}><strong>{$row['label']}:</strong></td><td>{$row['value']}</td></tr>";
+        }
+
+        $message = '<table cellpadding="4" cellspacing="0" border="0">' . $message_rows . '</table>';
 
         $noreply = 'noreply@flooringartists.com';
         $headers = [];
