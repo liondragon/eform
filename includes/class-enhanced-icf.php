@@ -8,7 +8,6 @@ class Enhanced_Internal_Contact_Form {
     private $success_message = '<div class="form-message success">Thank you! Your message has been sent.</div>';
     private $error_message = '';
     private $form_submitted = false;
-    private $submission_response = '';      // ← hold HTML from process_form_submission()
     private $inline_css = ''; // New property to hold inline CSS
 
     public function __construct() {
@@ -30,8 +29,8 @@ class Enhanced_Internal_Contact_Form {
         $submit_key = 'enhanced_form_submit_' . $template;
 
         if (isset($_POST[$submit_key])) {
-            // Process and store response; sets $this->form_submitted on success
-            $this->submission_response = $this->process_form_submission($template);
+            // Process form; sets $this->form_submitted on success
+            $this->process_form_submission($template);
         }
     }
     /**
@@ -102,18 +101,13 @@ class Enhanced_Internal_Contact_Form {
     }
     $form_html = ob_get_clean();
 
-    // 1) If there was an error or notice from process_form_submission(), show it
-    if ( $this->submission_response ) {
-        // submission_response is the HTML you returned from process_form_submission()
-        return $this->submission_response . $form_html;
+    // Prepend any error or success messages to the form HTML
+    if ( $this->error_message ) {
+        $form_html = $this->error_message . $form_html;
+    } elseif ( $this->form_submitted ) {
+        $form_html = $this->success_message . $form_html;
     }
 
-    // 2) If the mail went out but redirect is disabled, show success
-    if ( $this->form_submitted ) {
-        return $this->success_message . $form_html;
-    }
-
-    // 3) Otherwise just show the blank form
     return $form_html;
 }
 
@@ -130,7 +124,7 @@ class Enhanced_Internal_Contact_Form {
             'details' => $details,
         ], $form_data);
 
-        return '<div class="form-message error">' . $user_msg . '</div>';
+        $this->error_message = '<div class="form-message error">' . $user_msg . '</div>';
     }
 
     private function process_form_submission($template) {
@@ -173,12 +167,13 @@ class Enhanced_Internal_Contact_Form {
                     ];
                     $user_msg = implode('<br>', $errors);
                 } else {
-                    return $this->send_email($data);
+                    $this->send_email($data);
+                    return;
                 }
             }
         }
 
-        return $this->log_and_message($error_type, $details, $user_msg);
+        $this->log_and_message($error_type, $details, $user_msg);
     }
 
     private function validate_form($data) {
@@ -242,7 +237,7 @@ class Enhanced_Internal_Contact_Form {
                 enhanced_icf_log('Detailed SMTP Error', ['error' => $smtpErrorMsg]);
             }
 
-            return $this->log_and_message('Email Sending Failure', [
+            $this->log_and_message('Email Sending Failure', [
                 'to'             => $to,
                 'subject'        => $subject,
                 'headers'        => $headers,
