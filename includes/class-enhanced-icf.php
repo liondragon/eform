@@ -134,44 +134,51 @@ class Enhanced_Internal_Contact_Form {
     }
 
     private function process_form_submission($template) {
+        $error_type = '';
+        $details    = [];
+        $user_msg   = '';
+
         if (empty($_POST)) {
-            return $this->log_and_message('Form Left Empty', [], 'No data submitted.');
+            $error_type = 'Form Left Empty';
+            $user_msg   = 'No data submitted.';
+        } elseif (!isset($_POST['enhanced_icf_form_nonce']) || !wp_verify_nonce($_POST['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
+            $error_type = 'Nonce Failed';
+            $user_msg   = 'Invalid submission detected.';
+        } elseif (!empty($_POST['enhanced_url'])) {
+            $error_type = 'Bot Alert: Honeypot Filled';
+            $user_msg   = 'Bot test failed.';
+        } else {
+            $submit_time = $_POST['enhanced_form_time'] ?? 0;
+            if (time() - intval($submit_time) < 5) {
+                $error_type = 'Bot Alert: Fast Submission';
+                $user_msg   = 'Submission too fast. Please try again.';
+            } elseif (empty($_POST['enhanced_js_check'])) {
+                $error_type = 'Bot Alert: JS Check Missing';
+                $user_msg   = 'JavaScript must be enabled.';
+            } else {
+                $data = [
+                    'name'    => sanitize_text_field($_POST['name_input'] ?? ''),
+                    'email'   => sanitize_email($_POST['email_input'] ?? ''),
+                    'phone'   => sanitize_text_field($_POST['tel_input'] ?? ''),
+                    'zip'     => sanitize_text_field($_POST['zip_input'] ?? ''),
+                    'message' => sanitize_textarea_field($_POST['message_input'] ?? '')
+                ];
+
+                $errors = $this->validate_form($data);
+                if ($errors) {
+                    $error_type = 'Validation errors';
+                    $details    = [
+                        'errors'    => $errors,
+                        'form_data' => $data,
+                    ];
+                    $user_msg = implode('<br>', $errors);
+                } else {
+                    return $this->send_email($data);
+                }
+            }
         }
 
-        if (!isset($_POST['enhanced_icf_form_nonce']) || !wp_verify_nonce($_POST['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
-            return $this->log_and_message('Nonce Failed', [], 'Invalid submission detected.');
-        }
-
-        if (!empty($_POST['enhanced_url'])) {
-            return $this->log_and_message('Bot Alert: Honeypot Filled', [], 'Bot test failed.');
-        }
-
-        $submit_time = $_POST['enhanced_form_time'] ?? 0;
-        if (time() - intval($submit_time) < 5) {
-            return $this->log_and_message('Bot Alert: Fast Submission', [], 'Submission too fast. Please try again.');
-        }
-
-        if (empty($_POST['enhanced_js_check'])) {
-            return $this->log_and_message('Bot Alert: JS Check Missing', [], 'JavaScript must be enabled.');
-        }
-
-        $data = [
-            'name' => sanitize_text_field($_POST['name_input'] ?? ''),
-            'email' => sanitize_email($_POST['email_input'] ?? ''),
-            'phone' => sanitize_text_field($_POST['tel_input'] ?? ''),
-            'zip' => sanitize_text_field($_POST['zip_input'] ?? ''),
-            'message' => sanitize_textarea_field($_POST['message_input'] ?? '')
-        ];
-
-        $errors = $this->validate_form($data);
-        if ($errors) {
-            return $this->log_and_message('Validation errors', [
-                'errors'    => $errors,
-                'form_data' => $data,
-            ], implode('<br>', $errors));
-        }
-
-        return $this->send_email($data);
+        return $this->log_and_message($error_type, $details, $user_msg);
     }
 
     private function validate_form($data) {
