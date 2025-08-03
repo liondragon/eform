@@ -19,6 +19,7 @@ add_action('wp_enqueue_scripts', function () {
 
 // Include supporting files
 require_once plugin_dir_path(__FILE__) . 'includes/logger.php';
+require_once plugin_dir_path(__FILE__) . 'includes/mail-error-logger.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-enhanced-icf.php';
 
 // Initialize plugin
