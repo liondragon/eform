@@ -181,6 +181,9 @@ class Enhanced_Internal_Contact_Form {
         if (strlen($data['name']) < 3) {
             $this->form_errors[] = 'Name too short.';
         }
+        if (!preg_match("/^[\\p{L}\\s.'-]+$/u", $data['name'])) {
+            $this->form_errors[] = 'Invalid characters in name.';
+        }
         if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
             $this->form_errors[] = 'Invalid email.';
         }
