@@ -173,13 +173,6 @@ class Enhanced_Internal_Contact_Form {
                         return;
                     }
 
-                    // Additional SMTP error logging (if available)
-                    global $phpmailer;
-                    if (defined('DEBUG_LEVEL') && DEBUG_LEVEL === 3 && isset($phpmailer)) {
-                        $smtpErrorMsg = $phpmailer->ErrorInfo ?? 'No detailed error';
-                        enhanced_icf_log('Detailed SMTP Error', ['error' => $smtpErrorMsg]);
-                    }
-
                     $error_type = 'Email Sending Failure';
                     $details    = [
                         'form_data' => $data,
