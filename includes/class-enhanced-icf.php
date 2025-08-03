@@ -117,31 +117,42 @@ class Enhanced_Internal_Contact_Form {
     return $form_html;
 }
 
+    /**
+     * Helper to standardize logging and user-facing error responses.
+     */
+    private function log_and_message($type, $details = [], $user_msg = '') {
+        $form_data = $details['form_data'] ?? null;
+        if (isset($details['form_data'])) {
+            unset($details['form_data']);
+        }
+        enhanced_icf_log($type, [
+            'type'    => $type,
+            'details' => $details,
+        ], $form_data);
+
+        return '<div class="form-message error">' . $user_msg . '</div>';
+    }
+
     private function process_form_submission($template) {
         if (empty($_POST)) {
-            enhanced_icf_log('Form Left Empty');
-            return '<div class="form-message">No data submitted.</div>';
+            return $this->log_and_message('Form Left Empty', [], 'No data submitted.');
         }
 
         if (!isset($_POST['enhanced_icf_form_nonce']) || !wp_verify_nonce($_POST['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
-            enhanced_icf_log('Nonce Failed');
-            return '<div class="form-message">Invalid submission detected.</div>';
+            return $this->log_and_message('Nonce Failed', [], 'Invalid submission detected.');
         }
 
         if (!empty($_POST['enhanced_url'])) {
-            enhanced_icf_log('Bot Alert: Honeypot Filled');
-            return '<div class="form-message">Bot test failed.</div>';
+            return $this->log_and_message('Bot Alert: Honeypot Filled', [], 'Bot test failed.');
         }
 
         $submit_time = $_POST['enhanced_form_time'] ?? 0;
         if (time() - intval($submit_time) < 5) {
-            enhanced_icf_log('Bot Alert: Fast Submission');
-            return '<div class="form-message">Submission too fast. Please try again.</div>';
+            return $this->log_and_message('Bot Alert: Fast Submission', [], 'Submission too fast. Please try again.');
         }
 
         if (empty($_POST['enhanced_js_check'])) {
-            enhanced_icf_log('Bot Alert: JS Check Missing');
-            return '<div class="form-message">JavaScript must be enabled.</div>';
+            return $this->log_and_message('Bot Alert: JS Check Missing', [], 'JavaScript must be enabled.');
         }
 
         $data = [
@@ -154,8 +165,10 @@ class Enhanced_Internal_Contact_Form {
 
         $errors = $this->validate_form($data);
         if ($errors) {
-            enhanced_icf_log('Validation errors', ['errors' => $errors], $data);
-            return '<div class="form-message">' . implode('<br>', $errors) . '</div>';
+            return $this->log_and_message('Validation errors', [
+                'errors'    => $errors,
+                'form_data' => $data,
+            ], implode('<br>', $errors));
         }
 
         return $this->send_email($data);
@@ -213,18 +226,6 @@ class Enhanced_Internal_Contact_Form {
             $this->form_submitted = true;
              // success_message is already defined at class level, no need to reassign
         } else {
-            // Log error with detailed context
-            enhanced_icf_log('Error sending email', [
-                'ip' => $this->ipaddress,
-                'type' => 'Email Sending Failure',
-                'details' => [
-                    'to' => $to,
-                    'subject' => $subject,
-                    'headers' => $headers,
-                    'visitor_message' => $message
-                ]
-            ]);
-
             // Additional SMTP error logging (if available)
             global $phpmailer;
             if (defined('DEBUG_LEVEL') && DEBUG_LEVEL === 3 && isset($phpmailer)) {
@@ -232,7 +233,12 @@ class Enhanced_Internal_Contact_Form {
                 enhanced_icf_log('Detailed SMTP Error', ['error' => $smtpErrorMsg]);
             }
 
-            return '<div class="form-message error">Something went wrong. Please try again later.</div>';
+            return $this->log_and_message('Email Sending Failure', [
+                'to'             => $to,
+                'subject'        => $subject,
+                'headers'        => $headers,
+                'visitor_message'=> $message,
+            ], 'Something went wrong. Please try again later.');
         }
     }
 }
