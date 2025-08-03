@@ -9,6 +9,7 @@ class Enhanced_Internal_Contact_Form {
     private $error_message = '';
     private $form_submitted = false;
     private $inline_css = ''; // New property to hold inline CSS
+    private $form_data = [];
 
     public function __construct() {
         $this->ipaddress = enhanced_icf_get_ip();
@@ -153,10 +154,14 @@ class Enhanced_Internal_Contact_Form {
                 $data = [
                     'name'    => sanitize_text_field($_POST['name_input'] ?? ''),
                     'email'   => sanitize_email($_POST['email_input'] ?? ''),
-                    'phone'   => sanitize_text_field($_POST['tel_input'] ?? ''),
+                    // Store digits only for flexible formatting later
+                    'phone'   => preg_replace('/\D/', '', $_POST['tel_input'] ?? ''),
                     'zip'     => sanitize_text_field($_POST['zip_input'] ?? ''),
                     'message' => sanitize_textarea_field($_POST['message_input'] ?? '')
                 ];
+
+                // Preserve submitted data so the form can be repopulated after errors
+                $this->form_data = $data;
 
                 $errors = $this->validate_form($data);
                 if ($errors) {
@@ -198,7 +203,7 @@ class Enhanced_Internal_Contact_Form {
         }
         if (empty($data['phone'])) {
             $this->form_errors[] = 'Phone is required.';
-        } elseif (!preg_match('/^\+?[0-9\-\s]{7,15}$/', $data['phone'])) {
+        } elseif (!preg_match('/^\d{10}$/', $data['phone'])) {
             $this->form_errors[] = 'Invalid phone number.';
         }
         if (!preg_match('/^\d{5}$/', $data['zip'])) {
@@ -210,11 +215,20 @@ class Enhanced_Internal_Contact_Form {
         }
         return $this->form_errors;
     }
+
+    // Format a 10 digit phone number as xxx-xxx-xxxx
+    private function format_phone($digits) {
+        if (preg_match('/^(\d{3})(\d{3})(\d{4})$/', $digits, $matches)) {
+            return $matches[1] . '-' . $matches[2] . '-' . $matches[3];
+        }
+        return $digits;
+    }
+
     private function build_email_body($data, $ip) {
     $rows = [
         ['label' => 'Name',    'value' => esc_html($data['name'])],
         ['label' => 'Email',   'value' => esc_html($data['email'])],
-        ['label' => 'Phone',   'value' => esc_html($data['phone'])],
+        ['label' => 'Phone',   'value' => esc_html($this->format_phone($data['phone']))],
         ['label' => 'Zip',     'value' => esc_html($data['zip'])],
         ['label' => 'Message', 'value' => nl2br(esc_html($data['message'])), 'valign' => 'top'],
         ['label' => 'Sent from', 'value' => esc_html($ip)],
