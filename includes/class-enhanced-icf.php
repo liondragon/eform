@@ -195,7 +195,8 @@ class Enhanced_Internal_Contact_Form {
         if (!preg_match('/^\d{5}$/', $data['zip'])) {
             $this->form_errors[] = 'Zip must be 5 digits.';
         }
-        if (strlen($data['message']) < 10) {
+        $plain = wp_strip_all_tags($data['message']);
+        if (strlen($plain) < 20) {
             $this->form_errors[] = 'Message too short.';
         }
         return $this->form_errors;
