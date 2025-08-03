@@ -167,8 +167,24 @@ class Enhanced_Internal_Contact_Form {
                     ];
                     $user_msg = implode('<br>', $errors);
                 } else {
-                    $this->send_email($data);
-                    return;
+                    $sent = $this->send_email($data);
+                    if ($sent) {
+                        $this->form_submitted = true;
+                        return;
+                    }
+
+                    // Additional SMTP error logging (if available)
+                    global $phpmailer;
+                    if (defined('DEBUG_LEVEL') && DEBUG_LEVEL === 3 && isset($phpmailer)) {
+                        $smtpErrorMsg = $phpmailer->ErrorInfo ?? 'No detailed error';
+                        enhanced_icf_log('Detailed SMTP Error', ['error' => $smtpErrorMsg]);
+                    }
+
+                    $error_type = 'Email Sending Failure';
+                    $details    = [
+                        'form_data' => $data,
+                    ];
+                    $user_msg   = 'Something went wrong. Please try again later.';
                 }
             }
         }
@@ -235,23 +251,6 @@ class Enhanced_Internal_Contact_Form {
 
         $sent = wp_mail($to, $subject, $message, $headers);
 
-        if ($sent) {
-            $this->form_submitted = true;
-             // success_message is already defined at class level, no need to reassign
-        } else {
-            // Additional SMTP error logging (if available)
-            global $phpmailer;
-            if (defined('DEBUG_LEVEL') && DEBUG_LEVEL === 3 && isset($phpmailer)) {
-                $smtpErrorMsg = $phpmailer->ErrorInfo ?? 'No detailed error';
-                enhanced_icf_log('Detailed SMTP Error', ['error' => $smtpErrorMsg]);
-            }
-
-            $this->log_and_message('Email Sending Failure', [
-                'to'             => $to,
-                'subject'        => $subject,
-                'headers'        => $headers,
-                'visitor_message'=> $message,
-            ], 'Something went wrong. Please try again later.');
-        }
+        return $sent;
     }
 }
