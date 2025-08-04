@@ -85,38 +85,57 @@ class Enhanced_Internal_Contact_Form {
         return $this->render_form( $template );
     }
 
-    private function render_form( $template ) {
-        // Load template-specific CSS if style="true"
-        if ( $this->load_css && ! in_array( $template, $this->loaded_css_templates, true ) ) {
-            $css_file = "assets/{$template}.css";
-            $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
+    private function load_template_css( $template ) {
+        if ( ! $this->load_css || in_array( $template, $this->loaded_css_templates, true ) ) {
+            return;
+        }
 
-            if ( file_exists( $css_path ) ) {
-                if ( $this->use_inline_css ) {
-                    $this->inline_css .= file_get_contents( $css_path ) . "\n";
-                    $this->loaded_css_templates[] = $template;
+        $css_file = "assets/{$template}.css";
+        $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
 
-                    if ( did_action( 'wp_head' ) ) {
-                        if ( ! has_action( 'wp_footer', [ $this, 'print_inline_css' ] ) ) {
-                            add_action( 'wp_footer', [ $this, 'print_inline_css' ] );
-                        }
-                    } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
-                        add_action( 'wp_head', [ $this, 'print_inline_css' ] );
-                    }
-                } else {
-                    $handle  = 'enhanced-icf-' . $template;
-                    $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
-                    wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
-                    wp_enqueue_style( $handle );
-                    if ( did_action( 'wp_head' ) ) {
-                        add_action( 'wp_footer', function() use ( $handle ) {
-                            wp_print_styles( $handle );
-                        } );
-                    }
-                    $this->loaded_css_templates[] = $template;
+        if ( ! file_exists( $css_path ) ) {
+            return;
+        }
+
+        if ( $this->use_inline_css ) {
+            $this->inline_css .= file_get_contents( $css_path ) . "\n";
+            $this->loaded_css_templates[] = $template;
+
+            if ( did_action( 'wp_head' ) ) {
+                if ( ! has_action( 'wp_footer', [ $this, 'print_inline_css' ] ) ) {
+                    add_action( 'wp_footer', [ $this, 'print_inline_css' ] );
                 }
+            } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
+                add_action( 'wp_head', [ $this, 'print_inline_css' ] );
+            }
+        } else {
+            $handle  = 'enhanced-icf-' . $template;
+            $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
+            wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
+            wp_enqueue_style( $handle );
+            if ( did_action( 'wp_head' ) ) {
+                add_action( 'wp_footer', function() use ( $handle ) {
+                    wp_print_styles( $handle );
+                } );
+            }
+            $this->loaded_css_templates[] = $template;
+        }
+    }
+
+    private function prepend_form_messages( $template, $form_html ) {
+        if ( $template === $this->processed_template ) {
+            if ( $this->error_message ) {
+                $form_html = $this->error_message . $form_html;
+            } elseif ( $this->form_submitted ) {
+                $form_html = $this->success_message . $form_html;
             }
         }
+
+        return $form_html;
+    }
+
+    private function render_form( $template ) {
+        $this->load_template_css( $template );
 
         // If we succeeded *and* have a redirect URL, bail out (we’ll redirect instead)
         if ( $this->form_submitted && ! empty( $this->redirect_url ) ) {
@@ -133,14 +152,7 @@ class Enhanced_Internal_Contact_Form {
         }
         $form_html = ob_get_clean();
 
-        // Prepend any error or success messages to the form HTML for the processed template only
-        if ( $template === $this->processed_template ) {
-            if ( $this->error_message ) {
-                $form_html = $this->error_message . $form_html;
-            } elseif ( $this->form_submitted ) {
-                $form_html = $this->success_message . $form_html;
-            }
-        }
+        $form_html = $this->prepend_form_messages( $template, $form_html );
 
         return $form_html;
     }
