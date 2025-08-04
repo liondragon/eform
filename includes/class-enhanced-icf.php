@@ -73,12 +73,16 @@ class Enhanced_Internal_Contact_Form {
         $atts = shortcode_atts( [
             'template'     => 'default',
             'style'        => 'false',
-            'useinlinecss' => 'true',
+            'useinlinecss' => null,
         ], $atts );
 
-        $template            = sanitize_key( $atts['template'] );
-        $this->load_css      = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
-        $this->use_inline_css = filter_var( $atts['useinlinecss'], FILTER_VALIDATE_BOOLEAN );
+        $template       = sanitize_key( $atts['template'] );
+        $this->load_css = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
+
+        // Only override the inline CSS preference if explicitly provided
+        if ( null !== $atts['useinlinecss'] ) {
+            $this->use_inline_css = filter_var( $atts['useinlinecss'], FILTER_VALIDATE_BOOLEAN );
+        }
 
         return $this->render_form( $template );
     }
