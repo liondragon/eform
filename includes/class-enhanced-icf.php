@@ -8,8 +8,12 @@ class Enhanced_Internal_Contact_Form {
     private $success_message = '<div class="form-message success">Thank you! Your message has been sent.</div>';
     private $error_message = '';
     private $form_submitted = false;
-    private $inline_css = ''; // New property to hold inline CSS
+    private $inline_css = ''; // Holds aggregated inline CSS
     private $form_data = [];
+    private $load_css = false; // Flag to control inline CSS loading
+    private $processed_template = ''; // Track which template was submitted
+    private $loaded_css_templates = []; // Track templates whose CSS is loaded
+    private $css_printed = false; // Ensure CSS only printed once
 
     public function __construct() {
         $this->ipaddress = enhanced_icf_get_ip();
@@ -30,6 +34,7 @@ class Enhanced_Internal_Contact_Form {
         $submit_key = 'enhanced_form_submit_' . $template;
 
         if (isset($_POST[$submit_key])) {
+            $this->processed_template = $template;
             // Process form; sets $this->form_submitted on success
             $this->process_form_submission($template);
         }
@@ -46,8 +51,9 @@ class Enhanced_Internal_Contact_Form {
 
     // Method hooked to wp_head when inline CSS is needed
     public function print_inline_css() {
-        if (!empty($this->inline_css)) {
+        if (!empty($this->inline_css) && ! $this->css_printed) {
             echo '<style id="enhanced-icf-inline-style">' . $this->inline_css . '</style>';
+            $this->css_printed = true;
         }
     }
 
@@ -63,54 +69,61 @@ class Enhanced_Internal_Contact_Form {
     }
 
     public function handle_shortcode( $atts ) {
-    $atts = shortcode_atts( [
-        'template' => 'default',
-        'style'    => 'false',
-    ], $atts );
+        $atts = shortcode_atts( [
+            'template' => 'default',
+            'style'    => 'false',
+        ], $atts );
 
-    $template = sanitize_key( $atts['template'] );
-    $load_css = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
+        $template          = sanitize_key( $atts['template'] );
+        $this->load_css = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
 
-    // Load template-specific CSS if style="true" as inline
-        if ($load_css) {
+        return $this->render_form( $template );
+    }
+
+    private function render_form( $template ) {
+        // Load template-specific CSS if style="true" as inline
+        if ( $this->load_css && ! in_array( $template, $this->loaded_css_templates, true ) ) {
             $css_file = "assets/{$template}.css";
-            $css_path = plugin_dir_path(__FILE__) . '/../' . $css_file;
+            $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
 
-            if (file_exists($css_path)) {
-                $this->inline_css = file_get_contents($css_path);
+            if ( file_exists( $css_path ) ) {
+                $this->inline_css .= file_get_contents( $css_path );
+                $this->loaded_css_templates[] = $template;
 
-                if (did_action('wp_head')) {
+                if ( did_action( 'wp_head' ) ) {
                     $this->print_inline_css();
-                } elseif (!has_action('wp_head', [$this, 'print_inline_css'])) {
-                    add_action('wp_head', [$this, 'print_inline_css']);
+                } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
+                    add_action( 'wp_head', [ $this, 'print_inline_css' ] );
                 }
             }
         }
 
-     // If we succeeded *and* have a redirect URL, bail out (we’ll redirect instead)
-    if ( $this->form_submitted && ! empty( $this->redirect_url ) ) {
-        return '';
-    }
+        // If we succeeded *and* have a redirect URL, bail out (we’ll redirect instead)
+        if ( $this->form_submitted && ! empty( $this->redirect_url ) ) {
+            return '';
+        }
 
-    // Capture the form HTML
-    $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
-    ob_start();
-    if ( file_exists( $template_path ) ) {
-        include $template_path;
-    } else {
-        echo '<p>Form template not found.</p>';
-    }
-    $form_html = ob_get_clean();
+        // Capture the form HTML
+        $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
+        ob_start();
+        if ( file_exists( $template_path ) ) {
+            include $template_path;
+        } else {
+            echo '<p>Form template not found.</p>';
+        }
+        $form_html = ob_get_clean();
 
-    // Prepend any error or success messages to the form HTML
-    if ( $this->error_message ) {
-        $form_html = $this->error_message . $form_html;
-    } elseif ( $this->form_submitted ) {
-        $form_html = $this->success_message . $form_html;
-    }
+        // Prepend any error or success messages to the form HTML for the processed template only
+        if ( $template === $this->processed_template ) {
+            if ( $this->error_message ) {
+                $form_html = $this->error_message . $form_html;
+            } elseif ( $this->form_submitted ) {
+                $form_html = $this->success_message . $form_html;
+            }
+        }
 
-    return $form_html;
-}
+        return $form_html;
+    }
 
     /**
      * Helper to standardize logging and user-facing error responses.
