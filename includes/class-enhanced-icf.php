@@ -145,6 +145,33 @@ class Enhanced_Internal_Contact_Form {
         return $form_html;
     }
 
+    /**
+     * Magic method to handle dynamic template rendering.
+     *
+     * Allows calling methods named after templates, e.g. `$form->contact()`,
+     * to render `form-contact.php`. If the template file is missing, a warning
+     * is logged and an empty string is returned.
+     *
+     * @param string $name      The called method name.
+     * @param array  $arguments Unused.
+     *
+     * @return string Rendered template HTML or empty string on failure.
+     */
+    public function __call( $name, $arguments ) {
+        $template       = sanitize_key( $name );
+        $template_path  = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
+
+        if ( file_exists( $template_path ) ) {
+            ob_start();
+            include $template_path;
+            return ob_get_clean();
+        }
+
+        error_log( sprintf( 'Enhanced ICF template missing: %s', $template_path ) );
+
+        return '';
+    }
+
     // Expose phone formatting for templates
     public function format_phone($digits) {
         return $this->processor->format_phone($digits);
