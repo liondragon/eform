@@ -18,10 +18,8 @@ class Enhanced_Internal_Contact_Form {
     public function __construct( Enhanced_ICF_Form_Processor $processor ) {
         $this->processor = $processor;
 
-        // Process form early
-        add_action('init',              [$this, 'maybe_handle_form']);
-        // Perform redirect at template stage
-        add_action('template_redirect', [$this, 'maybe_do_redirect'], 1);
+        // Process submissions before rendering any template
+        add_action('template_redirect', [$this, 'maybe_handle_form'], 1);
         // Register shortcode to render form
         add_shortcode('enhanced_icf_shortcode', [$this, 'handle_shortcode']);
     }
@@ -39,20 +37,14 @@ class Enhanced_Internal_Contact_Form {
             $result = $this->processor->process_form_submission($template);
             if ($result['success']) {
                 $this->form_submitted = true;
+                if ( ! empty( $this->redirect_url ) ) {
+                    wp_safe_redirect( esc_url_raw( $this->redirect_url ) );
+                    exit;
+                }
             } else {
                 $this->error_message = '<div class="form-message error">' . $result['message'] . '</div>';
                 $this->form_data     = $result['form_data'] ?? [];
             }
-        }
-    }
-
-    /**
-     * Redirect after successful submission, before rendering template.
-     */
-    public function maybe_do_redirect() {
-        if ($this->form_submitted && ! empty($this->redirect_url)) {
-            wp_safe_redirect( esc_url_raw($this->redirect_url) );
-            exit;
         }
     }
 
