@@ -11,72 +11,98 @@ class Enhanced_ICF_Form_Processor {
     }
 
     public function process_form_submission($template) {
-        $error_type = '';
-        $details    = [];
-        $user_msg   = '';
-
         if (empty($_POST)) {
-            $error_type = 'Form Left Empty';
-            $user_msg   = 'No data submitted.';
-        } elseif (!isset($_POST['enhanced_icf_form_nonce']) || !wp_verify_nonce($_POST['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
-            $error_type = 'Nonce Failed';
-            $user_msg   = 'Invalid submission detected.';
-        } elseif (!empty($_POST['enhanced_url'])) {
-            $error_type = 'Bot Alert: Honeypot Filled';
-            $user_msg   = 'Bot test failed.';
-        } else {
-            $submit_time = $_POST['enhanced_form_time'] ?? 0;
-            if (time() - intval($submit_time) < 5) {
-                $error_type = 'Bot Alert: Fast Submission';
-                $user_msg   = 'Submission too fast. Please try again.';
-            } elseif (empty($_POST['enhanced_js_check'])) {
-                $error_type = 'Bot Alert: JS Check Missing';
-                $user_msg   = 'JavaScript must be enabled.';
-            } else {
-                $data = [
-                    'name'    => sanitize_text_field($_POST['name_input'] ?? ''),
-                    'email'   => sanitize_email($_POST['email_input'] ?? ''),
-                    'phone'   => preg_replace('/\D/', '', $_POST['tel_input'] ?? ''),
-                    'zip'     => sanitize_text_field($_POST['zip_input'] ?? ''),
-                    'message' => sanitize_textarea_field($_POST['message_input'] ?? ''),
-                ];
-
-                $errors = $this->validate_form($data);
-                if ($errors) {
-                    $error_type = 'Validation errors';
-                    $details    = [
-                        'errors'    => $errors,
-                        'form_data' => $data,
-                    ];
-                    $user_msg = implode('<br>', $errors);
-                } else {
-                    $sent = $this->send_email($data);
-                    if ($sent) {
-                        return [ 'success' => true ];
-                    }
-                    $error_type = 'Email Sending Failure';
-                    $details    = [
-                        'form_data' => $data,
-                    ];
-                    $user_msg   = 'Something went wrong. Please try again later.';
-                }
-            }
+            return $this->error_response('Form Left Empty', [], 'No data submitted.');
         }
 
-        $user_msg = $this->log_and_message($error_type, $details, $user_msg);
+        if ($error = $this->check_nonce()) {
+            return $this->error_response($error['type'], [], $error['message']);
+        }
 
-        return [
-            'success'   => false,
-            'message'   => $user_msg,
-            'form_data' => $details['form_data'] ?? [],
+        if ($error = $this->check_honeypot()) {
+            return $this->error_response($error['type'], [], $error['message']);
+        }
+
+        if ($error = $this->check_submission_time()) {
+            return $this->error_response($error['type'], [], $error['message']);
+        }
+
+        if ($error = $this->check_js_enabled()) {
+            return $this->error_response($error['type'], [], $error['message']);
+        }
+
+        $data = [
+            'name'    => sanitize_text_field($_POST['name_input'] ?? ''),
+            'email'   => sanitize_email($_POST['email_input'] ?? ''),
+            'phone'   => preg_replace('/\\D/', '', $_POST['tel_input'] ?? ''),
+            'zip'     => sanitize_text_field($_POST['zip_input'] ?? ''),
+            'message' => sanitize_textarea_field($_POST['message_input'] ?? ''),
         ];
+
+        $errors = $this->validate_form($data);
+        if ($errors) {
+            $details  = [
+                'errors'    => $errors,
+                'form_data' => $data,
+            ];
+            $user_msg = implode('<br>', $errors);
+            return $this->error_response('Validation errors', $details, $user_msg);
+        }
+
+        if ($this->send_email($data)) {
+            return [ 'success' => true ];
+        }
+
+        $details = [ 'form_data' => $data ];
+        return $this->error_response('Email Sending Failure', $details, 'Something went wrong. Please try again later.');
     }
 
     public function format_phone($digits) {
-        if (preg_match('/^(\d{3})(\d{3})(\d{4})$/', $digits, $matches)) {
+        if (preg_match('/^(\\d{3})(\\d{3})(\\d{4})$/', $digits, $matches)) {
             return $matches[1] . '-' . $matches[2] . '-' . $matches[3];
         }
         return $digits;
+    }
+
+    private function check_nonce() {
+        if (!isset($_POST['enhanced_icf_form_nonce']) || !wp_verify_nonce($_POST['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
+            return [
+                'type'    => 'Nonce Failed',
+                'message' => 'Invalid submission detected.',
+            ];
+        }
+        return [];
+    }
+
+    private function check_honeypot() {
+        if (!empty($_POST['enhanced_url'])) {
+            return [
+                'type'    => 'Bot Alert: Honeypot Filled',
+                'message' => 'Bot test failed.',
+            ];
+        }
+        return [];
+    }
+
+    private function check_submission_time() {
+        $submit_time = $_POST['enhanced_form_time'] ?? 0;
+        if (time() - intval($submit_time) < 5) {
+            return [
+                'type'    => 'Bot Alert: Fast Submission',
+                'message' => 'Submission too fast. Please try again.',
+            ];
+        }
+        return [];
+    }
+
+    private function check_js_enabled() {
+        if (empty($_POST['enhanced_js_check'])) {
+            return [
+                'type'    => 'Bot Alert: JS Check Missing',
+                'message' => 'JavaScript must be enabled.',
+            ];
+        }
+        return [];
     }
 
     private function validate_form($data) {
@@ -152,4 +178,14 @@ class Enhanced_ICF_Form_Processor {
 
         return $user_msg;
     }
+
+    private function error_response($type, $details = [], $user_msg = '') {
+        $user_msg = $this->log_and_message($type, $details, $user_msg);
+        return [
+            'success'   => false,
+            'message'   => $user_msg,
+            'form_data' => $details['form_data'] ?? [],
+        ];
+    }
 }
+
