@@ -3,9 +3,11 @@
 
 class Enhanced_ICF_Form_Processor {
     private $ipaddress;
+    private $logger;
 
-    public function __construct($ipaddress) {
-        $this->ipaddress = $ipaddress;
+    public function __construct(Logger $logger) {
+        $this->logger    = $logger;
+        $this->ipaddress = $logger->get_ip();
     }
 
     public function process_form_submission($template) {
@@ -143,7 +145,7 @@ class Enhanced_ICF_Form_Processor {
         if (isset($details['form_data'])) {
             unset($details['form_data']);
         }
-        enhanced_icf_log($type, [
+        $this->logger->log($type, [
             'type'    => $type,
             'details' => $details,
         ], $form_data);
