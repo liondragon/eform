@@ -10,7 +10,8 @@ class Enhanced_Internal_Contact_Form {
     private $form_submitted = false;
     private $inline_css = ''; // Holds aggregated inline CSS
     private $form_data = [];
-    private $load_css = false; // Flag to control inline CSS loading
+    private $load_css = false; // Flag to control CSS loading
+    private $use_inline_css = true; // Use inline CSS or enqueue stylesheet
     private $processed_template = ''; // Track which template was submitted
     private $loaded_css_templates = []; // Track templates whose CSS is loaded
     private $css_printed = false; // Ensure CSS only printed once
@@ -49,7 +50,7 @@ class Enhanced_Internal_Contact_Form {
         }
     }
 
-    // Method hooked to wp_head when inline CSS is needed
+    // Method hooked to wp_head or wp_footer when inline CSS is needed
     public function print_inline_css() {
         if (!empty($this->inline_css) && ! $this->css_printed) {
             echo '<style id="enhanced-icf-inline-style">' . $this->inline_css . '</style>';
@@ -70,30 +71,47 @@ class Enhanced_Internal_Contact_Form {
 
     public function handle_shortcode( $atts ) {
         $atts = shortcode_atts( [
-            'template' => 'default',
-            'style'    => 'false',
+            'template'     => 'default',
+            'style'        => 'false',
+            'useinlinecss' => 'true',
         ], $atts );
 
-        $template          = sanitize_key( $atts['template'] );
-        $this->load_css = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
+        $template            = sanitize_key( $atts['template'] );
+        $this->load_css      = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
+        $this->use_inline_css = filter_var( $atts['useinlinecss'], FILTER_VALIDATE_BOOLEAN );
 
         return $this->render_form( $template );
     }
 
     private function render_form( $template ) {
-        // Load template-specific CSS if style="true" as inline
+        // Load template-specific CSS if style="true"
         if ( $this->load_css && ! in_array( $template, $this->loaded_css_templates, true ) ) {
             $css_file = "assets/{$template}.css";
             $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
 
             if ( file_exists( $css_path ) ) {
-                $this->inline_css .= file_get_contents( $css_path );
-                $this->loaded_css_templates[] = $template;
+                if ( $this->use_inline_css ) {
+                    $this->inline_css .= file_get_contents( $css_path ) . "\n";
+                    $this->loaded_css_templates[] = $template;
 
-                if ( did_action( 'wp_head' ) ) {
-                    $this->print_inline_css();
-                } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
-                    add_action( 'wp_head', [ $this, 'print_inline_css' ] );
+                    if ( did_action( 'wp_head' ) ) {
+                        if ( ! has_action( 'wp_footer', [ $this, 'print_inline_css' ] ) ) {
+                            add_action( 'wp_footer', [ $this, 'print_inline_css' ] );
+                        }
+                    } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
+                        add_action( 'wp_head', [ $this, 'print_inline_css' ] );
+                    }
+                } else {
+                    $handle  = 'enhanced-icf-' . $template;
+                    $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
+                    wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
+                    wp_enqueue_style( $handle );
+                    if ( did_action( 'wp_head' ) ) {
+                        add_action( 'wp_footer', function() use ( $handle ) {
+                            wp_print_styles( $handle );
+                        } );
+                    }
+                    $this->loaded_css_templates[] = $template;
                 }
             }
         }
