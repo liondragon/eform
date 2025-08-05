@@ -35,3 +35,14 @@ adjust this list you may either:
 
 Both approaches will replace the default values, ensuring that only explicitly
 approved fields are recorded.
+
+## Successful Submission Logging
+
+By default a successful form submission writes a "Form submission sent" entry to
+the log. The entry records only the safe fields configured via the
+`eform_log_safe_fields` option or filter. Administrators may disable this logging
+by setting `DEBUG_LEVEL` to `0` or filtering the behavior:
+
+```
+add_filter('eform_log_successful_submission', '__return_false');
+```
