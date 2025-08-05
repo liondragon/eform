@@ -33,7 +33,17 @@ class Logger {
         }
 
         if (defined('DEBUG_LEVEL') && DEBUG_LEVEL == 2 && $form_data !== null) {
-            $safe_data         = array_intersect_key($form_data, array_flip(['name', 'zip']));
+            $safe_fields = ['name', 'zip'];
+            if ( function_exists( 'get_option' ) ) {
+                $option_fields = get_option( 'eform_log_safe_fields', [] );
+                if ( ! empty( $option_fields ) && is_array( $option_fields ) ) {
+                    $safe_fields = $option_fields;
+                }
+            }
+            if ( function_exists( 'apply_filters' ) ) {
+                $safe_fields = apply_filters( 'eform_log_safe_fields', $safe_fields, $form_data );
+            }
+            $safe_data             = array_intersect_key( $form_data, array_flip( $safe_fields ) );
             $context['form_data'] = $safe_data;
         }
 

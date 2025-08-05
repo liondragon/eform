@@ -21,3 +21,17 @@ entry looks like this:
     "referrer": "No referrer"
 }
 ```
+
+## Logged Form Fields
+
+When `DEBUG_LEVEL` is set to `2`, selected form fields may be included in the log
+for troubleshooting. By default only the `name` and `zip` fields are stored. To
+adjust this list you may either:
+
+1. Update the `eform_log_safe_fields` option in WordPress to contain an array of
+   allowed field keys.
+2. Use the `eform_log_safe_fields` filter to programmatically modify the array of
+   field keys prior to logging.
+
+Both approaches will replace the default values, ensuring that only explicitly
+approved fields are recorded.
