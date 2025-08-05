@@ -18,6 +18,20 @@ class Logger {
             @chmod( $log_file, 0640 ); // Ensure restrictive permissions on creation
         }
 
+        // Allow administrators to adjust the max file size via constant or filter.
+        $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
+        if ( function_exists( 'apply_filters' ) ) {
+            $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $log_file );
+        }
+
+        if ( file_exists( $log_file ) && filesize( $log_file ) >= $max_size ) {
+            $timestamp    = date( 'YmdHis' );
+            $rotated_file = $log_dir . '/forms-' . $timestamp . '.log';
+            @rename( $log_file, $rotated_file );
+            touch( $log_file );
+            @chmod( $log_file, 0640 );
+        }
+
         if (defined('DEBUG_LEVEL') && DEBUG_LEVEL == 2 && $form_data !== null) {
             $safe_data         = array_intersect_key($form_data, array_flip(['name', 'zip']));
             $context['form_data'] = $safe_data;
