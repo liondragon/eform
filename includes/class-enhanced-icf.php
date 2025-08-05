@@ -36,7 +36,7 @@ class Enhanced_Internal_Contact_Form {
 
         if (isset($_POST[$submit_key])) {
             $this->processed_template = $template;
-            $result = $this->processor->process_form_submission($template);
+            $result = $this->processor->process_form_submission($template, $_POST);
             if ($result['success']) {
                 $this->form_submitted = true;
                 if ( ! empty( $this->redirect_url ) ) {
