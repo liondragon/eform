@@ -50,6 +50,27 @@ class Enhanced_ICF_Form_Processor {
         }
 
         if ($this->send_email($data)) {
+            $should_log = true;
+            if (defined('DEBUG_LEVEL') && DEBUG_LEVEL < 1) {
+                $should_log = false;
+            }
+            if (function_exists('apply_filters')) {
+                $should_log = apply_filters('eform_log_successful_submission', $should_log, $data);
+            }
+            if ($should_log) {
+                $safe_fields = ['name', 'zip'];
+                if (function_exists('get_option')) {
+                    $option_fields = get_option('eform_log_safe_fields', []);
+                    if (!empty($option_fields) && is_array($option_fields)) {
+                        $safe_fields = $option_fields;
+                    }
+                }
+                if (function_exists('apply_filters')) {
+                    $safe_fields = apply_filters('eform_log_safe_fields', $safe_fields, $data);
+                }
+                $safe_data = array_intersect_key($data, array_flip($safe_fields));
+                $this->logger->log('Form submission sent', ['form_data' => $safe_data]);
+            }
             return [ 'success' => true ];
         }
 
