@@ -46,3 +46,12 @@ by setting `DEBUG_LEVEL` to `0` or filtering the behavior:
 ```
 add_filter('eform_log_successful_submission', '__return_false');
 ```
+
+## Running Tests
+
+Install dependencies and execute the test suite:
+
+```bash
+composer install
+vendor/bin/phpunit
+```
