@@ -61,7 +61,7 @@ class Enhanced_Internal_Contact_Form {
      */
     public static function render_hidden_fields($template) {
         echo wp_nonce_field('enhanced_icf_form_action', 'enhanced_icf_form_nonce', true, false);
-        echo '<input type="hidden" name="enhanced_form_time" value="' . time() . '">';
+        echo '<input type="hidden" name="enhanced_form_time" value="' . esc_attr( time() ) . '">';
         echo '<input type="hidden" name="enhanced_template" value="' . esc_attr($template) . '">';
         echo '<input type="hidden" name="enhanced_js_check" class="enhanced_js_check" value="">';
         echo '<div style="display:none;"><input type="text" name="enhanced_url" value=""></div>';
