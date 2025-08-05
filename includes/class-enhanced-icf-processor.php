@@ -10,6 +10,24 @@ class Enhanced_ICF_Form_Processor {
         $this->ipaddress = $logger->get_ip();
     }
 
+    /**
+     * Process a submitted contact form.
+     *
+     * Validates the request and, if successful, sends an email with the
+     * sanitized form data.
+     *
+     * @param string $template       Template slug.
+     * @param array  $submitted_data Associative array of raw form values. Keys
+     *                               include `name_input`, `email_input`,
+     *                               `tel_input`, `zip_input`, and
+     *                               `message_input`.
+     *
+     * @return array {
+     *     @type bool   $success   Whether the submission was processed.
+     *     @type string $message   Status or error message.
+     *     @type array  $form_data Sanitized form values on failure.
+     * }
+     */
     public function process_form_submission(string $template, array $submitted_data): array {
         if (empty($submitted_data)) {
             return $this->error_response('Form Left Empty', [], 'No data submitted.');
