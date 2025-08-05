@@ -3,8 +3,20 @@
 
 class Logger {
     public function log($message, $context = [], $form_data = null) {
-        $server   = $_SERVER;
-        $log_file = WP_CONTENT_DIR . '/forms.log';
+        $server = $_SERVER;
+
+        // Store logs in a location outside of the plugin directory.
+        // Using uploads/logs keeps the file out of typical web-accessible paths.
+        $log_dir  = WP_CONTENT_DIR . '/uploads/logs';
+        if ( ! file_exists( $log_dir ) ) {
+            wp_mkdir_p( $log_dir );
+        }
+
+        $log_file = $log_dir . '/forms.log';
+        if ( ! file_exists( $log_file ) ) {
+            touch( $log_file );
+            @chmod( $log_file, 0640 ); // Ensure restrictive permissions on creation
+        }
 
         if (defined('DEBUG_LEVEL') && DEBUG_LEVEL == 2 && $form_data !== null) {
             $safe_data         = array_intersect_key($form_data, array_flip(['name', 'zip']));
@@ -22,10 +34,14 @@ class Logger {
             $jsonLogEntry = 'Log encoding error: ' . json_last_error_msg();
         }
 
-        if (!empty($log_file) && is_writable(dirname($log_file))) {
-            error_log($jsonLogEntry . "\n", 3, $log_file);
+        if ( ! empty( $log_file ) && is_writable( dirname( $log_file ) ) ) {
+            error_log( $jsonLogEntry . "\n", 3, $log_file );
+            $perms = fileperms( $log_file ) & 0777;
+            if ( 0640 !== $perms ) {
+                @chmod( $log_file, 0640 ); // Restrict log file permissions
+            }
         } else {
-            error_log($jsonLogEntry);
+            error_log( $jsonLogEntry );
         }
     }
 
