@@ -10,7 +10,7 @@ class Enhanced_ICF_Form_Processor {
         $this->ipaddress = $logger->get_ip();
     }
 
-    public function process_form_submission($template, $submitted_data) {
+    public function process_form_submission(string $template, array $submitted_data): array {
         if (empty($submitted_data)) {
             return $this->error_response('Form Left Empty', [], 'No data submitted.');
         }
@@ -66,14 +66,14 @@ class Enhanced_ICF_Form_Processor {
         return $this->error_response('Email Sending Failure', $details, 'Something went wrong. Please try again later.');
     }
 
-    public function format_phone($digits) {
+    public function format_phone(string $digits): string {
         if (preg_match('/^(\\d{3})(\\d{3})(\\d{4})$/', $digits, $matches)) {
             return $matches[1] . '-' . $matches[2] . '-' . $matches[3];
         }
         return $digits;
     }
 
-    private function check_nonce($submitted_data) {
+    private function check_nonce(array $submitted_data): array {
         if (!isset($submitted_data['enhanced_icf_form_nonce']) || !wp_verify_nonce($submitted_data['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
             return [
                 'type'    => 'Nonce Failed',
@@ -83,7 +83,7 @@ class Enhanced_ICF_Form_Processor {
         return [];
     }
 
-    private function check_honeypot($submitted_data) {
+    private function check_honeypot(array $submitted_data): array {
         if (!empty($submitted_data['enhanced_url'])) {
             return [
                 'type'    => 'Bot Alert: Honeypot Filled',
@@ -93,7 +93,7 @@ class Enhanced_ICF_Form_Processor {
         return [];
     }
 
-    private function check_submission_time($submitted_data) {
+    private function check_submission_time(array $submitted_data): array {
         $submit_time = $submitted_data['enhanced_form_time'] ?? 0;
         if (time() - intval($submit_time) < 5) {
             return [
@@ -104,7 +104,7 @@ class Enhanced_ICF_Form_Processor {
         return [];
     }
 
-    private function check_js_enabled($submitted_data) {
+    private function check_js_enabled(array $submitted_data): array {
         if (empty($submitted_data['enhanced_js_check'])) {
             return [
                 'type'    => 'Bot Alert: JS Check Missing',
@@ -114,7 +114,7 @@ class Enhanced_ICF_Form_Processor {
         return [];
     }
 
-    private function validate_form($data) {
+    private function validate_form(array $data): array {
         $errors = [];
         if (strlen($data['name']) < 3) {
             $errors[] = 'Name too short.';
@@ -140,7 +140,7 @@ class Enhanced_ICF_Form_Processor {
         return $errors;
     }
 
-    private function build_email_body($data) {
+    private function build_email_body(array $data): string {
         $ip = esc_html($this->ipaddress);
         $rows = [
             ['label' => 'Name',    'value' => esc_html($data['name'])],
@@ -160,7 +160,7 @@ class Enhanced_ICF_Form_Processor {
         return '<table cellpadding="4" cellspacing="0" border="0">' . $message_rows . '</table>';
     }
 
-    private function send_email($data) {
+    private function send_email(array $data): bool {
         $to = get_option('admin_email');
         $subject = 'Quote Request - ' . sanitize_text_field($data['name']);
         $message = $this->build_email_body($data);
@@ -175,7 +175,7 @@ class Enhanced_ICF_Form_Processor {
         return wp_mail($to, $subject, $message, $headers);
     }
 
-    private function log_and_message($type, $details = [], $user_msg = '') {
+    private function log_and_message(string $type, array $details = [], string $user_msg = ''): string {
         $form_data = $details['form_data'] ?? null;
         if (isset($details['form_data'])) {
             unset($details['form_data']);
@@ -188,7 +188,7 @@ class Enhanced_ICF_Form_Processor {
         return $user_msg;
     }
 
-    private function error_response($type, $details = [], $user_msg = '') {
+    private function error_response(string $type, array $details = [], string $user_msg = ''): array {
         $user_msg = $this->log_and_message($type, $details, $user_msg);
         return [
             'success'   => false,

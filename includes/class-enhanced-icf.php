@@ -217,7 +217,7 @@ class Enhanced_Internal_Contact_Form {
     }
 
     // Expose phone formatting for templates
-    public function format_phone($digits) {
+    public function format_phone(string $digits): string {
         return $this->processor->format_phone($digits);
     }
 }
