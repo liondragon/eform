@@ -31,12 +31,14 @@ class Enhanced_Internal_Contact_Form {
             return;
         }
 
-        $template = sanitize_key($_POST['enhanced_template'] ?? 'default');
+        $submitted_data = array_map( 'sanitize_text_field', wp_unslash( $_POST ) );
+
+        $template   = sanitize_key( $submitted_data['enhanced_template'] ?? 'default' );
         $submit_key = 'enhanced_form_submit_' . $template;
 
-        if (isset($_POST[$submit_key])) {
+        if ( isset( $submitted_data[ $submit_key ] ) ) {
             $this->processed_template = $template;
-            $result = $this->processor->process_form_submission($template, $_POST);
+            $result                   = $this->processor->process_form_submission( $template, $submitted_data );
             if ($result['success']) {
                 $this->form_submitted = true;
                 if ( ! empty( $this->redirect_url ) ) {
