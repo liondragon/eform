@@ -23,6 +23,7 @@ class Logger {
             $context['form_data'] = $safe_data;
         }
 
+        $context['timestamp'] = date('c');
         $context['ip']        = $this->get_ip();
         $context['source']    = 'Enhanced iContact Form';
         $context['message']   = $message;
