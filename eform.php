@@ -18,11 +18,18 @@ add_action('wp_enqueue_scripts', function () {
 });
 
 // Include supporting files
-require_once plugin_dir_path(__FILE__) . 'includes/logger.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/logger.php';
 $logger = new Logger();
-require_once plugin_dir_path(__FILE__) . 'includes/mail-error-logger.php';
-require_once plugin_dir_path(__FILE__) . 'includes/class-enhanced-icf-processor.php';
-require_once plugin_dir_path(__FILE__) . 'includes/class-enhanced-icf.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/mail-error-logger.php';
+/**
+ * Register mail error logging callbacks.
+ *
+ * The Mail_Error_Logger class hooks into WordPress mail error and
+ * PHPMailer debugging events using the provided logger instance.
+ */
+new Mail_Error_Logger( $logger );
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf-processor.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf.php';
 
 // Initialize plugin
 $processor = new Enhanced_ICF_Form_Processor( $logger );
