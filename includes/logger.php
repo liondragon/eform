@@ -14,8 +14,12 @@ class Logger {
 
         $log_file = $log_dir . '/forms.log';
         if ( ! file_exists( $log_file ) ) {
-            touch( $log_file );
-            @chmod( $log_file, 0640 ); // Ensure restrictive permissions on creation
+            if ( ! touch( $log_file ) ) {
+                error_log( 'Failed to create log file: ' . $log_file );
+            }
+            if ( ! chmod( $log_file, 0640 ) ) { // Ensure restrictive permissions on creation
+                error_log( 'Failed to set permissions on log file: ' . $log_file );
+            }
         }
 
         // Allow administrators to adjust the max file size via constant or filter.
@@ -27,9 +31,15 @@ class Logger {
         if ( file_exists( $log_file ) && filesize( $log_file ) >= $max_size ) {
             $timestamp    = date( 'YmdHis' );
             $rotated_file = $log_dir . '/forms-' . $timestamp . '.log';
-            @rename( $log_file, $rotated_file );
-            touch( $log_file );
-            @chmod( $log_file, 0640 );
+            if ( ! rename( $log_file, $rotated_file ) ) {
+                error_log( 'Failed to rotate log file: ' . $log_file );
+            }
+            if ( ! touch( $log_file ) ) {
+                error_log( 'Failed to create new log file after rotation: ' . $log_file );
+            }
+            if ( ! chmod( $log_file, 0640 ) ) {
+                error_log( 'Failed to set permissions on log file: ' . $log_file );
+            }
         }
 
         if (defined('DEBUG_LEVEL') && DEBUG_LEVEL == 2 && $form_data !== null) {
@@ -63,7 +73,9 @@ class Logger {
             error_log( $jsonLogEntry . "\n", 3, $log_file );
             $perms = fileperms( $log_file ) & 0777;
             if ( 0640 !== $perms ) {
-                @chmod( $log_file, 0640 ); // Restrict log file permissions
+                if ( ! chmod( $log_file, 0640 ) ) { // Restrict log file permissions
+                    error_log( 'Failed to set permissions on log file: ' . $log_file );
+                }
             }
         } else {
             error_log( $jsonLogEntry );
