@@ -14,9 +14,11 @@ class Enhanced_Internal_Contact_Form {
     private $loaded_css_templates = []; // Track templates whose CSS is loaded
     private $css_printed = false; // Ensure CSS only printed once
     private $processor;
+    private $logger;
 
-    public function __construct( Enhanced_ICF_Form_Processor $processor ) {
+    public function __construct( Enhanced_ICF_Form_Processor $processor, Logger $logger ) {
         $this->processor = $processor;
+        $this->logger    = $logger;
 
         // Process submissions before rendering any template
         add_action('template_redirect', [$this, 'maybe_handle_form'], 1);
@@ -154,7 +156,7 @@ class Enhanced_Internal_Contact_Form {
             return ob_get_clean();
         }
 
-        error_log( sprintf( 'Enhanced ICF template missing: %s', $template_path ) );
+        $this->logger->log( sprintf( 'Enhanced ICF template missing: %s', $template_path ) );
 
         return '<p>Form template not found.</p>';
     }

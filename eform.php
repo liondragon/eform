@@ -26,5 +26,5 @@ require_once plugin_dir_path(__FILE__) . 'includes/class-enhanced-icf.php';
 
 // Initialize plugin
 $processor = new Enhanced_ICF_Form_Processor( $logger );
-new Enhanced_Internal_Contact_Form( $processor );
+new Enhanced_Internal_Contact_Form( $processor, $logger );
 
