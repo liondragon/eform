@@ -1,6 +1,30 @@
 <?php
 // includes/logger.php
 
+if ( ! function_exists( 'eform_get_safe_fields' ) ) {
+    /**
+     * Retrieve fields considered safe for logging.
+     *
+     * Allows overriding via the `eform_log_safe_fields` option or filter.
+     *
+     * @param array|null $form_data Optional form data for filter context.
+     * @return array List of safe field keys.
+     */
+    function eform_get_safe_fields( $form_data = null ) {
+        $safe_fields = [ 'name', 'zip' ];
+        if ( function_exists( 'get_option' ) ) {
+            $option_fields = get_option( 'eform_log_safe_fields', [] );
+            if ( ! empty( $option_fields ) && is_array( $option_fields ) ) {
+                $safe_fields = $option_fields;
+            }
+        }
+        if ( function_exists( 'apply_filters' ) ) {
+            $safe_fields = apply_filters( 'eform_log_safe_fields', $safe_fields, $form_data );
+        }
+        return $safe_fields;
+    }
+}
+
 class Logger {
     public function log($message, $context = [], $form_data = null) {
         $server = $_SERVER;
@@ -42,17 +66,8 @@ class Logger {
             }
         }
 
-        if (defined('DEBUG_LEVEL') && DEBUG_LEVEL == 2 && $form_data !== null) {
-            $safe_fields = ['name', 'zip'];
-            if ( function_exists( 'get_option' ) ) {
-                $option_fields = get_option( 'eform_log_safe_fields', [] );
-                if ( ! empty( $option_fields ) && is_array( $option_fields ) ) {
-                    $safe_fields = $option_fields;
-                }
-            }
-            if ( function_exists( 'apply_filters' ) ) {
-                $safe_fields = apply_filters( 'eform_log_safe_fields', $safe_fields, $form_data );
-            }
+        if ( defined( 'DEBUG_LEVEL' ) && DEBUG_LEVEL == 2 && $form_data !== null ) {
+            $safe_fields           = eform_get_safe_fields( $form_data );
             $safe_data             = array_intersect_key( $form_data, array_flip( $safe_fields ) );
             $context['form_data'] = $safe_data;
         }
