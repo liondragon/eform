@@ -15,20 +15,17 @@ class Enhanced_ICF_Form_Processor {
             return $this->error_response('Form Left Empty', [], 'No data submitted.');
         }
 
-        if ($error = $this->check_nonce()) {
-            return $this->error_response($error['type'], [], $error['message']);
-        }
+        $validators = [
+            'check_nonce',
+            'check_honeypot',
+            'check_submission_time',
+            'check_js_enabled',
+        ];
 
-        if ($error = $this->check_honeypot()) {
-            return $this->error_response($error['type'], [], $error['message']);
-        }
-
-        if ($error = $this->check_submission_time()) {
-            return $this->error_response($error['type'], [], $error['message']);
-        }
-
-        if ($error = $this->check_js_enabled()) {
-            return $this->error_response($error['type'], [], $error['message']);
+        foreach ($validators as $validator) {
+            if ($error = $this->$validator()) {
+                return $this->error_response($error['type'], [], $error['message']);
+            }
         }
 
         $data = [
