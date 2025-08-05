@@ -85,11 +85,23 @@ class Logger {
         }
 
         if ( ! empty( $log_file ) && is_writable( dirname( $log_file ) ) ) {
-            error_log( $jsonLogEntry . "\n", 3, $log_file );
-            $perms = fileperms( $log_file ) & 0777;
-            if ( 0640 !== $perms ) {
-                if ( ! chmod( $log_file, 0640 ) ) { // Restrict log file permissions
-                    error_log( 'Failed to set permissions on log file: ' . $log_file );
+            $written = false;
+            $handle  = fopen( $log_file, 'a' );
+            if ( $handle ) {
+                if ( flock( $handle, LOCK_EX ) ) {
+                    $written = ( false !== fwrite( $handle, $jsonLogEntry . "\n" ) );
+                    flock( $handle, LOCK_UN );
+                }
+                fclose( $handle );
+            }
+            if ( ! $written ) {
+                error_log( $jsonLogEntry );
+            } else {
+                $perms = fileperms( $log_file ) & 0777;
+                if ( 0640 !== $perms ) {
+                    if ( ! chmod( $log_file, 0640 ) ) { // Restrict log file permissions
+                        error_log( 'Failed to set permissions on log file: ' . $log_file );
+                    }
                 }
             }
         } else {
