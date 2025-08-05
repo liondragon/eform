@@ -134,6 +134,31 @@ class Enhanced_Internal_Contact_Form {
         return $form_html;
     }
 
+    /**
+     * Load a form template and return its HTML.
+     *
+     * Logs an error and returns a fallback message when the template is
+     * missing.
+     *
+     * @param string $template Template slug.
+     *
+     * @return string Rendered template HTML or fallback message.
+     */
+    private function include_template( $template ) {
+        $template      = sanitize_key( $template );
+        $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
+
+        if ( file_exists( $template_path ) ) {
+            ob_start();
+            include $template_path;
+            return ob_get_clean();
+        }
+
+        error_log( sprintf( 'Enhanced ICF template missing: %s', $template_path ) );
+
+        return '<p>Form template not found.</p>';
+    }
+
     private function render_form( $template ) {
         $this->load_template_css( $template );
 
@@ -142,15 +167,7 @@ class Enhanced_Internal_Contact_Form {
             return '';
         }
 
-        // Capture the form HTML
-        $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
-        ob_start();
-        if ( file_exists( $template_path ) ) {
-            include $template_path;
-        } else {
-            echo '<p>Form template not found.</p>';
-        }
-        $form_html = ob_get_clean();
+        $form_html = $this->include_template( $template );
 
         $form_html = $this->prepend_form_messages( $template, $form_html );
 
@@ -162,26 +179,17 @@ class Enhanced_Internal_Contact_Form {
      *
      * Allows calling methods named after templates, e.g. `$form->contact()`,
      * to render `form-contact.php`. If the template file is missing, a warning
-     * is logged and an empty string is returned.
+     * is logged and a fallback message is returned.
      *
      * @param string $name      The called method name.
      * @param array  $arguments Unused.
      *
-     * @return string Rendered template HTML or empty string on failure.
+     * @return string Rendered template HTML or fallback message on failure.
      */
     public function __call( $name, $arguments ) {
-        $template       = sanitize_key( $name );
-        $template_path  = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
+        $template = sanitize_key( $name );
 
-        if ( file_exists( $template_path ) ) {
-            ob_start();
-            include $template_path;
-            return ob_get_clean();
-        }
-
-        error_log( sprintf( 'Enhanced ICF template missing: %s', $template_path ) );
-
-        return '';
+        return $this->include_template( $template );
     }
 
     // Expose phone formatting for templates
