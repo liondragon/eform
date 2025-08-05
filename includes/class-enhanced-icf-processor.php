@@ -10,8 +10,8 @@ class Enhanced_ICF_Form_Processor {
         $this->ipaddress = $logger->get_ip();
     }
 
-    public function process_form_submission($template) {
-        if (empty($_POST)) {
+    public function process_form_submission($template, $submitted_data) {
+        if (empty($submitted_data)) {
             return $this->error_response('Form Left Empty', [], 'No data submitted.');
         }
 
@@ -23,17 +23,17 @@ class Enhanced_ICF_Form_Processor {
         ];
 
         foreach ($validators as $validator) {
-            if ($error = $this->$validator()) {
+            if ($error = $this->$validator($submitted_data)) {
                 return $this->error_response($error['type'], [], $error['message']);
             }
         }
 
         $data = [
-            'name'    => sanitize_text_field($_POST['name_input'] ?? ''),
-            'email'   => sanitize_email($_POST['email_input'] ?? ''),
-            'phone'   => preg_replace('/\\D/', '', $_POST['tel_input'] ?? ''),
-            'zip'     => sanitize_text_field($_POST['zip_input'] ?? ''),
-            'message' => sanitize_textarea_field($_POST['message_input'] ?? ''),
+            'name'    => sanitize_text_field($submitted_data['name_input'] ?? ''),
+            'email'   => sanitize_email($submitted_data['email_input'] ?? ''),
+            'phone'   => preg_replace('/\\D/', '', $submitted_data['tel_input'] ?? ''),
+            'zip'     => sanitize_text_field($submitted_data['zip_input'] ?? ''),
+            'message' => sanitize_textarea_field($submitted_data['message_input'] ?? ''),
         ];
 
         $errors = $this->validate_form($data);
@@ -73,8 +73,8 @@ class Enhanced_ICF_Form_Processor {
         return $digits;
     }
 
-    private function check_nonce() {
-        if (!isset($_POST['enhanced_icf_form_nonce']) || !wp_verify_nonce($_POST['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
+    private function check_nonce($submitted_data) {
+        if (!isset($submitted_data['enhanced_icf_form_nonce']) || !wp_verify_nonce($submitted_data['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
             return [
                 'type'    => 'Nonce Failed',
                 'message' => 'Invalid submission detected.',
@@ -83,8 +83,8 @@ class Enhanced_ICF_Form_Processor {
         return [];
     }
 
-    private function check_honeypot() {
-        if (!empty($_POST['enhanced_url'])) {
+    private function check_honeypot($submitted_data) {
+        if (!empty($submitted_data['enhanced_url'])) {
             return [
                 'type'    => 'Bot Alert: Honeypot Filled',
                 'message' => 'Bot test failed.',
@@ -93,8 +93,8 @@ class Enhanced_ICF_Form_Processor {
         return [];
     }
 
-    private function check_submission_time() {
-        $submit_time = $_POST['enhanced_form_time'] ?? 0;
+    private function check_submission_time($submitted_data) {
+        $submit_time = $submitted_data['enhanced_form_time'] ?? 0;
         if (time() - intval($submit_time) < 5) {
             return [
                 'type'    => 'Bot Alert: Fast Submission',
@@ -104,8 +104,8 @@ class Enhanced_ICF_Form_Processor {
         return [];
     }
 
-    private function check_js_enabled() {
-        if (empty($_POST['enhanced_js_check'])) {
+    private function check_js_enabled($submitted_data) {
+        if (empty($submitted_data['enhanced_js_check'])) {
             return [
                 'type'    => 'Bot Alert: JS Check Missing',
                 'message' => 'JavaScript must be enabled.',
