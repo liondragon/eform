@@ -96,32 +96,52 @@ class Enhanced_Internal_Contact_Form {
         $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
 
         if ( ! file_exists( $css_path ) ) {
+            $this->logger->log( sprintf( 'Enhanced ICF CSS file missing: %s', $css_path ) );
             return;
         }
 
         if ( $this->use_inline_css ) {
-            $this->inline_css .= file_get_contents( $css_path ) . "\n";
-            $this->loaded_css_templates[] = $template;
-
-            if ( did_action( 'wp_head' ) ) {
-                if ( ! has_action( 'wp_footer', [ $this, 'print_inline_css' ] ) ) {
-                    add_action( 'wp_footer', [ $this, 'print_inline_css' ] );
-                }
-            } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
-                add_action( 'wp_head', [ $this, 'print_inline_css' ] );
-            }
+            $this->load_inline_css( $template, $css_path );
         } else {
-            $handle  = 'enhanced-icf-' . $template;
-            $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
-            wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
-            wp_enqueue_style( $handle );
-            if ( did_action( 'wp_head' ) ) {
-                add_action( 'wp_footer', function() use ( $handle ) {
-                    wp_print_styles( $handle );
-                } );
-            }
-            $this->loaded_css_templates[] = $template;
+            $this->enqueue_css( $template, $css_path, $css_file );
         }
+    }
+
+    private function load_inline_css( $template, $css_path ) {
+        if ( ! is_readable( $css_path ) ) {
+            $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ) );
+            return;
+        }
+
+        $css = file_get_contents( $css_path );
+        if ( false === $css ) {
+            $this->logger->log( sprintf( 'Failed to read Enhanced ICF CSS file: %s', $css_path ) );
+            return;
+        }
+
+        $this->inline_css             .= $css . "\n";
+        $this->loaded_css_templates[] = $template;
+
+        if ( did_action( 'wp_head' ) ) {
+            if ( ! has_action( 'wp_footer', [ $this, 'print_inline_css' ] ) ) {
+                add_action( 'wp_footer', [ $this, 'print_inline_css' ] );
+            }
+        } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
+            add_action( 'wp_head', [ $this, 'print_inline_css' ] );
+        }
+    }
+
+    private function enqueue_css( $template, $css_path, $css_file ) {
+        $handle  = 'enhanced-icf-' . $template;
+        $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
+        wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
+        wp_enqueue_style( $handle );
+        if ( did_action( 'wp_head' ) ) {
+            add_action( 'wp_footer', function() use ( $handle ) {
+                wp_print_styles( $handle );
+            } );
+        }
+        $this->loaded_css_templates[] = $template;
     }
 
     private function prepend_form_messages( $template, $form_html ) {
