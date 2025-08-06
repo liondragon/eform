@@ -3,8 +3,8 @@
  * Template: form-default.php
  */
 ?>
-<div id="maincontactform" class="contactform">
-    <form class="contactform" id="maincontactform" aria-label="Contact Form" method="post" action="">
+<div id="contact_form" class="contact_form">
+    <form class="main_contact_form" id="main_contact_form" aria-label="Contact Form" method="post" action="">
         <?php Enhanced_Internal_Contact_Form::render_hidden_fields('default'); ?>
         <div class="inputwrap">
             <input class="form_field" type="text" name="name_input" autocomplete="name" required aria-required="true" aria-label="Your Name" placeholder="Your Name" value="<?php echo esc_attr($this->form_data['name'] ?? ''); ?>">
