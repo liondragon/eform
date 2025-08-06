@@ -57,6 +57,8 @@ function has_action($hook,$callback){return false;}
 function wp_register_style(){ }
 function wp_enqueue_style(){ }
 function wp_print_styles(){ }
+function wp_style_is(){ return false; }
+function wp_add_inline_style(){ }
 function wp_mkdir_p($dir){return true;}
 function wp_nonce_field(){ }
 
