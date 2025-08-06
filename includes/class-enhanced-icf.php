@@ -54,8 +54,17 @@ class Enhanced_Internal_Contact_Form {
 
     // Method hooked to wp_head or wp_footer when inline CSS is needed
     public function print_inline_css() {
-        if (!empty($this->inline_css) && ! $this->css_printed) {
-            echo '<style id="enhanced-icf-inline-style">' . $this->inline_css . '</style>';
+        if ( ! empty( $this->inline_css ) && ! $this->css_printed ) {
+            $handle = 'enhanced-icf-inline-style';
+
+            if ( ! wp_style_is( $handle, 'registered' ) ) {
+                wp_register_style( $handle, false );
+            }
+
+            wp_enqueue_style( $handle );
+            wp_add_inline_style( $handle, $this->inline_css );
+            wp_print_styles( $handle );
+
             $this->css_printed = true;
         }
     }
