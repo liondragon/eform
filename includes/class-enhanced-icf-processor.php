@@ -75,7 +75,7 @@ class Enhanced_ICF_Form_Processor {
             if ($should_log) {
                 $safe_fields = eform_get_safe_fields( $data );
                 $safe_data   = array_intersect_key( $data, array_flip( $safe_fields ) );
-                $this->logger->log( 'Form submission sent', [ 'form_data' => $safe_data ] );
+                $this->logger->log( 'Form submission sent', 'info', [ 'form_data' => $safe_data ] );
             }
             return [ 'success' => true ];
         }
@@ -198,7 +198,7 @@ class Enhanced_ICF_Form_Processor {
         if (isset($details['form_data'])) {
             unset($details['form_data']);
         }
-        $this->logger->log($type, [
+        $this->logger->log($type, 'error', [
             'type'    => $type,
             'details' => $details,
         ], $form_data);

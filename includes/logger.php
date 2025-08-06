@@ -26,7 +26,15 @@ if ( ! function_exists( 'eform_get_safe_fields' ) ) {
 }
 
 class Logger {
-    public function log($message, $context = [], $form_data = null) {
+    /**
+     * Write a log entry.
+     *
+     * @param string     $message   Human readable message.
+     * @param string     $level     Severity level (e.g. info, warning, error).
+     * @param array      $context   Additional context to record.
+     * @param array|null $form_data Optional form data for safe logging.
+     */
+    public function log($message, $level = 'info', $context = [], $form_data = null) {
         $server = $_SERVER;
 
         // Store logs in a location outside of the plugin directory.
@@ -75,6 +83,7 @@ class Logger {
         $context['timestamp'] = date('c');
         $context['ip']        = $this->get_ip();
         $context['source']    = 'Enhanced iContact Form';
+        $context['level']     = $level;
         $context['message']   = $message;
         $context['user_agent'] = isset($server['HTTP_USER_AGENT']) ? sanitize_text_field($server['HTTP_USER_AGENT']) : '';
         $context['referrer']  = isset($server['HTTP_REFERER']) ? sanitize_text_field($server['HTTP_REFERER']) : 'No referrer';
