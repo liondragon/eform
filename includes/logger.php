@@ -35,48 +35,11 @@ class Logger {
      * @param array|null $form_data Optional form data for safe logging.
      */
     public function log($message, $level = 'info', $context = [], $form_data = null) {
-        $server = $_SERVER;
+        $server   = $_SERVER;
+        $log_file = $this->prepare_log_file();
 
-        // Store logs in a location outside of the plugin directory.
-        // Using uploads/logs keeps the file out of typical web-accessible paths.
-        $log_dir  = WP_CONTENT_DIR . '/uploads/logs';
-        if ( ! file_exists( $log_dir ) ) {
-            wp_mkdir_p( $log_dir );
-        }
-
-        $log_file = $log_dir . '/forms.log';
-        if ( ! file_exists( $log_file ) ) {
-            if ( ! touch( $log_file ) ) {
-                error_log( 'Failed to create log file: ' . $log_file );
-            }
-            if ( ! chmod( $log_file, 0640 ) ) { // Ensure restrictive permissions on creation
-                error_log( 'Failed to set permissions on log file: ' . $log_file );
-            }
-        }
-
-        // Allow administrators to adjust the max file size via constant or filter.
-        $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
-        if ( function_exists( 'apply_filters' ) ) {
-            $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $log_file );
-        }
-
-        if ( file_exists( $log_file ) && filesize( $log_file ) >= $max_size ) {
-            $timestamp    = date( 'YmdHis' );
-            $rotated_file = $log_dir . '/forms-' . $timestamp . '.log';
-            if ( ! rename( $log_file, $rotated_file ) ) {
-                error_log( 'Failed to rotate log file: ' . $log_file );
-            }
-            if ( ! touch( $log_file ) ) {
-                error_log( 'Failed to create new log file after rotation: ' . $log_file );
-            }
-            if ( ! chmod( $log_file, 0640 ) ) {
-                error_log( 'Failed to set permissions on log file: ' . $log_file );
-            }
-        }
-
-        if ( defined( 'DEBUG_LEVEL' ) && DEBUG_LEVEL == 2 && $form_data !== null ) {
-            $safe_fields           = eform_get_safe_fields( $form_data );
-            $safe_data             = array_intersect_key( $form_data, array_flip( $safe_fields ) );
+        $safe_data = $this->get_safe_form_data( $form_data );
+        if ( null !== $safe_data ) {
             $context['form_data'] = $safe_data;
         }
 
@@ -116,6 +79,64 @@ class Logger {
         } else {
             error_log( $jsonLogEntry );
         }
+    }
+
+    /**
+     * Prepare the log file for writing, including directory creation and rotation.
+     *
+     * @return string Path to the log file.
+     */
+    private function prepare_log_file() {
+        $log_dir = WP_CONTENT_DIR . '/uploads/logs';
+        if ( ! file_exists( $log_dir ) ) {
+            wp_mkdir_p( $log_dir );
+        }
+
+        $log_file = $log_dir . '/forms.log';
+        if ( ! file_exists( $log_file ) ) {
+            if ( ! touch( $log_file ) ) {
+                error_log( 'Failed to create log file: ' . $log_file );
+            }
+            if ( ! chmod( $log_file, 0640 ) ) {
+                error_log( 'Failed to set permissions on log file: ' . $log_file );
+            }
+        }
+
+        $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
+        if ( function_exists( 'apply_filters' ) ) {
+            $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $log_file );
+        }
+
+        if ( file_exists( $log_file ) && filesize( $log_file ) >= $max_size ) {
+            $timestamp    = date( 'YmdHis' );
+            $rotated_file = $log_dir . '/forms-' . $timestamp . '.log';
+            if ( ! rename( $log_file, $rotated_file ) ) {
+                error_log( 'Failed to rotate log file: ' . $log_file );
+            }
+            if ( ! touch( $log_file ) ) {
+                error_log( 'Failed to create new log file after rotation: ' . $log_file );
+            }
+            if ( ! chmod( $log_file, 0640 ) ) {
+                error_log( 'Failed to set permissions on log file: ' . $log_file );
+            }
+        }
+
+        return $log_file;
+    }
+
+    /**
+     * Retrieve sanitized form data containing only safe fields.
+     *
+     * @param array|null $form_data Raw form submission data.
+     * @return array|null Filtered form data or null if not applicable.
+     */
+    private function get_safe_form_data( $form_data ) {
+        if ( defined( 'DEBUG_LEVEL' ) && DEBUG_LEVEL == 2 && $form_data !== null ) {
+            $safe_fields = eform_get_safe_fields( $form_data );
+            return array_intersect_key( $form_data, array_flip( $safe_fields ) );
+        }
+
+        return null;
     }
 
     public function get_ip() {
