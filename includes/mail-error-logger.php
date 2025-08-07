@@ -29,7 +29,7 @@ class Mail_Error_Logger {
     }
 
     /**
-     * Logs WP mail errors.
+     * Logs WP mail errors using Logger::LEVEL_ERROR.
      *
      * @param WP_Error $wp_error The WordPress error object.
      * @return void
@@ -39,7 +39,7 @@ class Mail_Error_Logger {
             $data = $wp_error->get_error_data();
             $this->logger->log(
                 'Mail send failure',
-                'error',
+                Logger::LEVEL_ERROR,
                 [
                     'error'   => $wp_error->get_error_message(),
                     'details' => is_array( $data ) ? $data : [],
@@ -50,6 +50,7 @@ class Mail_Error_Logger {
 
     /**
      * Enables PHPMailer debugging when DEBUG_LEVEL is 3.
+     * Logs output using Logger::LEVEL_INFO.
      *
      * @param PHPMailer $phpmailer PHPMailer instance.
      * @return void
@@ -58,7 +59,7 @@ class Mail_Error_Logger {
         if ( defined( 'DEBUG_LEVEL' ) && DEBUG_LEVEL === 3 ) {
             $phpmailer->SMTPDebug  = 3;
             $phpmailer->Debugoutput = function ( $str, $level ) {
-                $this->logger->log( 'PHPMailer Debug', 'info', [ 'debug' => $str, 'phpmailer_level' => $level ] );
+                $this->logger->log( 'PHPMailer Debug', Logger::LEVEL_INFO, [ 'debug' => $str, 'phpmailer_level' => $level ] );
             };
         }
     }

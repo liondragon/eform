@@ -27,6 +27,21 @@ if ( ! function_exists( 'eform_get_safe_fields' ) ) {
 
 class Logger {
     /**
+     * Log level for informational messages.
+     */
+    public const LEVEL_INFO = 'info';
+
+    /**
+     * Log level for warnings.
+     */
+    public const LEVEL_WARNING = 'warning';
+
+    /**
+     * Log level for errors.
+     */
+    public const LEVEL_ERROR = 'error';
+
+    /**
      * Cached path to the log file.
      *
      * @var string|null
@@ -37,11 +52,11 @@ class Logger {
      * Write a log entry.
      *
      * @param string     $message   Human readable message.
-     * @param string     $level     Severity level (e.g. info, warning, error).
+     * @param string     $level     Severity level (e.g. Logger::LEVEL_INFO, Logger::LEVEL_WARNING, Logger::LEVEL_ERROR).
      * @param array      $context   Additional context to record.
      * @param array|null $form_data Optional form data for safe logging.
      */
-    public function log($message, $level = 'info', $context = [], $form_data = null) {
+    public function log($message, $level = self::LEVEL_INFO, $context = [], $form_data = null) {
         $server = $_SERVER;
 
         // Prepare the log file if it hasn't been prepared yet, rotation is needed,
