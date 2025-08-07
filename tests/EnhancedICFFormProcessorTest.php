@@ -83,4 +83,12 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('Name too short.', $result['message']);
     }
+
+    public function test_only_registered_fields_validated() {
+        $data = $this->valid_submission();
+        unset($data['tel_input'], $data['zip_input']);
+        $data['enhanced_fields'] = 'name,email,message';
+        $result = $this->processor->process_form_submission('default', $data);
+        $this->assertTrue($result['success']);
+    }
 }
