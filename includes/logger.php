@@ -45,17 +45,8 @@ class Logger {
         $server = $_SERVER;
 
         // Prepare the log file only if it hasn't been prepared yet or rotation is needed.
-        if ( empty( $this->log_file ) ) {
+        if ( empty( $this->log_file ) || $this->should_rotate() ) {
             $this->prepare_log_file();
-        } else {
-            $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
-            if ( function_exists( 'apply_filters' ) ) {
-                $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $this->log_file );
-            }
-
-            if ( file_exists( $this->log_file ) && filesize( $this->log_file ) >= $max_size ) {
-                $this->prepare_log_file();
-            }
         }
 
         $log_file = $this->log_file;
@@ -127,12 +118,7 @@ class Logger {
             }
         }
 
-        $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
-        if ( function_exists( 'apply_filters' ) ) {
-            $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $this->log_file );
-        }
-
-        if ( file_exists( $this->log_file ) && filesize( $this->log_file ) >= $max_size ) {
+        if ( $this->should_rotate() ) {
             $timestamp    = date( 'YmdHis' );
             $rotated_file = $log_dir . '/forms-' . $timestamp . '.log';
             if ( ! rename( $this->log_file, $rotated_file ) ) {
@@ -147,6 +133,27 @@ class Logger {
         }
 
         return $this->log_file;
+    }
+
+    /**
+     * Determine whether the current log file should be rotated based on size.
+     *
+     * @param string|null $file Optional path to check; defaults to the current log file.
+     * @return bool True if rotation is needed, otherwise false.
+     */
+    private function should_rotate( $file = null ) {
+        $file = $file ?: $this->log_file;
+
+        if ( empty( $file ) ) {
+            return false;
+        }
+
+        $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
+        if ( function_exists( 'apply_filters' ) ) {
+            $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $file );
+        }
+
+        return file_exists( $file ) && filesize( $file ) >= $max_size;
     }
 
     /**
