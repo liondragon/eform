@@ -27,6 +27,13 @@ if ( ! function_exists( 'eform_get_safe_fields' ) ) {
 
 class Logger {
     /**
+     * Cached path to the log file.
+     *
+     * @var string|null
+     */
+    private $log_file;
+
+    /**
      * Write a log entry.
      *
      * @param string     $message   Human readable message.
@@ -35,8 +42,23 @@ class Logger {
      * @param array|null $form_data Optional form data for safe logging.
      */
     public function log($message, $level = 'info', $context = [], $form_data = null) {
-        $server   = $_SERVER;
-        $log_file = $this->prepare_log_file();
+        $server = $_SERVER;
+
+        // Prepare the log file only if it hasn't been prepared yet or rotation is needed.
+        if ( empty( $this->log_file ) ) {
+            $this->prepare_log_file();
+        } else {
+            $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
+            if ( function_exists( 'apply_filters' ) ) {
+                $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $this->log_file );
+            }
+
+            if ( file_exists( $this->log_file ) && filesize( $this->log_file ) >= $max_size ) {
+                $this->prepare_log_file();
+            }
+        }
+
+        $log_file = $this->log_file;
 
         $safe_data = $this->get_safe_form_data( $form_data );
         if ( null !== $safe_data ) {
@@ -92,36 +114,39 @@ class Logger {
             wp_mkdir_p( $log_dir );
         }
 
-        $log_file = $log_dir . '/forms.log';
-        if ( ! file_exists( $log_file ) ) {
-            if ( ! touch( $log_file ) ) {
-                error_log( 'Failed to create log file: ' . $log_file );
+        if ( empty( $this->log_file ) ) {
+            $this->log_file = $log_dir . '/forms.log';
+        }
+
+        if ( ! file_exists( $this->log_file ) ) {
+            if ( ! touch( $this->log_file ) ) {
+                error_log( 'Failed to create log file: ' . $this->log_file );
             }
-            if ( ! chmod( $log_file, 0640 ) ) {
-                error_log( 'Failed to set permissions on log file: ' . $log_file );
+            if ( ! chmod( $this->log_file, 0640 ) ) {
+                error_log( 'Failed to set permissions on log file: ' . $this->log_file );
             }
         }
 
         $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
         if ( function_exists( 'apply_filters' ) ) {
-            $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $log_file );
+            $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $this->log_file );
         }
 
-        if ( file_exists( $log_file ) && filesize( $log_file ) >= $max_size ) {
+        if ( file_exists( $this->log_file ) && filesize( $this->log_file ) >= $max_size ) {
             $timestamp    = date( 'YmdHis' );
             $rotated_file = $log_dir . '/forms-' . $timestamp . '.log';
-            if ( ! rename( $log_file, $rotated_file ) ) {
-                error_log( 'Failed to rotate log file: ' . $log_file );
+            if ( ! rename( $this->log_file, $rotated_file ) ) {
+                error_log( 'Failed to rotate log file: ' . $this->log_file );
             }
-            if ( ! touch( $log_file ) ) {
-                error_log( 'Failed to create new log file after rotation: ' . $log_file );
+            if ( ! touch( $this->log_file ) ) {
+                error_log( 'Failed to create new log file after rotation: ' . $this->log_file );
             }
-            if ( ! chmod( $log_file, 0640 ) ) {
-                error_log( 'Failed to set permissions on log file: ' . $log_file );
+            if ( ! chmod( $this->log_file, 0640 ) ) {
+                error_log( 'Failed to set permissions on log file: ' . $this->log_file );
             }
         }
 
-        return $log_file;
+        return $this->log_file;
     }
 
     /**
