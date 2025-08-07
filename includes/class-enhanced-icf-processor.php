@@ -122,7 +122,14 @@ class Enhanced_ICF_Form_Processor {
     }
 
     private function check_honeypot(array $submitted_data): array {
-        $honeypot = $this->get_first_value( $submitted_data['enhanced_url'] ?? '' );
+        $honeypot_field = $submitted_data['enhanced_url'] ?? '';
+        if ( is_array( $honeypot_field ) ) {
+            return [
+                'type'    => 'Bot Alert: Honeypot Filled',
+                'message' => 'Bot test failed.',
+            ];
+        }
+        $honeypot = $this->get_first_value( $honeypot_field );
         if ( ! empty( $honeypot ) ) {
             return [
                 'type'    => 'Bot Alert: Honeypot Filled',
@@ -133,7 +140,14 @@ class Enhanced_ICF_Form_Processor {
     }
 
     private function check_submission_time(array $submitted_data): array {
-        $submit_time = intval( $this->get_first_value( $submitted_data['enhanced_form_time'] ?? 0 ) );
+        $submit_time_field = $submitted_data['enhanced_form_time'] ?? 0;
+        if ( is_array( $submit_time_field ) ) {
+            return [
+                'type'    => 'Bot Alert: Fast Submission',
+                'message' => 'Submission too fast. Please try again.',
+            ];
+        }
+        $submit_time = intval( $this->get_first_value( $submit_time_field ) );
         if ( time() - $submit_time < 5 ) {
             return [
                 'type'    => 'Bot Alert: Fast Submission',

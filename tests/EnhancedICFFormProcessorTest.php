@@ -44,9 +44,25 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $this->assertSame('Bot test failed.', $result['message']);
     }
 
+    public function test_honeypot_array_failure() {
+        $data = $this->valid_submission();
+        $data['enhanced_url'] = ['spam'];
+        $result = $this->processor->process_form_submission('default', $data);
+        $this->assertFalse($result['success']);
+        $this->assertSame('Bot test failed.', $result['message']);
+    }
+
     public function test_submission_time_failure() {
         $data = $this->valid_submission();
         $data['enhanced_form_time'] = time();
+        $result = $this->processor->process_form_submission('default', $data);
+        $this->assertFalse($result['success']);
+        $this->assertSame('Submission too fast. Please try again.', $result['message']);
+    }
+
+    public function test_submission_time_array_failure() {
+        $data = $this->valid_submission();
+        $data['enhanced_form_time'] = ['now'];
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Submission too fast. Please try again.', $result['message']);
