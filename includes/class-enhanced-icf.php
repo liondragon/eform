@@ -31,7 +31,7 @@ class Enhanced_Internal_Contact_Form {
             return;
         }
 
-        $submitted_data = array_map( 'sanitize_text_field', wp_unslash( $_POST ) );
+        $submitted_data = wp_unslash( $_POST );
 
         $template   = sanitize_key( $submitted_data['enhanced_template'] ?? 'default' );
         $submit_key = 'enhanced_form_submit_' . $template;

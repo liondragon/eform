@@ -10,6 +10,13 @@ class Enhanced_ICF_Form_Processor {
         $this->ipaddress = $logger->get_ip();
     }
 
+    private function get_first_value( $value ) {
+        while ( is_array( $value ) ) {
+            $value = reset( $value );
+        }
+        return $value;
+    }
+
     /**
      * Process a submitted contact form.
      *
@@ -47,11 +54,11 @@ class Enhanced_ICF_Form_Processor {
         }
 
         $data = [
-            'name'    => sanitize_text_field($submitted_data['name_input'] ?? ''),
-            'email'   => sanitize_email($submitted_data['email_input'] ?? ''),
-            'phone'   => preg_replace('/\\D/', '', $submitted_data['tel_input'] ?? ''),
-            'zip'     => sanitize_text_field($submitted_data['zip_input'] ?? ''),
-            'message' => sanitize_textarea_field($submitted_data['message_input'] ?? ''),
+            'name'    => sanitize_text_field( $this->get_first_value( $submitted_data['name_input'] ?? '' ) ),
+            'email'   => sanitize_email( $this->get_first_value( $submitted_data['email_input'] ?? '' ) ),
+            'phone'   => preg_replace( '/\\D/', '', $this->get_first_value( $submitted_data['tel_input'] ?? '' ) ),
+            'zip'     => sanitize_text_field( $this->get_first_value( $submitted_data['zip_input'] ?? '' ) ),
+            'message' => sanitize_textarea_field( $this->get_first_value( $submitted_data['message_input'] ?? '' ) ),
         ];
 
         $errors = $this->validate_form($data);
@@ -92,7 +99,8 @@ class Enhanced_ICF_Form_Processor {
     }
 
     private function check_nonce(array $submitted_data): array {
-        if (!isset($submitted_data['enhanced_icf_form_nonce']) || !wp_verify_nonce($submitted_data['enhanced_icf_form_nonce'], 'enhanced_icf_form_action')) {
+        $nonce = $this->get_first_value( $submitted_data['enhanced_icf_form_nonce'] ?? '' );
+        if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, 'enhanced_icf_form_action' ) ) {
             return [
                 'type'    => 'Nonce Failed',
                 'message' => 'Invalid submission detected.',
@@ -102,7 +110,8 @@ class Enhanced_ICF_Form_Processor {
     }
 
     private function check_honeypot(array $submitted_data): array {
-        if (!empty($submitted_data['enhanced_url'])) {
+        $honeypot = $this->get_first_value( $submitted_data['enhanced_url'] ?? '' );
+        if ( ! empty( $honeypot ) ) {
             return [
                 'type'    => 'Bot Alert: Honeypot Filled',
                 'message' => 'Bot test failed.',
@@ -112,8 +121,8 @@ class Enhanced_ICF_Form_Processor {
     }
 
     private function check_submission_time(array $submitted_data): array {
-        $submit_time = $submitted_data['enhanced_form_time'] ?? 0;
-        if (time() - intval($submit_time) < 5) {
+        $submit_time = intval( $this->get_first_value( $submitted_data['enhanced_form_time'] ?? 0 ) );
+        if ( time() - $submit_time < 5 ) {
             return [
                 'type'    => 'Bot Alert: Fast Submission',
                 'message' => 'Submission too fast. Please try again.',
@@ -123,7 +132,8 @@ class Enhanced_ICF_Form_Processor {
     }
 
     private function check_js_enabled(array $submitted_data): array {
-        if (empty($submitted_data['enhanced_js_check'])) {
+        $js_check = $this->get_first_value( $submitted_data['enhanced_js_check'] ?? '' );
+        if ( empty( $js_check ) ) {
             return [
                 'type'    => 'Bot Alert: JS Check Missing',
                 'message' => 'JavaScript must be enabled.',
