@@ -2,6 +2,14 @@
 // includes/class-enhanced-icf-processor.php
 
 class Enhanced_ICF_Form_Processor {
+    private const REQUIRED_FIELDS = [
+        'name'    => 'name_input',
+        'email'   => 'email_input',
+        'phone'   => 'tel_input',
+        'zip'     => 'zip_input',
+        'message' => 'message_input',
+    ];
+
     private $ipaddress;
     private $logger;
 
@@ -53,17 +61,17 @@ class Enhanced_ICF_Form_Processor {
             }
         }
 
-        $raw_values = [
-            'name'    => $this->get_first_value( $submitted_data['name_input'] ?? '' ),
-            'email'   => $this->get_first_value( $submitted_data['email_input'] ?? '' ),
-            'phone'   => $this->get_first_value( $submitted_data['tel_input'] ?? '' ),
-            'zip'     => $this->get_first_value( $submitted_data['zip_input'] ?? '' ),
-            'message' => $this->get_first_value( $submitted_data['message_input'] ?? '' ),
-        ];
+        $raw_values = [];
+        foreach ( self::REQUIRED_FIELDS as $field => $input_name ) {
+            $raw_values[ $field ] = $this->get_first_value( $submitted_data[ $input_name ] ?? '' );
+        }
 
-        $invalid_fields = array_keys( array_filter( $raw_values, function ( $value ) {
-            return null === $value;
-        } ) );
+        $invalid_fields = [];
+        foreach ( self::REQUIRED_FIELDS as $field => $input_name ) {
+            if ( null === $raw_values[ $field ] ) {
+                $invalid_fields[] = $field;
+            }
+        }
 
         if ( ! empty( $invalid_fields ) ) {
             $details  = [ 'invalid_fields' => $invalid_fields ];
