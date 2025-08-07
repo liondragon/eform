@@ -98,7 +98,7 @@ class Enhanced_Internal_Contact_Form {
         return $this->render_form( $template );
     }
 
-    private function load_template_css( $template ) {
+    private function prepare_css( $template ) {
         if ( ! $this->load_css || in_array( $template, $this->loaded_css_templates, true ) ) {
             return;
         }
@@ -111,47 +111,42 @@ class Enhanced_Internal_Contact_Form {
             return;
         }
 
-        if ( $this->use_inline_css ) {
-            $this->load_inline_css( $template, $css_path );
-        } else {
-            $this->enqueue_css( $template, $css_path, $css_file );
-        }
-    }
-
-    private function load_inline_css( $template, $css_path ) {
         if ( ! is_readable( $css_path ) ) {
             $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ), 'warning' );
             return;
         }
 
-        $css = file_get_contents( $css_path );
-        if ( false === $css ) {
-            $this->logger->log( sprintf( 'Failed to read Enhanced ICF CSS file: %s', $css_path ), 'warning' );
-            return;
-        }
+        if ( $this->use_inline_css ) {
+            $css = file_get_contents( $css_path );
 
-        $this->inline_css             .= $css . "\n";
-        $this->loaded_css_templates[] = $template;
-
-        if ( did_action( 'wp_head' ) ) {
-            if ( ! has_action( 'wp_footer', [ $this, 'print_inline_css' ] ) ) {
-                add_action( 'wp_footer', [ $this, 'print_inline_css' ] );
+            if ( false === $css ) {
+                $this->logger->log( sprintf( 'Failed to read Enhanced ICF CSS file: %s', $css_path ), 'warning' );
+                return;
             }
-        } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
-            add_action( 'wp_head', [ $this, 'print_inline_css' ] );
-        }
-    }
 
-    private function enqueue_css( $template, $css_path, $css_file ) {
-        $handle  = 'enhanced-icf-' . $template;
-        $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
-        wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
-        wp_enqueue_style( $handle );
-        if ( did_action( 'wp_head' ) ) {
-            add_action( 'wp_footer', function() use ( $handle ) {
-                wp_print_styles( $handle );
-            } );
+            $this->inline_css .= $css . "\n";
+
+            if ( did_action( 'wp_head' ) ) {
+                if ( ! has_action( 'wp_footer', [ $this, 'print_inline_css' ] ) ) {
+                    add_action( 'wp_footer', [ $this, 'print_inline_css' ] );
+                }
+            } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
+                add_action( 'wp_head', [ $this, 'print_inline_css' ] );
+            }
+        } else {
+            $handle  = 'enhanced-icf-' . $template;
+            $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
+
+            wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
+            wp_enqueue_style( $handle );
+
+            if ( did_action( 'wp_head' ) ) {
+                add_action( 'wp_footer', function() use ( $handle ) {
+                    wp_print_styles( $handle );
+                } );
+            }
         }
+
         $this->loaded_css_templates[] = $template;
     }
 
@@ -198,7 +193,7 @@ class Enhanced_Internal_Contact_Form {
     }
 
     private function render_form( $template ) {
-        $this->load_template_css( $template );
+        $this->prepare_css( $template );
 
         // If we succeeded *and* have a redirect URL, bail out (we’ll redirect instead)
         if ( $this->form_submitted && ! empty( $this->redirect_url ) ) {
