@@ -20,6 +20,9 @@ function wp_strip_all_tags($str){
 function esc_html($text){
     return htmlspecialchars($text, ENT_QUOTES);
 }
+function esc_attr($text){
+    return htmlspecialchars($text, ENT_QUOTES);
+}
 function get_option($name,$default=''){
     if($name==='admin_email'){return 'admin@example.com';}
     return $default;

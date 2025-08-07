@@ -56,6 +56,13 @@ class Enhanced_ICF_Form_Processor {
         }
 
         $field_map      = $this->registry->get_fields( $template );
+
+        $field_list = $this->get_first_value( $submitted_data['enhanced_fields'] ?? '' );
+        if ( ! empty( $field_list ) ) {
+            $keys      = array_filter( array_map( 'sanitize_key', explode( ',', $field_list ) ) );
+            $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
+        }
+
         $raw_values     = [];
         $invalid_fields = [];
         foreach ( $field_map as $field => $details ) {
@@ -181,11 +188,11 @@ class Enhanced_ICF_Form_Processor {
     private function build_email_body(array $data): string {
         $ip = esc_html($this->ipaddress);
         $rows = [
-            ['label' => 'Name',    'value' => esc_html($data['name'])],
-            ['label' => 'Email',   'value' => esc_html($data['email'])],
-            ['label' => 'Phone',   'value' => esc_html($this->format_phone($data['phone']))],
-            ['label' => 'Zip',     'value' => esc_html($data['zip'])],
-            ['label' => 'Message', 'value' => nl2br(esc_html($data['message'])), 'valign' => 'top'],
+            ['label' => 'Name',    'value' => esc_html($data['name'] ?? '')],
+            ['label' => 'Email',   'value' => esc_html($data['email'] ?? '')],
+            ['label' => 'Phone',   'value' => esc_html($this->format_phone($data['phone'] ?? ''))],
+            ['label' => 'Zip',     'value' => esc_html($data['zip'] ?? '')],
+            ['label' => 'Message', 'value' => nl2br(esc_html($data['message'] ?? '')), 'valign' => 'top'],
             ['label' => 'Sent from', 'value' => $ip],
         ];
 
@@ -199,16 +206,16 @@ class Enhanced_ICF_Form_Processor {
     }
 
     private function send_email(array $data): bool {
-        $to = get_option('admin_email');
-        $subject = 'Quote Request - ' . sanitize_text_field($data['name']);
+        $to      = get_option('admin_email');
+        $subject = 'Quote Request - ' . sanitize_text_field($data['name'] ?? '');
         $message = $this->build_email_body($data);
 
         $noreply = 'noreply@flooringartists.com';
         $headers = [];
-        $headers[] = "From: {$data['name']} <{$noreply}>";
+        $headers[] = "From: " . ($data['name'] ?? '') . " <{$noreply}>";
         $headers[] = 'Content-Type: text/html; charset=UTF-8';
         $headers[] = 'Content-Transfer-Encoding: 8bit';
-        $headers[] = "Reply-To: {$data['name']} <{$data['email']}>";
+        $headers[] = "Reply-To: " . ($data['name'] ?? '') . " <" . ($data['email'] ?? '') . ">";
 
         return wp_mail($to, $subject, $message, $headers);
     }

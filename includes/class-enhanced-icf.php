@@ -207,6 +207,17 @@ class Enhanced_Internal_Contact_Form {
 
         $form_html = $this->include_template( $template );
 
+        // Inject hidden field listing keys used in this template for processing
+        global $eform_registry;
+        if ( isset( $eform_registry ) ) {
+            $fields = $eform_registry->get_fields( $template );
+            if ( ! empty( $fields ) ) {
+                $keys   = implode( ',', array_keys( $fields ) );
+                $hidden = '<input type="hidden" name="enhanced_fields" value="' . esc_attr( $keys ) . '">';
+                $form_html = preg_replace( '/<\/form>/', $hidden . '</form>', $form_html, 1 );
+            }
+        }
+
         $form_html = $this->prepend_form_messages( $template, $form_html );
 
         return $form_html;
