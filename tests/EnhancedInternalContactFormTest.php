@@ -2,7 +2,7 @@
 use PHPUnit\Framework\TestCase;
 
 class EnhancedInternalContactFormTest extends TestCase {
-    public function test_maybe_handle_form_forwards_sanitized_data_and_sets_flag_on_success() {
+    public function test_maybe_handle_form_forwards_raw_data_and_sets_flag_on_success() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST = [
             'enhanced_template' => 'default',
@@ -19,7 +19,7 @@ class EnhancedInternalContactFormTest extends TestCase {
             ->with('default', [
                 'enhanced_template' => 'default',
                 'enhanced_form_submit_default' => 'send',
-                'name_input' => 'Jane',
+                'name_input' => ' <b>Jane</b> ',
             ])
             ->willReturn(['success' => true]);
 
@@ -75,5 +75,49 @@ class EnhancedInternalContactFormTest extends TestCase {
         $formData = $ref->getProperty('form_data');
         $formData->setAccessible(true);
         $this->assertSame(['name' => 'Jane'], $formData->getValue($form));
+    }
+
+    public function test_maybe_handle_form_handles_array_fields() {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_POST = [
+            'enhanced_template' => 'default',
+            'enhanced_form_submit_default' => 'send',
+            'enhanced_icf_form_nonce' => 'valid',
+            'enhanced_url' => '',
+            'enhanced_form_time' => time() - 10,
+            'enhanced_js_check' => '1',
+            'name_input' => [' <b>Jane</b> ', 'Doe'],
+            'email_input' => ['jane@example.com', 'evil@example.com'],
+            'tel_input' => ['123-456-7890', '000'],
+            'zip_input' => ['12345', ''],
+            'message_input' => ['short'],
+        ];
+
+        $processor = new Enhanced_ICF_Form_Processor(new Logger());
+        $form = new Enhanced_Internal_Contact_Form($processor, new Logger());
+        $ref = new ReflectionClass($form);
+        $prop = $ref->getProperty('redirect_url');
+        $prop->setAccessible(true);
+        $prop->setValue($form, '');
+
+        $form->maybe_handle_form();
+
+        $submitted = $ref->getProperty('form_submitted');
+        $submitted->setAccessible(true);
+        $this->assertFalse($submitted->getValue($form));
+
+        $formData = $ref->getProperty('form_data');
+        $formData->setAccessible(true);
+        $this->assertSame([
+            'name' => 'Jane',
+            'email' => 'jane@example.com',
+            'phone' => '1234567890',
+            'zip' => '12345',
+            'message' => 'short',
+        ], $formData->getValue($form));
+
+        $error = $ref->getProperty('error_message');
+        $error->setAccessible(true);
+        $this->assertSame('<div class="form-message error">Message too short.</div>', $error->getValue($form));
     }
 }
