@@ -112,6 +112,9 @@ class EnhancedInternalContactFormTest extends TestCase {
 
         $error = $ref->getProperty('error_message');
         $error->setAccessible(true);
-        $this->assertSame('<div class="form-message error">Invalid form input.</div>', $error->getValue($form));
+        $this->assertSame(
+            '<div class="form-message error">Invalid array input for field(s): name, email, phone, zip, message.</div>',
+            $error->getValue($form)
+        );
     }
 }
