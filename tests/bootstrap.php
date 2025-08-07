@@ -59,13 +59,16 @@ function wp_enqueue_style(){ }
 function wp_print_styles(){ }
 function wp_style_is(){ return false; }
 function wp_add_inline_style(){ }
-function wp_mkdir_p($dir){return true;}
-function wp_nonce_field(){ }
-
-class Logger {
-    public function get_ip(){ return '127.0.0.1'; }
-    public function log($message,$context=[],$form_data=null){ }
+function wp_mkdir_p($dir){
+    if (!is_dir($dir)) {
+        mkdir($dir, 0777, true);
+    }
+    return true;
 }
-
+function wp_nonce_field(){ }
+if ( ! defined('WP_CONTENT_DIR') ) {
+    define('WP_CONTENT_DIR', sys_get_temp_dir() . '/wp-content');
+}
+require_once __DIR__.'/../includes/logger.php';
 require_once __DIR__.'/../includes/class-enhanced-icf-processor.php';
 require_once __DIR__.'/../includes/class-enhanced-icf.php';
