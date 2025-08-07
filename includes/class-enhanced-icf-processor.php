@@ -5,6 +5,21 @@ class Enhanced_ICF_Form_Processor {
     private $ipaddress;
     private $logger;
 
+    /**
+     * Map internal field keys to $_POST names and required flags.
+     *
+     * @var array[]
+     */
+    private const FIELD_MAPS = [
+        'default' => [
+            'name'    => [ 'post_key' => 'name_input',    'required' => true ],
+            'email'   => [ 'post_key' => 'email_input',   'required' => true ],
+            'phone'   => [ 'post_key' => 'tel_input',     'required' => true ],
+            'zip'     => [ 'post_key' => 'zip_input',     'required' => true ],
+            'message' => [ 'post_key' => 'message_input', 'required' => true ],
+        ],
+    ];
+
     public function __construct(Logger $logger) {
         $this->logger    = $logger;
         $this->ipaddress = $logger->get_ip();
@@ -53,17 +68,17 @@ class Enhanced_ICF_Form_Processor {
             }
         }
 
-        $raw_values = [
-            'name'    => $this->get_first_value( $submitted_data['name_input'] ?? '' ),
-            'email'   => $this->get_first_value( $submitted_data['email_input'] ?? '' ),
-            'phone'   => $this->get_first_value( $submitted_data['tel_input'] ?? '' ),
-            'zip'     => $this->get_first_value( $submitted_data['zip_input'] ?? '' ),
-            'message' => $this->get_first_value( $submitted_data['message_input'] ?? '' ),
-        ];
-
-        $invalid_fields = array_keys( array_filter( $raw_values, function ( $value ) {
-            return null === $value;
-        } ) );
+        $field_map    = self::FIELD_MAPS[ $template ] ?? self::FIELD_MAPS['default'];
+        $raw_values   = [];
+        $invalid_fields = [];
+        foreach ( $field_map as $field => $details ) {
+            $value = $this->get_first_value( $submitted_data[ $details['post_key'] ] ?? '' );
+            if ( null === $value ) {
+                $invalid_fields[] = $field;
+            } else {
+                $raw_values[ $field ] = $value;
+            }
+        }
 
         if ( ! empty( $invalid_fields ) ) {
             $details  = [ 'invalid_fields' => $invalid_fields ];
@@ -72,11 +87,11 @@ class Enhanced_ICF_Form_Processor {
         }
 
         $data = [
-            'name'    => sanitize_text_field( $raw_values['name'] ),
-            'email'   => sanitize_email( $raw_values['email'] ),
-            'phone'   => preg_replace( '/\\D/', '', $raw_values['phone'] ),
-            'zip'     => sanitize_text_field( $raw_values['zip'] ),
-            'message' => sanitize_textarea_field( $raw_values['message'] ),
+            'name'    => sanitize_text_field( $raw_values['name'] ?? '' ),
+            'email'   => sanitize_email( $raw_values['email'] ?? '' ),
+            'phone'   => preg_replace( '/\\D/', '', $raw_values['phone'] ?? '' ),
+            'zip'     => sanitize_text_field( $raw_values['zip'] ?? '' ),
+            'message' => sanitize_textarea_field( $raw_values['message'] ?? '' ),
         ];
 
         $errors = $this->validate_form($data);
