@@ -5,7 +5,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     private $processor;
 
     protected function setUp(): void {
-        $this->processor = new Enhanced_ICF_Form_Processor(new Logger());
+        $this->processor = new Enhanced_ICF_Form_Processor(new Logger(), new FieldRegistry());
     }
 
     private function valid_submission(): array {

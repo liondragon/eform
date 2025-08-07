@@ -4,25 +4,12 @@
 class Enhanced_ICF_Form_Processor {
     private $ipaddress;
     private $logger;
+    private $registry;
 
-    /**
-     * Map internal field keys to $_POST names and required flags.
-     *
-     * @var array[]
-     */
-    private const FIELD_MAP = [
-        'default' => [
-            'name'    => [ 'post_key' => 'name_input',    'required' => true ],
-            'email'   => [ 'post_key' => 'email_input',   'required' => true ],
-            'phone'   => [ 'post_key' => 'tel_input',     'required' => true ],
-            'zip'     => [ 'post_key' => 'zip_input',     'required' => true ],
-            'message' => [ 'post_key' => 'message_input', 'required' => true ],
-        ],
-    ];
-
-    public function __construct(Logger $logger) {
+    public function __construct(Logger $logger, FieldRegistry $registry) {
         $this->logger    = $logger;
         $this->ipaddress = $logger->get_ip();
+        $this->registry  = $registry;
     }
 
     private function get_first_value( $value ) {
@@ -68,8 +55,8 @@ class Enhanced_ICF_Form_Processor {
             }
         }
 
-        $field_map    = self::FIELD_MAP[ $template ] ?? self::FIELD_MAP['default'];
-        $raw_values   = [];
+        $field_map      = $this->registry->get_fields( $template );
+        $raw_values     = [];
         $invalid_fields = [];
         foreach ( $field_map as $field => $details ) {
             $value = $this->get_first_value( $submitted_data[ $details['post_key'] ] ?? '' );
@@ -86,22 +73,24 @@ class Enhanced_ICF_Form_Processor {
             return $this->error_response( 'Invalid form input', $details, $user_msg );
         }
 
-        $data = [
-            'name'    => sanitize_text_field( $raw_values['name'] ?? '' ),
-            'email'   => sanitize_email( $raw_values['email'] ?? '' ),
-            'phone'   => preg_replace( '/\\D/', '', $raw_values['phone'] ?? '' ),
-            'zip'     => sanitize_text_field( $raw_values['zip'] ?? '' ),
-            'message' => sanitize_textarea_field( $raw_values['message'] ?? '' ),
-        ];
+        $data   = [];
+        $errors = [];
+        foreach ( $field_map as $field => $details ) {
+            $sanitized        = call_user_func( $details['sanitize_cb'], $raw_values[ $field ] ?? '' );
+            $data[ $field ]   = $sanitized;
+            $error            = call_user_func( $details['validate_cb'], $sanitized, $details );
+            if ( $error ) {
+                $errors[] = $error;
+            }
+        }
 
-        $errors = $this->validate_form($data);
-        if ($errors) {
-            $details  = [
+        if ( $errors ) {
+            $details = [
                 'errors'    => $errors,
                 'form_data' => $data,
             ];
-            $user_msg = implode('<br>', $errors);
-            return $this->error_response('Validation errors', $details, $user_msg);
+            $user_msg = implode( '<br>', $errors );
+            return $this->error_response( 'Validation errors', $details, $user_msg );
         }
 
         if ($this->send_email($data)) {
@@ -187,32 +176,6 @@ class Enhanced_ICF_Form_Processor {
             ];
         }
         return [];
-    }
-
-    private function validate_form(array $data): array {
-        $errors = [];
-        if (strlen($data['name']) < 3) {
-            $errors[] = 'Name too short.';
-        }
-        if (!preg_match("/^[\\p{L}\\s.'-]+$/u", $data['name'])) {
-            $errors[] = 'Invalid characters in name.';
-        }
-        if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'Invalid email.';
-        }
-        if (empty($data['phone'])) {
-            $errors[] = 'Phone is required.';
-        } elseif (!preg_match('/^\\d{10}$/', $data['phone'])) {
-            $errors[] = 'Invalid phone number.';
-        }
-        if (!preg_match('/^\\d{5}$/', $data['zip'])) {
-            $errors[] = 'Zip must be 5 digits.';
-        }
-        $plain = wp_strip_all_tags($data['message']);
-        if (strlen($plain) < 20) {
-            $errors[] = 'Message too short.';
-        }
-        return $errors;
     }
 
     private function build_email_body(array $data): string {
