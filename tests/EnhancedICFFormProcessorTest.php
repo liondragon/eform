@@ -3,73 +3,90 @@ use PHPUnit\Framework\TestCase;
 
 class EnhancedICFFormProcessorTest extends TestCase {
     private $processor;
+    private $registry;
 
     protected function setUp(): void {
-        $this->processor = new Enhanced_ICF_Form_Processor(new Logger(), new FieldRegistry());
+        $this->registry  = new FieldRegistry();
+        $this->processor = new Enhanced_ICF_Form_Processor(new Logger(), $this->registry);
     }
 
-    private function valid_submission(): array {
-        return [
+    private function build_submission(string $template = 'default', array $overrides = []): array {
+        $field_map = $this->registry->get_fields($template);
+
+        $data = [
             'enhanced_icf_form_nonce' => 'valid',
-            'enhanced_url' => '',
-            'enhanced_form_time' => time() - 10,
-            'enhanced_js_check' => '1',
-            'name_input' => 'John Doe',
-            'email_input' => 'john@example.com',
-            'tel_input' => '1234567890',
-            'zip_input' => '12345',
-            'message_input' => str_repeat('a', 25),
+            'enhanced_url'           => '',
+            'enhanced_form_time'     => time() - 10,
+            'enhanced_js_check'      => '1',
         ];
+
+        $defaults = [
+            'name'    => 'John Doe',
+            'email'   => 'john@example.com',
+            'phone'   => '1234567890',
+            'zip'     => '12345',
+            'message' => str_repeat('a', 25),
+        ];
+
+        foreach ($field_map as $field => $details) {
+            $value = $defaults[$field] ?? '';
+            if (array_key_exists($field, $overrides)) {
+                $value = $overrides[$field];
+                unset($overrides[$field]);
+            }
+            $data[$details['post_key']] = $value;
+        }
+
+        foreach ($overrides as $key => $value) {
+            $data[$key] = $value;
+        }
+
+        return $data;
     }
 
     public function test_successful_submission() {
-        $data = $this->valid_submission();
+        $data = $this->build_submission();
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertTrue($result['success']);
     }
 
     public function test_nonce_failure() {
-        $data = $this->valid_submission();
-        $data['enhanced_icf_form_nonce'] = 'invalid';
+        $data = $this->build_submission(overrides: ['enhanced_icf_form_nonce' => 'invalid']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Invalid submission detected.', $result['message']);
     }
 
     public function test_honeypot_failure() {
-        $data = $this->valid_submission();
-        $data['enhanced_url'] = 'http://spam';
+        $data = $this->build_submission(overrides: ['enhanced_url' => 'http://spam']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Bot test failed.', $result['message']);
     }
 
     public function test_honeypot_array_failure() {
-        $data = $this->valid_submission();
-        $data['enhanced_url'] = ['spam'];
+        $data = $this->build_submission(overrides: ['enhanced_url' => ['spam']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Bot test failed.', $result['message']);
     }
 
     public function test_submission_time_failure() {
-        $data = $this->valid_submission();
-        $data['enhanced_form_time'] = time();
+        $data = $this->build_submission(overrides: ['enhanced_form_time' => time()]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Submission too fast. Please try again.', $result['message']);
     }
 
     public function test_submission_time_array_failure() {
-        $data = $this->valid_submission();
-        $data['enhanced_form_time'] = ['now'];
+        $data = $this->build_submission(overrides: ['enhanced_form_time' => ['now']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Submission too fast. Please try again.', $result['message']);
     }
 
     public function test_js_check_failure() {
-        $data = $this->valid_submission();
+        $data = $this->build_submission();
         unset($data['enhanced_js_check']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
@@ -77,18 +94,40 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_field_validation_failure() {
-        $data = $this->valid_submission();
-        $data['name_input'] = 'Jo';
+        $data = $this->build_submission(overrides: ['name' => 'Jo']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('Name too short.', $result['message']);
     }
 
-    public function test_only_registered_fields_validated() {
-        $data = $this->valid_submission();
-        unset($data['tel_input'], $data['zip_input']);
-        $data['enhanced_fields'] = 'name,email,message';
+    public function test_validation_errors_follow_field_map() {
+        $data = $this->build_submission(overrides: [
+            'email'            => 'not-an-email',
+            'phone'            => '000',
+            'enhanced_fields'  => 'name,email',
+        ]);
         $result = $this->processor->process_form_submission('default', $data);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Invalid email.', $result['message']);
+        $this->assertStringNotContainsString('Invalid phone number.', $result['message']);
+    }
+
+    public function test_template_without_phone_field() {
+        foreach (['name', 'email', 'zip', 'message'] as $field) {
+            $this->registry->register_field('no_phone', $field, [ 'required' => true ]);
+        }
+        $data   = $this->build_submission('no_phone');
+        $result = $this->processor->process_form_submission('no_phone', $data);
         $this->assertTrue($result['success']);
+    }
+
+    public function test_required_phone_missing() {
+        foreach (['name', 'email', 'phone'] as $field) {
+            $this->registry->register_field('phone_only', $field, [ 'required' => $field === 'phone' ]);
+        }
+        $data   = $this->build_submission('phone_only', overrides: ['phone' => '']);
+        $result = $this->processor->process_form_submission('phone_only', $data);
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('Phone is required.', $result['message']);
     }
 }
