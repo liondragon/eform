@@ -3,50 +3,76 @@
 
 class FieldRegistry {
     /**
-     * Field configuration per template.
+     * Base configuration for all available fields.
      *
      * @var array[]
      */
     private const FIELDS = [
-        'default' => [
-            'name'    => [
-                'post_key'     => 'name_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_text_field',
-                'validate_cb'  => [self::class, 'validate_name'],
-            ],
-            'email'   => [
-                'post_key'     => 'email_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_email',
-                'validate_cb'  => [self::class, 'validate_email'],
-            ],
-            'phone'   => [
-                'post_key'     => 'tel_input',
-                'required'     => true,
-                'sanitize_cb'  => [self::class, 'sanitize_digits'],
-                'validate_cb'  => [self::class, 'validate_phone'],
-            ],
-            'zip'     => [
-                'post_key'     => 'zip_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_text_field',
-                'validate_cb'  => [self::class, 'validate_zip'],
-            ],
-            'message' => [
-                'post_key'     => 'message_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_textarea_field',
-                'validate_cb'  => [self::class, 'validate_message'],
-            ],
+        'name'    => [
+            'post_key'     => 'name_input',
+            'required'     => true,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_name'],
+        ],
+        'email'   => [
+            'post_key'     => 'email_input',
+            'required'     => true,
+            'sanitize_cb'  => 'sanitize_email',
+            'validate_cb'  => [self::class, 'validate_email'],
+        ],
+        'phone'   => [
+            'post_key'     => 'tel_input',
+            'required'     => true,
+            'sanitize_cb'  => [self::class, 'sanitize_digits'],
+            'validate_cb'  => [self::class, 'validate_phone'],
+        ],
+        'zip'     => [
+            'post_key'     => 'zip_input',
+            'required'     => true,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_zip'],
+        ],
+        'message' => [
+            'post_key'     => 'message_input',
+            'required'     => true,
+            'sanitize_cb'  => 'sanitize_textarea_field',
+            'validate_cb'  => [self::class, 'validate_message'],
         ],
     ];
 
     /**
+     * Registered fields per template.
+     *
+     * @var array<string,array>
+     */
+    private $registered = [];
+
+    /**
+     * Register a field for a template.
+     *
+     * @param string $template Template slug.
+     * @param string $field    Field key.
+     * @param array  $args     Field overrides (e.g. ['required' => true]).
+     */
+    public function register_field( string $template, string $field, array $args = [] ): void {
+        if ( ! isset( self::FIELDS[ $field ] ) ) {
+            return;
+        }
+
+        $config = self::FIELDS[ $field ];
+
+        if ( isset( $args['required'] ) ) {
+            $config['required'] = (bool) $args['required'];
+        }
+
+        $this->registered[ $template ][ $field ] = $config;
+    }
+
+    /**
      * Retrieve field configuration for a template.
      */
-    public function get_fields(string $template): array {
-        return self::FIELDS[$template] ?? self::FIELDS['default'];
+    public function get_fields( string $template ): array {
+        return $this->registered[ $template ] ?? self::FIELDS;
     }
 
     /**
