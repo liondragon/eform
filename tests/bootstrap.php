@@ -36,6 +36,24 @@ function wp_mail($to,$subject,$message,$headers){
 function eform_get_safe_fields($data){
     return array_keys($data);
 }
+
+function get_default_field_values( FieldRegistry $registry, string $template = 'default' ): array {
+    $defaults = [
+        'name'    => 'John Doe',
+        'email'   => 'john@example.com',
+        'phone'   => '1234567890',
+        'zip'     => '12345',
+        'message' => str_repeat('a', 25),
+    ];
+
+    $fields = $registry->get_fields( $template );
+    $values = [];
+    foreach ( $fields as $field => $_ ) {
+        $values[ $field ] = $defaults[ $field ] ?? '';
+    }
+
+    return $values;
+}
 function sanitize_key($key){
     return preg_replace('/[^a-z0-9_]/','', strtolower($key));
 }
