@@ -20,13 +20,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
             'enhanced_js_check'      => '1',
         ];
 
-        $defaults = [
-            'name'    => 'John Doe',
-            'email'   => 'john@example.com',
-            'phone'   => '1234567890',
-            'zip'     => '12345',
-            'message' => str_repeat('a', 25),
-        ];
+        $defaults = get_default_field_values( $this->registry, $template );
 
         foreach ($field_map as $field => $details) {
             $value = $defaults[$field] ?? '';
