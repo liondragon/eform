@@ -136,9 +136,37 @@ class Logger {
             if ( ! chmod( $this->log_file, 0640 ) ) {
                 error_log( 'Failed to set permissions on log file: ' . $this->log_file );
             }
+
+            $this->purge_old_logs( $log_dir );
         }
 
         return $this->log_file;
+    }
+
+    /**
+     * Delete rotated log files older than the configured retention period.
+     *
+     * @param string $log_dir Directory containing the log files.
+     */
+    private function purge_old_logs( $log_dir ) {
+        $retention_days = defined( 'EFORM_LOG_RETENTION_DAYS' ) ? EFORM_LOG_RETENTION_DAYS : 30;
+        if ( function_exists( 'apply_filters' ) ) {
+            $retention_days = apply_filters( 'eform_log_retention_days', $retention_days, $log_dir );
+        }
+
+        $retention_days = (int) $retention_days;
+        if ( $retention_days <= 0 ) {
+            return;
+        }
+
+        $day_in_seconds = defined( 'DAY_IN_SECONDS' ) ? DAY_IN_SECONDS : 86400;
+        $threshold      = time() - ( $retention_days * $day_in_seconds );
+
+        foreach ( glob( $log_dir . '/forms-*.log' ) as $file ) {
+            if ( filemtime( $file ) < $threshold ) {
+                @unlink( $file );
+            }
+        }
     }
 
     /**
