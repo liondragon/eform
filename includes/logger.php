@@ -44,8 +44,14 @@ class Logger {
     public function log($message, $level = 'info', $context = [], $form_data = null) {
         $server = $_SERVER;
 
-        // Prepare the log file only if it hasn't been prepared yet or rotation is needed.
-        if ( empty( $this->log_file ) || $this->should_rotate() ) {
+        // Prepare the log file if it hasn't been prepared yet, rotation is needed,
+        // or the file path is missing/unwritable.
+        if (
+            empty( $this->log_file ) ||
+            $this->should_rotate() ||
+            ! file_exists( $this->log_file ) ||
+            ! is_writable( dirname( $this->log_file ) )
+        ) {
             $this->prepare_log_file();
         }
 
