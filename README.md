@@ -7,6 +7,9 @@ location if it does not exist and enforce restrictive permissions (`0640`) on
 the log file. When the log file exceeds 5MB it is rotated with a timestamped
 suffix and a new log is started. Administrators may adjust the limit by defining
 `EFORM_LOG_FILE_MAX_SIZE` (bytes) or using the `eform_log_file_max_size` filter.
+Rotated log files older than 30 days are automatically deleted; customize this
+window by defining `EFORM_LOG_RETENTION_DAYS` or filtering
+`eform_log_retention_days`.
 
 Each entry is stored as JSON and includes a `timestamp` field. An example
 entry looks like this:

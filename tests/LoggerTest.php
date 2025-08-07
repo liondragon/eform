@@ -19,6 +19,7 @@ class LoggerTest extends TestCase {
         }
 
         define('EFORM_LOG_FILE_MAX_SIZE', 200);
+        define('EFORM_LOG_RETENTION_DAYS', 1);
         $this->logDir = WP_CONTENT_DIR . '/uploads/logs';
         $this->logFile = $this->logDir . '/forms.log';
     }
@@ -53,6 +54,32 @@ class LoggerTest extends TestCase {
         $logger->log('second');
         $rotated = glob($this->logDir . '/forms-*.log');
         $this->assertNotEmpty($rotated, 'Log file should rotate after exceeding size limit');
+    }
+
+    public function test_old_rotated_logs_are_deleted(): void {
+        $logger = new \Logger();
+        $message = str_repeat('a', 300);
+
+        // Initial rotation to create first rotated file.
+        $logger->log($message);
+        $logger->log('second');
+        $rotated = glob($this->logDir . '/forms-*.log');
+        $this->assertCount(1, $rotated);
+
+        // Age the rotated file beyond retention.
+        $oldFile = $rotated[0];
+        touch($oldFile, time() - 2 * 86400);
+
+        // Ensure subsequent rotation has a different timestamp.
+        sleep(2);
+
+        // Trigger another rotation and cleanup.
+        $logger->log($message);
+        $logger->log('fourth');
+
+        $rotatedAfter = glob($this->logDir . '/forms-*.log');
+        $this->assertCount(1, $rotatedAfter, 'Old rotated log should be removed after retention period');
+        $this->assertNotEquals($oldFile, $rotatedAfter[0], 'Old rotated log should be deleted');
     }
 
     private function rrmdir(string $dir): void {
