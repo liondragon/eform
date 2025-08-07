@@ -55,7 +55,7 @@ class Enhanced_ICF_Form_Processor {
             }
         }
 
-        $field_map      = $this->registry->get_fields( $template );
+        $field_map = $this->registry->get_fields( $template );
 
         $field_list = $this->get_first_value( $submitted_data['enhanced_fields'] ?? '' );
         if ( ! empty( $field_list ) ) {
@@ -63,34 +63,15 @@ class Enhanced_ICF_Form_Processor {
             $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
         }
 
-        $raw_values     = [];
-        $invalid_fields = [];
-        foreach ( $field_map as $field => $details ) {
-            $value = $this->get_first_value( $submitted_data[ $details['post_key'] ] ?? '' );
-            if ( null === $value ) {
-                $invalid_fields[] = $field;
-            } else {
-                $raw_values[ $field ] = $value;
-            }
-        }
-
-        if ( ! empty( $invalid_fields ) ) {
-            $details  = [ 'invalid_fields' => $invalid_fields ];
-            $user_msg = 'Invalid array input for field(s): ' . implode( ', ', $invalid_fields ) . '.';
+        $result = $this->sanitize_submission( $field_map, $submitted_data );
+        $data   = $result['data'];
+        if ( ! empty( $result['invalid_fields'] ) ) {
+            $details  = [ 'invalid_fields' => $result['invalid_fields'] ];
+            $user_msg = 'Invalid array input for field(s): ' . implode( ', ', $result['invalid_fields'] ) . '.';
             return $this->error_response( 'Invalid form input', $details, $user_msg );
         }
 
-        $data   = [];
-        $errors = [];
-        foreach ( $field_map as $field => $details ) {
-            $sanitized        = call_user_func( $details['sanitize_cb'], $raw_values[ $field ] ?? '' );
-            $data[ $field ]   = $sanitized;
-            $error            = call_user_func( $details['validate_cb'], $sanitized, $details );
-            if ( $error ) {
-                $errors[] = $error;
-            }
-        }
-
+        $errors = $this->validate_submission( $field_map, $data );
         if ( $errors ) {
             $details = [
                 'errors'    => $errors,
@@ -100,24 +81,13 @@ class Enhanced_ICF_Form_Processor {
             return $this->error_response( 'Validation errors', $details, $user_msg );
         }
 
-        if ($this->send_email($data)) {
-            $should_log = true;
-            if (defined('DEBUG_LEVEL') && DEBUG_LEVEL < 1) {
-                $should_log = false;
-            }
-            if (function_exists('apply_filters')) {
-                $should_log = apply_filters('eform_log_successful_submission', $should_log, $data);
-            }
-            if ($should_log) {
-                $safe_fields = eform_get_safe_fields( $data );
-                $safe_data   = array_intersect_key( $data, array_flip( $safe_fields ) );
-                $this->logger->log( 'Form submission sent', Logger::LEVEL_INFO, [ 'form_data' => $safe_data ] );
-            }
-            return [ 'success' => true ];
+        if ( ! $this->dispatch_email( $data ) ) {
+            $details = [ 'form_data' => $data ];
+            return $this->error_response( 'Email Sending Failure', $details, 'Something went wrong. Please try again later.' );
         }
 
-        $details = [ 'form_data' => $data ];
-        return $this->error_response('Email Sending Failure', $details, 'Something went wrong. Please try again later.');
+        $this->log_success( $data );
+        return [ 'success' => true ];
     }
 
     public function format_phone(string $digits): string {
@@ -185,6 +155,56 @@ class Enhanced_ICF_Form_Processor {
         return [];
     }
 
+    private function sanitize_submission( array $field_map, array $submitted_data ): array {
+        $data           = [];
+        $invalid_fields = [];
+
+        foreach ( $field_map as $field => $details ) {
+            $value = $this->get_first_value( $submitted_data[ $details['post_key'] ] ?? '' );
+            if ( null === $value ) {
+                $invalid_fields[] = $field;
+                continue;
+            }
+
+            $data[ $field ] = call_user_func( $details['sanitize_cb'], $value );
+        }
+
+        return [
+            'data'           => $data,
+            'invalid_fields' => $invalid_fields,
+        ];
+    }
+
+    private function validate_submission( array $field_map, array $data ): array {
+        $errors = [];
+
+        foreach ( $field_map as $field => $details ) {
+            $error = call_user_func( $details['validate_cb'], $data[ $field ] ?? '', $details );
+            if ( $error ) {
+                $errors[] = $error;
+            }
+        }
+
+        return $errors;
+    }
+
+    private function log_success( array $data ): void {
+        $should_log = true;
+        if ( defined( 'DEBUG_LEVEL' ) && DEBUG_LEVEL < 1 ) {
+            $should_log = false;
+        }
+        if ( function_exists( 'apply_filters' ) ) {
+            $should_log = apply_filters( 'eform_log_successful_submission', $should_log, $data );
+        }
+        if ( ! $should_log ) {
+            return;
+        }
+
+        $safe_fields = eform_get_safe_fields( $data );
+        $safe_data   = array_intersect_key( $data, array_flip( $safe_fields ) );
+        $this->logger->log( 'Form submission sent', Logger::LEVEL_INFO, [ 'form_data' => $safe_data ] );
+    }
+
     private function build_email_body(array $data): string {
         $ip = esc_html($this->ipaddress);
         $rows = [
@@ -205,7 +225,7 @@ class Enhanced_ICF_Form_Processor {
         return '<table cellpadding="4" cellspacing="0" border="0">' . $message_rows . '</table>';
     }
 
-    private function send_email(array $data): bool {
+    private function dispatch_email(array $data): bool {
         $to      = get_option('admin_email');
         $subject = 'Quote Request - ' . sanitize_text_field($data['name'] ?? '');
         $message = $this->build_email_body($data);
