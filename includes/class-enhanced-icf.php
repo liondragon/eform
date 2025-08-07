@@ -182,9 +182,14 @@ class Enhanced_Internal_Contact_Form {
         $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
 
         if ( file_exists( $template_path ) ) {
+            global $eform_current_template, $eform_form;
+            $eform_current_template = $template;
+            $eform_form            = $this;
             ob_start();
             include $template_path;
-            return ob_get_clean();
+            $output = ob_get_clean();
+            unset( $GLOBALS['eform_current_template'], $GLOBALS['eform_form'] );
+            return $output;
         }
 
         $this->logger->log( sprintf( 'Enhanced ICF template missing: %s', $template_path ), 'error' );
