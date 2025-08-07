@@ -70,5 +70,6 @@ if ( ! defined('WP_CONTENT_DIR') ) {
     define('WP_CONTENT_DIR', sys_get_temp_dir() . '/wp-content');
 }
 require_once __DIR__.'/../includes/logger.php';
+require_once __DIR__.'/../includes/field-registry.php';
 require_once __DIR__.'/../includes/class-enhanced-icf-processor.php';
 require_once __DIR__.'/../includes/class-enhanced-icf.php';

@@ -28,10 +28,12 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/mail-error-logger.php';
  * PHPMailer debugging events using the provided logger instance.
  */
 new Mail_Error_Logger( $logger );
+require_once plugin_dir_path( __FILE__ ) . 'includes/field-registry.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf-processor.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf.php';
 
 // Initialize plugin
-$processor = new Enhanced_ICF_Form_Processor( $logger );
+$registry  = new FieldRegistry();
+$processor = new Enhanced_ICF_Form_Processor( $logger, $registry );
 new Enhanced_Internal_Contact_Form( $processor, $logger );
 
