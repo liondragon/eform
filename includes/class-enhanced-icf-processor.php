@@ -61,8 +61,14 @@ class Enhanced_ICF_Form_Processor {
             'message' => $this->get_first_value( $submitted_data['message_input'] ?? '' ),
         ];
 
-        if ( in_array( null, $raw_values, true ) ) {
-            return $this->error_response( 'Invalid form input', [], 'Invalid form input.' );
+        $invalid_fields = array_keys( array_filter( $raw_values, function ( $value ) {
+            return null === $value;
+        } ) );
+
+        if ( ! empty( $invalid_fields ) ) {
+            $details  = [ 'invalid_fields' => $invalid_fields ];
+            $user_msg = 'Invalid array input for field(s): ' . implode( ', ', $invalid_fields ) . '.';
+            return $this->error_response( 'Invalid form input', $details, $user_msg );
         }
 
         $data = [
