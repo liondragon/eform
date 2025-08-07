@@ -11,8 +11,8 @@ class Enhanced_ICF_Form_Processor {
     }
 
     private function get_first_value( $value ) {
-        while ( is_array( $value ) ) {
-            $value = reset( $value );
+        if ( is_array( $value ) ) {
+            return null;
         }
         return $value;
     }
@@ -53,12 +53,24 @@ class Enhanced_ICF_Form_Processor {
             }
         }
 
+        $raw_values = [
+            'name'    => $this->get_first_value( $submitted_data['name_input'] ?? '' ),
+            'email'   => $this->get_first_value( $submitted_data['email_input'] ?? '' ),
+            'phone'   => $this->get_first_value( $submitted_data['tel_input'] ?? '' ),
+            'zip'     => $this->get_first_value( $submitted_data['zip_input'] ?? '' ),
+            'message' => $this->get_first_value( $submitted_data['message_input'] ?? '' ),
+        ];
+
+        if ( in_array( null, $raw_values, true ) ) {
+            return $this->error_response( 'Invalid form input', [], 'Invalid form input.' );
+        }
+
         $data = [
-            'name'    => sanitize_text_field( $this->get_first_value( $submitted_data['name_input'] ?? '' ) ),
-            'email'   => sanitize_email( $this->get_first_value( $submitted_data['email_input'] ?? '' ) ),
-            'phone'   => preg_replace( '/\\D/', '', $this->get_first_value( $submitted_data['tel_input'] ?? '' ) ),
-            'zip'     => sanitize_text_field( $this->get_first_value( $submitted_data['zip_input'] ?? '' ) ),
-            'message' => sanitize_textarea_field( $this->get_first_value( $submitted_data['message_input'] ?? '' ) ),
+            'name'    => sanitize_text_field( $raw_values['name'] ),
+            'email'   => sanitize_email( $raw_values['email'] ),
+            'phone'   => preg_replace( '/\\D/', '', $raw_values['phone'] ),
+            'zip'     => sanitize_text_field( $raw_values['zip'] ),
+            'message' => sanitize_textarea_field( $raw_values['message'] ),
         ];
 
         $errors = $this->validate_form($data);
