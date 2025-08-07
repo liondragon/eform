@@ -77,7 +77,7 @@ class EnhancedInternalContactFormTest extends TestCase {
         $this->assertSame(['name' => 'Jane'], $formData->getValue($form));
     }
 
-    public function test_maybe_handle_form_handles_array_fields() {
+    public function test_maybe_handle_form_rejects_array_fields() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_POST = [
             'enhanced_template' => 'default',
@@ -108,16 +108,10 @@ class EnhancedInternalContactFormTest extends TestCase {
 
         $formData = $ref->getProperty('form_data');
         $formData->setAccessible(true);
-        $this->assertSame([
-            'name' => 'Jane',
-            'email' => 'jane@example.com',
-            'phone' => '1234567890',
-            'zip' => '12345',
-            'message' => 'short',
-        ], $formData->getValue($form));
+        $this->assertSame([], $formData->getValue($form));
 
         $error = $ref->getProperty('error_message');
         $error->setAccessible(true);
-        $this->assertSame('<div class="form-message error">Message too short.</div>', $error->getValue($form));
+        $this->assertSame('<div class="form-message error">Invalid form input.</div>', $error->getValue($form));
     }
 }
