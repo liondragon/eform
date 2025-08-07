@@ -10,7 +10,7 @@ class Enhanced_ICF_Form_Processor {
      *
      * @var array[]
      */
-    private const FIELD_MAPS = [
+    private const FIELD_MAP = [
         'default' => [
             'name'    => [ 'post_key' => 'name_input',    'required' => true ],
             'email'   => [ 'post_key' => 'email_input',   'required' => true ],
@@ -68,7 +68,7 @@ class Enhanced_ICF_Form_Processor {
             }
         }
 
-        $field_map    = self::FIELD_MAPS[ $template ] ?? self::FIELD_MAPS['default'];
+        $field_map    = self::FIELD_MAP[ $template ] ?? self::FIELD_MAP['default'];
         $raw_values   = [];
         $invalid_fields = [];
         foreach ( $field_map as $field => $details ) {
