@@ -73,3 +73,25 @@ if ( ! function_exists( 'eform_field' ) ) {
         }
     }
 }
+
+if ( ! function_exists( 'eform_field_error' ) ) {
+    /**
+     * Output a field-specific error message when available.
+     *
+     * @param string $field Field key.
+     */
+    function eform_field_error( string $field ) {
+        global $eform_form;
+
+        if ( empty( $eform_form ) ) {
+            return;
+        }
+
+        $error = $eform_form->field_errors[ $field ] ?? '';
+
+        if ( $error ) {
+            echo '<div class="field-error">' . esc_html( $error ) . '</div>';
+        }
+    }
+}
+
