@@ -53,7 +53,8 @@ class EnhancedInternalContactFormTest extends TestCase {
             ->willReturn([
                 'success' => false,
                 'message' => 'Error happened',
-                'form_data' => ['name' => 'Jane']
+                'form_data' => ['name' => 'Jane'],
+                'errors'    => ['name' => 'Required'],
             ]);
 
         $form = new Enhanced_Internal_Contact_Form($processor, new Logger());
@@ -72,9 +73,8 @@ class EnhancedInternalContactFormTest extends TestCase {
         $error->setAccessible(true);
         $this->assertSame('<div class="form-message error">Error happened</div>', $error->getValue($form));
 
-        $formData = $ref->getProperty('form_data');
-        $formData->setAccessible(true);
-        $this->assertSame(['name' => 'Jane'], $formData->getValue($form));
+        $this->assertSame(['name' => 'Jane'], $form->form_data);
+        $this->assertSame(['name' => 'Required'], $form->field_errors);
     }
 
     public function test_maybe_handle_form_rejects_array_fields() {
@@ -106,9 +106,8 @@ class EnhancedInternalContactFormTest extends TestCase {
         $submitted->setAccessible(true);
         $this->assertFalse($submitted->getValue($form));
 
-        $formData = $ref->getProperty('form_data');
-        $formData->setAccessible(true);
-        $this->assertSame([], $formData->getValue($form));
+        $this->assertSame([], $form->form_data);
+        $this->assertSame([], $form->field_errors);
 
         $error = $ref->getProperty('error_message');
         $error->setAccessible(true);

@@ -7,7 +7,8 @@ class Enhanced_Internal_Contact_Form {
     private $error_message = '';
     private $form_submitted = false;
     private $inline_css = ''; // Holds aggregated inline CSS
-    private $form_data = [];
+    public $form_data = [];
+    public $field_errors = [];
     private $load_css = false; // Flag to control CSS loading
     private $use_inline_css = true; // Use inline CSS or enqueue stylesheet
     private $processed_template = ''; // Track which template was submitted
@@ -27,6 +28,9 @@ class Enhanced_Internal_Contact_Form {
     }
 
     public function maybe_handle_form() {
+        $this->form_data    = [];
+        $this->field_errors = [];
+
         if ('POST' !== $_SERVER['REQUEST_METHOD']) {
             return;
         }
@@ -48,6 +52,7 @@ class Enhanced_Internal_Contact_Form {
             } else {
                 $this->error_message = '<div class="form-message error">' . $result['message'] . '</div>';
                 $this->form_data     = $result['form_data'] ?? [];
+                $this->field_errors  = $result['errors'] ?? [];
             }
         }
     }
