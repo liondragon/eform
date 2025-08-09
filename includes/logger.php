@@ -84,6 +84,10 @@ class Logger {
         $context['message']   = $message;
         $context['user_agent'] = isset($server['HTTP_USER_AGENT']) ? sanitize_text_field($server['HTTP_USER_AGENT']) : '';
         $context['referrer']  = isset($server['HTTP_REFERER']) ? sanitize_text_field($server['HTTP_REFERER']) : 'No referrer';
+        $context['request_uri'] = isset($server['REQUEST_URI']) ? sanitize_text_field($server['REQUEST_URI']) : '';
+        if ( isset( $context['template'] ) ) {
+            $context['template'] = sanitize_text_field( $context['template'] );
+        }
 
         $jsonLogEntry = json_encode($context, JSON_PRETTY_PRINT);
         if (json_last_error() !== JSON_ERROR_NONE) {

@@ -82,6 +82,17 @@ class LoggerTest extends TestCase {
         $this->assertNotEquals($oldFile, $rotatedAfter[0], 'Old rotated log should be deleted');
     }
 
+    public function test_logs_request_uri_and_template(): void {
+        $_SERVER['REQUEST_URI'] = '/sample-page';
+        $logger = new \Logger();
+        $logger->log('hi', \Logger::LEVEL_INFO, ['template' => 'contact']);
+        $contents = file_get_contents($this->logFile);
+        $this->assertNotEmpty($contents);
+        $entry = json_decode($contents, true);
+        $this->assertSame('/sample-page', $entry['request_uri']);
+        $this->assertSame('contact', $entry['template']);
+    }
+
     private function rrmdir(string $dir): void {
         if (!is_dir($dir)) {
             return;
