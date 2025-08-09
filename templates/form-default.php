@@ -15,13 +15,27 @@
             <?php eform_field_error('email'); ?>
         </div>
         <div class="columns_nomargins inputwrap">
-            <?php eform_field('phone', [ 'required' => true ]); ?>
+            <?php eform_field('phone', [
+                'required'  => true,
+                'pattern'   => '\\d{3}-?\\d{3}-?\\d{4}',
+                'maxlength' => 12,
+                'minlength' => 10,
+            ]); ?>
             <?php eform_field_error('phone'); ?>
-            <?php eform_field('zip', [ 'required' => true ]); ?>
+            <?php eform_field('zip', [
+                'required'  => true,
+                'pattern'   => '\\d{5}',
+                'maxlength' => 5,
+                'minlength' => 5,
+            ]); ?>
             <?php eform_field_error('zip'); ?>
         </div>
         <div class="inputwrap">
-            <?php eform_field('message', [ 'required' => true ]); ?>
+            <?php eform_field('message', [
+                'required'  => true,
+                'minlength' => 20,
+                'maxlength' => 1000,
+            ]); ?>
             <?php eform_field_error('message'); ?>
         </div>
 

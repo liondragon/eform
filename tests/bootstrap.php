@@ -26,6 +26,9 @@ function esc_html($text){
 function esc_attr($text){
     return htmlspecialchars($text, ENT_QUOTES);
 }
+function esc_textarea($text){
+    return htmlspecialchars($text, ENT_QUOTES);
+}
 function get_option($name,$default=''){
     if($name==='admin_email'){return 'admin@example.com';}
     return $default;

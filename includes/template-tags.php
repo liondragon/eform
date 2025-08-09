@@ -11,6 +11,9 @@ if ( ! function_exists( 'eform_field' ) ) {
      *                     - placeholder (string) Placeholder text.
      *                     - rows (int)  Rows for textarea fields.
      *                     - cols (int)  Cols for textarea fields.
+     *                     - pattern (string) Regex pattern for input validation.
+     *                     - maxlength (int) Maximum allowed length.
+     *                     - minlength (int) Minimum required length.
      */
     function eform_field( string $field, array $args = [] ) {
         global $eform_registry, $eform_current_template, $eform_form;
@@ -24,10 +27,22 @@ if ( ! function_exists( 'eform_field' ) ) {
             'placeholder' => '',
             'rows'        => 5,
             'cols'        => 21,
+            'pattern'     => '',
+            'maxlength'   => '',
+            'minlength'   => '',
         ];
         $args = array_merge( $defaults, $args );
 
         $required_attr = $args['required'] ? ' required aria-required="true"' : '';
+
+        $extra_attrs = '';
+        foreach ( [ 'pattern', 'maxlength', 'minlength' ] as $attr ) {
+            if ( ! empty( $args[ $attr ] ) ) {
+                $extra_attrs .= ' ' . $attr . '="' . esc_attr( $args[ $attr ] ) . '"';
+            }
+        }
+
+        $attrs = $required_attr . $extra_attrs;
 
         // Record field presence with registry.
         $eform_registry->register_field( $eform_current_template, $field, [ 'required' => $args['required'] ] );
@@ -38,14 +53,14 @@ if ( ! function_exists( 'eform_field' ) ) {
             case 'name':
                 $placeholder = $args['placeholder'] ?: 'Your Name';
                 echo '<input class="form_field" type="text" name="name_input" autocomplete="name"' .
-                    $required_attr . ' aria-label="Your Name" placeholder="' . esc_attr( $placeholder ) .
+                    $attrs . ' aria-label="Your Name" placeholder="' . esc_attr( $placeholder ) .
                     '" value="' . esc_attr( $value ) . '">';
                 break;
 
             case 'email':
                 $placeholder = $args['placeholder'] ?: 'Your eMail';
                 echo '<input class="form_field" type="email" name="email_input" autocomplete="email"' .
-                    $required_attr . ' aria-label="Your Email" placeholder="' . esc_attr( $placeholder ) .
+                    $attrs . ' aria-label="Your Email" placeholder="' . esc_attr( $placeholder ) .
                     '" value="' . esc_attr( $value ) . '">';
                 break;
 
@@ -53,22 +68,22 @@ if ( ! function_exists( 'eform_field' ) ) {
                 $placeholder = $args['placeholder'] ?: 'Phone';
                 $formatted   = $eform_form->format_phone( $value );
                 echo '<input class="form_field" type="tel" name="tel_input" autocomplete="tel"' .
-                    $required_attr . ' aria-label="Phone" placeholder="' . esc_attr( $placeholder ) .
+                    $attrs . ' aria-label="Phone" placeholder="' . esc_attr( $placeholder ) .
                     '" value="' . esc_attr( $formatted ) . '">';
                 break;
 
             case 'zip':
                 $placeholder = $args['placeholder'] ?: 'Project Zip Code';
                 echo '<input class="form_field" type="text" name="zip_input" autocomplete="postal-code"' .
-                    $required_attr . ' aria-label="Project Zip Code" placeholder="' . esc_attr( $placeholder ) .
+                    $attrs . ' aria-label="Project Zip Code" placeholder="' . esc_attr( $placeholder ) .
                     '" value="' . esc_attr( $value ) . '">';
                 break;
 
             case 'message':
                 $placeholder = $args['placeholder'] ?: 'Please describe your project and let us know if there is any urgency';
-                echo '<textarea name="message_input" cols="' . intval( $args['cols'] ) . '" rows="' . intval( $args['rows'] ) . '"'
-                    . $required_attr . ' aria-label="Message" placeholder="' . esc_attr( $placeholder ) . '">'
-                    . esc_textarea( $value ) . '</textarea>';
+                echo '<textarea name="message_input" cols="' . intval( $args['cols'] ) . '" rows="' . intval( $args['rows'] ) . '"' .
+                    $attrs . ' aria-label="Message" placeholder="' . esc_attr( $placeholder ) . '">' .
+                    esc_textarea( $value ) . '</textarea>';
                 break;
         }
     }
@@ -94,4 +109,3 @@ if ( ! function_exists( 'eform_field_error' ) ) {
         }
     }
 }
-
