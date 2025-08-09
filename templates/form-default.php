@@ -8,16 +8,21 @@
         <?php Enhanced_Internal_Contact_Form::render_hidden_fields('default'); ?>
         <div class="inputwrap">
             <?php eform_field('name', [ 'required' => true ]); ?>
+            <?php eform_field_error('name'); ?>
         </div>
         <div class="inputwrap">
             <?php eform_field('email', [ 'required' => true ]); ?>
+            <?php eform_field_error('email'); ?>
         </div>
         <div class="columns_nomargins inputwrap">
             <?php eform_field('phone', [ 'required' => true ]); ?>
+            <?php eform_field_error('phone'); ?>
             <?php eform_field('zip', [ 'required' => true ]); ?>
+            <?php eform_field_error('zip'); ?>
         </div>
         <div class="inputwrap">
             <?php eform_field('message', [ 'required' => true ]); ?>
+            <?php eform_field_error('message'); ?>
         </div>
 
         <input type="hidden" name="submitted" value="1" aria-hidden="true">
