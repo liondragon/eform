@@ -5,21 +5,22 @@ if ( ! function_exists( 'eform_field' ) ) {
     /**
      * Render a form field and register it for processing.
      *
-     * @param string $field Field key (name, email, phone, zip, message).
-     * @param array  $args  Optional arguments.
-     *                     - required (bool)  Whether the field is required.
-     *                     - placeholder (string) Placeholder text.
-     *                     - rows (int)  Rows for textarea fields.
-     *                     - cols (int)  Cols for textarea fields.
-     *                     - pattern (string) Regex pattern for input validation.
-     *                     - maxlength (int) Maximum allowed length.
-     *                     - minlength (int) Minimum required length.
-     *                     - title (string)   Accessible description.
+     * @param FieldRegistry $registry Field registry instance.
+     * @param object        $form     Form instance providing data and helpers.
+     * @param string        $template Template slug.
+     * @param string        $field    Field key (name, email, phone, zip, message).
+     * @param array         $args     Optional arguments.
+     *                               - required (bool)  Whether the field is required.
+     *                               - placeholder (string) Placeholder text.
+     *                               - rows (int)  Rows for textarea fields.
+     *                               - cols (int)  Cols for textarea fields.
+     *                               - pattern (string) Regex pattern for input validation.
+     *                               - maxlength (int) Maximum allowed length.
+     *                               - minlength (int) Minimum required length.
+     *                               - title (string)   Accessible description.
      */
-    function eform_field( string $field, array $args = [] ) {
-        global $eform_registry, $eform_current_template, $eform_form;
-
-        if ( empty( $eform_registry ) || empty( $eform_current_template ) ) {
+    function eform_field( FieldRegistry $registry, $form, string $template, string $field, array $args = [] ) {
+        if ( empty( $template ) ) {
             return;
         }
 
@@ -47,9 +48,9 @@ if ( ! function_exists( 'eform_field' ) ) {
         $attrs = $required_attr . $extra_attrs;
 
         // Record field presence with registry.
-        $eform_registry->register_field( $eform_current_template, $field, [ 'required' => $args['required'] ] );
+        $registry->register_field( $template, $field, [ 'required' => $args['required'] ] );
 
-        $value = $eform_form->form_data[ $field ] ?? '';
+        $value = $form->form_data[ $field ] ?? '';
 
         switch ( $field ) {
             case 'name':
@@ -68,7 +69,7 @@ if ( ! function_exists( 'eform_field' ) ) {
 
             case 'phone':
                 $placeholder = $args['placeholder'] ?: 'Phone';
-                $formatted   = $eform_form->format_phone( $value );
+                $formatted   = $form->format_phone( $value );
                 echo '<input class="form_field" type="tel" name="tel_input" autocomplete="tel"' .
                     $attrs . ' aria-label="Phone" placeholder="' . esc_attr( $placeholder ) .
                     '" value="' . esc_attr( $formatted ) . '">';
@@ -95,16 +96,15 @@ if ( ! function_exists( 'eform_field_error' ) ) {
     /**
      * Output a field-specific error message when available.
      *
+     * @param object $form  Form instance containing validation errors.
      * @param string $field Field key.
      */
-    function eform_field_error( string $field ) {
-        global $eform_form;
-
-        if ( empty( $eform_form ) ) {
+    function eform_field_error( $form, string $field ) {
+        if ( empty( $form ) ) {
             return;
         }
 
-        $error = $eform_form->field_errors[ $field ] ?? '';
+        $error = $form->field_errors[ $field ] ?? '';
 
         if ( $error ) {
             echo '<div class="field-error">' . esc_html( $error ) . '</div>';
