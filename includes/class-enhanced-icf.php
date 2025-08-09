@@ -50,7 +50,8 @@ class Enhanced_Internal_Contact_Form {
                     exit;
                 }
             } else {
-                $this->error_message = '<div class="form-message error">' . $result['message'] . '</div>';
+                $sanitized_message   = wp_kses_post( $result['message'] );
+                $this->error_message = '<div class="form-message error">' . $sanitized_message . '</div>';
                 $this->form_data     = $result['form_data'] ?? [];
                 $this->field_errors  = $result['errors'] ?? [];
             }

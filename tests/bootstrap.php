@@ -17,6 +17,9 @@ function wp_verify_nonce($nonce,$action){
 function wp_strip_all_tags($str){
     return strip_tags($str);
 }
+function wp_kses_post( $content ){
+    return strip_tags( $content );
+}
 function esc_html($text){
     return htmlspecialchars($text, ENT_QUOTES);
 }
