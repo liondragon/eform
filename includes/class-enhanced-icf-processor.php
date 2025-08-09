@@ -77,7 +77,7 @@ class Enhanced_ICF_Form_Processor {
                 'errors'    => $errors,
                 'form_data' => $data,
             ];
-            $user_msg = implode( '<br>', $errors );
+            $user_msg = implode( '<br>', array_values( $errors ) );
             return $this->error_response( 'Validation errors', $details, $user_msg );
         }
 
@@ -181,7 +181,7 @@ class Enhanced_ICF_Form_Processor {
         foreach ( $field_map as $field => $details ) {
             $error = call_user_func( $details['validate_cb'], $data[ $field ] ?? '', $details );
             if ( $error ) {
-                $errors[] = $error;
+                $errors[ $field ] = $error;
             }
         }
 
@@ -259,6 +259,7 @@ class Enhanced_ICF_Form_Processor {
             'success'   => false,
             'message'   => $user_msg,
             'form_data' => $details['form_data'] ?? [],
+            'errors'    => $details['errors'] ?? [],
         ];
     }
 }
