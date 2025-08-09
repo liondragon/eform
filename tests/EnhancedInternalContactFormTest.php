@@ -53,7 +53,8 @@ class EnhancedInternalContactFormTest extends TestCase {
             ->willReturn([
                 'success' => false,
                 'message' => 'Error happened',
-                'form_data' => ['name' => 'Jane']
+                'form_data' => ['name' => 'Jane'],
+                'errors'    => ['name' => 'Name is required'],
             ]);
 
         $form = new Enhanced_Internal_Contact_Form($processor, new Logger());
@@ -75,6 +76,10 @@ class EnhancedInternalContactFormTest extends TestCase {
         $formData = $ref->getProperty('form_data');
         $formData->setAccessible(true);
         $this->assertSame(['name' => 'Jane'], $formData->getValue($form));
+
+        $fieldErrors = $ref->getProperty('field_errors');
+        $fieldErrors->setAccessible(true);
+        $this->assertSame(['name' => 'Name is required'], $fieldErrors->getValue($form));
     }
 
     public function test_maybe_handle_form_rejects_array_fields() {
@@ -116,5 +121,26 @@ class EnhancedInternalContactFormTest extends TestCase {
             '<div class="form-message error">Invalid array input for field(s): name, email, phone, zip, message.</div>',
             $error->getValue($form)
         );
+    }
+
+    public function test_maybe_handle_form_resets_data_and_errors_on_entry() {
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+
+        $processor = $this->createMock(Enhanced_ICF_Form_Processor::class);
+        $form      = new Enhanced_Internal_Contact_Form($processor, new Logger());
+        $ref       = new ReflectionClass($form);
+
+        $formDataProp = $ref->getProperty('form_data');
+        $formDataProp->setAccessible(true);
+        $formDataProp->setValue($form, ['foo' => 'bar']);
+
+        $fieldErrorsProp = $ref->getProperty('field_errors');
+        $fieldErrorsProp->setAccessible(true);
+        $fieldErrorsProp->setValue($form, ['foo' => 'error']);
+
+        $form->maybe_handle_form();
+
+        $this->assertSame([], $formDataProp->getValue($form));
+        $this->assertSame([], $fieldErrorsProp->getValue($form));
     }
 }
