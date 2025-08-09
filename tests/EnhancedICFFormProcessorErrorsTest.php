@@ -24,9 +24,6 @@ class EnhancedICFFormProcessorErrorsTest extends TestCase {
         $this->assertArrayHasKey('errors', $result);
         $this->assertArrayHasKey('name', $result['errors']);
         $this->assertArrayHasKey('email', $result['errors']);
-        $this->assertSame(
-            implode('<br>', array_values($result['errors'])),
-            $result['message']
-        );
+        $this->assertSame('Please correct the highlighted fields', $result['message']);
     }
 }

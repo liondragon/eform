@@ -77,7 +77,7 @@ class Enhanced_ICF_Form_Processor {
                 'errors'    => $errors,
                 'form_data' => $data,
             ];
-            $user_msg = implode( '<br>', array_values( $errors ) );
+            $user_msg = 'Please correct the highlighted fields';
             return $this->error_response( 'Validation errors', $details, $user_msg );
         }
 

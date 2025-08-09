@@ -50,10 +50,18 @@ class Enhanced_Internal_Contact_Form {
                     exit;
                 }
             } else {
-                $sanitized_message   = wp_kses_post( $result['message'] );
-                $this->error_message = '<div class="form-message error">' . $sanitized_message . '</div>';
-                $this->form_data     = $result['form_data'] ?? [];
-                $this->field_errors  = $result['errors'] ?? [];
+                $this->form_data    = $result['form_data'] ?? [];
+                $this->field_errors = $result['errors'] ?? [];
+
+                $show_global = empty( $this->field_errors );
+                if ( function_exists( 'apply_filters' ) ) {
+                    $show_global = apply_filters( 'eform_show_global_error', $show_global, $result );
+                }
+
+                if ( $show_global ) {
+                    $sanitized_message   = wp_kses_post( $result['message'] );
+                    $this->error_message = '<div class="form-message error">' . $sanitized_message . '</div>';
+                }
             }
         }
     }
