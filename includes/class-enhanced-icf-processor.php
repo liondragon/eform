@@ -97,13 +97,17 @@ class Enhanced_ICF_Form_Processor {
         return $digits;
     }
 
+    private function build_error(string $type, string $message): array {
+        return [
+            'type'    => $type,
+            'message' => $message,
+        ];
+    }
+
     private function check_nonce(array $submitted_data): array {
         $nonce = $this->get_first_value( $submitted_data['enhanced_icf_form_nonce'] ?? '' );
         if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, 'enhanced_icf_form_action' ) ) {
-            return [
-                'type'    => 'Nonce Failed',
-                'message' => 'Invalid submission detected.',
-            ];
+            return $this->build_error('Nonce Failed', 'Invalid submission detected.');
         }
         return [];
     }
@@ -111,17 +115,11 @@ class Enhanced_ICF_Form_Processor {
     private function check_honeypot(array $submitted_data): array {
         $honeypot_field = $submitted_data['enhanced_url'] ?? '';
         if ( is_array( $honeypot_field ) ) {
-            return [
-                'type'    => 'Bot Alert: Honeypot Filled',
-                'message' => 'Bot test failed.',
-            ];
+            return $this->build_error('Bot Alert: Honeypot Filled', 'Bot test failed.');
         }
         $honeypot = $this->get_first_value( $honeypot_field );
         if ( ! empty( $honeypot ) ) {
-            return [
-                'type'    => 'Bot Alert: Honeypot Filled',
-                'message' => 'Bot test failed.',
-            ];
+            return $this->build_error('Bot Alert: Honeypot Filled', 'Bot test failed.');
         }
         return [];
     }
@@ -129,17 +127,11 @@ class Enhanced_ICF_Form_Processor {
     private function check_submission_time(array $submitted_data): array {
         $submit_time_field = $submitted_data['enhanced_form_time'] ?? 0;
         if ( is_array( $submit_time_field ) ) {
-            return [
-                'type'    => 'Bot Alert: Fast Submission',
-                'message' => 'Submission too fast. Please try again.',
-            ];
+            return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
         }
         $submit_time = intval( $this->get_first_value( $submit_time_field ) );
         if ( time() - $submit_time < 5 ) {
-            return [
-                'type'    => 'Bot Alert: Fast Submission',
-                'message' => 'Submission too fast. Please try again.',
-            ];
+            return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
         }
         return [];
     }
@@ -147,10 +139,7 @@ class Enhanced_ICF_Form_Processor {
     private function check_js_enabled(array $submitted_data): array {
         $js_check = $this->get_first_value( $submitted_data['enhanced_js_check'] ?? '' );
         if ( empty( $js_check ) ) {
-            return [
-                'type'    => 'Bot Alert: JS Check Missing',
-                'message' => 'JavaScript must be enabled.',
-            ];
+            return $this->build_error('Bot Alert: JS Check Missing', 'JavaScript must be enabled.');
         }
         return [];
     }
