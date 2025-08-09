@@ -38,6 +38,13 @@ class EnhancedICFFormProcessorTest extends TestCase {
         return $data;
     }
 
+    private function invoke_method(object $object, string $method, array $args = []) {
+        $ref = new \ReflectionClass($object);
+        $m   = $ref->getMethod($method);
+        $m->setAccessible(true);
+        return $m->invokeArgs($object, $args);
+    }
+
     public function test_successful_submission() {
         $data = $this->build_submission();
         $result = $this->processor->process_form_submission('default', $data);
@@ -48,35 +55,50 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data = $this->build_submission(overrides: ['enhanced_icf_form_nonce' => 'invalid']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $this->assertSame('Invalid submission detected.', $result['message']);
+        $expected = $this->invoke_method($this->processor, 'build_error', ['Nonce Failed', 'Invalid submission detected.']);
+        $actual   = $this->invoke_method($this->processor, 'check_nonce', [$data]);
+        $this->assertSame($expected, $actual);
+        $this->assertSame($expected['message'], $result['message']);
     }
 
     public function test_honeypot_failure() {
         $data = $this->build_submission(overrides: ['enhanced_url' => 'http://spam']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $this->assertSame('Bot test failed.', $result['message']);
+        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
+        $actual   = $this->invoke_method($this->processor, 'check_honeypot', [$data]);
+        $this->assertSame($expected, $actual);
+        $this->assertSame($expected['message'], $result['message']);
     }
 
     public function test_honeypot_array_failure() {
         $data = $this->build_submission(overrides: ['enhanced_url' => ['spam']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $this->assertSame('Bot test failed.', $result['message']);
+        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
+        $actual   = $this->invoke_method($this->processor, 'check_honeypot', [$data]);
+        $this->assertSame($expected, $actual);
+        $this->assertSame($expected['message'], $result['message']);
     }
 
     public function test_submission_time_failure() {
         $data = $this->build_submission(overrides: ['enhanced_form_time' => time()]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $this->assertSame('Submission too fast. Please try again.', $result['message']);
+        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
+        $actual   = $this->invoke_method($this->processor, 'check_submission_time', [$data]);
+        $this->assertSame($expected, $actual);
+        $this->assertSame($expected['message'], $result['message']);
     }
 
     public function test_submission_time_array_failure() {
         $data = $this->build_submission(overrides: ['enhanced_form_time' => ['now']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $this->assertSame('Submission too fast. Please try again.', $result['message']);
+        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
+        $actual   = $this->invoke_method($this->processor, 'check_submission_time', [$data]);
+        $this->assertSame($expected, $actual);
+        $this->assertSame($expected['message'], $result['message']);
     }
 
     public function test_js_check_failure() {
@@ -84,7 +106,10 @@ class EnhancedICFFormProcessorTest extends TestCase {
         unset($data['enhanced_js_check']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $this->assertSame('JavaScript must be enabled.', $result['message']);
+        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: JS Check Missing', 'JavaScript must be enabled.']);
+        $actual   = $this->invoke_method($this->processor, 'check_js_enabled', [$data]);
+        $this->assertSame($expected, $actual);
+        $this->assertSame($expected['message'], $result['message']);
     }
 
     public function test_field_validation_failure() {
