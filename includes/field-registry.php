@@ -79,7 +79,11 @@ class FieldRegistry {
      * Sanitize to keep digits only.
      */
     public static function sanitize_digits(string $value): string {
-        return preg_replace('/\D/', '', $value);
+        $digits = preg_replace('/\D+/', '', $value);
+        if (strlen($digits) === 11 && $digits[0] === '1') {
+            $digits = substr($digits, 1);
+        }
+        return $digits;
     }
 
     public static function validate_name(string $value, array $field): string {

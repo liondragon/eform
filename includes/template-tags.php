@@ -14,6 +14,7 @@ if ( ! function_exists( 'eform_field' ) ) {
      *                     - pattern (string) Regex pattern for input validation.
      *                     - maxlength (int) Maximum allowed length.
      *                     - minlength (int) Minimum required length.
+     *                     - title (string)   Accessible description.
      */
     function eform_field( string $field, array $args = [] ) {
         global $eform_registry, $eform_current_template, $eform_form;
@@ -30,13 +31,14 @@ if ( ! function_exists( 'eform_field' ) ) {
             'pattern'     => '',
             'maxlength'   => '',
             'minlength'   => '',
+            'title'       => '',
         ];
         $args = array_merge( $defaults, $args );
 
         $required_attr = $args['required'] ? ' required aria-required="true"' : '';
 
         $extra_attrs = '';
-        foreach ( [ 'pattern', 'maxlength', 'minlength' ] as $attr ) {
+        foreach ( [ 'pattern', 'maxlength', 'minlength', 'title' ] as $attr ) {
             if ( ! empty( $args[ $attr ] ) ) {
                 $extra_attrs .= ' ' . $attr . '="' . esc_attr( $args[ $attr ] ) . '"';
             }
