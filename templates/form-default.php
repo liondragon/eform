@@ -17,7 +17,9 @@
         <div class="columns_nomargins inputwrap">
             <?php eform_field('phone', [
                 'required' => true,
-                'pattern'  => '(?:\\(\\d{3}\\)|\\d{3})[ .-]?\\d{3}[ .-]?\\d{4}',
+                // Use explicit alternation instead of a character class so the pattern
+                // is compatible with JavaScript's upcoming `v` flag syntax.
+                'pattern'  => '(?:\\(\\d{3}\\)|\\d{3})(?: |\\.|-)?\\d{3}(?: |\\.|-)?\\d{4}',
                 'title'    => 'U.S. phone number (10 digits)',
             ]); ?>
             <?php eform_field_error('phone'); ?>
