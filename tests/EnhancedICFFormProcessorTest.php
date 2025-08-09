@@ -128,4 +128,11 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $this->assertSame('Please correct the highlighted fields', $result['message']);
         $this->assertSame(['phone' => 'Phone is required.'], $result['errors']);
     }
+
+    public function test_phone_with_leading_one_is_normalized() {
+        $this->assertSame('2345678901', FieldRegistry::sanitize_digits('+1 (234) 567-8901'));
+        $data   = $this->build_submission(overrides: ['phone' => '+1 (234) 567-8901']);
+        $result = $this->processor->process_form_submission('default', $data);
+        $this->assertTrue($result['success']);
+    }
 }

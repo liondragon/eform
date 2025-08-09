@@ -16,10 +16,9 @@
         </div>
         <div class="columns_nomargins inputwrap">
             <?php eform_field('phone', [
-                'required'  => true,
-                'pattern'   => '\\d{3}-?\\d{3}-?\\d{4}',
-                'maxlength' => 12,
-                'minlength' => 10,
+                'required' => true,
+                'pattern'  => '\\s*(?:\\(\\d{3}\\)|\\d{3})[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\s*',
+                'title'    => 'U.S. phone number (10 digits)',
             ]); ?>
             <?php eform_field_error('phone'); ?>
             <?php eform_field('zip', [
