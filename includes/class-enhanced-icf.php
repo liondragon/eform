@@ -121,12 +121,12 @@ class Enhanced_Internal_Contact_Form {
         $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
 
         if ( ! file_exists( $css_path ) ) {
-            $this->logger->log( sprintf( 'Enhanced ICF CSS file missing: %s', $css_path ), 'warning' );
+            $this->logger->log( sprintf( 'Enhanced ICF CSS file missing: %s', $css_path ), Logger::LEVEL_WARNING );
             return;
         }
 
         if ( ! is_readable( $css_path ) ) {
-            $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ), 'warning' );
+            $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ), Logger::LEVEL_WARNING );
             return;
         }
 
@@ -134,7 +134,7 @@ class Enhanced_Internal_Contact_Form {
             $css = file_get_contents( $css_path );
 
             if ( false === $css ) {
-                $this->logger->log( sprintf( 'Failed to read Enhanced ICF CSS file: %s', $css_path ), 'warning' );
+                $this->logger->log( sprintf( 'Failed to read Enhanced ICF CSS file: %s', $css_path ), Logger::LEVEL_WARNING );
                 return;
             }
 
@@ -201,7 +201,7 @@ class Enhanced_Internal_Contact_Form {
             return $output;
         }
 
-        $this->logger->log( sprintf( 'Enhanced ICF template missing: %s', $template_path ), 'error' );
+        $this->logger->log( sprintf( 'Enhanced ICF template missing: %s', $template_path ), Logger::LEVEL_ERROR );
 
         return '<p>Form template not found.</p>';
     }
