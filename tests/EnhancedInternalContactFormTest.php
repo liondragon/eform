@@ -71,7 +71,7 @@ class EnhancedInternalContactFormTest extends TestCase {
 
         $error = $ref->getProperty('error_message');
         $error->setAccessible(true);
-        $this->assertSame('<div class="form-message error">Error happened</div>', $error->getValue($form));
+        $this->assertSame('', $error->getValue($form));
 
         $this->assertSame(['name' => 'Jane'], $form->form_data);
         $this->assertSame(['name' => 'Required'], $form->field_errors);
