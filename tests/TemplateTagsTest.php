@@ -47,14 +47,14 @@ class TemplateTagsTest extends TestCase {
 
         ob_start();
         eform_field( 'phone', [
-            'pattern'   => '\\s*(?:\\(\\d{3}\\)|\\d{3})[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\s*',
+            'pattern'   => '(?:\\(\\d{3}\\)|\\d{3})[ .-]?\\d{3}[ .-]?\\d{4}',
             'maxlength' => 14,
             'minlength' => 10,
             'title'     => 'U.S. phone number (10 digits)',
         ] );
         $output = ob_get_clean();
 
-        $this->assertStringContainsString( 'pattern="\\s*(?:\\(\\d{3}\\)|\\d{3})[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\s*"', $output );
+        $this->assertStringContainsString( 'pattern="(?:\\(\\d{3}\\)|\\d{3})[ .-]?\\d{3}[ .-]?\\d{4}"', $output );
         $this->assertStringContainsString( 'maxlength="14"', $output );
         $this->assertStringContainsString( 'minlength="10"', $output );
         $this->assertStringContainsString( 'title="U.S. phone number (10 digits)"', $output );
