@@ -86,7 +86,7 @@ class Enhanced_ICF_Form_Processor {
             return $this->error_response( 'Email Sending Failure', $details, 'Something went wrong. Please try again later.' );
         }
 
-        $this->log_success( $data );
+        $this->log_success( $template, $data );
         return [ 'success' => true ];
     }
 
@@ -177,7 +177,7 @@ class Enhanced_ICF_Form_Processor {
         return $errors;
     }
 
-    private function log_success( array $data ): void {
+    private function log_success( string $template, array $data ): void {
         $should_log = true;
         if ( defined( 'DEBUG_LEVEL' ) && DEBUG_LEVEL < 1 ) {
             $should_log = false;
@@ -191,7 +191,7 @@ class Enhanced_ICF_Form_Processor {
 
         $safe_fields = eform_get_safe_fields( $data );
         $safe_data   = array_intersect_key( $data, array_flip( $safe_fields ) );
-        $this->logger->log( 'Form submission sent', Logger::LEVEL_INFO, [ 'form_data' => $safe_data ] );
+        $this->logger->log( 'Form submission sent', Logger::LEVEL_INFO, [ 'form_data' => $safe_data, 'template' => $template ] );
     }
 
     private function build_email_body(array $data): string {

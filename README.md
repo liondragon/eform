@@ -11,8 +11,9 @@ Rotated log files older than 30 days are automatically deleted; customize this
 window by defining `EFORM_LOG_RETENTION_DAYS` or filtering
 `eform_log_retention_days`.
 
-Each entry is stored as JSON and includes a `timestamp` field. An example
-entry looks like this:
+Each entry is stored as JSON and includes a `timestamp` field along with details
+about the request. When available the request URI and template name are
+recorded. An example entry looks like this:
 
 ```
 {
@@ -21,7 +22,9 @@ entry looks like this:
     "source": "Enhanced iContact Form",
     "message": "Submitted form",
     "user_agent": "Mozilla/5.0",
-    "referrer": "No referrer"
+    "referrer": "No referrer",
+    "request_uri": "/contact",
+    "template": "default"
 }
 ```
 
@@ -43,8 +46,9 @@ approved fields are recorded.
 
 By default a successful form submission writes a "Form submission sent" entry to
 the log. The entry records only the safe fields configured via the
-`eform_log_safe_fields` option or filter. Administrators may disable this logging
-by setting `DEBUG_LEVEL` to `0` or filtering the behavior:
+`eform_log_safe_fields` option or filter and includes the template name.
+Administrators may disable this logging by setting `DEBUG_LEVEL` to `0` or
+filtering the behavior:
 
 ```
 add_filter('eform_log_successful_submission', '__return_false');
