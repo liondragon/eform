@@ -59,10 +59,26 @@ class FieldRegistry {
             return;
         }
 
-        $config = self::FIELDS[ $field ];
+        // Merge base configuration with any overrides.
+        $config = array_merge( self::FIELDS[ $field ], $args );
 
-        if ( isset( $args['required'] ) ) {
-            $config['required'] = (bool) $args['required'];
+        if ( isset( $config['required'] ) ) {
+            $config['required'] = (bool) $config['required'];
+        }
+
+        // Ensure callbacks are valid before registering.
+        foreach ( [ 'sanitize_cb', 'validate_cb' ] as $cb_key ) {
+            if ( isset( $config[ $cb_key ] ) && ! is_callable( $config[ $cb_key ] ) ) {
+                $message = sprintf(
+                    'Invalid %s for field "%s" in template "%s"',
+                    $cb_key,
+                    $field,
+                    $template
+                );
+                // Trigger a warning for invalid callbacks.
+                trigger_error( $message, E_USER_WARNING );
+                return;
+            }
         }
 
         $this->registered[ $template ][ $field ] = $config;
