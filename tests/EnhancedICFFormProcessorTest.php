@@ -91,7 +91,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data = $this->build_submission(overrides: ['name' => 'Jo']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Name too short.', $result['message']);
+        $this->assertSame('Please correct the highlighted fields', $result['message']);
+        $this->assertSame(['name' => 'Name too short.'], $result['errors']);
     }
 
     public function test_validation_errors_follow_field_map() {
@@ -102,8 +103,10 @@ class EnhancedICFFormProcessorTest extends TestCase {
         ]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Invalid email.', $result['message']);
-        $this->assertStringNotContainsString('Invalid phone number.', $result['message']);
+        $this->assertSame('Please correct the highlighted fields', $result['message']);
+        $this->assertArrayHasKey('email', $result['errors']);
+        $this->assertArrayNotHasKey('phone', $result['errors']);
+        $this->assertSame('Invalid email.', $result['errors']['email']);
     }
 
     public function test_template_without_phone_field() {
@@ -122,6 +125,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data   = $this->build_submission('phone_only', overrides: ['phone' => '']);
         $result = $this->processor->process_form_submission('phone_only', $data);
         $this->assertFalse($result['success']);
-        $this->assertStringContainsString('Phone is required.', $result['message']);
+        $this->assertSame('Please correct the highlighted fields', $result['message']);
+        $this->assertSame(['phone' => 'Phone is required.'], $result['errors']);
     }
 }
