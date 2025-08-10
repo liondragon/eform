@@ -14,80 +14,36 @@ use Symfony\Component\Yaml\Yaml;
  * @param string $template Template slug.
  * @return array Merged configuration.
  */
-function eform_get_template_config(string $template): array {
-    $defaults = [
-        'default' => [
-            'fields' => [
-                'name_input' => [
-                    'type' => 'text',
-                    'placeholder' => 'Your Name',
-                    'required' => '',
-                    'autocomplete' => 'name',
-                    'aria-label' => 'Your Name',
-                    'aria-required' => 'true',
-                    'style' => 'grid-area: name'
-                ],
-                'email_input' => [
-                    'type' => 'email',
-                    'placeholder' => 'Your Email',
-                    'required' => '',
-                    'autocomplete' => 'email',
-                    'aria-label' => 'email',
-                    'aria-required' => 'true',
-                    'style' => 'grid-area: email'
-                ],
-                'tel_input' => [
-                    'type' => 'tel',
-                    'placeholder' => 'Phone',
-                    'required' => '',
-                    'autocomplete' => 'tel',
-                    'aria-label' => 'Phone',
-                    'aria-required' => 'true',
-                    'style' => 'grid-area: phone'
-                ],
-                'zip_input' => [
-                    'type' => 'text',
-                    'placeholder' => 'Project Zip Code',
-                    'required' => '',
-                    'autocomplete' => 'postal-code',
-                    'aria-label' => 'Project Zip Code',
-                    'aria-required' => 'true',
-                    'style' => 'grid-area: zip'
-                ],
-                'message_input' => [
-                    'type' => 'textarea',
-                    'cols' => '21',
-                    'rows' => '5',
-                    'placeholder' => 'Please describe your project and let us know if there is any urgency',
-                    'required' => '',
-                    'aria-label' => 'Message',
-                    'aria-required' => 'true',
-                    'style' => 'grid-area: message'
-                ],
-            ],
-        ],
+function eform_get_template_config( string $template ): array {
+    $schema_file = __DIR__ . '/form-template-schema.json';
+
+    $plugin_dir = rtrim( plugin_dir_path( __DIR__ ), '/\\' ) . '/templates';
+    $plugin_paths = [
+        $plugin_dir . '/' . $template . '.json',
+        $plugin_dir . '/' . $template . '.yaml',
+        $plugin_dir . '/' . $template . '.yml',
     ];
+    $base = eform_load_config_from_paths( $plugin_paths, $schema_file );
 
-    $base = $defaults[$template] ?? [];
-
-    $theme_dir   = rtrim( get_stylesheet_directory(), '/\\' ) . '/eform';
-    $paths       = [
+    $theme_dir = rtrim( get_stylesheet_directory(), '/\\' ) . '/eform';
+    $theme_paths = [
         $theme_dir . '/' . $template . '.json',
         $theme_dir . '/' . $template . '.yaml',
         $theme_dir . '/' . $template . '.yml',
     ];
+    $data = eform_load_config_from_paths( $theme_paths, $schema_file );
 
-    // Fallback to bundled templates when theme files are absent.
-    $plugin_dir = rtrim( plugin_dir_path( __DIR__ ), '/\\' ) . '/templates';
-    $paths      = array_merge(
-        $paths,
-        [
-            $plugin_dir . '/' . $template . '.json',
-            $plugin_dir . '/' . $template . '.yaml',
-            $plugin_dir . '/' . $template . '.yml',
-        ]
-    );
+    return array_replace_recursive( $base, $data );
+}
 
+/**
+ * Load the first valid configuration file from a set of paths.
+ *
+ * @param array  $paths       Potential file locations.
+ * @param string $schema_file JSON schema used for validation.
+ * @return array Parsed configuration or empty array on failure.
+ */
+function eform_load_config_from_paths( array $paths, string $schema_file ): array {
     $data = [];
     foreach ( $paths as $path ) {
         if ( file_exists( $path ) && is_readable( $path ) ) {
@@ -106,20 +62,18 @@ function eform_get_template_config(string $template): array {
     }
 
     if ( empty( $data ) || ! is_array( $data ) ) {
-        return $base;
+        return [];
     }
 
-    $schema_file = __DIR__ . '/form-template-schema.json';
     if ( file_exists( $schema_file ) ) {
         $schema    = json_decode( file_get_contents( $schema_file ) );
         $validator = new Validator();
         $validator->validate( json_decode( json_encode( $data ) ), $schema );
 
         if ( ! $validator->isValid() ) {
-            return $base;
+            return [];
         }
     }
 
-    return array_replace_recursive( $base, $data );
+    return $data;
 }
-
