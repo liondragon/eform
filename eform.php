@@ -11,6 +11,12 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Load Composer autoloader if available for external dependencies.
+$autoload_path = plugin_dir_path( __FILE__ ) . 'vendor/autoload.php';
+if ( file_exists( $autoload_path ) ) {
+    require_once $autoload_path;
+}
+
 // Load assets only when shortcode is present
 function enhanced_icf_enqueue_scripts() {
     global $post;
