@@ -4,20 +4,21 @@
 /**
  * Render a form from configuration when no PHP template is available.
  *
- * @param array $config Template configuration containing field definitions.
+ * @param Enhanced_Internal_Contact_Form $form     Form object containing data and helpers.
+ * @param string                         $template Template slug for naming fields.
+ * @param array                          $config   Template configuration containing field definitions.
  */
-function eform_render_form(array $config) {
-    global $eform_form, $eform_current_template;
+function eform_render_form( $form, string $template, array $config ) {
 
     echo '<div id="contact_form" class="contact_form">';
     echo '<form class="main_contact_form" id="main_contact_form" aria-label="Contact Form" method="post" action="">';
-    Enhanced_Internal_Contact_Form::render_hidden_fields($eform_current_template);
+    Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
 
     foreach ($config['fields'] ?? [] as $post_key => $field) {
         $field_key = FieldRegistry::field_key_from_post($post_key);
-        $value = $eform_form->form_data[$field_key] ?? '';
-        if (($field['type'] ?? '') === 'tel') {
-            $value = $eform_form->format_phone($value);
+        $value = $form->form_data[$field_key] ?? '';
+        if ( ( $field['type'] ?? '' ) === 'tel' ) {
+            $value = $form->format_phone( $value );
         }
         $required = isset($field['required']) ? ' required aria-required="true"' : '';
         $attr_str = '';
@@ -34,11 +35,11 @@ function eform_render_form(array $config) {
             $type = $field['type'] ?? 'text';
             echo '<input type="' . esc_attr($type) . '" name="' . esc_attr($post_key) . '" value="' . esc_attr($value) . '"' . $required . $attr_str . '>';
         }
-        eform_field_error($eform_form, $field_key);
+        eform_field_error( $form, $field_key );
         echo '</div>';
     }
 
     echo '<input type="hidden" name="submitted" value="1" aria-hidden="true">';
-    echo '<button type="submit" name="enhanced_form_submit_' . esc_attr($eform_current_template) . '" aria-label="Send Request" value="Send Request">Send Request</button>';
+    echo '<button type="submit" name="enhanced_form_submit_' . esc_attr( $template ) . '" aria-label="Send Request" value="Send Request">Send Request</button>';
     echo '</form></div>';
 }
