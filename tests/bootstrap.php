@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../vendor/autoload.php';
 // Minimal WordPress stubs for testing
 function sanitize_text_field($str){
     $str = strip_tags($str);
@@ -79,6 +80,9 @@ function add_shortcode($tag,$callback){
 function plugin_dir_path($file){
     return dirname($file) . '/';
 }
+function get_stylesheet_directory(){
+    return $GLOBALS['_eform_theme_dir'] ?? sys_get_temp_dir() . '/theme';
+}
 function did_action($hook){return false;}
 function has_action($hook,$callback){return false;}
 function wp_register_style(){ }
@@ -100,3 +104,4 @@ require_once __DIR__.'/../includes/logger.php';
 require_once __DIR__.'/../includes/field-registry.php';
 require_once __DIR__.'/../includes/class-enhanced-icf-processor.php';
 require_once __DIR__.'/../includes/class-enhanced-icf.php';
+require_once __DIR__.'/../includes/template-config.php';
