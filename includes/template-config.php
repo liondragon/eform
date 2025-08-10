@@ -70,12 +70,23 @@ function eform_get_template_config(string $template): array {
 
     $base = $defaults[$template] ?? [];
 
-    $theme_dir = rtrim(get_stylesheet_directory(), '/\\') . '/eform';
-    $paths = [
+    $theme_dir   = rtrim( get_stylesheet_directory(), '/\\' ) . '/eform';
+    $paths       = [
         $theme_dir . '/' . $template . '.json',
         $theme_dir . '/' . $template . '.yaml',
         $theme_dir . '/' . $template . '.yml',
     ];
+
+    // Fallback to bundled templates when theme files are absent.
+    $plugin_dir = rtrim( plugin_dir_path( __DIR__ ), '/\\' ) . '/templates';
+    $paths      = array_merge(
+        $paths,
+        [
+            $plugin_dir . '/' . $template . '.json',
+            $plugin_dir . '/' . $template . '.yaml',
+            $plugin_dir . '/' . $template . '.yml',
+        ]
+    );
 
     $data = [];
     foreach ( $paths as $path ) {

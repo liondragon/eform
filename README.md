@@ -101,4 +101,6 @@ Themes may override default form settings by placing JSON or YAML files within
 `{theme}/eform/`. For example, `wp-content/themes/my-theme/eform/default.json`
 can adjust placeholders or other field attributes for the `default` template.
 Files are validated against `includes/form-template-schema.json` before being
-merged with the plugin's defaults.
+merged with the plugin's defaults. If a theme file is not found, the plugin
+will also look for a matching configuration within its own
+`templates/` directory, providing a plugin-level fallback.
