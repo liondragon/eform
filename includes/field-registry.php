@@ -32,6 +32,38 @@ class FieldRegistry {
             'required_params' => ['post_key', 'choices'],
         ],
     ];
+
+    /**
+     * Map field types from configuration to sanitize/validate callbacks.
+     *
+     * @var array<string,array{sanitize_cb:callable,validate_cb:callable}>
+     */
+    private $type_map = [
+        'text'     => [
+            'sanitize_cb' => 'sanitize_text_field',
+            'validate_cb' => [self::class, 'validate_pattern'],
+        ],
+        'email'    => [
+            'sanitize_cb' => 'sanitize_email',
+            'validate_cb' => [self::class, 'validate_email'],
+        ],
+        'tel'      => [
+            'sanitize_cb' => [self::class, 'sanitize_digits'],
+            'validate_cb' => [self::class, 'validate_phone'],
+        ],
+        'number'   => [
+            'sanitize_cb' => [self::class, 'sanitize_number'],
+            'validate_cb' => [self::class, 'validate_range'],
+        ],
+        'radio'    => [
+            'sanitize_cb' => 'sanitize_text_field',
+            'validate_cb' => [self::class, 'validate_choice'],
+        ],
+        'textarea' => [
+            'sanitize_cb' => 'sanitize_textarea_field',
+            'validate_cb' => [self::class, 'validate_message'],
+        ],
+    ];
     /**
      * Retrieve the base configuration for all available fields.
      *
@@ -140,6 +172,43 @@ class FieldRegistry {
         }
 
         $this->registered[ $template ][ $field ] = $config;
+    }
+
+    /**
+     * Register a field using configuration data.
+     *
+     * The configuration array should include the original `post_key`, `type`,
+     * and optionally `required`, `pattern`, `min`, `max`, or `choices`.
+     */
+    public function register_field_from_config( string $template, string $field, array $config ): void {
+        $type      = $config['type'] ?? 'text';
+        $callbacks = $this->type_map[ $type ] ?? $this->type_map['text'];
+
+        $field_config = [
+            'post_key'    => $config['post_key'] ?? $field,
+            'required'    => ! empty( $config['required'] ),
+            'sanitize_cb' => $callbacks['sanitize_cb'],
+            'validate_cb' => $callbacks['validate_cb'],
+        ];
+
+        foreach ( [ 'pattern', 'min', 'max', 'choices' ] as $param ) {
+            if ( isset( $config[ $param ] ) ) {
+                $field_config[ $param ] = $config[ $param ];
+            }
+        }
+
+        $this->registered[ $template ][ $field ] = $field_config;
+    }
+
+    /**
+     * Derive the logical field key from a posted field name.
+     */
+    public static function field_key_from_post( string $post_key ): string {
+        $key = sanitize_key( preg_replace( '/_input$/', '', $post_key ) );
+        if ( 'tel' === $key ) {
+            return 'phone';
+        }
+        return $key;
     }
 
     /**
