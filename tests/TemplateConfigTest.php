@@ -5,23 +5,31 @@ use PHPUnit\Framework\TestCase;
 class TemplateConfigTest extends TestCase {
 
     private string $themeDir;
+    private string $pluginTemplatesDir;
 
     protected function setUp(): void {
-        $this->themeDir = sys_get_temp_dir() . '/theme_' . uniqid();
+        $this->themeDir           = sys_get_temp_dir() . '/theme_' . uniqid();
         $GLOBALS['_eform_theme_dir'] = $this->themeDir;
-        mkdir($this->themeDir . '/eform', 0777, true);
+        mkdir( $this->themeDir . '/eform', 0777, true );
+
+        $this->pluginTemplatesDir = dirname( __DIR__ ) . '/templates';
     }
 
     protected function tearDown(): void {
-        if (is_dir($this->themeDir)) {
+        if ( is_dir( $this->themeDir ) ) {
             $files = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($this->themeDir, RecursiveDirectoryIterator::SKIP_DOTS),
+                new RecursiveDirectoryIterator( $this->themeDir, RecursiveDirectoryIterator::SKIP_DOTS ),
                 RecursiveIteratorIterator::CHILD_FIRST
             );
-            foreach ($files as $file) {
-                $file->isDir() ? rmdir($file->getRealPath()) : unlink($file->getRealPath());
+            foreach ( $files as $file ) {
+                $file->isDir() ? rmdir( $file->getRealPath() ) : unlink( $file->getRealPath() );
             }
-            rmdir($this->themeDir);
+            rmdir( $this->themeDir );
+        }
+
+        $pluginConfig = $this->pluginTemplatesDir . '/default.json';
+        if ( file_exists( $pluginConfig ) ) {
+            unlink( $pluginConfig );
         }
     }
 
@@ -66,6 +74,23 @@ class TemplateConfigTest extends TestCase {
         $result = eform_get_template_config('default');
 
         $this->assertSame('Your Name', $result['fields']['name_input']['placeholder']);
+    }
+
+    public function test_plugin_config_used_when_theme_missing(): void {
+        $config = [
+            'fields' => [
+                'zip_input' => [
+                    'type'        => 'text',
+                    'placeholder' => 'Plugin Zip',
+                ],
+            ],
+        ];
+        file_put_contents( $this->pluginTemplatesDir . '/default.json', json_encode( $config ) );
+
+        $result = eform_get_template_config( 'default' );
+
+        $this->assertSame( 'Plugin Zip', $result['fields']['zip_input']['placeholder'] );
+        $this->assertArrayHasKey( 'name_input', $result['fields'] );
     }
 }
 
