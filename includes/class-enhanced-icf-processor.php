@@ -155,7 +155,8 @@ class Enhanced_ICF_Form_Processor {
                 continue;
             }
 
-            $data[ $field ] = call_user_func( $details['sanitize_cb'], $value );
+            $sanitize_cb    = $details['sanitize_cb'];
+            $data[ $field ] = $sanitize_cb( $value );
         }
 
         return [
@@ -168,7 +169,8 @@ class Enhanced_ICF_Form_Processor {
         $errors = [];
 
         foreach ( $field_map as $field => $details ) {
-            $error = call_user_func( $details['validate_cb'], $data[ $field ] ?? '', $details );
+            $validate_cb = $details['validate_cb'];
+            $error       = $validate_cb( $data[ $field ] ?? '', $details );
             if ( $error ) {
                 $errors[ $field ] = $error;
             }
