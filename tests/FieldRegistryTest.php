@@ -57,7 +57,7 @@ class FieldRegistryTest extends TestCase {
         });
 
         // text_generic requires post_key.
-        $registry->register_field('template', 'text_generic');
+        $registry->register_field('template', 'text_generic', [], true);
         // Register another field so the template's registered set exists.
         $registry->register_field('template', 'email');
 
@@ -76,7 +76,7 @@ class FieldRegistryTest extends TestCase {
             'post_key' => 'code',
             'pattern'  => '\\d+',
             'required' => true,
-        ]);
+        ], true);
 
         $field = $registry->get_fields('template')['text_generic'];
 
@@ -90,7 +90,7 @@ class FieldRegistryTest extends TestCase {
             'post_key' => 'age',
             'min'      => 10,
             'max'      => 20,
-        ]);
+        ], true);
 
         $field = $registry->get_fields('template')['number_generic'];
 
@@ -104,7 +104,7 @@ class FieldRegistryTest extends TestCase {
         $registry->register_field('template', 'radio_generic', [
             'post_key' => 'color',
             'choices'  => ['red', 'blue'],
-        ]);
+        ], true);
 
         $field = $registry->get_fields('template')['radio_generic'];
 

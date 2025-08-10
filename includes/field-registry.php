@@ -3,6 +3,36 @@
 
 class FieldRegistry {
     /**
+     * Generic field definitions that can be registered on demand.
+     *
+     * @var array<string,array>
+     */
+    private $generic_fields = [
+        'text_generic' => [
+            'post_key'        => '',
+            'required'        => false,
+            'sanitize_cb'     => 'sanitize_text_field',
+            'validate_cb'     => [self::class, 'validate_pattern'],
+            'required_params' => ['post_key'],
+        ],
+        'number_generic' => [
+            'post_key'        => '',
+            'required'        => false,
+            'sanitize_cb'     => [self::class, 'sanitize_number'],
+            'validate_cb'     => [self::class, 'validate_range'],
+            'required_params' => ['post_key'],
+        ],
+        'radio_generic' => [
+            'post_key'        => '',
+            'required'        => false,
+            'sanitize_cb'     => 'sanitize_text_field',
+            'validate_cb'     => [self::class, 'validate_choice'],
+            // "choices" must be provided when registering this field so
+            // validation can ensure the submitted value is allowed.
+            'required_params' => ['post_key', 'choices'],
+        ],
+    ];
+    /**
      * Retrieve the base configuration for all available fields.
      *
      * @return array[]
@@ -39,33 +69,6 @@ class FieldRegistry {
                 'sanitize_cb'  => 'sanitize_textarea_field',
                 'validate_cb'  => [self::class, 'validate_message'],
             ],
-            // Generic field definitions allow templates to introduce custom
-            // inputs without writing new PHP validation logic. These require
-            // a "post_key" override when registered so the registry knows
-            // which submitted value to map.
-            'text_generic' => [
-                'post_key'        => '',
-                'required'        => false,
-                'sanitize_cb'     => 'sanitize_text_field',
-                'validate_cb'     => [self::class, 'validate_pattern'],
-                'required_params' => ['post_key'],
-            ],
-            'number_generic' => [
-                'post_key'        => '',
-                'required'        => false,
-                'sanitize_cb'     => [self::class, 'sanitize_number'],
-                'validate_cb'     => [self::class, 'validate_range'],
-                'required_params' => ['post_key'],
-            ],
-            'radio_generic' => [
-                'post_key'        => '',
-                'required'        => false,
-                'sanitize_cb'     => 'sanitize_text_field',
-                'validate_cb'     => [self::class, 'validate_choice'],
-                // "choices" must be provided when registering this field so
-                // validation can ensure the submitted value is allowed.
-                'required_params' => ['post_key', 'choices'],
-            ],
         ];
 
         if ( function_exists( 'apply_filters' ) ) {
@@ -88,9 +91,10 @@ class FieldRegistry {
      * @param string $template Template slug.
      * @param string $field    Field key.
      * @param array  $args     Field overrides (e.g. ['required' => true]).
+     * @param bool   $generic  Whether the field is a generic definition.
      */
-    public function register_field( string $template, string $field, array $args = [] ): void {
-        $field_map = $this->get_field_map();
+    public function register_field( string $template, string $field, array $args = [], bool $generic = false ): void {
+        $field_map = $generic ? $this->generic_fields : $this->get_field_map();
         if ( ! isset( $field_map[ $field ] ) ) {
             return;
         }
