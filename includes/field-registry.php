@@ -3,42 +3,50 @@
 
 class FieldRegistry {
     /**
-     * Base configuration for all available fields.
+     * Retrieve the base configuration for all available fields.
      *
-     * @var array[]
+     * @return array[]
      */
-    private const FIELDS = [
-        'name'    => [
-            'post_key'     => 'name_input',
-            'required'     => true,
-            'sanitize_cb'  => 'sanitize_text_field',
-            'validate_cb'  => [self::class, 'validate_name'],
-        ],
-        'email'   => [
-            'post_key'     => 'email_input',
-            'required'     => true,
-            'sanitize_cb'  => 'sanitize_email',
-            'validate_cb'  => [self::class, 'validate_email'],
-        ],
-        'phone'   => [
-            'post_key'     => 'tel_input',
-            'required'     => true,
-            'sanitize_cb'  => [self::class, 'sanitize_digits'],
-            'validate_cb'  => [self::class, 'validate_phone'],
-        ],
-        'zip'     => [
-            'post_key'     => 'zip_input',
-            'required'     => true,
-            'sanitize_cb'  => 'sanitize_text_field',
-            'validate_cb'  => [self::class, 'validate_zip'],
-        ],
-        'message' => [
-            'post_key'     => 'message_input',
-            'required'     => true,
-            'sanitize_cb'  => 'sanitize_textarea_field',
-            'validate_cb'  => [self::class, 'validate_message'],
-        ],
-    ];
+    public function get_field_map(): array {
+        $fields = [
+            'name'    => [
+                'post_key'     => 'name_input',
+                'required'     => true,
+                'sanitize_cb'  => 'sanitize_text_field',
+                'validate_cb'  => [self::class, 'validate_name'],
+            ],
+            'email'   => [
+                'post_key'     => 'email_input',
+                'required'     => true,
+                'sanitize_cb'  => 'sanitize_email',
+                'validate_cb'  => [self::class, 'validate_email'],
+            ],
+            'phone'   => [
+                'post_key'     => 'tel_input',
+                'required'     => true,
+                'sanitize_cb'  => [self::class, 'sanitize_digits'],
+                'validate_cb'  => [self::class, 'validate_phone'],
+            ],
+            'zip'     => [
+                'post_key'     => 'zip_input',
+                'required'     => true,
+                'sanitize_cb'  => 'sanitize_text_field',
+                'validate_cb'  => [self::class, 'validate_zip'],
+            ],
+            'message' => [
+                'post_key'     => 'message_input',
+                'required'     => true,
+                'sanitize_cb'  => 'sanitize_textarea_field',
+                'validate_cb'  => [self::class, 'validate_message'],
+            ],
+        ];
+
+        if ( function_exists( 'apply_filters' ) ) {
+            $fields = apply_filters( 'eform_field_map', $fields );
+        }
+
+        return $fields;
+    }
 
     /**
      * Registered fields per template.
@@ -55,12 +63,13 @@ class FieldRegistry {
      * @param array  $args     Field overrides (e.g. ['required' => true]).
      */
     public function register_field( string $template, string $field, array $args = [] ): void {
-        if ( ! isset( self::FIELDS[ $field ] ) ) {
+        $field_map = $this->get_field_map();
+        if ( ! isset( $field_map[ $field ] ) ) {
             return;
         }
 
         // Merge base configuration with any overrides.
-        $config = array_merge( self::FIELDS[ $field ], $args );
+        $config = array_merge( $field_map[ $field ], $args );
 
         if ( isset( $config['required'] ) ) {
             $config['required'] = (bool) $config['required'];
@@ -88,7 +97,20 @@ class FieldRegistry {
      * Retrieve field configuration for a template.
      */
     public function get_fields( string $template ): array {
-        return $this->registered[ $template ] ?? self::FIELDS;
+        return $this->get_template_map( $template );
+    }
+
+    /**
+     * Retrieve the field map for a given template.
+     */
+    public function get_template_map( string $template ): array {
+        $fields = $this->registered[ $template ] ?? $this->get_field_map();
+
+        if ( function_exists( 'apply_filters' ) ) {
+            $fields = apply_filters( 'eform_template_map', $fields, $template );
+        }
+
+        return $fields;
     }
 
     /**
