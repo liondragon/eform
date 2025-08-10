@@ -39,6 +39,33 @@ class FieldRegistry {
                 'sanitize_cb'  => 'sanitize_textarea_field',
                 'validate_cb'  => [self::class, 'validate_message'],
             ],
+            // Generic field definitions allow templates to introduce custom
+            // inputs without writing new PHP validation logic. These require
+            // a "post_key" override when registered so the registry knows
+            // which submitted value to map.
+            'text_generic' => [
+                'post_key'        => '',
+                'required'        => false,
+                'sanitize_cb'     => 'sanitize_text_field',
+                'validate_cb'     => [self::class, 'validate_pattern'],
+                'required_params' => ['post_key'],
+            ],
+            'number_generic' => [
+                'post_key'        => '',
+                'required'        => false,
+                'sanitize_cb'     => [self::class, 'sanitize_number'],
+                'validate_cb'     => [self::class, 'validate_range'],
+                'required_params' => ['post_key'],
+            ],
+            'radio_generic' => [
+                'post_key'        => '',
+                'required'        => false,
+                'sanitize_cb'     => 'sanitize_text_field',
+                'validate_cb'     => [self::class, 'validate_choice'],
+                // "choices" must be provided when registering this field so
+                // validation can ensure the submitted value is allowed.
+                'required_params' => ['post_key', 'choices'],
+            ],
         ];
 
         if ( function_exists( 'apply_filters' ) ) {
@@ -68,12 +95,30 @@ class FieldRegistry {
             return;
         }
 
+        $base   = $field_map[ $field ];
+        $params = $base['required_params'] ?? [];
+        foreach ( $params as $param ) {
+            $provided = array_key_exists( $param, $args ) || ! empty( $base[ $param ] );
+            if ( ! $provided ) {
+                $message = sprintf(
+                    'Missing required parameter "%s" for field "%s" in template "%s"',
+                    $param,
+                    $field,
+                    $template
+                );
+                trigger_error( $message, E_USER_WARNING );
+                return;
+            }
+        }
+
         // Merge base configuration with any overrides.
-        $config = array_merge( $field_map[ $field ], $args );
+        $config = array_merge( $base, $args );
 
         if ( isset( $config['required'] ) ) {
             $config['required'] = (bool) $config['required'];
         }
+
+        unset( $config['required_params'] );
 
         // Ensure callbacks are valid before registering.
         foreach ( [ 'sanitize_cb', 'validate_cb' ] as $cb_key ) {
@@ -162,6 +207,70 @@ class FieldRegistry {
         $plain = wp_strip_all_tags($value);
         if (strlen($plain) < 20) {
             return 'Message too short.';
+        }
+        return '';
+    }
+
+    /**
+     * Sanitize a number allowing fractions.
+     */
+    public static function sanitize_number( string $value ): string {
+        $number = filter_var( $value, FILTER_SANITIZE_NUMBER_FLOAT, FILTER_FLAG_ALLOW_FRACTION );
+        return $number === null ? '' : $number;
+    }
+
+    /**
+     * Validate a field against an optional regex pattern.
+     */
+    public static function validate_pattern( string $value, array $field ): string {
+        if ( ! empty( $field['required'] ) && $value === '' ) {
+            return 'This field is required.';
+        }
+        if ( $value === '' ) {
+            return '';
+        }
+        if ( ! empty( $field['pattern'] ) && ! preg_match( '/' . $field['pattern'] . '/u', $value ) ) {
+            return 'Invalid format.';
+        }
+        return '';
+    }
+
+    /**
+     * Validate a numeric field against optional min/max bounds.
+     */
+    public static function validate_range( string $value, array $field ): string {
+        if ( ! empty( $field['required'] ) && $value === '' ) {
+            return 'This field is required.';
+        }
+        if ( $value === '' ) {
+            return '';
+        }
+        if ( ! is_numeric( $value ) ) {
+            return 'Invalid number.';
+        }
+        $number = $value + 0;
+        if ( isset( $field['min'] ) && $number < $field['min'] ) {
+            return 'Value must be at least ' . $field['min'] . '.';
+        }
+        if ( isset( $field['max'] ) && $number > $field['max'] ) {
+            return 'Value must be at most ' . $field['max'] . '.';
+        }
+        return '';
+    }
+
+    /**
+     * Validate a selection against a list of allowed choices.
+     */
+    public static function validate_choice( string $value, array $field ): string {
+        if ( ! empty( $field['required'] ) && $value === '' ) {
+            return 'This field is required.';
+        }
+        if ( $value === '' ) {
+            return '';
+        }
+        $choices = $field['choices'] ?? [];
+        if ( ! in_array( $value, $choices, true ) ) {
+            return 'Invalid selection.';
         }
         return '';
     }

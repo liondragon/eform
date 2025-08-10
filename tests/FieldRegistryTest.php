@@ -47,4 +47,68 @@ class FieldRegistryTest extends TestCase {
         $this->assertNotNull($error);
         $this->assertStringContainsString('validate_cb', $error);
     }
+
+    public function testMissingRequiredParamTriggersWarning() {
+        $registry = new FieldRegistry();
+        $error = null;
+        set_error_handler(function($errno, $errstr) use (&$error) {
+            $error = $errstr;
+            return true;
+        });
+
+        // text_generic requires post_key.
+        $registry->register_field('template', 'text_generic');
+        // Register another field so the template's registered set exists.
+        $registry->register_field('template', 'email');
+
+        restore_error_handler();
+
+        $fields = $registry->get_fields('template');
+        $this->assertArrayHasKey('email', $fields);
+        $this->assertArrayNotHasKey('text_generic', $fields);
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('post_key', $error);
+    }
+
+    public function testValidatePatternHonorsRegex() {
+        $registry = new FieldRegistry();
+        $registry->register_field('template', 'text_generic', [
+            'post_key' => 'code',
+            'pattern'  => '\\d+',
+            'required' => true,
+        ]);
+
+        $field = $registry->get_fields('template')['text_generic'];
+
+        $this->assertSame('Invalid format.', FieldRegistry::validate_pattern('abc', $field));
+        $this->assertSame('', FieldRegistry::validate_pattern('123', $field));
+    }
+
+    public function testValidateRangeRespectsBounds() {
+        $registry = new FieldRegistry();
+        $registry->register_field('template', 'number_generic', [
+            'post_key' => 'age',
+            'min'      => 10,
+            'max'      => 20,
+        ]);
+
+        $field = $registry->get_fields('template')['number_generic'];
+
+        $this->assertSame('Value must be at least 10.', FieldRegistry::validate_range('5', $field));
+        $this->assertSame('Value must be at most 20.', FieldRegistry::validate_range('25', $field));
+        $this->assertSame('', FieldRegistry::validate_range('15', $field));
+    }
+
+    public function testValidateChoiceAllowsOnlyListedValues() {
+        $registry = new FieldRegistry();
+        $registry->register_field('template', 'radio_generic', [
+            'post_key' => 'color',
+            'choices'  => ['red', 'blue'],
+        ]);
+
+        $field = $registry->get_fields('template')['radio_generic'];
+
+        $this->assertSame('Invalid selection.', FieldRegistry::validate_choice('green', $field));
+        $this->assertSame('', FieldRegistry::validate_choice('red', $field));
+    }
 }
