@@ -94,3 +94,11 @@ $eform_registry->register_field( $eform_current_template, 'text_generic', [
 Swap `text_generic` for `number_generic` or `radio_generic` to collect numeric or
 choice values. This approach keeps templates accessible to non-coders while
 ensuring submitted data is handled securely.
+
+## Theme-based Template Configuration
+
+Themes may override default form settings by placing JSON or YAML files within
+`{theme}/eform/`. For example, `wp-content/themes/my-theme/eform/default.json`
+can adjust placeholders or other field attributes for the `default` template.
+Files are validated against `includes/form-template-schema.json` before being
+merged with the plugin's defaults.
