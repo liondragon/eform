@@ -3,8 +3,5 @@
     "require-dev": {
         "phpunit/phpunit": "^10"
     },
-    "require": {
-        "justinrainbow/json-schema": "^5.2",
-        "symfony/yaml": "^6.4"
-    }
+    "require": {}
 }
