@@ -50,44 +50,59 @@ if ( ! function_exists( 'eform_field' ) ) {
         // Record field presence with registry.
         $registry->register_field( $template, $field, [ 'required' => $args['required'] ] );
 
-        $value = $form->form_data[ $field ] ?? '';
+        $field_map = [
+            'name'    => [
+                'template'    => '<input class="form_field" type="text" name="name_input" autocomplete="name"%1$s aria-label="Your Name" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Your Name',
+            ],
+            'email'   => [
+                'template'    => '<input class="form_field" type="email" name="email_input" autocomplete="email"%1$s aria-label="Your Email" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Your eMail',
+            ],
+            'phone'   => [
+                'template'      => '<input class="form_field" type="tel" name="tel_input" autocomplete="tel"%1$s aria-label="Phone" placeholder="%2$s" value="%3$s">',
+                'placeholder'   => 'Phone',
+                'value_callback'=> 'format_phone',
+            ],
+            'zip'     => [
+                'template'    => '<input class="form_field" type="text" name="zip_input" autocomplete="postal-code"%1$s aria-label="Project Zip Code" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Project Zip Code',
+            ],
+            'message' => [
+                'template'    => '<textarea name="message_input" cols="%4$d" rows="%5$d"%1$s aria-label="Message" placeholder="%2$s">%3$s</textarea>',
+                'placeholder' => 'Please describe your project and let us know if there is any urgency',
+                'is_textarea' => true,
+            ],
+        ];
 
-        switch ( $field ) {
-            case 'name':
-                $placeholder = $args['placeholder'] ?: 'Your Name';
-                echo '<input class="form_field" type="text" name="name_input" autocomplete="name"' .
-                    $attrs . ' aria-label="Your Name" placeholder="' . esc_attr( $placeholder ) .
-                    '" value="' . esc_attr( $value ) . '">';
-                break;
+        if ( ! isset( $field_map[ $field ] ) ) {
+            return;
+        }
 
-            case 'email':
-                $placeholder = $args['placeholder'] ?: 'Your eMail';
-                echo '<input class="form_field" type="email" name="email_input" autocomplete="email"' .
-                    $attrs . ' aria-label="Your Email" placeholder="' . esc_attr( $placeholder ) .
-                    '" value="' . esc_attr( $value ) . '">';
-                break;
+        $config      = $field_map[ $field ];
+        $placeholder = $args['placeholder'] ?: $config['placeholder'];
+        $value       = $form->form_data[ $field ] ?? '';
 
-            case 'phone':
-                $placeholder = $args['placeholder'] ?: 'Phone';
-                $formatted   = $form->format_phone( $value );
-                echo '<input class="form_field" type="tel" name="tel_input" autocomplete="tel"' .
-                    $attrs . ' aria-label="Phone" placeholder="' . esc_attr( $placeholder ) .
-                    '" value="' . esc_attr( $formatted ) . '">';
-                break;
+        if ( isset( $config['value_callback'] ) && is_callable( [ $form, $config['value_callback'] ] ) ) {
+            $value = $form->{ $config['value_callback'] }( $value );
+        }
 
-            case 'zip':
-                $placeholder = $args['placeholder'] ?: 'Project Zip Code';
-                echo '<input class="form_field" type="text" name="zip_input" autocomplete="postal-code"' .
-                    $attrs . ' aria-label="Project Zip Code" placeholder="' . esc_attr( $placeholder ) .
-                    '" value="' . esc_attr( $value ) . '">';
-                break;
-
-            case 'message':
-                $placeholder = $args['placeholder'] ?: 'Please describe your project and let us know if there is any urgency';
-                echo '<textarea name="message_input" cols="' . intval( $args['cols'] ) . '" rows="' . intval( $args['rows'] ) . '"' .
-                    $attrs . ' aria-label="Message" placeholder="' . esc_attr( $placeholder ) . '">' .
-                    esc_textarea( $value ) . '</textarea>';
-                break;
+        if ( ! empty( $config['is_textarea'] ) ) {
+            printf(
+                $config['template'],
+                $attrs,
+                esc_attr( $placeholder ),
+                esc_textarea( $value ),
+                intval( $args['cols'] ),
+                intval( $args['rows'] )
+            );
+        } else {
+            printf(
+                $config['template'],
+                $attrs,
+                esc_attr( $placeholder ),
+                esc_attr( $value )
+            );
         }
     }
 }
@@ -111,3 +126,4 @@ if ( ! function_exists( 'eform_field_error' ) ) {
         }
     }
 }
+
