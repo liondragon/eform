@@ -20,13 +20,20 @@ function eform_render_form( $form, string $template, array $config ) {
         if ( ( $field['type'] ?? '' ) === 'tel' ) {
             $value = $form->format_phone( $value );
         }
-        $required = isset($field['required']) ? ' required aria-required="true"' : '';
-        $attr_str = '';
-        foreach ($field as $attr => $val) {
-            if (in_array($attr, ['type','required','style'], true)) {
-                continue;
+        $required      = isset( $field['required'] ) ? ' required aria-required="true"' : '';
+        $attr_str      = '';
+        $allowed_attrs = [ 'placeholder', 'autocomplete', 'cols', 'rows' ];
+        $aria_attrs    = array_filter(
+            array_keys( $field ),
+            static function ( $attr ) {
+                return 0 === strpos( $attr, 'aria-' );
             }
-            $attr_str .= sprintf(' %s="%s"', esc_attr($attr), esc_attr($val));
+        );
+        $allowed_attrs = array_merge( $allowed_attrs, $aria_attrs );
+        foreach ( $allowed_attrs as $attr ) {
+            if ( isset( $field[ $attr ] ) ) {
+                $attr_str .= sprintf( ' %s="%s"', esc_attr( $attr ), esc_attr( $field[ $attr ] ) );
+            }
         }
         echo '<div class="inputwrap" style="' . esc_attr($field['style'] ?? '') . '">';
         if (($field['type'] ?? '') === 'textarea') {
