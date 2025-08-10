@@ -226,7 +226,18 @@ class Enhanced_Internal_Contact_Form {
             return '';
         }
 
-        $form_html = $this->include_template( $template );
+        $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
+        if ( file_exists( $template_path ) ) {
+            $form_html = $this->include_template( $template );
+        } else {
+            global $eform_current_template, $eform_form;
+            $eform_current_template = $template;
+            $eform_form            = $this;
+            ob_start();
+            eform_render_form( $this->template_config );
+            $form_html = ob_get_clean();
+            unset( $GLOBALS['eform_current_template'], $GLOBALS['eform_form'] );
+        }
 
         // Inject hidden field listing keys used in this template for processing
         global $eform_registry;

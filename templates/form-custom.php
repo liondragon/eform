@@ -1,5 +1,6 @@
 <?php
-// templates/form-custom.php
+// Legacy template override for the custom form.
+// TODO: Remove once the JSON renderer is fully adopted.
 global $eform_form;
 $config = $eform_form->template_config;
 ?>

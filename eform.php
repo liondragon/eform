@@ -41,6 +41,7 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/mail-error-logger.php';
 new Mail_Error_Logger( $logger );
 require_once plugin_dir_path( __FILE__ ) . 'includes/field-registry.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/template-tags.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/render.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/template-config.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf-processor.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf.php';

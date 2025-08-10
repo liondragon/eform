@@ -1,6 +1,8 @@
 <?php
 /**
- * Template: form-default.php
+ * Legacy template override for the default form.
+ *
+ * TODO: Remove once the JSON renderer is fully adopted.
  */
 global $eform_form, $eform_current_template;
 $config = $eform_form->template_config;
