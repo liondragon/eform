@@ -3,7 +3,7 @@
 
 if ( ! function_exists( 'eform_field' ) ) {
     /**
-     * Render a form field and register it for processing.
+     * Render a form field using registry configuration.
      *
      * @param FieldRegistry $registry Field registry instance.
      * @param object        $form     Form instance providing data and helpers.
@@ -33,75 +33,60 @@ if ( ! function_exists( 'eform_field' ) ) {
             'maxlength'   => '',
             'minlength'   => '',
             'title'       => '',
+            'autocomplete'=> '',
         ];
         $args = array_merge( $defaults, $args );
 
-        $required_attr = $args['required'] ? ' required aria-required="true"' : '';
-
-        $extra_attrs = '';
-        foreach ( [ 'pattern', 'maxlength', 'minlength', 'title' ] as $attr ) {
-            if ( ! empty( $args[ $attr ] ) ) {
-                $extra_attrs .= ' ' . $attr . '="' . esc_attr( $args[ $attr ] ) . '"';
-            }
-        }
-
-        $attrs = $required_attr . $extra_attrs;
-
-        // Record field presence with registry.
-        $registry->register_field( $template, $field, [ 'required' => $args['required'] ] );
-
-        $field_map = [
-            'name'    => [
-                'template'    => '<input class="form_field" type="text" name="name_input" autocomplete="name"%1$s aria-label="Your Name" placeholder="%2$s" value="%3$s">',
-                'placeholder' => 'Your Name',
-            ],
-            'email'   => [
-                'template'    => '<input class="form_field" type="email" name="email_input" autocomplete="email"%1$s aria-label="Your Email" placeholder="%2$s" value="%3$s">',
-                'placeholder' => 'Your eMail',
-            ],
-            'phone'   => [
-                'template'      => '<input class="form_field" type="tel" name="tel_input" autocomplete="tel"%1$s aria-label="Phone" placeholder="%2$s" value="%3$s">',
-                'placeholder'   => 'Phone',
-                'value_callback'=> 'format_phone',
-            ],
-            'zip'     => [
-                'template'    => '<input class="form_field" type="text" name="zip_input" autocomplete="postal-code"%1$s aria-label="Project Zip Code" placeholder="%2$s" value="%3$s">',
-                'placeholder' => 'Project Zip Code',
-            ],
-            'message' => [
-                'template'    => '<textarea name="message_input" cols="%4$d" rows="%5$d"%1$s aria-label="Message" placeholder="%2$s">%3$s</textarea>',
-                'placeholder' => 'Please describe your project and let us know if there is any urgency',
-                'is_textarea' => true,
-            ],
-        ];
-
-        if ( ! isset( $field_map[ $field ] ) ) {
+        $fields = $registry->get_fields( $template );
+        if ( ! isset( $fields[ $field ] ) ) {
             return;
         }
 
-        $config      = $field_map[ $field ];
-        $placeholder = $args['placeholder'] ?: $config['placeholder'];
-        $value       = $form->form_data[ $field ] ?? '';
+        $config    = $fields[ $field ];
+        $overrides = array_filter(
+            $args,
+            static function ( $value ) {
+                return $value !== '' && false !== $value;
+            }
+        );
+        $config = array_merge( $config, $overrides );
+
+        $required_attr = ! empty( $config['required'] ) ? ' required aria-required="true"' : '';
+
+        $extra_attrs = '';
+        foreach ( [ 'pattern', 'maxlength', 'minlength', 'title', 'placeholder', 'autocomplete' ] as $attr ) {
+            if ( isset( $config[ $attr ] ) && $config[ $attr ] !== '' ) {
+                $extra_attrs .= ' ' . $attr . '="' . esc_attr( $config[ $attr ] ) . '"';
+            }
+        }
+
+        $attrs   = $required_attr . $extra_attrs;
+        $post_key = $config['post_key'] ?? $field;
+        $value   = $form->form_data[ $field ] ?? '';
 
         if ( isset( $config['value_callback'] ) && is_callable( [ $form, $config['value_callback'] ] ) ) {
             $value = $form->{ $config['value_callback'] }( $value );
         }
 
-        if ( ! empty( $config['is_textarea'] ) ) {
+        if ( 'textarea' === ( $config['type'] ?? '' ) ) {
+            $cols = intval( $config['cols'] ?? $args['cols'] );
+            $rows = intval( $config['rows'] ?? $args['rows'] );
             printf(
-                $config['template'],
+                '<textarea name="%1$s" cols="%2$d" rows="%3$d"%4$s>%5$s</textarea>',
+                esc_attr( $post_key ),
+                $cols,
+                $rows,
                 $attrs,
-                esc_attr( $placeholder ),
-                esc_textarea( $value ),
-                intval( $args['cols'] ),
-                intval( $args['rows'] )
+                esc_textarea( $value )
             );
         } else {
+            $type = $config['type'] ?? 'text';
             printf(
-                $config['template'],
-                $attrs,
-                esc_attr( $placeholder ),
-                esc_attr( $value )
+                '<input type="%1$s" name="%2$s" value="%3$s"%4$s>',
+                esc_attr( $type ),
+                esc_attr( $post_key ),
+                esc_attr( $value ),
+                $attrs
             );
         }
     }
