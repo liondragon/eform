@@ -162,6 +162,32 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $this->assertSame(['phone' => 'Phone is required.'], $result['errors']);
     }
 
+    public function test_required_name_missing() {
+        $data   = $this->build_submission(overrides: ['name' => '']);
+        $result = $this->processor->process_form_submission('default', $data);
+        $this->assertFalse($result['success']);
+        $this->assertSame('Please correct the highlighted fields', $result['message']);
+        $this->assertSame(['name' => 'This field is required.'], $result['errors']);
+    }
+
+    public function test_optional_field_can_be_blank() {
+        $registry = new FieldRegistry();
+        $registry->register_field_from_config('opt', 'name', [
+            'post_key' => 'name_input',
+            'type'     => 'text',
+        ]);
+        $processor = new Enhanced_ICF_Form_Processor(new Logger(), $registry);
+        $data = [
+            'enhanced_icf_form_nonce' => 'valid',
+            'enhanced_url'           => '',
+            'enhanced_form_time'     => time() - 10,
+            'enhanced_js_check'      => '1',
+            'name_input'             => '',
+        ];
+        $result = $processor->process_form_submission('opt', $data);
+        $this->assertTrue($result['success']);
+    }
+
     public function test_phone_with_leading_one_is_normalized() {
         $this->assertSame('2345678901', FieldRegistry::sanitize_digits('+1 (234) 567-8901'));
         $data   = $this->build_submission(overrides: ['phone' => '+1 (234) 567-8901']);
