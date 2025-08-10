@@ -177,36 +177,6 @@ class Enhanced_Internal_Contact_Form {
         return $form_html;
     }
 
-    /**
-     * Load a form template and return its HTML.
-     *
-     * Logs an error and returns a fallback message when the template is
-     * missing.
-     *
-     * @param string $template Template slug.
-     *
-     * @return string Rendered template HTML or fallback message.
-     */
-    private function include_template( $template ) {
-        $template      = sanitize_key( $template );
-        $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
-
-        if ( file_exists( $template_path ) ) {
-            global $eform_current_template, $eform_form;
-            $eform_current_template = $template;
-            $eform_form            = $this;
-            ob_start();
-            include $template_path;
-            $output = ob_get_clean();
-            unset( $GLOBALS['eform_current_template'], $GLOBALS['eform_form'] );
-            return $output;
-        }
-
-        $this->logger->log( sprintf( 'Enhanced ICF template missing: %s', $template_path ), Logger::LEVEL_ERROR );
-
-        return '<p>Form template not found.</p>';
-    }
-
     private function render_form( $template ) {
         $this->prepare_css( $template );
 
@@ -226,14 +196,9 @@ class Enhanced_Internal_Contact_Form {
             return '';
         }
 
-        $template_path = plugin_dir_path( __FILE__ ) . "../templates/form-{$template}.php";
-        if ( file_exists( $template_path ) ) {
-            $form_html = $this->include_template( $template );
-        } else {
-            ob_start();
-            eform_render_form( $this, $template, $this->template_config );
-            $form_html = ob_get_clean();
-        }
+        ob_start();
+        eform_render_form( $this, $template, $this->template_config );
+        $form_html = ob_get_clean();
 
         // Inject hidden field listing keys used in this template for processing
         global $eform_registry;
@@ -255,18 +220,17 @@ class Enhanced_Internal_Contact_Form {
      * Magic method to handle dynamic template rendering.
      *
      * Allows calling methods named after templates, e.g. `$form->contact()`,
-     * to render `form-contact.php`. If the template file is missing, a warning
-     * is logged and a fallback message is returned.
+     * to render a form using the template's JSON configuration.
      *
      * @param string $name      The called method name.
      * @param array  $arguments Unused.
      *
-     * @return string Rendered template HTML or fallback message on failure.
+     * @return string Rendered template HTML.
      */
     public function __call( $name, $arguments ) {
         $template = sanitize_key( $name );
 
-        return $this->include_template( $template );
+        return $this->render_form( $template );
     }
 
     // Expose phone formatting for templates
