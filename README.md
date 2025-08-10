@@ -62,3 +62,35 @@ Install dependencies and execute the test suite:
 composer install
 vendor/bin/phpunit
 ```
+
+## Generic Fields for Templates
+
+`FieldRegistry` includes three generic field definitions that allow templates to
+capture extra information without writing PHP:
+
+* `text_generic` – freeform text optionally validated by a `pattern` regex.
+* `number_generic` – numeric input supporting `min` and `max` limits.
+* `radio_generic` – radio buttons validated against a list of `choices`.
+
+Each generic field requires a `post_key` parameter when registered. Radio fields
+also require a `choices` array of allowed values.
+
+Example usage inside a template:
+
+```php
+<?php
+// Register the field so submitted data is sanitized and validated.
+$eform_registry->register_field( $eform_current_template, 'text_generic', [
+    'post_key' => 'company_input',
+    'required' => true,
+    'pattern'  => '[A-Za-z\\s]+'
+] );
+?>
+<label for="company_input">Company</label>
+<input type="text" name="company_input" id="company_input">
+<?php eform_field_error( $eform_form, 'text_generic' ); ?>
+```
+
+Swap `text_generic` for `number_generic` or `radio_generic` to collect numeric or
+choice values. This approach keeps templates accessible to non-coders while
+ensuring submitted data is handled securely.
