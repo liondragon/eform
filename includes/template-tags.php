@@ -1,6 +1,36 @@
 <?php
 // includes/template-tags.php
 
+if ( ! defined( 'EFORM_FIELD_MAP' ) ) {
+    define(
+        'EFORM_FIELD_MAP',
+        [
+            'name'    => [
+                'template'    => '<input class="form_field" type="text" name="name_input" autocomplete="name"%1$s aria-label="Your Name" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Your Name',
+            ],
+            'email'   => [
+                'template'    => '<input class="form_field" type="email" name="email_input" autocomplete="email"%1$s aria-label="Your Email" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Your eMail',
+            ],
+            'phone'   => [
+                'template'      => '<input class="form_field" type="tel" name="tel_input" autocomplete="tel"%1$s aria-label="Phone" placeholder="%2$s" value="%3$s">',
+                'placeholder'   => 'Phone',
+                'value_callback'=> 'format_phone',
+            ],
+            'zip'     => [
+                'template'    => '<input class="form_field" type="text" name="zip_input" autocomplete="postal-code"%1$s aria-label="Project Zip Code" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Project Zip Code',
+            ],
+            'message' => [
+                'template'    => '<textarea name="message_input" cols="%4$d" rows="%5$d"%1$s aria-label="Message" placeholder="%2$s">%3$s</textarea>',
+                'placeholder' => 'Please describe your project and let us know if there is any urgency',
+                'is_textarea' => true,
+            ],
+        ]
+    );
+}
+
 if ( ! function_exists( 'eform_field' ) ) {
     /**
      * Render a form field and register it for processing.
@@ -50,36 +80,11 @@ if ( ! function_exists( 'eform_field' ) ) {
         // Record field presence with registry.
         $registry->register_field( $template, $field, [ 'required' => $args['required'] ] );
 
-        $field_map = [
-            'name'    => [
-                'template'    => '<input class="form_field" type="text" name="name_input" autocomplete="name"%1$s aria-label="Your Name" placeholder="%2$s" value="%3$s">',
-                'placeholder' => 'Your Name',
-            ],
-            'email'   => [
-                'template'    => '<input class="form_field" type="email" name="email_input" autocomplete="email"%1$s aria-label="Your Email" placeholder="%2$s" value="%3$s">',
-                'placeholder' => 'Your eMail',
-            ],
-            'phone'   => [
-                'template'      => '<input class="form_field" type="tel" name="tel_input" autocomplete="tel"%1$s aria-label="Phone" placeholder="%2$s" value="%3$s">',
-                'placeholder'   => 'Phone',
-                'value_callback'=> 'format_phone',
-            ],
-            'zip'     => [
-                'template'    => '<input class="form_field" type="text" name="zip_input" autocomplete="postal-code"%1$s aria-label="Project Zip Code" placeholder="%2$s" value="%3$s">',
-                'placeholder' => 'Project Zip Code',
-            ],
-            'message' => [
-                'template'    => '<textarea name="message_input" cols="%4$d" rows="%5$d"%1$s aria-label="Message" placeholder="%2$s">%3$s</textarea>',
-                'placeholder' => 'Please describe your project and let us know if there is any urgency',
-                'is_textarea' => true,
-            ],
-        ];
-
-        if ( ! isset( $field_map[ $field ] ) ) {
+        if ( ! isset( EFORM_FIELD_MAP[ $field ] ) ) {
             return;
         }
 
-        $config      = $field_map[ $field ];
+        $config      = EFORM_FIELD_MAP[ $field ];
         $placeholder = $args['placeholder'] ?: $config['placeholder'];
         $value       = $form->form_data[ $field ] ?? '';
 
