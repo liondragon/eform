@@ -117,7 +117,7 @@ class EnhancedInternalContactFormTest extends TestCase {
         );
     }
 
-    public function test_render_form_uses_json_renderer_when_php_template_missing() {
+    public function test_render_form_renders_json_template() {
         $template = 'jsononly';
         $config = [
             'fields' => [

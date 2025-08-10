@@ -66,7 +66,7 @@ vendor/bin/phpunit
 ## Generic Fields for Templates
 
 `FieldRegistry` includes three generic field definitions that allow templates to
-capture extra information without writing PHP:
+capture extra information:
 
 * `text_generic` – freeform text optionally validated by a `pattern` regex.
 * `number_generic` – numeric input supporting `min` and `max` limits.
@@ -75,32 +75,12 @@ capture extra information without writing PHP:
 Each generic field requires a `post_key` parameter when registered. Radio fields
 also require a `choices` array of allowed values.
 
-Example usage inside a template:
-
-```php
-<?php
-// Register the field so submitted data is sanitized and validated.
-$eform_registry->register_field( $eform_current_template, 'text_generic', [
-    'post_key' => 'company_input',
-    'required' => true,
-    'pattern'  => '[A-Za-z\\s]+'
-] );
-?>
-<label for="company_input">Company</label>
-<input type="text" name="company_input" id="company_input">
-<?php eform_field_error( $eform_form, 'text_generic' ); ?>
-```
-
-Swap `text_generic` for `number_generic` or `radio_generic` to collect numeric or
-choice values. This approach keeps templates accessible to non-coders while
-ensuring submitted data is handled securely.
-
 ## Theme-based Template Configuration
 
 The plugin ships with its default field configuration in `templates/default.json`.
-Themes may override these settings by placing JSON or PHP files within
-`{theme}/eform/`. For example, `wp-content/themes/my-theme/eform/default.json`
-can adjust placeholders or other field attributes for the `default` template.
-Configuration files are parsed using core PHP functions. If a theme file is not
-found, the plugin will look for a matching configuration within its own
-`templates/` directory, providing a plugin-level fallback.
+Themes may override these settings by placing JSON files within `{theme}/eform/`.
+For example, `wp-content/themes/my-theme/eform/default.json` can adjust
+placeholders or other field attributes for the `default` template. Configuration
+files are parsed using core PHP functions. If a theme file is not found, the
+plugin will look for a matching configuration within its own `templates/`
+directory, providing a plugin-level fallback.
