@@ -2,6 +2,15 @@
 use PHPUnit\Framework\TestCase;
 
 class FieldRegistryTest extends TestCase {
+    public function testRegisteredCallbacksAreCallable() {
+        $registry = new FieldRegistry();
+        register_template_fields_from_config( $registry, 'default' );
+        $fields = $registry->get_fields( 'default' );
+        foreach ( $fields as $details ) {
+            $this->assertIsCallable( $details['sanitize_cb'] );
+            $this->assertIsCallable( $details['validate_cb'] );
+        }
+    }
     public function testInvalidSanitizeCallbackTriggersWarningAndIsNotRegistered() {
         $registry = new FieldRegistry();
         $error = null;
