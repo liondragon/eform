@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/../vendor/autoload.php';
 // Minimal WordPress stubs for testing
+if ( ! defined( 'ABSPATH' ) ) {
+    define( 'ABSPATH', __DIR__ );
+}
 function sanitize_text_field($str){
     $str = strip_tags($str);
     $str = preg_replace('/[\r\n\t ]+/', ' ', $str);
@@ -82,6 +85,15 @@ function wp_safe_redirect($url){
 function esc_url_raw($url){
     return $url;
 }
+function plugins_url( $path = '', $plugin = '' ) {
+    return $path;
+}
+function has_shortcode( $content, $shortcode ) {
+    return strpos( $content, '[' . $shortcode ) !== false;
+}
+function wp_enqueue_script( $handle, $src = '', $deps = [], $ver = false, $in_footer = false ) {
+    $GLOBALS['enqueued_scripts'][] = $handle;
+}
 function add_action($hook,$callback,$priority=10){
 }
 function add_shortcode($tag,$callback){
@@ -106,6 +118,9 @@ function wp_mkdir_p($dir){
     return true;
 }
 function wp_nonce_field(){ }
+class WP_Post {
+    public $post_content;
+}
 if ( ! defined('WP_CONTENT_DIR') ) {
     define('WP_CONTENT_DIR', sys_get_temp_dir() . '/wp-content');
 }
