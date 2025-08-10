@@ -7,6 +7,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
     protected function setUp(): void {
         $this->registry  = new FieldRegistry();
+        register_template_fields_from_config( $this->registry, 'default' );
         $this->processor = new Enhanced_ICF_Form_Processor(new Logger(), $this->registry);
     }
 
@@ -113,20 +114,27 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_field_validation_failure() {
-        $data = $this->build_submission(overrides: ['name' => 'Jo']);
+        $data = $this->build_submission(overrides: ['message' => 'too short']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Please correct the highlighted fields', $result['message']);
-        $this->assertSame(['name' => 'Name too short.'], $result['errors']);
+        $this->assertSame(['message' => 'Message too short.'], $result['errors']);
     }
 
-    public function test_validation_errors_follow_field_map() {
-        $data = $this->build_submission(overrides: [
-            'email'            => 'not-an-email',
-            'phone'            => '000',
-            'enhanced_fields'  => 'name,email',
+    public function test_only_configured_fields_are_validated() {
+        $this->registry->register_field_from_config('partial', 'name', [
+            'post_key' => 'name_input',
+            'type'     => 'text',
+            'required' => true,
         ]);
-        $result = $this->processor->process_form_submission('default', $data);
+        $this->registry->register_field_from_config('partial', 'email', [
+            'post_key' => 'email_input',
+            'type'     => 'email',
+            'required' => true,
+        ]);
+        $data = $this->build_submission('partial', overrides: [ 'email' => 'not-an-email' ]);
+        $data['tel_input'] = '000';
+        $result = $this->processor->process_form_submission('partial', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Please correct the highlighted fields', $result['message']);
         $this->assertArrayHasKey('email', $result['errors']);

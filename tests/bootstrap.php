@@ -44,6 +44,15 @@ function eform_get_safe_fields($data){
     return array_keys($data);
 }
 
+function register_template_fields_from_config( FieldRegistry $registry, string $template ): void {
+    $config = eform_get_template_config( $template );
+    foreach ( $config['fields'] ?? [] as $post_key => $field ) {
+        $key   = FieldRegistry::field_key_from_post( $post_key );
+        $field = array_merge( $field, [ 'post_key' => $post_key ] );
+        $registry->register_field_from_config( $template, $key, $field );
+    }
+}
+
 function get_default_field_values( FieldRegistry $registry, string $template = 'default' ): array {
     $defaults = [
         'name'    => 'John Doe',

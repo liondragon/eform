@@ -1,20 +1,35 @@
 <?php
 // templates/form-custom.php
-global $eform_registry, $eform_form, $eform_current_template;
+global $eform_form;
+$config = $eform_form->template_config;
 ?>
 <div id="contact_form" class="contact_form">
     <form class="general_contact_form" id="general_contact_form" aria-label="Contact Form" method="post" action="">
         <?php Enhanced_Internal_Contact_Form::render_hidden_fields('custom'); ?>
-        <div><?php eform_field( $eform_registry, $eform_form, $eform_current_template, 'message', [
-                'required'  => true,
-                'placeholder' => 'Write your message...',
-                'rows'      => 6,
-                'minlength' => 20,
-                'maxlength' => 1000,
-            ] ); ?>
-            <?php eform_field_error( $eform_form, 'message' ); ?></div>
-        <div><?php eform_field( $eform_registry, $eform_form, $eform_current_template, 'email', [ 'required' => true, 'placeholder' => 'Enter Your Email*' ] ); ?>
-            <?php eform_field_error( $eform_form, 'email' ); ?></div>
+        <?php foreach ( $config['fields'] ?? [] as $post_key => $field ) :
+            $field_key = FieldRegistry::field_key_from_post( $post_key );
+            $value     = $eform_form->form_data[ $field_key ] ?? '';
+            if ( ( $field['type'] ?? '' ) === 'tel' ) {
+                $value = $eform_form->format_phone( $value );
+            }
+            $required = isset( $field['required'] ) ? ' required aria-required="true"' : '';
+            $attr_str = '';
+            foreach ( $field as $attr => $val ) {
+                if ( in_array( $attr, [ 'type', 'required', 'style' ], true ) ) {
+                    continue;
+                }
+                $attr_str .= sprintf( ' %s="%s"', esc_attr( $attr ), esc_attr( $val ) );
+            }
+        ?>
+        <div class="inputwrap" style="<?php echo esc_attr( $field['style'] ?? '' ); ?>">
+            <?php if ( ( $field['type'] ?? '' ) === 'textarea' ) : ?>
+                <textarea name="<?php echo esc_attr( $post_key ); ?>"<?php echo $required . $attr_str; ?>><?php echo esc_textarea( $value ); ?></textarea>
+            <?php else : ?>
+                <input type="<?php echo esc_attr( $field['type'] ?? 'text' ); ?>" name="<?php echo esc_attr( $post_key ); ?>" value="<?php echo esc_attr( $value ); ?>"<?php echo $required . $attr_str; ?>>
+            <?php endif; ?>
+            <?php eform_field_error( $eform_form, $field_key ); ?>
+        </div>
+        <?php endforeach; ?>
         <div><button type="submit" name="enhanced_form_submit_custom">Click to Send</button></div>
     </form>
 </div>

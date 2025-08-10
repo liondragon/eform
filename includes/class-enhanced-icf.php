@@ -16,6 +16,7 @@ class Enhanced_Internal_Contact_Form {
     private $css_printed = false; // Ensure CSS only printed once
     private $processor;
     private $logger;
+    public $template_config = [];
 
     public function __construct( Enhanced_ICF_Form_Processor $processor, Logger $logger ) {
         $this->processor = $processor;
@@ -208,6 +209,17 @@ class Enhanced_Internal_Contact_Form {
 
     private function render_form( $template ) {
         $this->prepare_css( $template );
+
+        // Load template configuration and register fields for this template.
+        $this->template_config = eform_get_template_config( $template );
+        global $eform_registry;
+        if ( isset( $eform_registry ) ) {
+            foreach ( $this->template_config['fields'] ?? [] as $post_key => $field ) {
+                $key   = FieldRegistry::field_key_from_post( $post_key );
+                $field = array_merge( $field, [ 'post_key' => $post_key ] );
+                $eform_registry->register_field_from_config( $template, $key, $field );
+            }
+        }
 
         // If we succeeded *and* have a redirect URL, bail out (we’ll redirect instead)
         if ( $this->form_submitted && ! empty( $this->redirect_url ) ) {
