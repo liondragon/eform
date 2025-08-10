@@ -26,11 +26,6 @@ class TemplateConfigTest extends TestCase {
             }
             rmdir( $this->themeDir );
         }
-
-        $pluginConfig = $this->pluginTemplatesDir . '/default.json';
-        if ( file_exists( $pluginConfig ) ) {
-            unlink( $pluginConfig );
-        }
     }
 
     public function test_json_config_merges_with_defaults(): void {
@@ -77,20 +72,9 @@ class TemplateConfigTest extends TestCase {
     }
 
     public function test_plugin_config_used_when_theme_missing(): void {
-        $config = [
-            'fields' => [
-                'zip_input' => [
-                    'type'        => 'text',
-                    'placeholder' => 'Plugin Zip',
-                ],
-            ],
-        ];
-        file_put_contents( $this->pluginTemplatesDir . '/default.json', json_encode( $config ) );
-
         $result = eform_get_template_config( 'default' );
-
-        $this->assertSame( 'Plugin Zip', $result['fields']['zip_input']['placeholder'] );
-        $this->assertArrayHasKey( 'name_input', $result['fields'] );
+        $this->assertSame( 'Your Name', $result['fields']['name_input']['placeholder'] );
+        $this->assertArrayHasKey( 'email_input', $result['fields'] );
     }
 }
 

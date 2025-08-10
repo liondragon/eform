@@ -1,0 +1,50 @@
+{
+    "fields": {
+        "name_input": {
+            "type": "text",
+            "placeholder": "Your Name",
+            "required": "",
+            "autocomplete": "name",
+            "aria-label": "Your Name",
+            "aria-required": "true",
+            "style": "grid-area: name"
+        },
+        "email_input": {
+            "type": "email",
+            "placeholder": "Your Email",
+            "required": "",
+            "autocomplete": "email",
+            "aria-label": "email",
+            "aria-required": "true",
+            "style": "grid-area: email"
+        },
+        "tel_input": {
+            "type": "tel",
+            "placeholder": "Phone",
+            "required": "",
+            "autocomplete": "tel",
+            "aria-label": "Phone",
+            "aria-required": "true",
+            "style": "grid-area: phone"
+        },
+        "zip_input": {
+            "type": "text",
+            "placeholder": "Project Zip Code",
+            "required": "",
+            "autocomplete": "postal-code",
+            "aria-label": "Project Zip Code",
+            "aria-required": "true",
+            "style": "grid-area: zip"
+        },
+        "message_input": {
+            "type": "textarea",
+            "cols": "21",
+            "rows": "5",
+            "placeholder": "Please describe your project and let us know if there is any urgency",
+            "required": "",
+            "aria-label": "Message",
+            "aria-required": "true",
+            "style": "grid-area: message"
+        }
+    }
+}
