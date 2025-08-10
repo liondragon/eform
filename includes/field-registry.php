@@ -186,7 +186,7 @@ class FieldRegistry {
 
         $field_config = [
             'post_key'    => $config['post_key'] ?? $field,
-            'required'    => ! empty( $config['required'] ),
+            'required'    => array_key_exists( 'required', $config ),
             'sanitize_cb' => $callbacks['sanitize_cb'],
             'validate_cb' => $callbacks['validate_cb'],
         ];
@@ -243,6 +243,9 @@ class FieldRegistry {
     }
 
     public static function validate_name(string $value, array $field): string {
+        if ($value === '') {
+            return ! empty($field['required']) ? 'Name is required.' : '';
+        }
         if (strlen($value) < 3) {
             return 'Name too short.';
         }
@@ -253,6 +256,9 @@ class FieldRegistry {
     }
 
     public static function validate_email(string $value, array $field): string {
+        if ($value === '') {
+            return ! empty($field['required']) ? 'Email is required.' : '';
+        }
         if (!filter_var($value, FILTER_VALIDATE_EMAIL)) {
             return 'Invalid email.';
         }
@@ -260,8 +266,8 @@ class FieldRegistry {
     }
 
     public static function validate_phone(string $value, array $field): string {
-        if ($field['required'] && empty($value)) {
-            return 'Phone is required.';
+        if ($value === '') {
+            return ! empty($field['required']) ? 'Phone is required.' : '';
         }
         if (!preg_match('/^\d{10}$/', $value)) {
             return 'Invalid phone number.';
@@ -270,6 +276,9 @@ class FieldRegistry {
     }
 
     public static function validate_zip(string $value, array $field): string {
+        if ($value === '') {
+            return ! empty($field['required']) ? 'Zip is required.' : '';
+        }
         if (!preg_match('/^\d{5}$/', $value)) {
             return 'Zip must be 5 digits.';
         }
@@ -278,6 +287,9 @@ class FieldRegistry {
 
     public static function validate_message(string $value, array $field): string {
         $plain = wp_strip_all_tags($value);
+        if ($plain === '') {
+            return ! empty($field['required']) ? 'Message is required.' : '';
+        }
         if (strlen($plain) < 20) {
             return 'Message too short.';
         }
