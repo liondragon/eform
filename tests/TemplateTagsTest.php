@@ -29,8 +29,14 @@ class TemplateTagsTest extends TestCase {
     }
 
     public function test_eform_field_outputs_additional_attributes() {
-        $registry          = new FieldRegistry();
-        $current_template  = 'default';
+        $registry         = new FieldRegistry();
+        $current_template = 'default';
+
+        $registry->register_field( $current_template, 'phone', [
+            'post_key'    => 'tel_input',
+            'type'        => 'tel',
+            'placeholder' => 'Phone',
+        ] );
 
         $form = new class {
             public $form_data = [];
@@ -46,6 +52,7 @@ class TemplateTagsTest extends TestCase {
         ] );
         $output = ob_get_clean();
 
+        $this->assertStringContainsString( 'type="tel"', $output );
         $this->assertStringContainsString(
             'pattern="(?:\\(\\d{3}\\)|\\d{3})(?: |\\.|-)?\\d{3}(?: |\\.|-)?\\d{4}"',
             $output
@@ -59,6 +66,13 @@ class TemplateTagsTest extends TestCase {
         $registry         = new FieldRegistry();
         $current_template = 'default';
 
+        $registry->register_field( $current_template, 'message', [
+            'post_key' => 'message_input',
+            'type'     => 'textarea',
+            'rows'     => 5,
+            'cols'     => 21,
+        ] );
+
         $form = (object) [ 'form_data' => [] ];
 
         ob_start();
@@ -68,6 +82,7 @@ class TemplateTagsTest extends TestCase {
         ] );
         $output = ob_get_clean();
 
+        $this->assertStringContainsString( '<textarea', $output );
         $this->assertStringContainsString( 'minlength="20"', $output );
         $this->assertStringContainsString( 'maxlength="1000"', $output );
     }
