@@ -11,11 +11,16 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Load global assets
-add_action('wp_enqueue_scripts', function () {
-    $js_url = plugins_url('assets/enhanced-form.js', __FILE__);
-    wp_enqueue_script('enhanced-icf-js', $js_url, array(), '1.0', true);
-});
+// Load assets only when shortcode is present
+function enhanced_icf_enqueue_scripts() {
+    global $post;
+
+    if ( isset( $post->post_content ) && has_shortcode( $post->post_content, 'enhanced_icf_shortcode' ) ) {
+        $js_url = plugins_url( 'assets/enhanced-form.js', __FILE__ );
+        wp_enqueue_script( 'enhanced-icf-js', $js_url, array(), '1.0', true );
+    }
+}
+add_action( 'wp_enqueue_scripts', 'enhanced_icf_enqueue_scripts' );
 
 // Include supporting files
 require_once plugin_dir_path( __FILE__ ) . 'includes/logger.php';
