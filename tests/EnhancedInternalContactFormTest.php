@@ -116,4 +116,40 @@ class EnhancedInternalContactFormTest extends TestCase {
             $error->getValue($form)
         );
     }
+
+    public function test_render_form_uses_json_renderer_when_php_template_missing() {
+        $template = 'jsononly';
+        $config = [
+            'fields' => [
+                'name_input' => [
+                    'type' => 'text',
+                    'placeholder' => 'JSON Name'
+                ],
+            ],
+        ];
+        $path = dirname(__DIR__) . "/templates/{$template}.json";
+        file_put_contents( $path, json_encode( $config ) );
+
+        $registry = new FieldRegistry();
+        $prev_registry = $GLOBALS['eform_registry'] ?? null;
+        $GLOBALS['eform_registry'] = $registry;
+
+        $processor = new Enhanced_ICF_Form_Processor( new Logger(), $registry );
+        $form      = new Enhanced_Internal_Contact_Form( $processor, new Logger() );
+
+        $ref    = new ReflectionClass( $form );
+        $method = $ref->getMethod( 'render_form' );
+        $method->setAccessible( true );
+        $html = $method->invoke( $form, $template );
+
+        $this->assertStringContainsString( 'name="name_input"', $html );
+        $this->assertStringContainsString( 'placeholder="JSON Name"', $html );
+
+        unlink( $path );
+        if ( $prev_registry !== null ) {
+            $GLOBALS['eform_registry'] = $prev_registry;
+        } else {
+            unset( $GLOBALS['eform_registry'] );
+        }
+    }
 }
