@@ -56,41 +56,53 @@ class Logger {
      * @param array      $context   Additional context to record.
      * @param array|null $form_data Optional form data for safe logging.
      */
-    public function log($message, $level = self::LEVEL_INFO, $context = [], $form_data = null) {
+    public function log( $message, $level = self::LEVEL_INFO, $context = [], $form_data = null ) {
+        $this->prepare_log_file();
+        $context = $this->format_context( $message, $level, $context, $form_data );
+        $this->write_log_entry( $context );
+    }
+
+    /**
+     * Assemble the log context.
+     *
+     * @param string     $message   Human readable message.
+     * @param string     $level     Severity level.
+     * @param array      $context   Additional context to record.
+     * @param array|null $form_data Optional form data for safe logging.
+     * @return array                 Complete log context.
+     */
+    private function format_context( $message, $level, array $context, $form_data ) {
         $server = $_SERVER;
-
-        // Prepare the log file if it hasn't been prepared yet, rotation is needed,
-        // or the file path is missing/unwritable.
-        if (
-            empty( $this->log_file ) ||
-            $this->should_rotate() ||
-            ! file_exists( $this->log_file ) ||
-            ! is_writable( dirname( $this->log_file ) )
-        ) {
-            $this->prepare_log_file();
-        }
-
-        $log_file = $this->log_file;
 
         $safe_data = $this->get_safe_form_data( $form_data );
         if ( null !== $safe_data ) {
             $context['form_data'] = $safe_data;
         }
 
-        $context['timestamp'] = date('c');
-        $context['ip']        = $this->get_ip();
-        $context['source']    = 'Enhanced iContact Form';
-        $context['level']     = $level;
-        $context['message']   = $message;
-        $context['user_agent'] = isset($server['HTTP_USER_AGENT']) ? sanitize_text_field($server['HTTP_USER_AGENT']) : '';
-        $context['referrer']  = isset($server['HTTP_REFERER']) ? sanitize_text_field($server['HTTP_REFERER']) : 'No referrer';
-        $context['request_uri'] = isset($server['REQUEST_URI']) ? sanitize_text_field($server['REQUEST_URI']) : '';
+        $context['timestamp']   = date( 'c' );
+        $context['ip']          = $this->get_ip();
+        $context['source']      = 'Enhanced iContact Form';
+        $context['level']       = $level;
+        $context['message']     = $message;
+        $context['user_agent']  = isset( $server['HTTP_USER_AGENT'] ) ? sanitize_text_field( $server['HTTP_USER_AGENT'] ) : '';
+        $context['referrer']    = isset( $server['HTTP_REFERER'] ) ? sanitize_text_field( $server['HTTP_REFERER'] ) : 'No referrer';
+        $context['request_uri'] = isset( $server['REQUEST_URI'] ) ? sanitize_text_field( $server['REQUEST_URI'] ) : '';
         if ( isset( $context['template'] ) ) {
             $context['template'] = sanitize_text_field( $context['template'] );
         }
 
-        $jsonLogEntry = json_encode($context, JSON_PRETTY_PRINT);
-        if (json_last_error() !== JSON_ERROR_NONE) {
+        return $context;
+    }
+
+    /**
+     * Write a context array to the log file.
+     *
+     * @param array $context The context to log.
+     */
+    private function write_log_entry( array $context ) {
+        $log_file     = $this->log_file;
+        $jsonLogEntry = wp_json_encode( $context, JSON_UNESCAPED_SLASHES );
+        if ( JSON_ERROR_NONE !== json_last_error() ) {
             $jsonLogEntry = 'Log encoding error: ' . json_last_error_msg();
         }
 

@@ -42,6 +42,44 @@ class LoggerTest extends TestCase {
         }
     }
 
+    public function test_prepare_log_file_creates_log_file(): void {
+        $logger = new \Logger();
+        $ref    = new \ReflectionClass($logger);
+        $method = $ref->getMethod('prepare_log_file');
+        $method->setAccessible(true);
+        $method->invoke($logger);
+        $this->assertFileExists($this->logFile);
+    }
+
+    public function test_format_context_sanitizes_data(): void {
+        $_SERVER['REQUEST_URI'] = '/test';
+        $logger = new \Logger();
+        $ref    = new \ReflectionClass($logger);
+        $method = $ref->getMethod('format_context');
+        $method->setAccessible(true);
+        $context = $method->invoke($logger, 'msg', \Logger::LEVEL_WARNING, ['template' => '<b>tpl</b>'], ['name' => 'John']);
+        $this->assertSame('tpl', $context['template']);
+        $this->assertSame('msg', $context['message']);
+        $this->assertSame(\Logger::LEVEL_WARNING, $context['level']);
+        $this->assertSame('/test', $context['request_uri']);
+        $this->assertArrayHasKey('timestamp', $context);
+    }
+
+    public function test_write_log_entry_does_not_escape_slashes(): void {
+        $logger = new \Logger();
+        $ref    = new \ReflectionClass($logger);
+        $prep   = $ref->getMethod('prepare_log_file');
+        $prep->setAccessible(true);
+        $prep->invoke($logger);
+        $write = $ref->getMethod('write_log_entry');
+        $write->setAccessible(true);
+        $write->invoke($logger, ['url' => 'http://example.com/foo']);
+        $contents = trim(file_get_contents($this->logFile));
+        $this->assertStringContainsString('http://example.com/foo', $contents);
+        $this->assertStringNotContainsString('\\/', $contents);
+        $this->assertStringNotContainsString('  ', $contents);
+    }
+
     public function test_rotation_when_size_exceeded(): void {
         $logger = new \Logger();
         $message = str_repeat('a', 300);
