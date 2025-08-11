@@ -29,7 +29,7 @@ class EnhancedInternalContactFormTest extends TestCase {
         $prop->setAccessible(true);
         $prop->setValue($form, '');
 
-        $form->maybe_handle_form();
+        $form->maybe_handle_form( $processor );
 
         $submitted = $ref->getProperty('form_submitted');
         $submitted->setAccessible(true);
@@ -63,7 +63,7 @@ class EnhancedInternalContactFormTest extends TestCase {
         $prop->setAccessible(true);
         $prop->setValue($form, '');
 
-        $form->maybe_handle_form();
+        $form->maybe_handle_form( $processor );
 
         $submitted = $ref->getProperty('form_submitted');
         $submitted->setAccessible(true);
@@ -100,7 +100,7 @@ class EnhancedInternalContactFormTest extends TestCase {
         $prop->setAccessible(true);
         $prop->setValue($form, '');
 
-        $form->maybe_handle_form();
+        $form->maybe_handle_form( $processor );
 
         $submitted = $ref->getProperty('form_submitted');
         $submitted->setAccessible(true);
