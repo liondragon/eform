@@ -24,6 +24,18 @@ class FieldRegistryTest extends TestCase {
         $this->assertSame([FieldRegistry::class, 'validate_email'], $fields['email']['validate_cb']);
     }
 
+    public function testRequiredFalseResultsInNonRequiredField() {
+        $registry = new FieldRegistry();
+        $registry->register_field_from_config('tmpl', 'code', [
+            'post_key' => 'code_input',
+            'type'     => 'text',
+            'required' => false,
+        ]);
+        $field = $registry->get_fields('tmpl')['code'];
+        $this->assertFalse($field['required']);
+        $this->assertSame('', FieldRegistry::validate_pattern('', $field));
+    }
+
     public function testValidatePatternHonorsRegex() {
         $registry = new FieldRegistry();
         $registry->register_field_from_config('tmpl', 'code', [
