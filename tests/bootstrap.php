@@ -119,6 +119,9 @@ function add_action($hook,$callback,$priority=10){
 }
 function add_shortcode($tag,$callback){
 }
+function shortcode_atts( $pairs, $atts ) {
+    return array_merge( $pairs, $atts );
+}
 function plugin_dir_path($file){
     return dirname($file) . '/';
 }
@@ -127,11 +130,25 @@ function get_stylesheet_directory(){
 }
 function did_action($hook){return false;}
 function has_action($hook,$callback){return false;}
-function wp_register_style(){ }
-function wp_enqueue_style(){ }
-function wp_print_styles(){ }
-function wp_style_is(){ return false; }
-function wp_add_inline_style(){ }
+function wp_register_style( $handle, $src = '', $deps = [], $ver = false, $media = 'all' ) {
+    $GLOBALS['registered_styles'][] = $handle;
+}
+function wp_enqueue_style( $handle, $src = '', $deps = [], $ver = false, $media = 'all' ) {
+    $GLOBALS['enqueued_styles'][] = $handle;
+}
+function wp_print_styles( $handle = '' ) {
+    $GLOBALS['printed_styles'][] = $handle;
+}
+function wp_style_is( $handle, $list = 'enqueued' ) {
+    if ( 'registered' === $list ) {
+        return in_array( $handle, $GLOBALS['registered_styles'] ?? [], true );
+    }
+    return in_array( $handle, $GLOBALS['enqueued_styles'] ?? [], true );
+}
+function wp_add_inline_style( $handle, $data ) {
+    $GLOBALS['inline_styles'][ $handle ] = ( $GLOBALS['inline_styles'][ $handle ] ?? '' ) . $data;
+    return true;
+}
 function wp_mkdir_p($dir){
     if (!is_dir($dir)) {
         mkdir($dir, 0777, true);
