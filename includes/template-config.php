@@ -11,6 +11,21 @@
  * @return array Merged configuration.
  */
 function eform_get_template_config( string $template ): array {
+    static $cache = [];
+
+    $theme_dir = rtrim( get_stylesheet_directory(), '/\\' );
+    $cache_key = $template . '|' . $theme_dir;
+
+    if ( isset( $cache[ $cache_key ] ) ) {
+        return $cache[ $cache_key ];
+    }
+
+    $cached = function_exists( 'wp_cache_get' ) ? wp_cache_get( $cache_key, 'eform_template_config' ) : false;
+    if ( false !== $cached ) {
+        $cache[ $cache_key ] = $cached;
+        return $cached;
+    }
+
     $plugin_dir = rtrim( plugin_dir_path( __DIR__ ), '/\\' ) . '/templates';
     $plugin_paths = [
         $plugin_dir . '/' . $template . '.php',
@@ -18,14 +33,20 @@ function eform_get_template_config( string $template ): array {
     ];
     $base = eform_load_config_from_paths( $plugin_paths );
 
-    $theme_dir = rtrim( get_stylesheet_directory(), '/\\' ) . '/eform';
     $theme_paths = [
-        $theme_dir . '/' . $template . '.php',
-        $theme_dir . '/' . $template . '.json',
+        $theme_dir . '/eform/' . $template . '.php',
+        $theme_dir . '/eform/' . $template . '.json',
     ];
     $data = eform_load_config_from_paths( $theme_paths );
 
-    return array_replace_recursive( $base, $data );
+    $config = array_replace_recursive( $base, $data );
+
+    $cache[ $cache_key ] = $config;
+    if ( function_exists( 'wp_cache_set' ) ) {
+        wp_cache_set( $cache_key, $config, 'eform_template_config' );
+    }
+
+    return $config;
 }
 
 /**
