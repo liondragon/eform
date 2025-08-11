@@ -64,44 +64,65 @@ class FieldRegistry {
             'validate_cb' => [self::class, 'validate_message'],
         ],
     ];
+
+    /**
+     * Retrieve the type-to-callback map allowing external filters to modify it.
+     */
+    private function get_type_map(): array {
+        $map = $this->type_map;
+        if ( function_exists( 'apply_filters' ) ) {
+            $map = apply_filters( 'eform_field_type_map', $map );
+        }
+        return $map;
+    }
     /**
      * Retrieve the base configuration for all available fields.
      *
      * @return array[]
      */
     public function get_field_map(): array {
-        $fields = [
+        $base = [
             'name'    => [
-                'post_key'     => 'name_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_text_field',
-                'validate_cb'  => [self::class, 'validate_name'],
+                'post_key'    => 'name_input',
+                'required'    => true,
+                'type'        => 'text',
+                // Custom validation beyond the default text callbacks.
+                'validate_cb' => [self::class, 'validate_name'],
             ],
             'email'   => [
-                'post_key'     => 'email_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_email',
-                'validate_cb'  => [self::class, 'validate_email'],
+                'post_key' => 'email_input',
+                'required' => true,
+                'type'     => 'email',
             ],
             'phone'   => [
-                'post_key'     => 'tel_input',
-                'required'     => true,
-                'sanitize_cb'  => [self::class, 'sanitize_digits'],
-                'validate_cb'  => [self::class, 'validate_phone'],
+                'post_key' => 'tel_input',
+                'required' => true,
+                'type'     => 'tel',
             ],
             'zip'     => [
-                'post_key'     => 'zip_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_text_field',
-                'validate_cb'  => [self::class, 'validate_zip'],
+                'post_key'    => 'zip_input',
+                'required'    => true,
+                'type'        => 'text',
+                'validate_cb' => [self::class, 'validate_zip'],
             ],
             'message' => [
-                'post_key'     => 'message_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_textarea_field',
-                'validate_cb'  => [self::class, 'validate_message'],
+                'post_key' => 'message_input',
+                'required' => true,
+                'type'     => 'textarea',
             ],
         ];
+
+        $fields   = [];
+        $type_map = $this->get_type_map();
+        foreach ( $base as $key => $config ) {
+            $type      = $config['type'] ?? 'text';
+            $callbacks = $type_map[ $type ] ?? $type_map['text'];
+            unset( $config['type'] );
+
+            // Callbacks from the type map are merged with the base config so that
+            // any explicit callbacks provided in $base take precedence.
+            $fields[ $key ] = array_merge( $callbacks, $config );
+        }
 
         if ( function_exists( 'apply_filters' ) ) {
             $fields = apply_filters( 'eform_field_map', $fields );
@@ -182,7 +203,8 @@ class FieldRegistry {
      */
     public function register_field_from_config( string $template, string $field, array $config ): void {
         $type      = $config['type'] ?? 'text';
-        $callbacks = $this->type_map[ $type ] ?? $this->type_map['text'];
+        $type_map  = $this->get_type_map();
+        $callbacks = $type_map[ $type ] ?? $type_map['text'];
 
         $field_config = [
             'post_key'    => $config['post_key'] ?? $field,

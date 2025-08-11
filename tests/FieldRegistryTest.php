@@ -11,6 +11,22 @@ class FieldRegistryTest extends TestCase {
             $this->assertIsCallable( $details['validate_cb'] );
         }
     }
+
+    public function testFieldMapUsesTypeMap() {
+        $registry = new FieldRegistry();
+
+        // Override the email sanitize callback via the internal type map to
+        // ensure get_field_map() derives callbacks from the map rather than
+        // hard-coded values.
+        $ref = new \ReflectionProperty( FieldRegistry::class, 'type_map' );
+        $ref->setAccessible( true );
+        $map = $ref->getValue( $registry );
+        $map['email']['sanitize_cb'] = 'strrev';
+        $ref->setValue( $registry, $map );
+
+        $fields = $registry->get_field_map();
+        $this->assertSame( 'strrev', $fields['email']['sanitize_cb'] );
+    }
     public function testInvalidSanitizeCallbackTriggersWarningAndIsNotRegistered() {
         $registry = new FieldRegistry();
         $error = null;

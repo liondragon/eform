@@ -75,6 +75,27 @@ capture extra information:
 Each generic field requires a `post_key` parameter when registered. Radio fields
 also require a `choices` array of allowed values.
 
+### Adding Field Types
+
+`FieldRegistry` maps HTML input types to sanitize and validate callbacks using a
+`$type_map` array. To introduce a new type you only need to supply the callback
+pairs and then reference the type when registering a field or in template
+configuration.
+
+```php
+add_filter( 'eform_field_type_map', function( array $map ) {
+    $map['url'] = [
+        'sanitize_cb' => 'esc_url_raw',
+        'validate_cb' => 'wp_http_validate_url',
+    ];
+    return $map;
+} );
+```
+
+With the `url` type added, a template can register a field using
+`"type": "url"` without specifying callbacks; `FieldRegistry` merges the type's
+callbacks with the field's base configuration.
+
 ## Theme-based Template Configuration
 
 The plugin ships with its default field configuration in `templates/default.json`.
