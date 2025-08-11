@@ -13,6 +13,8 @@ class TemplateConfigTest extends TestCase {
         mkdir( $this->themeDir . '/eform', 0777, true );
 
         $this->pluginTemplatesDir = dirname( __DIR__ ) . '/templates';
+
+        $GLOBALS['wp_cache'] = [];
     }
 
     protected function tearDown(): void {
@@ -67,5 +69,40 @@ class TemplateConfigTest extends TestCase {
         $result = eform_get_template_config( 'default' );
         $this->assertSame( 'Your Name', $result['fields']['name_input']['placeholder'] );
         $this->assertArrayHasKey( 'email_input', $result['fields'] );
+    }
+
+    public function test_cache_invalidates_when_file_changes(): void {
+        $path = $this->themeDir . '/eform/default.json';
+        file_put_contents( $path, json_encode( [
+            'fields' => [
+                'name_input' => [ 'placeholder' => 'First' ],
+            ],
+        ] ) );
+
+        $result = eform_get_template_config( 'default' );
+        $this->assertSame( 'First', $result['fields']['name_input']['placeholder'] );
+
+        // Ensure file modification time changes.
+        sleep( 1 );
+        file_put_contents( $path, json_encode( [
+            'fields' => [
+                'name_input' => [ 'placeholder' => 'Second' ],
+            ],
+        ] ) );
+
+        $result = eform_get_template_config( 'default' );
+        $this->assertSame( 'Second', $result['fields']['name_input']['placeholder'] );
+    }
+
+    public function test_cache_can_be_purged(): void {
+        file_put_contents( $this->themeDir . '/eform/default.json', json_encode( [ 'fields' => [] ] ) );
+        eform_get_template_config( 'default' );
+
+        $cache_key = 'default|' . rtrim( $this->themeDir, '/\\' );
+        $this->assertArrayHasKey( $cache_key, $GLOBALS['wp_cache']['eform_template_config'] );
+
+        eform_purge_template_config_cache();
+
+        $this->assertArrayNotHasKey( $cache_key, $GLOBALS['wp_cache']['eform_template_config'] ?? [] );
     }
 }

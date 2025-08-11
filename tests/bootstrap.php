@@ -47,6 +47,23 @@ function eform_get_safe_fields($data){
     return array_keys($data);
 }
 
+// Simple in-memory cache for testing wp_cache_* functions.
+$GLOBALS['wp_cache'] = [];
+function wp_cache_set( $key, $data, $group = '' ) {
+    $GLOBALS['wp_cache'][ $group ][ $key ] = $data;
+    return true;
+}
+function wp_cache_get( $key, $group = '' ) {
+    return $GLOBALS['wp_cache'][ $group ][ $key ] ?? false;
+}
+function wp_cache_delete( $key, $group = '' ) {
+    if ( isset( $GLOBALS['wp_cache'][ $group ][ $key ] ) ) {
+        unset( $GLOBALS['wp_cache'][ $group ][ $key ] );
+        return true;
+    }
+    return false;
+}
+
 function register_template_fields_from_config( FieldRegistry $registry, string $template ): void {
     $config = eform_get_template_config( $template );
     foreach ( $config['fields'] ?? [] as $post_key => $field ) {
