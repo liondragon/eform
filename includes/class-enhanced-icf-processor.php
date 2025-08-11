@@ -38,21 +38,10 @@ class Enhanced_ICF_Form_Processor {
      * }
      */
     public function process_form_submission(string $template, array $submitted_data): array {
-        if (empty($submitted_data)) {
-            return $this->error_response('Form Left Empty', [], 'No data submitted.');
-        }
-
-        $validators = [
-            'check_nonce',
-            'check_honeypot',
-            'check_submission_time',
-            'check_js_enabled',
-        ];
-
-        foreach ($validators as $validator) {
-            if ($error = $this->$validator($submitted_data)) {
-                return $this->error_response($error['type'], [], $error['message']);
-            }
+        try {
+            $this->validate_request( $submitted_data );
+        } catch ( ValidationException $e ) {
+            return $this->handle_error( $e->get_error() );
         }
 
         $field_map = $this->registry->get_fields( $template );
@@ -66,24 +55,20 @@ class Enhanced_ICF_Form_Processor {
         $result = $this->sanitize_submission( $field_map, $submitted_data );
         $data   = $result['data'];
         if ( ! empty( $result['invalid_fields'] ) ) {
-            $details  = [ 'invalid_fields' => $result['invalid_fields'] ];
-            $user_msg = 'Invalid array input for field(s): ' . implode( ', ', $result['invalid_fields'] ) . '.';
-            return $this->error_response( 'Invalid form input', $details, $user_msg );
+            $msg   = 'Invalid array input for field(s): ' . implode( ', ', $result['invalid_fields'] ) . '.';
+            $error = new WP_Error( 'Invalid form input', $msg, [ 'details' => [ 'invalid_fields' => $result['invalid_fields'] ], 'form_data' => [] ] );
+            return $this->handle_error( $error );
         }
 
         $errors = $this->validate_submission( $field_map, $data );
         if ( $errors ) {
-            $details = [
-                'errors'    => $errors,
-                'form_data' => $data,
-            ];
-            $user_msg = 'Please correct the highlighted fields';
-            return $this->error_response( 'Validation errors', $details, $user_msg );
+            $error = new WP_Error( 'Validation errors', 'Please correct the highlighted fields', [ 'errors' => $errors, 'form_data' => $data, 'details' => [ 'errors' => $errors ] ] );
+            return $this->handle_error( $error );
         }
 
         if ( ! $this->dispatch_email( $data ) ) {
-            $details = [ 'form_data' => $data ];
-            return $this->error_response( 'Email Sending Failure', $details, 'Something went wrong. Please try again later.' );
+            $error = new WP_Error( 'Email Sending Failure', 'Something went wrong. Please try again later.', [ 'form_data' => $data, 'details' => [ 'form_data' => $data ] ] );
+            return $this->handle_error( $error );
         }
 
         $this->log_success( $template, $data );
@@ -97,51 +82,38 @@ class Enhanced_ICF_Form_Processor {
         return $digits;
     }
 
-    private function build_error(string $type, string $message): array {
-        return [
-            'type'    => $type,
-            'message' => $message,
-        ];
-    }
+    private function validate_request( array $submitted_data ): void {
+        if ( empty( $submitted_data ) ) {
+            throw new ValidationException( new WP_Error( 'Form Left Empty', 'No data submitted.' ) );
+        }
 
-    private function check_nonce(array $submitted_data): array {
         $nonce = $this->get_first_value( $submitted_data['enhanced_icf_form_nonce'] ?? '' );
         if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, 'enhanced_icf_form_action' ) ) {
-            return $this->build_error('Nonce Failed', 'Invalid submission detected.');
+            throw new ValidationException( new WP_Error( 'Nonce Failed', 'Invalid submission detected.' ) );
         }
-        return [];
-    }
 
-    private function check_honeypot(array $submitted_data): array {
         $honeypot_field = $submitted_data['enhanced_url'] ?? '';
         if ( is_array( $honeypot_field ) ) {
-            return $this->build_error('Bot Alert: Honeypot Filled', 'Bot test failed.');
+            throw new ValidationException( new WP_Error( 'Bot Alert: Honeypot Filled', 'Bot test failed.' ) );
         }
         $honeypot = $this->get_first_value( $honeypot_field );
         if ( ! empty( $honeypot ) ) {
-            return $this->build_error('Bot Alert: Honeypot Filled', 'Bot test failed.');
+            throw new ValidationException( new WP_Error( 'Bot Alert: Honeypot Filled', 'Bot test failed.' ) );
         }
-        return [];
-    }
 
-    private function check_submission_time(array $submitted_data): array {
         $submit_time_field = $submitted_data['enhanced_form_time'] ?? 0;
         if ( is_array( $submit_time_field ) ) {
-            return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
+            throw new ValidationException( new WP_Error( 'Bot Alert: Fast Submission', 'Submission too fast. Please try again.' ) );
         }
         $submit_time = intval( $this->get_first_value( $submit_time_field ) );
         if ( time() - $submit_time < 5 ) {
-            return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
+            throw new ValidationException( new WP_Error( 'Bot Alert: Fast Submission', 'Submission too fast. Please try again.' ) );
         }
-        return [];
-    }
 
-    private function check_js_enabled(array $submitted_data): array {
         $js_check = $this->get_first_value( $submitted_data['enhanced_js_check'] ?? '' );
         if ( empty( $js_check ) ) {
-            return $this->build_error('Bot Alert: JS Check Missing', 'JavaScript must be enabled.');
+            throw new ValidationException( new WP_Error( 'Bot Alert: JS Check Missing', 'JavaScript must be enabled.' ) );
         }
-        return [];
     }
 
     private function sanitize_submission( array $field_map, array $submitted_data ): array {
@@ -231,26 +203,31 @@ class Enhanced_ICF_Form_Processor {
         return wp_mail($to, $subject, $message, $headers);
     }
 
-    private function log_and_message(string $type, array $details = [], string $user_msg = ''): string {
-        $form_data = $details['form_data'] ?? null;
-        if (isset($details['form_data'])) {
-            unset($details['form_data']);
+    private function handle_error( WP_Error $error ): array {
+        $data      = $error->get_error_data();
+        $data      = is_array( $data ) ? $data : [];
+        $form_data = $data['form_data'] ?? [];
+        $details   = $data['details'] ?? $data;
+
+        if ( isset( $details['form_data'] ) ) {
+            unset( $details['form_data'] );
         }
-        $this->logger->log($type, Logger::LEVEL_ERROR, [
-            'type'    => $type,
-            'details' => $details,
-        ], $form_data);
 
-        return $user_msg;
-    }
+        $this->logger->log(
+            $error->get_error_code(),
+            Logger::LEVEL_ERROR,
+            [
+                'type'    => $error->get_error_code(),
+                'details' => $details,
+            ],
+            $form_data
+        );
 
-    private function error_response(string $type, array $details = [], string $user_msg = ''): array {
-        $user_msg = $this->log_and_message($type, $details, $user_msg);
         return [
             'success'   => false,
-            'message'   => $user_msg,
-            'form_data' => $details['form_data'] ?? [],
-            'errors'    => $details['errors'] ?? [],
+            'message'   => $error->get_error_message(),
+            'form_data' => $form_data,
+            'errors'    => $data['errors'] ?? [],
         ];
     }
 }

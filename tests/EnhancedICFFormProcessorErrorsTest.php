@@ -18,6 +18,15 @@ class EnhancedICFFormProcessorErrorsTest extends TestCase {
             'message_input'          => 'short',
         ];
 
+        try {
+            $ref = new \ReflectionClass( $processor );
+            $m   = $ref->getMethod( 'validate_request' );
+            $m->setAccessible( true );
+            $m->invoke( $processor, $submitted );
+        } catch ( ValidationException $e ) {
+            $this->fail( 'ValidationException should not be thrown for field errors.' );
+        }
+
         $result = $processor->process_form_submission('default', $submitted);
 
         $this->assertFalse($result['success']);

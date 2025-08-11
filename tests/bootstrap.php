@@ -4,6 +4,34 @@ require_once __DIR__ . '/../vendor/autoload.php';
 if ( ! defined( 'ABSPATH' ) ) {
     define( 'ABSPATH', __DIR__ );
 }
+
+class WP_Error {
+    private $code;
+    private $message;
+    private $data;
+
+    public function __construct( $code = '', $message = '', $data = [] ) {
+        $this->code    = $code;
+        $this->message = $message;
+        $this->data    = $data;
+    }
+
+    public function get_error_code() {
+        return $this->code;
+    }
+
+    public function get_error_message() {
+        return $this->message;
+    }
+
+    public function get_error_data() {
+        return $this->data;
+    }
+}
+
+function is_wp_error( $thing ) {
+    return $thing instanceof WP_Error;
+}
 function sanitize_text_field($str){
     $str = strip_tags($str);
     $str = preg_replace('/[\r\n\t ]+/', ' ', $str);
@@ -149,6 +177,7 @@ require_once __DIR__.'/../includes/logger.php';
 require_once __DIR__.'/../includes/field-registry.php';
 require_once __DIR__.'/../includes/template-tags.php';
 require_once __DIR__.'/../includes/render.php';
+require_once __DIR__.'/../includes/template-config.php';
+require_once __DIR__.'/../includes/class-validation-exception.php';
 require_once __DIR__.'/../includes/class-enhanced-icf-processor.php';
 require_once __DIR__.'/../includes/class-enhanced-icf.php';
-require_once __DIR__.'/../includes/template-config.php';
