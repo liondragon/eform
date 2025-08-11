@@ -84,3 +84,12 @@ placeholders or other field attributes for the `default` template. Configuration
 files are parsed using core PHP functions. If a theme file is not found, the
 plugin will look for a matching configuration within its own `templates/`
 directory, providing a plugin-level fallback.
+
+### Template Configuration Caching
+
+Template configurations are cached both in-memory and via WordPress' object
+cache. The cache key includes a version token derived from the most recent
+modification time of the plugin and theme configuration files. When any of these
+files change the token differs, causing the cache to refresh. Call
+`eform_purge_template_config_cache()` after activating a theme or the plugin to
+remove any stale entries.
