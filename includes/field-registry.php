@@ -53,7 +53,7 @@ class FieldRegistry {
 
         $field_config = [
             'post_key'    => $config['post_key'] ?? $field,
-            'required'    => array_key_exists( 'required', $config ),
+            'required'    => (bool) ( $config['required'] ?? false ),
             'sanitize_cb' => $callbacks['sanitize_cb'],
             'validate_cb' => $callbacks['validate_cb'],
         ];
