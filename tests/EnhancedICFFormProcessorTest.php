@@ -143,18 +143,45 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_template_without_phone_field() {
-        foreach (['name', 'email', 'zip', 'message'] as $field) {
-            $this->registry->register_field('no_phone', $field, [ 'required' => true ]);
-        }
+        $this->registry->register_field_from_config('no_phone', 'name', [
+            'post_key' => 'name_input',
+            'type'     => 'text',
+            'required' => true,
+        ]);
+        $this->registry->register_field_from_config('no_phone', 'email', [
+            'post_key' => 'email_input',
+            'type'     => 'email',
+            'required' => true,
+        ]);
+        $this->registry->register_field_from_config('no_phone', 'zip', [
+            'post_key' => 'zip_input',
+            'type'     => 'text',
+            'required' => true,
+        ]);
+        $this->registry->register_field_from_config('no_phone', 'message', [
+            'post_key' => 'message_input',
+            'type'     => 'textarea',
+            'required' => true,
+        ]);
         $data   = $this->build_submission('no_phone');
         $result = $this->processor->process_form_submission('no_phone', $data);
         $this->assertTrue($result['success']);
     }
 
     public function test_required_phone_missing() {
-        foreach (['name', 'email', 'phone'] as $field) {
-            $this->registry->register_field('phone_only', $field, [ 'required' => $field === 'phone' ]);
-        }
+        $this->registry->register_field_from_config('phone_only', 'name', [
+            'post_key' => 'name_input',
+            'type'     => 'text',
+        ]);
+        $this->registry->register_field_from_config('phone_only', 'email', [
+            'post_key' => 'email_input',
+            'type'     => 'email',
+        ]);
+        $this->registry->register_field_from_config('phone_only', 'phone', [
+            'post_key' => 'tel_input',
+            'type'     => 'tel',
+            'required' => true,
+        ]);
         $data   = $this->build_submission('phone_only', overrides: ['phone' => '']);
         $result = $this->processor->process_form_submission('phone_only', $data);
         $this->assertFalse($result['success']);

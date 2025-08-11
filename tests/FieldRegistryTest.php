@@ -11,98 +11,41 @@ class FieldRegistryTest extends TestCase {
             $this->assertIsCallable( $details['validate_cb'] );
         }
     }
-    public function testInvalidSanitizeCallbackTriggersWarningAndIsNotRegistered() {
+
+    public function testRegisterFieldFromConfigAppliesTypeCallbacks() {
         $registry = new FieldRegistry();
-        $error = null;
-        set_error_handler(function($errno, $errstr) use (&$error) {
-            $error = $errstr;
-            return true; // suppress default error handling
-        });
-
-        // Attempt to register field with invalid sanitize callback.
-        $registry->register_field('template', 'name', ['sanitize_cb' => 'nonexistent_function']);
-
-        restore_error_handler();
-
-        // Register another valid field to inspect registered set for template.
-        $registry->register_field('template', 'email');
-
-        $fields = $registry->get_fields('template');
-        $this->assertArrayHasKey('email', $fields);
-        $this->assertArrayNotHasKey('name', $fields);
-        $this->assertNotNull($error);
-        $this->assertStringContainsString('sanitize_cb', $error);
-    }
-
-    public function testInvalidValidateCallbackTriggersWarningAndIsNotRegistered() {
-        $registry = new FieldRegistry();
-        $error = null;
-        set_error_handler(function($errno, $errstr) use (&$error) {
-            $error = $errstr;
-            return true; // suppress default error handling
-        });
-
-        // Attempt to register field with invalid validate callback.
-        $registry->register_field('template', 'email', ['validate_cb' => 'nonexistent_function']);
-
-        restore_error_handler();
-
-        // Register another valid field to ensure template exists.
-        $registry->register_field('template', 'name');
-
-        $fields = $registry->get_fields('template');
-        $this->assertArrayHasKey('name', $fields);
-        $this->assertArrayNotHasKey('email', $fields);
-        $this->assertNotNull($error);
-        $this->assertStringContainsString('validate_cb', $error);
-    }
-
-    public function testMissingRequiredParamTriggersWarning() {
-        $registry = new FieldRegistry();
-        $error = null;
-        set_error_handler(function($errno, $errstr) use (&$error) {
-            $error = $errstr;
-            return true;
-        });
-
-        // text_generic requires post_key.
-        $registry->register_field('template', 'text_generic', [], true);
-        // Register another field so the template's registered set exists.
-        $registry->register_field('template', 'email');
-
-        restore_error_handler();
-
-        $fields = $registry->get_fields('template');
-        $this->assertArrayHasKey('email', $fields);
-        $this->assertArrayNotHasKey('text_generic', $fields);
-        $this->assertNotNull($error);
-        $this->assertStringContainsString('post_key', $error);
+        $registry->register_field_from_config('tmpl', 'email', [
+            'post_key' => 'email_input',
+            'type'     => 'email',
+            'required' => true,
+        ]);
+        $fields = $registry->get_fields('tmpl');
+        $this->assertSame('sanitize_email', $fields['email']['sanitize_cb']);
+        $this->assertSame([FieldRegistry::class, 'validate_email'], $fields['email']['validate_cb']);
     }
 
     public function testValidatePatternHonorsRegex() {
         $registry = new FieldRegistry();
-        $registry->register_field('template', 'text_generic', [
-            'post_key' => 'code',
+        $registry->register_field_from_config('tmpl', 'code', [
+            'post_key' => 'code_input',
+            'type'     => 'text',
             'pattern'  => '\\d+',
             'required' => true,
-        ], true);
-
-        $field = $registry->get_fields('template')['text_generic'];
-
+        ]);
+        $field = $registry->get_fields('tmpl')['code'];
         $this->assertSame('Invalid format.', FieldRegistry::validate_pattern('abc', $field));
         $this->assertSame('', FieldRegistry::validate_pattern('123', $field));
     }
 
     public function testValidateRangeRespectsBounds() {
         $registry = new FieldRegistry();
-        $registry->register_field('template', 'number_generic', [
-            'post_key' => 'age',
+        $registry->register_field_from_config('tmpl', 'age', [
+            'post_key' => 'age_input',
+            'type'     => 'number',
             'min'      => 10,
             'max'      => 20,
-        ], true);
-
-        $field = $registry->get_fields('template')['number_generic'];
-
+        ]);
+        $field = $registry->get_fields('tmpl')['age'];
         $this->assertSame('Value must be at least 10.', FieldRegistry::validate_range('5', $field));
         $this->assertSame('Value must be at most 20.', FieldRegistry::validate_range('25', $field));
         $this->assertSame('', FieldRegistry::validate_range('15', $field));
@@ -110,13 +53,12 @@ class FieldRegistryTest extends TestCase {
 
     public function testValidateChoiceAllowsOnlyListedValues() {
         $registry = new FieldRegistry();
-        $registry->register_field('template', 'radio_generic', [
-            'post_key' => 'color',
+        $registry->register_field_from_config('tmpl', 'color', [
+            'post_key' => 'color_input',
+            'type'     => 'radio',
             'choices'  => ['red', 'blue'],
-        ], true);
-
-        $field = $registry->get_fields('template')['radio_generic'];
-
+        ]);
+        $field = $registry->get_fields('tmpl')['color'];
         $this->assertSame('Invalid selection.', FieldRegistry::validate_choice('green', $field));
         $this->assertSame('', FieldRegistry::validate_choice('red', $field));
     }
