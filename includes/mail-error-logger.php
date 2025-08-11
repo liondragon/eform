@@ -35,7 +35,7 @@ class Mail_Error_Logger {
      * @return void
      */
     public function log_mail_failure( $wp_error ) {
-        if ( is_wp_error( $wp_error ) ) {
+        if ( is_wp_error( $wp_error ) && $this->logger ) {
             $data = $wp_error->get_error_data();
             $this->logger->log(
                 'Mail send failure',
@@ -56,10 +56,13 @@ class Mail_Error_Logger {
      * @return void
      */
     public function maybe_enable_phpmailer_debug( $phpmailer ) {
-        if ( defined( 'DEBUG_LEVEL' ) && DEBUG_LEVEL === 3 ) {
+        if ( defined( 'DEBUG_LEVEL' ) && DEBUG_LEVEL === 3 && $this->logger ) {
             $phpmailer->SMTPDebug  = 3;
-            $phpmailer->Debugoutput = function ( $str, $level ) {
-                $this->logger->log( 'PHPMailer Debug', Logger::LEVEL_INFO, [ 'debug' => $str, 'phpmailer_level' => $level ] );
+            $logger = $this->logger;
+            $phpmailer->Debugoutput = function ( $str, $level ) use ( $logger ) {
+                if ( $logger ) {
+                    $logger->log( 'PHPMailer Debug', Logger::LEVEL_INFO, [ 'debug' => $str, 'phpmailer_level' => $level ] );
+                }
             };
         }
     }

@@ -193,7 +193,9 @@ class Enhanced_ICF_Form_Processor {
 
         $safe_fields = eform_get_safe_fields( $data );
         $safe_data   = array_intersect_key( $data, array_flip( $safe_fields ) );
-        $this->logger->log( 'Form submission sent', Logger::LEVEL_INFO, [ 'form_data' => $safe_data, 'template' => $template ] );
+        if ( $this->logger ) {
+            $this->logger->log( 'Form submission sent', Logger::LEVEL_INFO, [ 'form_data' => $safe_data, 'template' => $template ] );
+        }
     }
 
     private function build_email_body(array $data): string {
@@ -236,10 +238,12 @@ class Enhanced_ICF_Form_Processor {
         if (isset($details['form_data'])) {
             unset($details['form_data']);
         }
-        $this->logger->log($type, Logger::LEVEL_ERROR, [
-            'type'    => $type,
-            'details' => $details,
-        ], $form_data);
+        if ( $this->logger ) {
+            $this->logger->log($type, Logger::LEVEL_ERROR, [
+                'type'    => $type,
+                'details' => $details,
+            ], $form_data);
+        }
 
         return $user_msg;
     }

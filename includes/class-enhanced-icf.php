@@ -6,17 +6,16 @@ class Enhanced_Internal_Contact_Form {
     private $success_message = '<div class="form-message success">Thank you! Your message has been sent.</div>';
     private $error_message = '';
     private $form_submitted = false;
-    private $inline_css = ''; // Holds aggregated inline CSS
     public $form_data = [];
     public $field_errors = [];
     private $load_css = false; // Flag to control CSS loading
     private $use_inline_css = true; // Use inline CSS or enqueue stylesheet
     private $processed_template = ''; // Track which template was submitted
     private $loaded_css_templates = []; // Track templates whose CSS is loaded
-    private $css_printed = false; // Ensure CSS only printed once
     private $processor; // Default processor for backward compatibility
     private $logger;
     public $template_config = [];
+    private static $css_cache = []; // Cache CSS contents to avoid repeated reads
 
     public function __construct( ?Enhanced_ICF_Form_Processor $processor = null, ?Logger $logger = null ) {
         $this->processor = $processor;
@@ -59,23 +58,6 @@ class Enhanced_Internal_Contact_Form {
                     $this->error_message = '<div class="form-message error">' . $sanitized_message . '</div>';
                 }
             }
-        }
-    }
-
-    // Method hooked to wp_head or wp_footer when inline CSS is needed
-    public function print_inline_css() {
-        if ( ! empty( $this->inline_css ) && ! $this->css_printed ) {
-            $handle = 'enhanced-icf-inline-style';
-
-            if ( ! wp_style_is( $handle, 'registered' ) ) {
-                wp_register_style( $handle, false );
-            }
-
-            wp_enqueue_style( $handle );
-            wp_add_inline_style( $handle, $this->inline_css );
-            wp_print_styles( $handle );
-
-            $this->css_printed = true;
         }
     }
 
@@ -135,31 +117,44 @@ class Enhanced_Internal_Contact_Form {
         $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
 
         if ( ! file_exists( $css_path ) ) {
-            $this->logger->log( sprintf( 'Enhanced ICF CSS file missing: %s', $css_path ), Logger::LEVEL_WARNING );
+            if ( $this->logger ) {
+                $this->logger->log( sprintf( 'Enhanced ICF CSS file missing: %s', $css_path ), Logger::LEVEL_WARNING );
+            }
             return;
         }
 
         if ( ! is_readable( $css_path ) ) {
-            $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ), Logger::LEVEL_WARNING );
+            if ( $this->logger ) {
+                $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ), Logger::LEVEL_WARNING );
+            }
             return;
         }
 
         if ( $this->use_inline_css ) {
-            $css = file_get_contents( $css_path );
-
-            if ( false === $css ) {
-                $this->logger->log( sprintf( 'Failed to read Enhanced ICF CSS file: %s', $css_path ), Logger::LEVEL_WARNING );
-                return;
+            if ( isset( self::$css_cache[ $css_path ] ) ) {
+                $css = self::$css_cache[ $css_path ];
+            } else {
+                $css = file_get_contents( $css_path );
+                if ( false === $css ) {
+                    if ( $this->logger ) {
+                        $this->logger->log( sprintf( 'Failed to read Enhanced ICF CSS file: %s', $css_path ), Logger::LEVEL_WARNING );
+                    }
+                    return;
+                }
+                self::$css_cache[ $css_path ] = $css;
             }
 
-            $this->inline_css .= $css . "\n";
+            $handle = 'enhanced-icf-inline-' . $template;
+            if ( ! wp_style_is( $handle, 'registered' ) ) {
+                wp_register_style( $handle, false );
+            }
+            wp_enqueue_style( $handle );
+            wp_add_inline_style( $handle, $css );
 
             if ( did_action( 'wp_head' ) ) {
-                if ( ! has_action( 'wp_footer', [ $this, 'print_inline_css' ] ) ) {
-                    add_action( 'wp_footer', [ $this, 'print_inline_css' ] );
-                }
-            } elseif ( ! has_action( 'wp_head', [ $this, 'print_inline_css' ] ) ) {
-                add_action( 'wp_head', [ $this, 'print_inline_css' ] );
+                add_action( 'wp_footer', function () use ( $handle ) {
+                    wp_print_styles( $handle );
+                } );
             }
         } else {
             $handle  = 'enhanced-icf-' . $template;
