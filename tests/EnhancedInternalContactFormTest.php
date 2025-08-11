@@ -93,8 +93,10 @@ class EnhancedInternalContactFormTest extends TestCase {
             'message_input' => ['short'],
         ];
 
-        $processor = new Enhanced_ICF_Form_Processor(new Logger(), new FieldRegistry());
-        $form = new Enhanced_Internal_Contact_Form($processor, new Logger());
+        $registry  = new FieldRegistry();
+        register_template_fields_from_config( $registry, 'default' );
+        $processor = new Enhanced_ICF_Form_Processor(new Logger(), $registry);
+        $form      = new Enhanced_Internal_Contact_Form($processor, new Logger());
         $ref = new ReflectionClass($form);
         $prop = $ref->getProperty('redirect_url');
         $prop->setAccessible(true);

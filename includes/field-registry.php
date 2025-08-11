@@ -2,36 +2,6 @@
 // includes/field-registry.php
 
 class FieldRegistry {
-    /**
-     * Generic field definitions that can be registered on demand.
-     *
-     * @var array<string,array>
-     */
-    private $generic_fields = [
-        'text_generic' => [
-            'post_key'        => '',
-            'required'        => false,
-            'sanitize_cb'     => 'sanitize_text_field',
-            'validate_cb'     => [self::class, 'validate_pattern'],
-            'required_params' => ['post_key'],
-        ],
-        'number_generic' => [
-            'post_key'        => '',
-            'required'        => false,
-            'sanitize_cb'     => [self::class, 'sanitize_number'],
-            'validate_cb'     => [self::class, 'validate_range'],
-            'required_params' => ['post_key'],
-        ],
-        'radio_generic' => [
-            'post_key'        => '',
-            'required'        => false,
-            'sanitize_cb'     => 'sanitize_text_field',
-            'validate_cb'     => [self::class, 'validate_choice'],
-            // "choices" must be provided when registering this field so
-            // validation can ensure the submitted value is allowed.
-            'required_params' => ['post_key', 'choices'],
-        ],
-    ];
 
     /**
      * Map field types from configuration to sanitize/validate callbacks.
@@ -64,51 +34,6 @@ class FieldRegistry {
             'validate_cb' => [self::class, 'validate_message'],
         ],
     ];
-    /**
-     * Retrieve the base configuration for all available fields.
-     *
-     * @return array[]
-     */
-    public function get_field_map(): array {
-        $fields = [
-            'name'    => [
-                'post_key'     => 'name_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_text_field',
-                'validate_cb'  => [self::class, 'validate_name'],
-            ],
-            'email'   => [
-                'post_key'     => 'email_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_email',
-                'validate_cb'  => [self::class, 'validate_email'],
-            ],
-            'phone'   => [
-                'post_key'     => 'tel_input',
-                'required'     => true,
-                'sanitize_cb'  => [self::class, 'sanitize_digits'],
-                'validate_cb'  => [self::class, 'validate_phone'],
-            ],
-            'zip'     => [
-                'post_key'     => 'zip_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_text_field',
-                'validate_cb'  => [self::class, 'validate_zip'],
-            ],
-            'message' => [
-                'post_key'     => 'message_input',
-                'required'     => true,
-                'sanitize_cb'  => 'sanitize_textarea_field',
-                'validate_cb'  => [self::class, 'validate_message'],
-            ],
-        ];
-
-        if ( function_exists( 'apply_filters' ) ) {
-            $fields = apply_filters( 'eform_field_map', $fields );
-        }
-
-        return $fields;
-    }
 
     /**
      * Registered fields per template.
@@ -116,64 +41,6 @@ class FieldRegistry {
      * @var array<string,array>
      */
     private $registered = [];
-
-    /**
-     * Register a field for a template.
-     *
-     * @param string $template Template slug.
-     * @param string $field    Field key.
-     * @param array  $args     Field overrides (e.g. ['required' => true]).
-     * @param bool   $generic  Whether the field is a generic definition.
-     */
-    public function register_field( string $template, string $field, array $args = [], bool $generic = false ): void {
-        $field_map = $generic ? $this->generic_fields : $this->get_field_map();
-        if ( ! isset( $field_map[ $field ] ) ) {
-            return;
-        }
-
-        $base   = $field_map[ $field ];
-        $params = $base['required_params'] ?? [];
-        foreach ( $params as $param ) {
-            $provided = array_key_exists( $param, $args ) || ! empty( $base[ $param ] );
-            if ( ! $provided ) {
-                $message = sprintf(
-                    'Missing required parameter "%s" for field "%s" in template "%s"',
-                    $param,
-                    $field,
-                    $template
-                );
-                trigger_error( $message, E_USER_WARNING );
-                return;
-            }
-        }
-
-        // Merge base configuration with any overrides.
-        $config = array_merge( $base, $args );
-
-        if ( isset( $config['required'] ) ) {
-            $config['required'] = (bool) $config['required'];
-        }
-
-        unset( $config['required_params'] );
-
-        // Ensure callbacks are valid before registering.
-        foreach ( [ 'sanitize_cb', 'validate_cb' ] as $cb_key ) {
-            if ( isset( $config[ $cb_key ] ) && ! is_callable( $config[ $cb_key ] ) ) {
-                $message = sprintf(
-                    'Invalid %s for field "%s" in template "%s"',
-                    $cb_key,
-                    $field,
-                    $template
-                );
-                // Trigger a warning for invalid callbacks.
-                trigger_error( $message, E_USER_WARNING );
-                return;
-            }
-        }
-
-        $this->registered[ $template ][ $field ] = $config;
-    }
-
     /**
      * Register a field using configuration data.
      *
@@ -222,7 +89,7 @@ class FieldRegistry {
      * Retrieve the field map for a given template.
      */
     public function get_template_map( string $template ): array {
-        $fields = $this->registered[ $template ] ?? $this->get_field_map();
+        $fields = $this->registered[ $template ] ?? [];
 
         if ( function_exists( 'apply_filters' ) ) {
             $fields = apply_filters( 'eform_template_map', $fields, $template );
