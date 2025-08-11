@@ -56,50 +56,70 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data = $this->build_submission(overrides: ['enhanced_icf_form_nonce' => 'invalid']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Nonce Failed', 'Invalid submission detected.']);
-        $actual   = $this->invoke_method($this->processor, 'check_nonce', [$data]);
-        $this->assertSame($expected, $actual);
-        $this->assertSame($expected['message'], $result['message']);
+        $this->assertSame('Invalid submission detected.', $result['message']);
+        try {
+            $this->invoke_method($this->processor, 'validate_request', [$data]);
+            $this->fail('ValidationException was not thrown');
+        } catch ( ValidationException $e ) {
+            $this->assertSame('Nonce Failed', $e->get_error()->get_error_code());
+            $this->assertSame('Invalid submission detected.', $e->get_error()->get_error_message());
+        }
     }
 
     public function test_honeypot_failure() {
         $data = $this->build_submission(overrides: ['enhanced_url' => 'http://spam']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
-        $actual   = $this->invoke_method($this->processor, 'check_honeypot', [$data]);
-        $this->assertSame($expected, $actual);
-        $this->assertSame($expected['message'], $result['message']);
+        $this->assertSame('Bot test failed.', $result['message']);
+        try {
+            $this->invoke_method($this->processor, 'validate_request', [$data]);
+            $this->fail('ValidationException was not thrown');
+        } catch ( ValidationException $e ) {
+            $this->assertSame('Bot Alert: Honeypot Filled', $e->get_error()->get_error_code());
+            $this->assertSame('Bot test failed.', $e->get_error()->get_error_message());
+        }
     }
 
     public function test_honeypot_array_failure() {
         $data = $this->build_submission(overrides: ['enhanced_url' => ['spam']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
-        $actual   = $this->invoke_method($this->processor, 'check_honeypot', [$data]);
-        $this->assertSame($expected, $actual);
-        $this->assertSame($expected['message'], $result['message']);
+        $this->assertSame('Bot test failed.', $result['message']);
+        try {
+            $this->invoke_method($this->processor, 'validate_request', [$data]);
+            $this->fail('ValidationException was not thrown');
+        } catch ( ValidationException $e ) {
+            $this->assertSame('Bot Alert: Honeypot Filled', $e->get_error()->get_error_code());
+            $this->assertSame('Bot test failed.', $e->get_error()->get_error_message());
+        }
     }
 
     public function test_submission_time_failure() {
         $data = $this->build_submission(overrides: ['enhanced_form_time' => time()]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
-        $actual   = $this->invoke_method($this->processor, 'check_submission_time', [$data]);
-        $this->assertSame($expected, $actual);
-        $this->assertSame($expected['message'], $result['message']);
+        $this->assertSame('Submission too fast. Please try again.', $result['message']);
+        try {
+            $this->invoke_method($this->processor, 'validate_request', [$data]);
+            $this->fail('ValidationException was not thrown');
+        } catch ( ValidationException $e ) {
+            $this->assertSame('Bot Alert: Fast Submission', $e->get_error()->get_error_code());
+            $this->assertSame('Submission too fast. Please try again.', $e->get_error()->get_error_message());
+        }
     }
 
     public function test_submission_time_array_failure() {
         $data = $this->build_submission(overrides: ['enhanced_form_time' => ['now']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
-        $actual   = $this->invoke_method($this->processor, 'check_submission_time', [$data]);
-        $this->assertSame($expected, $actual);
-        $this->assertSame($expected['message'], $result['message']);
+        $this->assertSame('Submission too fast. Please try again.', $result['message']);
+        try {
+            $this->invoke_method($this->processor, 'validate_request', [$data]);
+            $this->fail('ValidationException was not thrown');
+        } catch ( ValidationException $e ) {
+            $this->assertSame('Bot Alert: Fast Submission', $e->get_error()->get_error_code());
+            $this->assertSame('Submission too fast. Please try again.', $e->get_error()->get_error_message());
+        }
     }
 
     public function test_js_check_failure() {
@@ -107,10 +127,14 @@ class EnhancedICFFormProcessorTest extends TestCase {
         unset($data['enhanced_js_check']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: JS Check Missing', 'JavaScript must be enabled.']);
-        $actual   = $this->invoke_method($this->processor, 'check_js_enabled', [$data]);
-        $this->assertSame($expected, $actual);
-        $this->assertSame($expected['message'], $result['message']);
+        $this->assertSame('JavaScript must be enabled.', $result['message']);
+        try {
+            $this->invoke_method($this->processor, 'validate_request', [$data]);
+            $this->fail('ValidationException was not thrown');
+        } catch ( ValidationException $e ) {
+            $this->assertSame('Bot Alert: JS Check Missing', $e->get_error()->get_error_code());
+            $this->assertSame('JavaScript must be enabled.', $e->get_error()->get_error_message());
+        }
     }
 
     public function test_field_validation_failure() {
