@@ -14,21 +14,16 @@ class Enhanced_Internal_Contact_Form {
     private $processed_template = ''; // Track which template was submitted
     private $loaded_css_templates = []; // Track templates whose CSS is loaded
     private $css_printed = false; // Ensure CSS only printed once
-    private $processor;
+    private $processor; // Default processor for backward compatibility
     private $logger;
     public $template_config = [];
 
-    public function __construct( Enhanced_ICF_Form_Processor $processor, Logger $logger ) {
+    public function __construct( ?Enhanced_ICF_Form_Processor $processor = null, ?Logger $logger = null ) {
         $this->processor = $processor;
         $this->logger    = $logger;
-
-        // Process submissions before rendering any template
-        add_action('template_redirect', [$this, 'maybe_handle_form'], 1);
-        // Register shortcode to render form
-        add_shortcode('enhanced_icf_shortcode', [$this, 'handle_shortcode']);
     }
 
-    public function maybe_handle_form() {
+    public function maybe_handle_form( Enhanced_ICF_Form_Processor $processor ) {
         $this->form_data    = [];
         $this->field_errors = [];
 
@@ -43,7 +38,7 @@ class Enhanced_Internal_Contact_Form {
 
         if ( isset( $submitted_data[ $submit_key ] ) ) {
             $this->processed_template = $template;
-            $result                   = $this->processor->process_form_submission( $template, $submitted_data );
+            $result                   = $processor->process_form_submission( $template, $submitted_data );
             if ($result['success']) {
                 $this->form_submitted = true;
                 if ( ! empty( $this->redirect_url ) ) {
@@ -95,7 +90,7 @@ class Enhanced_Internal_Contact_Form {
         echo '<div style="display:none;"><input type="text" name="enhanced_url" value=""></div>';
     }
 
-    public function handle_shortcode( $atts ) {
+    public function handle_shortcode( $atts, ?FieldRegistry $registry = null, ?Enhanced_ICF_Form_Processor $processor = null ) {
         $atts = shortcode_atts( [
             'template'     => 'default',
             'style'        => 'false',
@@ -110,7 +105,25 @@ class Enhanced_Internal_Contact_Form {
             $this->use_inline_css = filter_var( $atts['useinlinecss'], FILTER_VALIDATE_BOOLEAN );
         }
 
-        return $this->render_form( $template );
+        // Default to global instances if none supplied.
+        if ( null === $registry && isset( $GLOBALS['eform_registry'] ) ) {
+            $registry = $GLOBALS['eform_registry'];
+        }
+        if ( null === $processor ) {
+            if ( null !== $this->processor ) {
+                $processor = $this->processor;
+            } else {
+                $registry  = $registry ?: new FieldRegistry();
+                $processor = new Enhanced_ICF_Form_Processor( $this->logger, $registry );
+            }
+        }
+
+        // Ensure helpers like format_phone use the correct processor.
+        $this->processor = $processor;
+
+        $this->maybe_handle_form( $processor );
+
+        return $this->render_form( $template, $registry );
     }
 
     private function prepare_css( $template ) {
@@ -177,17 +190,19 @@ class Enhanced_Internal_Contact_Form {
         return $form_html;
     }
 
-    private function render_form( $template ) {
+    private function render_form( $template, ?FieldRegistry $registry = null ) {
         $this->prepare_css( $template );
 
         // Load template configuration and register fields for this template.
         $this->template_config = eform_get_template_config( $template );
-        global $eform_registry;
-        if ( isset( $eform_registry ) ) {
+        if ( null === $registry && isset( $GLOBALS['eform_registry'] ) ) {
+            $registry = $GLOBALS['eform_registry'];
+        }
+        if ( null !== $registry ) {
             foreach ( $this->template_config['fields'] ?? [] as $post_key => $field ) {
                 $key   = FieldRegistry::field_key_from_post( $post_key );
                 $field = array_merge( $field, [ 'post_key' => $post_key ] );
-                $eform_registry->register_field_from_config( $template, $key, $field );
+                $registry->register_field_from_config( $template, $key, $field );
             }
         }
 
@@ -201,9 +216,11 @@ class Enhanced_Internal_Contact_Form {
         $form_html = ob_get_clean();
 
         // Inject hidden field listing keys used in this template for processing
-        global $eform_registry;
-        if ( isset( $eform_registry ) ) {
-            $fields = $eform_registry->get_fields( $template );
+        if ( null === $registry && isset( $GLOBALS['eform_registry'] ) ) {
+            $registry = $GLOBALS['eform_registry'];
+        }
+        if ( null !== $registry ) {
+            $fields = $registry->get_fields( $template );
             if ( ! empty( $fields ) ) {
                 $keys   = implode( ',', array_keys( $fields ) );
                 $hidden = '<input type="hidden" name="enhanced_fields" value="' . esc_attr( $keys ) . '">';
@@ -230,11 +247,11 @@ class Enhanced_Internal_Contact_Form {
     public function __call( $name, $arguments ) {
         $template = sanitize_key( $name );
 
-        return $this->render_form( $template );
+        return $this->handle_shortcode( [ 'template' => $template ] );
     }
 
     // Expose phone formatting for templates
     public function format_phone(string $digits): string {
-        return $this->processor->format_phone($digits);
+        return $this->processor ? $this->processor->format_phone($digits) : $digits;
     }
 }
