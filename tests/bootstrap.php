@@ -47,6 +47,10 @@ function eform_get_safe_fields($data){
     return array_keys($data);
 }
 
+function wp_json_encode( $data, $options = 0, $depth = 512 ) {
+    return json_encode( $data, $options | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES, $depth );
+}
+
 // Simple in-memory cache for testing wp_cache_* functions.
 $GLOBALS['wp_cache'] = [];
 function wp_cache_set( $key, $data, $group = '' ) {
