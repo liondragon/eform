@@ -114,6 +114,31 @@ function eform_load_config_from_paths( array $paths ): array {
 }
 
 /**
+ * Retrieve field metadata for a template.
+ *
+ * @param string $template Template slug.
+ * @return array<string,array> Field rules keyed by logical field key.
+ */
+function eform_get_template_fields( string $template ): array {
+    $config = eform_get_template_config( $template );
+    $fields = [];
+
+    foreach ( $config['fields'] ?? [] as $post_key => $field ) {
+        $key = isset( $field['key'] ) ? sanitize_key( $field['key'] )
+            : sanitize_key( preg_replace( '/_input$/', '', $post_key ) );
+        if ( 'tel' === $key ) {
+            $key = 'phone';
+        }
+
+        $field['post_key'] = $post_key;
+        unset( $field['key'] );
+        $fields[ $key ] = $field;
+    }
+
+    return $fields;
+}
+
+/**
  * Remove all cached template configuration entries.
  *
  * Intended for use on theme or plugin activation to clear potentially stale

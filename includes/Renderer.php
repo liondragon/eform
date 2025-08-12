@@ -18,7 +18,10 @@ class Renderer {
         $form_id = Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
 
         foreach ( $config['fields'] ?? [] as $post_key => $field ) {
-            $field_key = eform_field_key_from_post( $post_key );
+            $field_key = isset( $field['key'] ) ? sanitize_key( $field['key'] ) : sanitize_key( preg_replace( '/_input$/', '', $post_key ) );
+            if ( 'tel' === $field_key ) {
+                $field_key = 'phone';
+            }
             $value     = $form->form_data[ $field_key ] ?? '';
             if ( ( $field['type'] ?? '' ) === 'tel' ) {
                 $value = $form->format_phone( $value );
@@ -26,7 +29,7 @@ class Renderer {
             $required = isset( $field['required'] ) ? ' required aria-required="true"' : '';
             $attr_str = '';
             foreach ( $field as $attr => $val ) {
-                if ( in_array( $attr, [ 'type', 'required', 'style' ], true ) ) {
+                if ( in_array( $attr, [ 'type', 'required', 'style', 'key', 'sanitize', 'validate' ], true ) ) {
                     continue;
                 }
                 $attr_str .= sprintf( ' %s="%s"', esc_attr( $attr ), esc_attr( $val ) );

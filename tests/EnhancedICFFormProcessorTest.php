@@ -11,7 +11,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     private function build_submission(string $template = 'default', array $overrides = []): array {
-        $field_map = eform_get_field_rules( $template );
+        $field_map = eform_get_template_fields( $template );
 
         $form_id = $overrides['enhanced_form_id'] ?? 'form123';
         unset( $overrides['enhanced_form_id'] );

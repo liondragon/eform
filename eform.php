@@ -39,7 +39,6 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/mail-error-logger.php';
  * PHPMailer debugging events using the provided logger instance.
  */
 new Mail_Error_Logger( $logger );
-require_once plugin_dir_path( __FILE__ ) . 'includes/field-registry.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/template-tags.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/FormData.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/Renderer.php';

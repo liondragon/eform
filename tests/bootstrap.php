@@ -1,5 +1,7 @@
 <?php
-require_once __DIR__ . '/../vendor/autoload.php';
+if ( file_exists( __DIR__ . '/../vendor/autoload.php' ) ) {
+    require_once __DIR__ . '/../vendor/autoload.php';
+}
 // Minimal WordPress stubs for testing
 if ( ! defined( 'ABSPATH' ) ) {
     define( 'ABSPATH', __DIR__ );
@@ -77,7 +79,7 @@ function get_default_field_values( string $template = 'default' ): array {
         'message' => str_repeat('a', 25),
     ];
 
-    $fields = eform_get_field_rules( $template );
+    $fields = eform_get_template_fields( $template );
     $values = [];
     foreach ( $fields as $field => $_ ) {
         $values[ $field ] = $defaults[ $field ] ?? '';
@@ -154,7 +156,6 @@ if ( ! defined('WP_CONTENT_DIR') ) {
     define('WP_CONTENT_DIR', sys_get_temp_dir() . '/wp-content');
 }
 require_once __DIR__.'/../includes/logger.php';
-require_once __DIR__.'/../includes/field-registry.php';
 require_once __DIR__.'/../includes/template-tags.php';
 require_once __DIR__.'/../includes/FormData.php';
 require_once __DIR__.'/../includes/Renderer.php';
