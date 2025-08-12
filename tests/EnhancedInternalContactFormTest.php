@@ -4,10 +4,14 @@ use PHPUnit\Framework\TestCase;
 class EnhancedInternalContactFormTest extends TestCase {
     public function test_maybe_handle_form_forwards_raw_data_and_sets_flag_on_success() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
+        $form_id = 'form123';
         $_POST = [
             'enhanced_template' => 'default',
             'enhanced_form_submit_default' => 'send',
-            'name_input' => ' <b>Jane</b> ',
+            'enhanced_form_id' => $form_id,
+            $form_id => [
+                'name' => ' <b>Jane</b> ',
+            ],
         ];
 
         $processor = $this->getMockBuilder(Enhanced_ICF_Form_Processor::class)
@@ -19,7 +23,10 @@ class EnhancedInternalContactFormTest extends TestCase {
             ->with('default', [
                 'enhanced_template' => 'default',
                 'enhanced_form_submit_default' => 'send',
-                'name_input' => ' <b>Jane</b> ',
+                'enhanced_form_id' => $form_id,
+                $form_id => [
+                    'name' => ' <b>Jane</b> ',
+                ],
             ])
             ->willReturn(['success' => true]);
 
@@ -38,10 +45,14 @@ class EnhancedInternalContactFormTest extends TestCase {
 
     public function test_maybe_handle_form_handles_error_response() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
+        $form_id = 'form123';
         $_POST = [
             'enhanced_template' => 'default',
             'enhanced_form_submit_default' => 'send',
-            'name_input' => ' <b>Jane</b> ',
+            'enhanced_form_id' => $form_id,
+            $form_id => [
+                'name' => ' <b>Jane</b> ',
+            ],
         ];
 
         $processor = $this->getMockBuilder(Enhanced_ICF_Form_Processor::class)
@@ -79,6 +90,7 @@ class EnhancedInternalContactFormTest extends TestCase {
 
     public function test_maybe_handle_form_rejects_array_fields() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
+        $form_id = 'form123';
         $_POST = [
             'enhanced_template' => 'default',
             'enhanced_form_submit_default' => 'send',
@@ -86,11 +98,14 @@ class EnhancedInternalContactFormTest extends TestCase {
             'enhanced_url' => '',
             'enhanced_form_time' => time() - 10,
             'enhanced_js_check' => '1',
-            'name_input' => [' <b>Jane</b> ', 'Doe'],
-            'email_input' => ['jane@example.com', 'evil@example.com'],
-            'tel_input' => ['123-456-7890', '000'],
-            'zip_input' => ['12345', ''],
-            'message_input' => ['short'],
+            'enhanced_form_id' => $form_id,
+            $form_id => [
+                'name'    => [ ' <b>Jane</b> ', 'Doe' ],
+                'email'   => [ 'jane@example.com', 'evil@example.com' ],
+                'phone'   => [ '123-456-7890', '000' ],
+                'zip'     => [ '12345', '' ],
+                'message' => [ 'short' ],
+            ],
         ];
 
         $registry  = new FieldRegistry();
@@ -144,7 +159,7 @@ class EnhancedInternalContactFormTest extends TestCase {
         $method->setAccessible( true );
         $html = $method->invoke( $form, $template );
 
-        $this->assertStringContainsString( 'name="name_input"', $html );
+        $this->assertMatchesRegularExpression( '/name="[^"]*\[name\]"/', $html );
         $this->assertStringContainsString( 'placeholder="JSON Name"', $html );
 
         unlink( $path );
