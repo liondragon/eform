@@ -165,7 +165,9 @@ if ( ! defined('WP_CONTENT_DIR') ) {
 require_once __DIR__.'/../includes/logger.php';
 require_once __DIR__.'/../includes/field-registry.php';
 require_once __DIR__.'/../includes/template-tags.php';
-require_once __DIR__.'/../includes/render.php';
+require_once __DIR__.'/../includes/FormData.php';
+require_once __DIR__.'/../includes/Renderer.php';
+require_once __DIR__.'/../includes/FormManager.php';
 require_once __DIR__.'/../includes/class-enhanced-icf-processor.php';
 require_once __DIR__.'/../includes/class-enhanced-icf.php';
 require_once __DIR__.'/../includes/template-config.php';

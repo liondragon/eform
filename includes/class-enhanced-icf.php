@@ -1,13 +1,11 @@
 <?php
 // includes/class-enhanced-icf.php
 
-class Enhanced_Internal_Contact_Form {
+class Enhanced_Internal_Contact_Form extends FormData {
     private $redirect_url='/?page_id=20'; // Set to empty string to disable redirect
     private $success_message = '<div class="form-message success">Thank you! Your message has been sent.</div>';
     private $error_message = '';
     private $form_submitted = false;
-    public $form_data = [];
-    public $field_errors = [];
     private $load_css = false; // Flag to control CSS loading
     private $use_inline_css = true; // Use inline CSS or enqueue stylesheet
     private $processed_template = ''; // Track which template was submitted
@@ -16,10 +14,16 @@ class Enhanced_Internal_Contact_Form {
     private $logger;
     public $template_config = [];
     private static $css_cache = []; // Cache CSS contents to avoid repeated reads
+    private $renderer;
 
-    public function __construct( ?Enhanced_ICF_Form_Processor $processor = null, ?Logger $logger = null ) {
+    public function __construct( ?Enhanced_ICF_Form_Processor $processor = null, ?Logger $logger = null, ?Renderer $renderer = null ) {
         $this->processor = $processor;
         $this->logger    = $logger;
+        $this->renderer  = $renderer ?: new Renderer();
+    }
+
+    public function set_renderer( Renderer $renderer ): void {
+        $this->renderer = $renderer;
     }
 
     public function maybe_handle_form( Enhanced_ICF_Form_Processor $processor ) {
@@ -214,7 +218,7 @@ class Enhanced_Internal_Contact_Form {
         }
 
         ob_start();
-        eform_render_form( $this, $template, $this->template_config );
+        $this->renderer->render( $this, $template, $this->template_config );
         $form_html = ob_get_clean();
 
         // Inject hidden field listing keys used in this template for processing
