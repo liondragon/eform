@@ -45,6 +45,9 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/FormData.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/Renderer.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/FormManager.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/template-config.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/Validator.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/Emailer.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/Security.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf-processor.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf.php';
 
