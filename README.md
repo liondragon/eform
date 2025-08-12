@@ -63,15 +63,12 @@ composer install
 vendor/bin/phpunit
 ```
 
-## Theme-based Template Configuration
+## Template Configuration
 
 The plugin ships with its default field configuration in `templates/default.json`.
-Themes may override these settings by placing JSON files within `{theme}/eform/`.
-For example, `wp-content/themes/my-theme/eform/default.json` can adjust
-placeholders or other field attributes for the `default` template. Configuration
-files are parsed using core PHP functions. If a theme file is not found, the
-plugin will look for a matching configuration within its own `templates/`
-directory, providing a plugin-level fallback.
+Additional templates can be defined by adding JSON files to the plugin's
+`templates/` directory. Each file describes the fields and settings for a form
+template.
 
 ### Multi-value Fields
 
@@ -96,8 +93,7 @@ one selection must be present.
 ### Template Configuration Caching
 
 Template configurations are cached both in-memory and via WordPress' object
-cache. The cache key includes a version token derived from the most recent
-modification time of the plugin and theme configuration files. When any of these
-files change the token differs, causing the cache to refresh. Call
-`eform_purge_template_config_cache()` after activating a theme or the plugin to
-remove any stale entries.
+cache. The cache key includes a version token derived from the template file's
+modification time. When a template file changes the token differs, causing the
+cache to refresh. Call `eform_purge_template_config_cache()` after modifying
+template files to remove any stale entries.

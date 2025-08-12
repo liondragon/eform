@@ -7,13 +7,11 @@ class Enhanced_Internal_Contact_Form extends FormData {
     private $error_message = '';
     private $form_submitted = false;
     private $load_css = false; // Flag to control CSS loading
-    private $use_inline_css = true; // Use inline CSS or enqueue stylesheet
     private $processed_template = ''; // Track which template was submitted
     private $loaded_css_templates = []; // Track templates whose CSS is loaded
     private $processor; // Default processor for backward compatibility
     private $logger;
     public $template_config = [];
-    private static $css_cache = []; // Cache CSS contents to avoid repeated reads
     private $renderer;
 
     public function __construct( ?Enhanced_ICF_Form_Processor $processor = null, ?Logger $logger = null, ?Renderer $renderer = null ) {
@@ -109,18 +107,12 @@ class Enhanced_Internal_Contact_Form extends FormData {
 
     public function handle_shortcode( $atts, ?Enhanced_ICF_Form_Processor $processor = null ) {
         $atts = shortcode_atts( [
-            'template'     => 'default',
-            'style'        => 'false',
-            'useinlinecss' => null,
+            'template' => 'default',
+            'style'    => 'false',
         ], $atts );
 
         $template       = sanitize_key( $atts['template'] );
         $this->load_css = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
-
-        // Only override the inline CSS preference if explicitly provided
-        if ( null !== $atts['useinlinecss'] ) {
-            $this->use_inline_css = filter_var( $atts['useinlinecss'], FILTER_VALIDATE_BOOLEAN );
-        }
 
         if ( null === $processor ) {
             if ( null !== $this->processor ) {
@@ -160,44 +152,16 @@ class Enhanced_Internal_Contact_Form extends FormData {
             return;
         }
 
-        if ( $this->use_inline_css ) {
-            if ( isset( self::$css_cache[ $css_path ] ) ) {
-                $css = self::$css_cache[ $css_path ];
-            } else {
-                $css = file_get_contents( $css_path );
-                if ( false === $css ) {
-                    if ( $this->logger ) {
-                        $this->logger->log( sprintf( 'Failed to read Enhanced ICF CSS file: %s', $css_path ), Logger::LEVEL_WARNING );
-                    }
-                    return;
-                }
-                self::$css_cache[ $css_path ] = $css;
-            }
+        $handle  = 'enhanced-icf-' . $template;
+        $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
 
-            $handle = 'enhanced-icf-inline-' . $template;
-            if ( ! wp_style_is( $handle, 'registered' ) ) {
-                wp_register_style( $handle, false );
-            }
-            wp_enqueue_style( $handle );
-            wp_add_inline_style( $handle, $css );
+        wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
+        wp_enqueue_style( $handle );
 
-            if ( did_action( 'wp_head' ) ) {
-                add_action( 'wp_footer', function () use ( $handle ) {
-                    wp_print_styles( $handle );
-                } );
-            }
-        } else {
-            $handle  = 'enhanced-icf-' . $template;
-            $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
-
-            wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
-            wp_enqueue_style( $handle );
-
-            if ( did_action( 'wp_head' ) ) {
-                add_action( 'wp_footer', function() use ( $handle ) {
-                    wp_print_styles( $handle );
-                } );
-            }
+        if ( did_action( 'wp_head' ) ) {
+            add_action( 'wp_footer', function () use ( $handle ) {
+                wp_print_styles( $handle );
+            } );
         }
 
         $this->loaded_css_templates[] = $template;

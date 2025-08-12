@@ -2,32 +2,21 @@
 // includes/template-config.php
 
 /**
- * Load a template configuration from the active theme and merge with defaults.
+ * Load a template configuration from the plugin's templates directory.
  *
- * Looks for `{theme}/eform/{template}.php` or `.json` files. When found the
- * configuration is merged with any built-in defaults.
+ * Only JSON configuration files bundled with the plugin are supported.
  *
  * @param string $template Template slug.
- * @return array Merged configuration.
+ * @return array Parsed configuration.
  */
 function eform_get_template_config( string $template ): array {
     static $cache = [];
 
-    $theme_dir = rtrim( get_stylesheet_directory(), '/\\' );
+    $plugin_dir = rtrim( plugin_dir_path( __DIR__ ), '/\\' ) . '/templates';
+    $path       = $plugin_dir . '/' . $template . '.json';
 
-    $plugin_dir  = rtrim( plugin_dir_path( __DIR__ ), '/\\' ) . '/templates';
-    $plugin_paths = [
-        $plugin_dir . '/' . $template . '.php',
-        $plugin_dir . '/' . $template . '.json',
-    ];
-
-    $theme_paths = [
-        $theme_dir . '/eform/' . $template . '.php',
-        $theme_dir . '/eform/' . $template . '.json',
-    ];
-
-    $version = eform_config_version_token( array_merge( $plugin_paths, $theme_paths ) );
-    $cache_key = $template . '|' . $theme_dir;
+    $version  = eform_config_version_token( [ $path ] );
+    $cache_key = $template;
 
     if ( isset( $cache[ $cache_key ] ) && $cache[ $cache_key ]['v'] === $version ) {
         return $cache[ $cache_key ]['c'];
@@ -39,10 +28,7 @@ function eform_get_template_config( string $template ): array {
         return $cached['c'];
     }
 
-    $base = eform_load_config_from_paths( $plugin_paths );
-    $data = eform_load_config_from_paths( $theme_paths );
-
-    $config = array_replace_recursive( $base, $data );
+    $config = eform_load_config_from_paths( [ $path ] );
 
     $entry = [ 'v' => $version, 'c' => $config ];
     $cache[ $cache_key ] = $entry;
@@ -91,16 +77,7 @@ function eform_config_version_token( array $paths ): string {
 function eform_load_config_from_paths( array $paths ): array {
     foreach ( $paths as $path ) {
         if ( file_exists( $path ) && is_readable( $path ) ) {
-            $ext = pathinfo( $path, PATHINFO_EXTENSION );
-
-            if ( 'php' === $ext ) {
-                $data = include $path;
-                if ( is_array( $data ) ) {
-                    return $data;
-                }
-            }
-
-            if ( 'json' === $ext ) {
+            if ( 'json' === pathinfo( $path, PATHINFO_EXTENSION ) ) {
                 $content = file_get_contents( $path );
                 $data    = json_decode( $content, true );
                 if ( json_last_error() === JSON_ERROR_NONE && is_array( $data ) ) {
@@ -141,8 +118,8 @@ function eform_get_template_fields( string $template ): array {
 /**
  * Remove all cached template configuration entries.
  *
- * Intended for use on theme or plugin activation to clear potentially stale
- * data stored in the object cache.
+ * Intended for use on plugin activation or after modifying template files to
+ * clear potentially stale data stored in the object cache.
  */
 function eform_purge_template_config_cache(): void {
     if ( ! function_exists( 'wp_cache_delete' ) ) {
