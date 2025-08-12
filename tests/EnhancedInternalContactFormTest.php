@@ -2,8 +2,9 @@
 use PHPUnit\Framework\TestCase;
 
 class EnhancedInternalContactFormTest extends TestCase {
-    public function test_maybe_handle_form_forwards_raw_data_and_sets_flag_on_success() {
+    public function test_maybe_handle_form_forwards_raw_data_and_redirects_on_success() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['REQUEST_URI']    = '/contact';
         $form_id = 'form123';
         $_POST = [
             'enhanced_template' => 'default',
@@ -28,7 +29,7 @@ class EnhancedInternalContactFormTest extends TestCase {
                     'name' => ' <b>Jane</b> ',
                 ],
             ])
-            ->willReturn(['success' => true]);
+            ->willReturn(['success' => ['mode' => 'inline']]);
 
         $form = new Enhanced_Internal_Contact_Form($processor, new Logger());
         $ref = new ReflectionClass($form);
@@ -38,9 +39,7 @@ class EnhancedInternalContactFormTest extends TestCase {
 
         $form->maybe_handle_form( $processor );
 
-        $submitted = $ref->getProperty('form_submitted');
-        $submitted->setAccessible(true);
-        $this->assertTrue($submitted->getValue($form));
+        $this->assertSame('/contact?enhanced_form_success=default', $GLOBALS['redirected_to']);
     }
 
     public function test_maybe_handle_form_handles_error_response() {

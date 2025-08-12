@@ -30,7 +30,14 @@ class Enhanced_Internal_Contact_Form extends FormData {
         $this->form_data    = [];
         $this->field_errors = [];
 
-        if ('POST' !== $_SERVER['REQUEST_METHOD']) {
+        $success_key      = 'enhanced_form_success';
+        $success_template = isset( $_GET[ $success_key ] ) ? sanitize_key( $_GET[ $success_key ] ) : '';
+        if ( $success_template ) {
+            $this->processed_template = $success_template;
+            $this->form_submitted     = true;
+        }
+
+        if ( 'POST' !== $_SERVER['REQUEST_METHOD'] ) {
             return;
         }
 
@@ -42,12 +49,29 @@ class Enhanced_Internal_Contact_Form extends FormData {
         if ( isset( $submitted_data[ $submit_key ] ) ) {
             $this->processed_template = $template;
             $result                   = $processor->process_form_submission( $template, $submitted_data );
-            if ($result['success']) {
-                $this->form_submitted = true;
-                if ( ! empty( $this->redirect_url ) ) {
-                    wp_safe_redirect( esc_url_raw( $this->redirect_url ) );
-                    exit;
+            if ( is_array( $result['success'] ?? null ) ) {
+                $mode = $result['success']['mode'] ?? 'inline';
+                if ( 'redirect' === $mode && ! empty( $result['success']['redirect_url'] ) ) {
+                    wp_safe_redirect( esc_url_raw( $result['success']['redirect_url'] ) );
+                    return;
                 }
+
+                // Default inline mode uses PRG to avoid resubmission.
+                $url = $_SERVER['REQUEST_URI'] ?? '';
+                if ( function_exists( 'remove_query_arg' ) ) {
+                    $url = remove_query_arg( $success_key, $url );
+                } else {
+                    $url = preg_replace( '/([?&])' . $success_key . '=[^&]*/', '$1', $url );
+                    $url = rtrim( $url, '?&' );
+                }
+                if ( function_exists( 'add_query_arg' ) ) {
+                    $url = add_query_arg( $success_key, $template, $url );
+                } else {
+                    $sep = strpos( $url, '?' ) === false ? '?' : '&';
+                    $url = $url . $sep . $success_key . '=' . rawurlencode( $template );
+                }
+                wp_safe_redirect( esc_url_raw( $url ) );
+                return;
             } else {
                 $this->form_data    = $result['form_data'] ?? [];
                 $this->field_errors = $result['errors'] ?? [];
