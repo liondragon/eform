@@ -31,22 +31,15 @@ recorded. An example entry looks like this:
 ## Logged Form Fields
 
 When `DEBUG_LEVEL` is set to `2`, selected form fields may be included in the log
-for troubleshooting. By default only the `name` and `zip` fields are stored. To
-adjust this list you may either:
-
-1. Update the `eform_log_safe_fields` option in WordPress to contain an array of
-   allowed field keys.
-2. Use the `eform_log_safe_fields` filter to programmatically modify the array of
-   field keys prior to logging.
-
-Both approaches will replace the default values, ensuring that only explicitly
-approved fields are recorded.
+for troubleshooting. By default only the `name` and `zip` fields are stored.
+Use the `eform_log_safe_fields` filter to programmatically modify the array of
+field keys prior to logging.
 
 ## Successful Submission Logging
 
 By default a successful form submission writes a "Form submission sent" entry to
 the log. The entry records only the safe fields configured via the
-`eform_log_safe_fields` option or filter and includes the template name.
+`eform_log_safe_fields` filter and includes the template name.
 Administrators may disable this logging by setting `DEBUG_LEVEL` to `0` or
 filtering the behavior:
 
