@@ -3,9 +3,7 @@ use PHPUnit\Framework\TestCase;
 
 class EnhancedICFFormProcessorErrorsTest extends TestCase {
     public function test_process_form_submission_returns_errors_with_keys() {
-        $registry  = new FieldRegistry();
-        register_template_fields_from_config( $registry, 'default' );
-        $processor = new Enhanced_ICF_Form_Processor(new Logger(), $registry);
+        $processor = new Enhanced_ICF_Form_Processor(new Logger());
 
         $form_id  = 'form123';
         $submitted = [

@@ -21,12 +21,11 @@ class FormManager {
      * Handle shortcode rendering for a form instance.
      *
      * @param array                     $atts      Shortcode attributes.
-     * @param FieldRegistry|null        $registry  Field registry for this instance.
      * @param Enhanced_ICF_Form_Processor|null $processor Processor handling submissions.
      *
      * @return string Rendered form HTML.
      */
-    public function handle_shortcode( $atts = [], ?FieldRegistry $registry = null, ?Enhanced_ICF_Form_Processor $processor = null ) {
-        return $this->form->handle_shortcode( $atts, $registry, $processor );
+    public function handle_shortcode( $atts = [], ?Enhanced_ICF_Form_Processor $processor = null ) {
+        return $this->form->handle_shortcode( $atts, $processor );
     }
 }

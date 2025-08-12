@@ -63,18 +63,6 @@ composer install
 vendor/bin/phpunit
 ```
 
-## Generic Fields for Templates
-
-`FieldRegistry` includes three generic field definitions that allow templates to
-capture extra information:
-
-* `text_generic` – freeform text optionally validated by a `pattern` regex.
-* `number_generic` – numeric input supporting `min` and `max` limits.
-* `radio_generic` – radio buttons validated against a list of `choices`.
-
-Each generic field requires a `post_key` parameter when registered. Radio fields
-also require a `choices` array of allowed values.
-
 ## Theme-based Template Configuration
 
 The plugin ships with its default field configuration in `templates/default.json`.

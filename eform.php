@@ -52,17 +52,14 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf-processo
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf.php';
 
 // Initialize plugin with global defaults for backward compatibility.
-$registry  = new FieldRegistry();
-$GLOBALS['eform_registry'] = $registry;
-$processor = new Enhanced_ICF_Form_Processor( $logger, $registry );
+$processor = new Enhanced_ICF_Form_Processor( $logger );
 $renderer  = new Renderer();
 $form      = new Enhanced_Internal_Contact_Form( $processor, $logger, $renderer );
 $manager   = new FormManager( $form, $renderer );
 
-// Each shortcode instance gets its own registry and processor.
+// Each shortcode instance gets its own processor.
 add_shortcode( 'enhanced_icf_shortcode', function( $atts = [] ) use ( $logger, $manager ) {
-    $registry_instance  = new FieldRegistry();
-    $processor_instance = new Enhanced_ICF_Form_Processor( $logger, $registry_instance );
-    return $manager->handle_shortcode( $atts, $registry_instance, $processor_instance );
+    $processor_instance = new Enhanced_ICF_Form_Processor( $logger );
+    return $manager->handle_shortcode( $atts, $processor_instance );
 } );
 

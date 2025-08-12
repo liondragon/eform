@@ -35,12 +35,11 @@ class AssetsEnqueueTest extends TestCase {
 
     public function test_css_loaded_once_per_template() {
         $logger    = new Logger();
-        $registry  = new FieldRegistry();
-        $processor = new Enhanced_ICF_Form_Processor( $logger, $registry );
+        $processor = new Enhanced_ICF_Form_Processor( $logger );
         $form      = new Enhanced_Internal_Contact_Form( $processor, $logger );
 
-        $form->handle_shortcode( [ 'template' => 'default', 'style' => 'true' ], $registry, $processor );
-        $form->handle_shortcode( [ 'template' => 'default', 'style' => 'true' ], $registry, $processor );
+        $form->handle_shortcode( [ 'template' => 'default', 'style' => 'true' ], $processor );
+        $form->handle_shortcode( [ 'template' => 'default', 'style' => 'true' ], $processor );
 
         $this->assertCount( 1, $GLOBALS['enqueued_styles'] );
         $this->assertArrayHasKey( 'enhanced-icf-inline-default', $GLOBALS['inline_styles'] );
