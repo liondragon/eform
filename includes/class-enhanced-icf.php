@@ -207,23 +207,6 @@ class Enhanced_Internal_Contact_Form extends FormData {
         return $form_html;
     }
 
-    /**
-     * Magic method to handle dynamic template rendering.
-     *
-     * Allows calling methods named after templates, e.g. `$form->contact()`,
-     * to render a form using the template's JSON configuration.
-     *
-     * @param string $name      The called method name.
-     * @param array  $arguments Unused.
-     *
-     * @return string Rendered template HTML.
-     */
-    public function __call( $name, $arguments ) {
-        $template = sanitize_key( $name );
-
-        return $this->handle_shortcode( [ 'template' => $template ] );
-    }
-
     // Expose phone formatting for templates
     public function format_phone(string $digits): string {
         return $this->processor ? $this->processor->format_phone($digits) : $digits;

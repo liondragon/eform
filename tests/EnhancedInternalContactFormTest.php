@@ -157,4 +157,14 @@ class EnhancedInternalContactFormTest extends TestCase {
 
         unlink( $path );
     }
+
+    public function test_calling_template_method_is_not_supported() {
+        $form = new Enhanced_Internal_Contact_Form(
+            new Enhanced_ICF_Form_Processor( new Logger() ),
+            new Logger()
+        );
+
+        $this->expectException( \Error::class );
+        $form->default();
+    }
 }
