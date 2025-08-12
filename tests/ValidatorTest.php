@@ -57,4 +57,23 @@ class ValidatorTest extends TestCase {
         $this->assertSame('12345', $result['data']['zip']);
         $this->assertSame([], $result['errors']);
     }
+    public function test_normalization_trims_before_validation() {
+        $validator = new Validator();
+        $field_map = [ 'email' => [ 'type' => 'email' ] ];
+        $submitted = [ 'email' => ' test@example.com ' ];
+        $result = $validator->process_submission( $field_map, $submitted );
+        $this->assertSame('test@example.com', $result['data']['email']);
+    }
+
+    public function test_number_coercion() {
+        $validator = new Validator();
+        $field_map = [
+            'age' => [ 'type' => 'number' ],
+            'pi'  => [ 'type' => 'number' ],
+        ];
+        $submitted = [ 'age' => '42', 'pi' => '3.14' ];
+        $result = $validator->process_submission( $field_map, $submitted );
+        $this->assertSame(42, $result['data']['age']);
+        $this->assertSame(3.14, $result['data']['pi']);
+    }
 }

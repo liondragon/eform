@@ -1,5 +1,6 @@
 <?php
 // includes/Validator.php
+require_once __DIR__ . '/Normalizer.php';
 
 class Validator {
     /**
@@ -39,7 +40,103 @@ class Validator {
     ];
 
     /**
-     * Sanitize and validate submitted data in one pass.
+     * Normalize raw submission data.
+     *
+     * @param array $field_map        Field rules keyed by logical field key.
+     * @param array $submitted_data   Raw submitted values keyed by logical field key.
+     * @param array $array_field_types Field types that accept array values.
+     * @return array{data:array,invalid_fields:array}
+     */
+    public function normalize_submission( array $field_map, array $submitted_data, array $array_field_types = [] ): array {
+        $data           = [];
+        $invalid_fields = [];
+        foreach ( $field_map as $field => $details ) {
+            $value    = $submitted_data[ $field ] ?? '';
+            $type     = $details['type'] ?? 'text';
+            $is_array = is_array( $value );
+            if ( $is_array && ! in_array( $type, $array_field_types, true ) ) {
+                $invalid_fields[] = $field;
+                continue;
+            }
+            if ( $is_array ) {
+                $data[ $field ] = array_map( [ ValueNormalizer::class, 'normalize' ], $value );
+            } else {
+                $data[ $field ] = ValueNormalizer::normalize( (string) $value );
+            }
+        }
+        return [ 'data' => $data, 'invalid_fields' => $invalid_fields ];
+    }
+
+    /**
+     * Validate normalized data using sanitize/validate callbacks.
+     *
+     * @param array $field_map        Field rules keyed by logical field key.
+     * @param array $normalized_data  Normalized values keyed by logical field key.
+     * @param array $array_field_types Field types that accept array values.
+     * @return array{data:array,errors:array}
+     */
+    public function validate_submission( array $field_map, array $normalized_data, array $array_field_types = [] ): array {
+        $data   = [];
+        $errors = [];
+        foreach ( $field_map as $field => $details ) {
+            $value = $normalized_data[ $field ] ?? '';
+            $type  = $details['type'] ?? 'text';
+            $sanitize_cb = $details['sanitize'] ?? null;
+            $validate_cb = $details['validate'] ?? null;
+            if ( is_string( $sanitize_cb ) && method_exists( self::class, $sanitize_cb ) ) {
+                $sanitize_cb = [ self::class, $sanitize_cb ];
+            }
+            if ( is_string( $validate_cb ) && method_exists( self::class, $validate_cb ) ) {
+                $validate_cb = [ self::class, $validate_cb ];
+            }
+            if ( ! $sanitize_cb || ! $validate_cb ) {
+                $callbacks   = $this->type_map[ $type ] ?? $this->type_map['text'];
+                $sanitize_cb = $sanitize_cb ?: $callbacks['sanitize_cb'];
+                $validate_cb = $validate_cb ?: $callbacks['validate_cb'];
+            }
+            if ( is_array( $value ) ) {
+                $sanitized = array_map( $sanitize_cb, $value );
+            } else {
+                $sanitized = $sanitize_cb( $value );
+            }
+            $data[ $field ] = $sanitized;
+            $error = $validate_cb( $sanitized, $details );
+            if ( $error ) {
+                $errors[ $field ] = $error;
+            }
+        }
+        return [ 'data' => $data, 'errors' => $errors ];
+    }
+
+    /**
+     * Coerce sanitized values to canonical representations.
+     *
+     * @param array $field_map      Field rules keyed by logical field key.
+     * @param array $sanitized_data Sanitized values keyed by logical field key.
+     * @return array Canonical values keyed by logical field key.
+     */
+    public function coerce_submission( array $field_map, array $sanitized_data ): array {
+        $data = [];
+        foreach ( $field_map as $field => $details ) {
+            $type  = $details['type'] ?? 'text';
+            $value = $sanitized_data[ $field ] ?? ( $type === 'checkbox' ? [] : '' );
+            if ( $type === 'number' ) {
+                if ( $value === '' || ! is_numeric( $value ) ) {
+                    $data[ $field ] = $value;
+                } elseif ( strpos( $value, '.' ) !== false ) {
+                    $data[ $field ] = (float) $value;
+                } else {
+                    $data[ $field ] = (int) $value;
+                }
+            } else {
+                $data[ $field ] = $value;
+            }
+        }
+        return $data;
+    }
+
+    /**
+     * Run normalization, validation, and coercion in sequence.
      *
      * @param array $field_map        Field rules keyed by logical field key.
      * @param array $submitted_data   Raw submitted values keyed by logical field key.
@@ -47,53 +144,13 @@ class Validator {
      * @return array{data:array,errors:array,invalid_fields:array}
      */
     public function process_submission( array $field_map, array $submitted_data, array $array_field_types = [] ): array {
-        $data           = [];
-        $errors         = [];
-        $invalid_fields = [];
-
-        foreach ( $field_map as $field => $details ) {
-            $value    = $submitted_data[ $field ] ?? '';
-            $type     = $details['type'] ?? 'text';
-            $is_array = is_array( $value );
-
-            if ( $is_array && ! in_array( $type, $array_field_types, true ) ) {
-                $invalid_fields[] = $field;
-                continue;
-            }
-
-            $sanitize_cb = $details['sanitize'] ?? null;
-            $validate_cb = $details['validate'] ?? null;
-
-            if ( is_string( $sanitize_cb ) && method_exists( self::class, $sanitize_cb ) ) {
-                $sanitize_cb = [ self::class, $sanitize_cb ];
-            }
-            if ( is_string( $validate_cb ) && method_exists( self::class, $validate_cb ) ) {
-                $validate_cb = [ self::class, $validate_cb ];
-            }
-
-            if ( ! $sanitize_cb || ! $validate_cb ) {
-                $callbacks   = $this->type_map[ $type ] ?? $this->type_map['text'];
-                $sanitize_cb = $sanitize_cb ?: $callbacks['sanitize_cb'];
-                $validate_cb = $validate_cb ?: $callbacks['validate_cb'];
-            }
-
-            if ( $is_array ) {
-                $sanitized = array_map( $sanitize_cb, $value );
-            } else {
-                $sanitized = $sanitize_cb( $value );
-            }
-            $data[ $field ] = $sanitized;
-
-            $error = $validate_cb( $sanitized, $details );
-            if ( $error ) {
-                $errors[ $field ] = $error;
-            }
-        }
-
+        $normalized = $this->normalize_submission( $field_map, $submitted_data, $array_field_types );
+        $validated  = $this->validate_submission( $field_map, $normalized['data'], $array_field_types );
+        $coerced    = $this->coerce_submission( $field_map, $validated['data'] );
         return [
-            'data'           => $data,
-            'errors'         => $errors,
-            'invalid_fields' => $invalid_fields,
+            'data'           => $coerced,
+            'errors'         => $validated['errors'],
+            'invalid_fields' => $normalized['invalid_fields'],
         ];
     }
 

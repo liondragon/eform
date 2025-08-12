@@ -160,6 +160,7 @@ require_once __DIR__.'/../includes/template-tags.php';
 require_once __DIR__.'/../includes/FormData.php';
 require_once __DIR__.'/../includes/Renderer.php';
 require_once __DIR__.'/../includes/FormManager.php';
+require_once __DIR__.'/../includes/Normalizer.php';
 require_once __DIR__.'/../includes/Validator.php';
 require_once __DIR__.'/../includes/Emailer.php';
 require_once __DIR__.'/../includes/Security.php';
