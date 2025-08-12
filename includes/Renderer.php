@@ -1,5 +1,6 @@
 <?php
 // includes/Renderer.php
+require_once __DIR__ . '/FieldRegistry.php';
 
 /**
  * Default renderer for form templates using configuration arrays.
@@ -41,7 +42,8 @@ class Renderer {
             $error_id  = 'error-' . $input_id;
             $error_msg = $form->field_errors[ $field_key ] ?? '';
             $aria      = $error_msg ? sprintf( ' aria-describedby="%s" aria-invalid="true"', esc_attr( $error_id ) ) : '';
-            if ( ( $field['type'] ?? '' ) === 'textarea' ) {
+            $render_type = FieldRegistry::get_renderer( $field['type'] ?? 'text' );
+            if ( $render_type === 'textarea' ) {
                 echo '<textarea id="' . esc_attr( $input_id ) . '" name="' . esc_attr( $name ) . '"' . $required . $attr_str . $aria . '>' . esc_textarea( $value ) . '</textarea>';
             } else {
                 $type = $field['type'] ?? 'text';

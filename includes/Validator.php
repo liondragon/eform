@@ -1,43 +1,9 @@
 <?php
 // includes/Validator.php
 require_once __DIR__ . '/Normalizer.php';
+require_once __DIR__ . '/FieldRegistry.php';
 
 class Validator {
-    /**
-     * Mapping of field types to sanitize and validate callbacks.
-     *
-     * @var array<string,array{sanitize_cb:callable,validate_cb:callable}>
-     */
-    private array $type_map = [
-        'text'     => [
-            'sanitize_cb' => 'sanitize_text_field',
-            'validate_cb' => [self::class, 'validate_pattern'],
-        ],
-        'email'    => [
-            'sanitize_cb' => 'sanitize_email',
-            'validate_cb' => [self::class, 'validate_email'],
-        ],
-        'tel'      => [
-            'sanitize_cb' => [self::class, 'sanitize_digits'],
-            'validate_cb' => [self::class, 'validate_phone'],
-        ],
-        'number'   => [
-            'sanitize_cb' => [self::class, 'sanitize_number'],
-            'validate_cb' => [self::class, 'validate_range'],
-        ],
-        'radio'    => [
-            'sanitize_cb' => 'sanitize_text_field',
-            'validate_cb' => [self::class, 'validate_choice'],
-        ],
-        'textarea' => [
-            'sanitize_cb' => 'sanitize_textarea_field',
-            'validate_cb' => [self::class, 'validate_message'],
-        ],
-        'checkbox' => [
-            'sanitize_cb' => 'sanitize_text_field',
-            'validate_cb' => [self::class, 'validate_choices'],
-        ],
-    ];
 
     /**
      * Normalize raw submission data.
@@ -89,10 +55,11 @@ class Validator {
             if ( is_string( $validate_cb ) && method_exists( self::class, $validate_cb ) ) {
                 $validate_cb = [ self::class, $validate_cb ];
             }
-            if ( ! $sanitize_cb || ! $validate_cb ) {
-                $callbacks   = $this->type_map[ $type ] ?? $this->type_map['text'];
-                $sanitize_cb = $sanitize_cb ?: $callbacks['sanitize_cb'];
-                $validate_cb = $validate_cb ?: $callbacks['validate_cb'];
+            if ( ! $sanitize_cb ) {
+                $sanitize_cb = FieldRegistry::get_normalizer( $type );
+            }
+            if ( ! $validate_cb ) {
+                $validate_cb = FieldRegistry::get_validator( $type );
             }
             if ( is_array( $value ) ) {
                 $sanitized = array_map( $sanitize_cb, $value );
