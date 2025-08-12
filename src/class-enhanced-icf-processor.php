@@ -18,13 +18,6 @@ class Enhanced_ICF_Form_Processor {
         $this->array_field_types = $array_field_types;
     }
 
-    private function get_first_value( $value ) {
-        if ( is_array( $value ) ) {
-            return null;
-        }
-        return $value;
-    }
-
     /**
      * Process a submitted contact form.
      *
@@ -63,13 +56,13 @@ class Enhanced_ICF_Form_Processor {
 
         $field_map = eform_get_template_fields( $template );
 
-        $form_id    = $this->get_first_value( $submitted_data['enhanced_form_id'] ?? '' );
+        $form_id    = Helpers::get_first_value( $submitted_data['enhanced_form_id'] ?? '' );
         $form_scope = [];
         if ( $form_id && isset( $submitted_data[ $form_id ] ) && is_array( $submitted_data[ $form_id ] ) ) {
             $form_scope = $submitted_data[ $form_id ];
         }
 
-        $field_list = $this->get_first_value( $form_scope['enhanced_fields'] ?? '' );
+        $field_list = Helpers::get_first_value( $form_scope['enhanced_fields'] ?? '' );
         if ( ! empty( $field_list ) ) {
             $keys      = array_filter( array_map( 'sanitize_key', explode( ',', $field_list ) ) );
             $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
