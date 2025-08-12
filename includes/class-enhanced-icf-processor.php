@@ -7,13 +7,15 @@ class Enhanced_ICF_Form_Processor {
     private $security;
     private $validator;
     private $emailer;
+    private array $array_field_types;
 
-    public function __construct(Logger $logger, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null) {
-        $this->logger    = $logger;
-        $this->ipaddress = $logger->get_ip();
-        $this->security  = $security  ?? new Security();
-        $this->validator = $validator ?? new Validator();
-        $this->emailer   = $emailer   ?? new Emailer( $this->ipaddress );
+    public function __construct(Logger $logger, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null, array $array_field_types = ['checkbox']) {
+        $this->logger           = $logger;
+        $this->ipaddress        = $logger->get_ip();
+        $this->security         = $security  ?? new Security();
+        $this->validator        = $validator ?? new Validator();
+        $this->emailer          = $emailer   ?? new Emailer( $this->ipaddress );
+        $this->array_field_types = $array_field_types;
     }
 
     private function get_first_value( $value ) {
@@ -73,7 +75,7 @@ class Enhanced_ICF_Form_Processor {
             $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
         }
 
-        $result = $this->validator->process_submission( $field_map, $form_scope );
+        $result = $this->validator->process_submission( $field_map, $form_scope, $this->array_field_types );
         $data   = $result['data'];
         if ( ! empty( $result['invalid_fields'] ) ) {
             $details  = [ 'invalid_fields' => $result['invalid_fields'] ];

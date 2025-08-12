@@ -230,4 +230,27 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertTrue($result['success']);
     }
+
+    public function test_checkbox_field_processed() {
+        $template = 'checkbox';
+        $config = [
+            'fields' => [
+                'name_input' => [ 'type' => 'text', 'required' => true ],
+                'opts_input' => [ 'type' => 'checkbox', 'choices' => ['a','b'], 'required' => true ],
+            ],
+        ];
+        $path = __DIR__ . '/../templates/' . $template . '.json';
+        file_put_contents( $path, json_encode( $config ) );
+
+        $data = $this->build_submission('checkbox', overrides: ['opts' => ['a']]);
+        $result = $this->processor->process_form_submission('checkbox', $data);
+        $this->assertTrue($result['success']);
+
+        $data = $this->build_submission('checkbox', overrides: ['opts' => ['c']]);
+        $result = $this->processor->process_form_submission('checkbox', $data);
+        $this->assertFalse($result['success']);
+        $this->assertSame(['opts' => 'Invalid selection.'], $result['errors']);
+
+        unlink( $path );
+    }
 }
