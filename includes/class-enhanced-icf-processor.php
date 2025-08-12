@@ -61,7 +61,7 @@ class Enhanced_ICF_Form_Processor {
             }
         }
 
-        $field_map = eform_get_field_rules( $template );
+        $field_map = eform_get_template_fields( $template );
 
         $form_id    = $this->get_first_value( $submitted_data['enhanced_form_id'] ?? '' );
         $form_scope = [];

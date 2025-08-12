@@ -207,7 +207,7 @@ class Enhanced_Internal_Contact_Form extends FormData {
         $form_html = ob_get_clean();
 
         // Inject hidden field listing keys used in this template for processing
-        $fields = eform_get_field_rules( $template );
+        $fields = eform_get_template_fields( $template );
         if ( ! empty( $fields ) ) {
             $keys   = implode( ',', array_keys( $fields ) );
             $hidden = '<input type="hidden" name="enhanced_fields" value="' . esc_attr( $keys ) . '">';

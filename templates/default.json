@@ -1,42 +1,55 @@
 {
     "fields": {
         "name_input": {
+            "key": "name",
             "type": "text",
             "placeholder": "Your Name",
             "required": true,
             "autocomplete": "name",
             "aria-label": "Your Name",
             "aria-required": "true",
-            "style": "grid-area: name"
+            "style": "grid-area: name",
+            "sanitize": "sanitize_text_field",
+            "validate": "validate_pattern"
         },
         "email_input": {
+            "key": "email",
             "type": "email",
             "placeholder": "Your Email",
             "required": true,
             "autocomplete": "email",
             "aria-label": "email",
             "aria-required": "true",
-            "style": "grid-area: email"
+            "style": "grid-area: email",
+            "sanitize": "sanitize_email",
+            "validate": "validate_email"
         },
         "tel_input": {
+            "key": "phone",
             "type": "tel",
             "placeholder": "Phone",
             "required": true,
             "autocomplete": "tel",
             "aria-label": "Phone",
             "aria-required": "true",
-            "style": "grid-area: phone"
+            "style": "grid-area: phone",
+            "sanitize": "sanitize_digits",
+            "validate": "validate_phone"
         },
         "zip_input": {
+            "key": "zip",
             "type": "text",
             "placeholder": "Project Zip Code",
             "required": true,
             "autocomplete": "postal-code",
             "aria-label": "Project Zip Code",
             "aria-required": "true",
-            "style": "grid-area: zip"
+            "style": "grid-area: zip",
+            "sanitize": "sanitize_text_field",
+            "validate": "validate_zip"
         },
         "message_input": {
+            "key": "message",
             "type": "textarea",
             "cols": "21",
             "rows": "5",
@@ -44,7 +57,9 @@
             "required": true,
             "aria-label": "Message",
             "aria-required": "true",
-            "style": "grid-area: message"
+            "style": "grid-area: message",
+            "sanitize": "sanitize_textarea_field",
+            "validate": "validate_message"
         }
     }
 }

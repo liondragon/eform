@@ -218,6 +218,7 @@ class Logger {
             $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $file );
         }
 
+        clearstatcache( true, $file );
         return file_exists( $file ) && filesize( $file ) >= $max_size;
     }
 

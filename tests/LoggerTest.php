@@ -18,8 +18,12 @@ class LoggerTest extends TestCase {
             mkdir(WP_CONTENT_DIR, 0777, true);
         }
 
-        define('EFORM_LOG_FILE_MAX_SIZE', 200);
-        define('EFORM_LOG_RETENTION_DAYS', 1);
+        if ( ! defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ) {
+            define( 'EFORM_LOG_FILE_MAX_SIZE', 200 );
+        }
+        if ( ! defined( 'EFORM_LOG_RETENTION_DAYS' ) ) {
+            define( 'EFORM_LOG_RETENTION_DAYS', 1 );
+        }
         $this->logDir = WP_CONTENT_DIR . '/uploads/logs';
         $this->logFile = $this->logDir . '/forms.log';
     }

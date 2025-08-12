@@ -61,10 +61,21 @@ class Validator {
                 continue;
             }
 
-            $callbacks = $this->type_map[ $type ] ?? $this->type_map['text'];
+            $sanitize_cb = $details['sanitize'] ?? null;
+            $validate_cb = $details['validate'] ?? null;
 
-            $sanitize_cb = $callbacks['sanitize_cb'];
-            $validate_cb = $callbacks['validate_cb'];
+            if ( is_string( $sanitize_cb ) && method_exists( self::class, $sanitize_cb ) ) {
+                $sanitize_cb = [ self::class, $sanitize_cb ];
+            }
+            if ( is_string( $validate_cb ) && method_exists( self::class, $validate_cb ) ) {
+                $validate_cb = [ self::class, $validate_cb ];
+            }
+
+            if ( ! $sanitize_cb || ! $validate_cb ) {
+                $callbacks   = $this->type_map[ $type ] ?? $this->type_map['text'];
+                $sanitize_cb = $sanitize_cb ?: $callbacks['sanitize_cb'];
+                $validate_cb = $validate_cb ?: $callbacks['validate_cb'];
+            }
 
             if ( $is_array ) {
                 $sanitized = array_map( $sanitize_cb, $value );

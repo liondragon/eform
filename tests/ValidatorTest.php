@@ -41,4 +41,20 @@ class ValidatorTest extends TestCase {
         $result = $validator->process_submission( $field_map, $submitted, ['checkbox'] );
         $this->assertSame(['name'], $result['invalid_fields']);
     }
+
+    public function test_per_field_rules_override_type() {
+        $validator = new Validator();
+        $field_map = [
+            'zip' => [
+                'type' => 'text',
+                'sanitize' => 'sanitize_digits',
+                'validate' => 'validate_zip',
+                'required' => true,
+            ],
+        ];
+        $submitted = [ 'zip' => '12345' ];
+        $result = $validator->process_submission( $field_map, $submitted, ['checkbox'] );
+        $this->assertSame('12345', $result['data']['zip']);
+        $this->assertSame([], $result['errors']);
+    }
 }
