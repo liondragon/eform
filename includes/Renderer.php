@@ -14,6 +14,7 @@ class Renderer {
      */
     public function render( FormData $form, string $template, array $config ) {
         echo '<div id="contact_form" class="contact_form">';
+        echo '<div aria-live="polite"></div>';
         echo '<form class="main_contact_form" id="main_contact_form" aria-label="Contact Form" method="post" action="">';
         $form_id = Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
 
@@ -26,8 +27,8 @@ class Renderer {
             if ( ( $field['type'] ?? '' ) === 'tel' ) {
                 $value = $form->format_phone( $value );
             }
-            $required = isset( $field['required'] ) ? ' required aria-required="true"' : '';
-            $attr_str = '';
+            $required  = isset( $field['required'] ) ? ' required aria-required="true"' : '';
+            $attr_str  = '';
             foreach ( $field as $attr => $val ) {
                 if ( in_array( $attr, [ 'type', 'required', 'style', 'key', 'sanitize', 'validate' ], true ) ) {
                     continue;
@@ -35,14 +36,18 @@ class Renderer {
                 $attr_str .= sprintf( ' %s="%s"', esc_attr( $attr ), esc_attr( $val ) );
             }
             echo '<div class="inputwrap" style="' . esc_attr( $field['style'] ?? '' ) . '">';
-            $name = $form_id . '[' . $field_key . ']';
+            $name      = $form_id . '[' . $field_key . ']';
+            $input_id  = $form_id . '-' . $field_key;
+            $error_id  = 'error-' . $input_id;
+            $error_msg = $form->field_errors[ $field_key ] ?? '';
+            $aria      = $error_msg ? sprintf( ' aria-describedby="%s" aria-invalid="true"', esc_attr( $error_id ) ) : '';
             if ( ( $field['type'] ?? '' ) === 'textarea' ) {
-                echo '<textarea name="' . esc_attr( $name ) . '"' . $required . $attr_str . '>' . esc_textarea( $value ) . '</textarea>';
+                echo '<textarea id="' . esc_attr( $input_id ) . '" name="' . esc_attr( $name ) . '"' . $required . $attr_str . $aria . '>' . esc_textarea( $value ) . '</textarea>';
             } else {
                 $type = $field['type'] ?? 'text';
-                echo '<input type="' . esc_attr( $type ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $required . $attr_str . '>';
+                echo '<input id="' . esc_attr( $input_id ) . '" type="' . esc_attr( $type ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $required . $attr_str . $aria . '>';
             }
-            eform_field_error( $form, $field_key );
+            echo '<span id="' . esc_attr( $error_id ) . '" class="field-error">' . esc_html( $error_msg ) . '</span>';
             echo '</div>';
         }
 
