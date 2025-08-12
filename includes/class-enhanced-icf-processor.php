@@ -75,22 +75,27 @@ class Enhanced_ICF_Form_Processor {
             $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
         }
 
-        $result = $this->validator->process_submission( $field_map, $form_scope, $this->array_field_types );
-        $data   = $result['data'];
-        if ( ! empty( $result['invalid_fields'] ) ) {
-            $details  = [ 'invalid_fields' => $result['invalid_fields'] ];
-            $user_msg = 'Invalid array input for field(s): ' . implode( ', ', $result['invalid_fields'] ) . '.';
+        
+        $normalized = $this->validator->normalize_submission( $field_map, $form_scope, $this->array_field_types );
+        $data       = $normalized['data'];
+        if ( ! empty( $normalized['invalid_fields'] ) ) {
+            $details  = [ 'invalid_fields' => $normalized['invalid_fields'] ];
+            $user_msg = 'Invalid array input for field(s): ' . implode( ', ', $normalized['invalid_fields'] ) . '.';
             return $this->error_response( 'Invalid form input', $details, $user_msg );
         }
 
-        if ( ! empty( $result['errors'] ) ) {
+        $validated = $this->validator->validate_submission( $field_map, $data, $this->array_field_types );
+        $data      = $validated['data'];
+        if ( ! empty( $validated['errors'] ) ) {
             $details = [
-                'errors'    => $result['errors'],
+                'errors'    => $validated['errors'],
                 'form_data' => $data,
             ];
             $user_msg = 'Please correct the highlighted fields';
             return $this->error_response( 'Validation errors', $details, $user_msg );
         }
+
+        $data = $this->validator->coerce_submission( $field_map, $data );
 
         if ( ! $this->emailer->dispatch_email( $data ) ) {
             $details = [ 'form_data' => $data ];
