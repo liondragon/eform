@@ -15,7 +15,7 @@ class TemplateTagsTest extends TestCase {
         eform_field_error( $form, 'name' );
         $output = ob_get_clean();
 
-        $this->assertSame( '<div class="field-error">Required</div>', $output );
+        $this->assertSame( '<div id="name-error" class="field-error">Required</div>', $output );
     }
 
     public function test_eform_field_error_outputs_nothing_when_no_message() {
