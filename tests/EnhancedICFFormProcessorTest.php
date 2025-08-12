@@ -12,28 +12,37 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     private function build_submission(string $template = 'default', array $overrides = []): array {
-        $field_map = $this->registry->get_fields($template);
+        $field_map = $this->registry->get_fields( $template );
+
+        $form_id = $overrides['enhanced_form_id'] ?? 'form123';
+        unset( $overrides['enhanced_form_id'] );
 
         $data = [
-            'enhanced_icf_form_nonce' => 'valid',
-            'enhanced_url'           => '',
-            'enhanced_form_time'     => time() - 10,
-            'enhanced_js_check'      => '1',
+            'enhanced_icf_form_nonce' => $overrides['enhanced_icf_form_nonce'] ?? 'valid',
+            'enhanced_url'           => $overrides['enhanced_url'] ?? '',
+            'enhanced_form_time'     => $overrides['enhanced_form_time'] ?? time() - 10,
+            'enhanced_js_check'      => $overrides['enhanced_js_check'] ?? '1',
+            'enhanced_form_id'       => $form_id,
         ];
 
         $defaults = get_default_field_values( $this->registry, $template );
 
-        foreach ($field_map as $field => $details) {
-            $value = $defaults[$field] ?? '';
-            if (array_key_exists($field, $overrides)) {
-                $value = $overrides[$field];
-                unset($overrides[$field]);
+        $data[ $form_id ] = [];
+        foreach ( $field_map as $field => $details ) {
+            $value = $defaults[ $field ] ?? '';
+            if ( array_key_exists( $field, $overrides ) ) {
+                $value = $overrides[ $field ];
+                unset( $overrides[ $field ] );
             }
-            $data[$details['post_key']] = $value;
+            $data[ $form_id ][ $field ] = $value;
         }
 
-        foreach ($overrides as $key => $value) {
-            $data[$key] = $value;
+        foreach ( $overrides as $key => $value ) {
+            if ( 0 === strpos( $key, 'enhanced_' ) ) {
+                $data[ $key ] = $value;
+            } else {
+                $data[ $form_id ][ $key ] = $value;
+            }
         }
 
         return $data;
@@ -133,7 +142,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
             'required' => true,
         ]);
         $data = $this->build_submission('partial', overrides: [ 'email' => 'not-an-email' ]);
-        $data['tel_input'] = '000';
+        $form_id = $data['enhanced_form_id'];
+        $data[ $form_id ]['phone'] = '000';
         $result = $this->processor->process_form_submission('partial', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Please correct the highlighted fields', $result['message']);
@@ -204,14 +214,16 @@ class EnhancedICFFormProcessorTest extends TestCase {
             'type'     => 'text',
         ]);
         $processor = new Enhanced_ICF_Form_Processor(new Logger(), $registry);
-        $data = [
+        $form_id = 'form123';
+        $data    = [
             'enhanced_icf_form_nonce' => 'valid',
             'enhanced_url'           => '',
             'enhanced_form_time'     => time() - 10,
             'enhanced_js_check'      => '1',
-            'name_input'             => '',
+            'enhanced_form_id'       => $form_id,
+            $form_id                 => [ 'name' => '' ],
         ];
-        $result = $processor->process_form_submission('opt', $data);
+        $result = $processor->process_form_submission( 'opt', $data );
         $this->assertTrue($result['success']);
     }
 

@@ -65,11 +65,18 @@ class Enhanced_Internal_Contact_Form {
      * Output hidden fields used across form templates.
      */
     public static function render_hidden_fields($template) {
-        echo wp_nonce_field('enhanced_icf_form_action', 'enhanced_icf_form_nonce', true, false);
+        $form_id     = 'f_' . bin2hex( random_bytes( 5 ) );
+        $instance_id = 'i_' . bin2hex( random_bytes( 5 ) );
+
+        echo wp_nonce_field( 'enhanced_icf_form_action', 'enhanced_icf_form_nonce', true, false );
         echo '<input type="hidden" name="enhanced_form_time" value="' . esc_attr( time() ) . '">';
-        echo '<input type="hidden" name="enhanced_template" value="' . esc_attr($template) . '">';
+        echo '<input type="hidden" name="enhanced_template" value="' . esc_attr( $template ) . '">';
         echo '<input type="hidden" name="enhanced_js_check" class="enhanced_js_check" value="">';
         echo '<div style="display:none;"><input type="text" name="enhanced_url" value=""></div>';
+        echo '<input type="hidden" name="enhanced_form_id" value="' . esc_attr( $form_id ) . '">';
+        echo '<input type="hidden" name="enhanced_instance_id" value="' . esc_attr( $instance_id ) . '">';
+
+        return $form_id;
     }
 
     public function handle_shortcode( $atts, ?FieldRegistry $registry = null, ?Enhanced_ICF_Form_Processor $processor = null ) {

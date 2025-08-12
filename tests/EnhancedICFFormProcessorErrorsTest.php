@@ -7,16 +7,20 @@ class EnhancedICFFormProcessorErrorsTest extends TestCase {
         register_template_fields_from_config( $registry, 'default' );
         $processor = new Enhanced_ICF_Form_Processor(new Logger(), $registry);
 
+        $form_id  = 'form123';
         $submitted = [
             'enhanced_icf_form_nonce' => 'valid',
             'enhanced_url'           => '',
             'enhanced_form_time'     => time() - 10,
             'enhanced_js_check'      => '1',
-            'name_input'             => 'Jo',
-            'email_input'            => 'not-an-email',
-            'tel_input'              => '123',
-            'zip_input'              => 'abcde',
-            'message_input'          => 'short',
+            'enhanced_form_id'       => $form_id,
+            $form_id                 => [
+                'name'    => 'Jo',
+                'email'   => 'not-an-email',
+                'phone'   => '123',
+                'zip'     => 'abcde',
+                'message' => 'short',
+            ],
         ];
 
         $result = $processor->process_form_submission('default', $submitted);

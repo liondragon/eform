@@ -38,8 +38,8 @@ class Enhanced_ICF_Form_Processor {
      * }
      */
     public function process_form_submission(string $template, array $submitted_data): array {
-        if (empty($submitted_data)) {
-            return $this->error_response('Form Left Empty', [], 'No data submitted.');
+        if ( empty( $submitted_data ) ) {
+            return $this->error_response( 'Form Left Empty', [], 'No data submitted.' );
         }
 
         $validators = [
@@ -49,21 +49,27 @@ class Enhanced_ICF_Form_Processor {
             'check_js_enabled',
         ];
 
-        foreach ($validators as $validator) {
-            if ($error = $this->$validator($submitted_data)) {
-                return $this->error_response($error['type'], [], $error['message']);
+        foreach ( $validators as $validator ) {
+            if ( $error = $this->$validator( $submitted_data ) ) {
+                return $this->error_response( $error['type'], [], $error['message'] );
             }
         }
 
         $field_map = $this->registry->get_fields( $template );
 
-        $field_list = $this->get_first_value( $submitted_data['enhanced_fields'] ?? '' );
+        $form_id    = $this->get_first_value( $submitted_data['enhanced_form_id'] ?? '' );
+        $form_scope = [];
+        if ( $form_id && isset( $submitted_data[ $form_id ] ) && is_array( $submitted_data[ $form_id ] ) ) {
+            $form_scope = $submitted_data[ $form_id ];
+        }
+
+        $field_list = $this->get_first_value( $form_scope['enhanced_fields'] ?? '' );
         if ( ! empty( $field_list ) ) {
             $keys      = array_filter( array_map( 'sanitize_key', explode( ',', $field_list ) ) );
             $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
         }
 
-        $result = $this->sanitize_submission( $field_map, $submitted_data );
+        $result = $this->sanitize_submission( $field_map, $form_scope );
         $data   = $result['data'];
         if ( ! empty( $result['invalid_fields'] ) ) {
             $details  = [ 'invalid_fields' => $result['invalid_fields'] ];
@@ -149,7 +155,7 @@ class Enhanced_ICF_Form_Processor {
         $invalid_fields = [];
 
         foreach ( $field_map as $field => $details ) {
-            $value = $this->get_first_value( $submitted_data[ $details['post_key'] ] ?? '' );
+            $value = $this->get_first_value( $submitted_data[ $field ] ?? '' );
             if ( null === $value ) {
                 $invalid_fields[] = $field;
                 continue;
