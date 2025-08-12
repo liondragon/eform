@@ -16,7 +16,7 @@ if ( ! function_exists( 'eform_field_error' ) ) {
         $error = $form->field_errors[ $field ] ?? '';
 
         if ( $error ) {
-            echo '<div class="field-error">' . esc_html( $error ) . '</div>';
+            echo '<div id="' . esc_attr( $field ) . '-error" class="field-error">' . esc_html( $error ) . '</div>';
         }
     }
 }
