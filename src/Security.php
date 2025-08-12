@@ -2,12 +2,6 @@
 // includes/Security.php
 
 class Security {
-    private function get_first_value( $value ) {
-        if ( is_array( $value ) ) {
-            return null;
-        }
-        return $value;
-    }
 
     private function build_error(string $type, string $message): array {
         return [
@@ -17,7 +11,7 @@ class Security {
     }
 
     public function check_nonce(array $submitted_data): array {
-        $nonce = $this->get_first_value( $submitted_data['enhanced_icf_form_nonce'] ?? '' );
+        $nonce = Helpers::get_first_value( $submitted_data['enhanced_icf_form_nonce'] ?? '' );
         if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, 'enhanced_icf_form_action' ) ) {
             return $this->build_error('Nonce Failed', 'Invalid submission detected.');
         }
@@ -29,7 +23,7 @@ class Security {
         if ( is_array( $honeypot_field ) ) {
             return $this->build_error('Bot Alert: Honeypot Filled', 'Bot test failed.');
         }
-        $honeypot = $this->get_first_value( $honeypot_field );
+        $honeypot = Helpers::get_first_value( $honeypot_field );
         if ( ! empty( $honeypot ) ) {
             return $this->build_error('Bot Alert: Honeypot Filled', 'Bot test failed.');
         }
@@ -41,7 +35,7 @@ class Security {
         if ( is_array( $submit_time_field ) ) {
             return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
         }
-        $submit_time = intval( $this->get_first_value( $submit_time_field ) );
+        $submit_time = intval( Helpers::get_first_value( $submit_time_field ) );
         if ( time() - $submit_time < 5 ) {
             return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
         }
@@ -49,7 +43,7 @@ class Security {
     }
 
     public function check_js_enabled(array $submitted_data): array {
-        $js_check = $this->get_first_value( $submitted_data['enhanced_js_check'] ?? '' );
+        $js_check = Helpers::get_first_value( $submitted_data['enhanced_js_check'] ?? '' );
         if ( empty( $js_check ) ) {
             return $this->build_error('Bot Alert: JS Check Missing', 'JavaScript must be enabled.');
         }

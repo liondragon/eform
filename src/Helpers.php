@@ -1,6 +1,17 @@
 <?php
 // src/Helpers.php
 
+if ( ! class_exists( 'Helpers' ) ) {
+    class Helpers {
+        public static function get_first_value( $value ) {
+            if ( is_array( $value ) ) {
+                return null;
+            }
+            return $value;
+        }
+    }
+}
+
 if ( ! function_exists( 'eform_get_safe_fields' ) ) {
     /**
      * Retrieve fields considered safe for logging.
