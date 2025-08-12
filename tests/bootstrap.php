@@ -155,16 +155,16 @@ class WP_Post {
 if ( ! defined('WP_CONTENT_DIR') ) {
     define('WP_CONTENT_DIR', sys_get_temp_dir() . '/wp-content');
 }
-require_once __DIR__.'/../includes/logger.php';
-require_once __DIR__.'/../includes/template-tags.php';
-require_once __DIR__.'/../includes/FormData.php';
-require_once __DIR__.'/../includes/FieldRegistry.php';
-require_once __DIR__.'/../includes/Renderer.php';
-require_once __DIR__.'/../includes/FormManager.php';
-require_once __DIR__.'/../includes/Normalizer.php';
-require_once __DIR__.'/../includes/Validator.php';
-require_once __DIR__.'/../includes/Emailer.php';
-require_once __DIR__.'/../includes/Security.php';
-require_once __DIR__.'/../includes/class-enhanced-icf-processor.php';
-require_once __DIR__.'/../includes/class-enhanced-icf.php';
-require_once __DIR__.'/../includes/template-config.php';
+require_once __DIR__.'/../src/Helpers.php';
+require_once __DIR__.'/../src/Logging.php';
+require_once __DIR__.'/../src/FormData.php';
+require_once __DIR__.'/../src/FieldRegistry.php';
+require_once __DIR__.'/../src/Renderer.php';
+require_once __DIR__.'/../src/FormManager.php';
+require_once __DIR__.'/../src/Normalizer.php';
+require_once __DIR__.'/../src/Validator.php';
+require_once __DIR__.'/../src/Emailer.php';
+require_once __DIR__.'/../src/Security.php';
+require_once __DIR__.'/../src/class-enhanced-icf-processor.php';
+require_once __DIR__.'/../src/class-enhanced-icf.php';
+require_once __DIR__.'/../src/TemplateCache.php';

@@ -31,7 +31,7 @@ class EnhancedInternalContactFormTest extends TestCase {
             ])
             ->willReturn(['success' => ['mode' => 'inline']]);
 
-        $form = new Enhanced_Internal_Contact_Form($processor, new Logger());
+        $form = new Enhanced_Internal_Contact_Form($processor, new Logging());
         $ref = new ReflectionClass($form);
         $prop = $ref->getProperty('redirect_url');
         $prop->setAccessible(true);
@@ -67,7 +67,7 @@ class EnhancedInternalContactFormTest extends TestCase {
                 'errors'    => ['name' => 'Required'],
             ]);
 
-        $form = new Enhanced_Internal_Contact_Form($processor, new Logger());
+        $form = new Enhanced_Internal_Contact_Form($processor, new Logging());
         $ref = new ReflectionClass($form);
         $prop = $ref->getProperty('redirect_url');
         $prop->setAccessible(true);
@@ -107,8 +107,8 @@ class EnhancedInternalContactFormTest extends TestCase {
             ],
         ];
 
-        $processor = new Enhanced_ICF_Form_Processor(new Logger());
-        $form      = new Enhanced_Internal_Contact_Form($processor, new Logger());
+        $processor = new Enhanced_ICF_Form_Processor(new Logging());
+        $form      = new Enhanced_Internal_Contact_Form($processor, new Logging());
         $ref = new ReflectionClass($form);
         $prop = $ref->getProperty('redirect_url');
         $prop->setAccessible(true);
@@ -144,8 +144,8 @@ class EnhancedInternalContactFormTest extends TestCase {
         $path = dirname(__DIR__) . "/templates/{$template}.json";
         file_put_contents( $path, json_encode( $config ) );
 
-        $processor = new Enhanced_ICF_Form_Processor( new Logger() );
-        $form      = new Enhanced_Internal_Contact_Form( $processor, new Logger() );
+        $processor = new Enhanced_ICF_Form_Processor( new Logging() );
+        $form      = new Enhanced_Internal_Contact_Form( $processor, new Logging() );
 
         $ref    = new ReflectionClass( $form );
         $method = $ref->getMethod( 'render_form' );
@@ -160,8 +160,8 @@ class EnhancedInternalContactFormTest extends TestCase {
 
     public function test_calling_template_method_is_not_supported() {
         $form = new Enhanced_Internal_Contact_Form(
-            new Enhanced_ICF_Form_Processor( new Logger() ),
-            new Logger()
+            new Enhanced_ICF_Form_Processor( new Logging() ),
+            new Logging()
         );
 
         $this->expectException( \Error::class );

@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/../eform.php';
+require_once __DIR__ . '/../eforms.php';
 
 use PHPUnit\Framework\TestCase;
 
@@ -15,11 +15,11 @@ class AssetsEnqueueTest extends TestCase {
     public function test_scripts_enqueued_when_shortcode_present() {
         global $post;
         $post = new WP_Post();
-        $post->post_content = '[enhanced_icf_shortcode]';
+        $post->post_content = '[eforms]';
 
-        enhanced_icf_enqueue_scripts();
+        eforms_enqueue_assets();
 
-        $this->assertContains( 'enhanced-icf-js', $GLOBALS['enqueued_scripts'] );
+        $this->assertContains( 'eforms-js', $GLOBALS['enqueued_scripts'] );
     }
 
     public function test_scripts_not_enqueued_without_shortcode() {
@@ -27,13 +27,13 @@ class AssetsEnqueueTest extends TestCase {
         $post = new WP_Post();
         $post->post_content = 'No shortcode here';
 
-        enhanced_icf_enqueue_scripts();
+        eforms_enqueue_assets();
 
         $this->assertEmpty( $GLOBALS['enqueued_scripts'] );
     }
 
     public function test_css_loaded_once_per_template() {
-        $logger    = new Logger();
+        $logger    = new Logging();
         $processor = new Enhanced_ICF_Form_Processor( $logger );
         $form      = new Enhanced_Internal_Contact_Form( $processor, $logger );
 
@@ -41,6 +41,6 @@ class AssetsEnqueueTest extends TestCase {
         $form->handle_shortcode( [ 'template' => 'default', 'style' => 'true' ], $processor );
 
         $this->assertCount( 1, $GLOBALS['enqueued_styles'] );
-        $this->assertContains( 'enhanced-icf-default', $GLOBALS['enqueued_styles'] );
+        $this->assertContains( 'eforms-default', $GLOBALS['enqueued_styles'] );
     }
 }

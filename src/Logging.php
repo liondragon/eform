@@ -1,31 +1,7 @@
 <?php
-// includes/logger.php
+// src/Logging.php
 
-if ( ! function_exists( 'eform_get_safe_fields' ) ) {
-    /**
-     * Retrieve fields considered safe for logging.
-     *
-     * Allows overriding via the `eform_log_safe_fields` option or filter.
-     *
-     * @param array|null $form_data Optional form data for filter context.
-     * @return array List of safe field keys.
-     */
-    function eform_get_safe_fields( $form_data = null ) {
-        $safe_fields = [ 'name', 'zip' ];
-        if ( function_exists( 'get_option' ) ) {
-            $option_fields = get_option( 'eform_log_safe_fields', [] );
-            if ( ! empty( $option_fields ) && is_array( $option_fields ) ) {
-                $safe_fields = $option_fields;
-            }
-        }
-        if ( function_exists( 'apply_filters' ) ) {
-            $safe_fields = apply_filters( 'eform_log_safe_fields', $safe_fields, $form_data );
-        }
-        return $safe_fields;
-    }
-}
-
-class Logger {
+class Logging {
     /**
      * Log level for informational messages.
      */
@@ -52,7 +28,7 @@ class Logger {
      * Write a log entry.
      *
      * @param string     $message   Human readable message.
-     * @param string     $level     Severity level (e.g. Logger::LEVEL_INFO, Logger::LEVEL_WARNING, Logger::LEVEL_ERROR).
+     * @param string     $level     Severity level (e.g. Logging::LEVEL_INFO, Logging::LEVEL_WARNING, Logging::LEVEL_ERROR).
      * @param array      $context   Additional context to record.
      * @param array|null $form_data Optional form data for safe logging.
      */

@@ -6,7 +6,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     private $security;
 
     protected function setUp(): void {
-        $this->processor = new Enhanced_ICF_Form_Processor(new Logger());
+        $this->processor = new Enhanced_ICF_Form_Processor(new Logging());
         $this->security  = new Security();
     }
 
@@ -223,7 +223,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $path = __DIR__ . '/../templates/' . $template . '.json';
         file_put_contents( $path, json_encode( $config ) );
 
-        $processor = new Enhanced_ICF_Form_Processor(new Logger());
+        $processor = new Enhanced_ICF_Form_Processor(new Logging());
         $form_id = 'form123';
         $data    = [
             'enhanced_icf_form_nonce' => 'valid',
