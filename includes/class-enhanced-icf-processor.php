@@ -103,7 +103,17 @@ class Enhanced_ICF_Form_Processor {
         }
 
         $this->log_success( $template, $data );
-        return [ 'success' => true ];
+
+        $config  = eform_get_template_config( $template );
+        $success = $config['success'] ?? [];
+        $mode    = isset( $success['mode'] ) ? sanitize_key( $success['mode'] ) : 'inline';
+        $resp    = [ 'success' => [ 'mode' => $mode ] ];
+
+        if ( ! empty( $success['redirect_url'] ) ) {
+            $resp['success']['redirect_url'] = $success['redirect_url'];
+        }
+
+        return $resp;
     }
 
     public function format_phone(string $digits): string {

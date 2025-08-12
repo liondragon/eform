@@ -55,9 +55,24 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_successful_submission() {
-        $data = $this->build_submission();
+        $data   = $this->build_submission();
         $result = $this->processor->process_form_submission('default', $data);
-        $this->assertTrue($result['success']);
+        $this->assertSame('inline', $result['success']['mode']);
+    }
+
+    public function test_success_redirect_mode() {
+        $template = 'redir';
+        $config   = json_decode( file_get_contents( __DIR__ . '/../templates/default.json' ), true );
+        $config['success'] = [ 'mode' => 'redirect', 'redirect_url' => 'https://example.com/thanks' ];
+        $path = __DIR__ . '/../templates/' . $template . '.json';
+        file_put_contents( $path, json_encode( $config ) );
+
+        $data   = $this->build_submission( $template );
+        $result = $this->processor->process_form_submission( $template, $data );
+        $this->assertSame('redirect', $result['success']['mode']);
+        $this->assertSame('https://example.com/thanks', $result['success']['redirect_url']);
+
+        unlink( $path );
     }
 
     public function test_nonce_failure() {
@@ -168,7 +183,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
         $data   = $this->build_submission('no_phone');
         $result = $this->processor->process_form_submission('no_phone', $data);
-        $this->assertTrue($result['success']);
+        $this->assertSame('inline', $result['success']['mode']);
 
         unlink( $path );
     }
@@ -219,7 +234,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
             $form_id                 => [ 'name' => '' ],
         ];
         $result = $processor->process_form_submission( 'opt', $data );
-        $this->assertTrue($result['success']);
+        $this->assertSame('inline', $result['success']['mode']);
 
         unlink( $path );
     }
@@ -228,7 +243,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $this->assertSame('2345678901', Validator::sanitize_digits('+1 (234) 567-8901'));
         $data   = $this->build_submission(overrides: ['phone' => '+1 (234) 567-8901']);
         $result = $this->processor->process_form_submission('default', $data);
-        $this->assertTrue($result['success']);
+        $this->assertSame('inline', $result['success']['mode']);
     }
 
     public function test_checkbox_field_processed() {
@@ -244,7 +259,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
         $data = $this->build_submission('checkbox', overrides: ['opts' => ['a']]);
         $result = $this->processor->process_form_submission('checkbox', $data);
-        $this->assertTrue($result['success']);
+        $this->assertSame('inline', $result['success']['mode']);
 
         $data = $this->build_submission('checkbox', overrides: ['opts' => ['c']]);
         $result = $this->processor->process_form_submission('checkbox', $data);
