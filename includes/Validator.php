@@ -34,7 +34,7 @@ class Validator {
     }
 
     /**
-     * Validate normalized data using sanitize/validate callbacks.
+     * Validate normalized data using callbacks registered for the field type.
      *
      * @param array $field_map        Field rules keyed by logical field key.
      * @param array $normalized_data  Normalized values keyed by logical field key.
@@ -45,22 +45,10 @@ class Validator {
         $data   = [];
         $errors = [];
         foreach ( $field_map as $field => $details ) {
-            $value = $normalized_data[ $field ] ?? '';
-            $type  = $details['type'] ?? 'text';
-            $sanitize_cb = $details['sanitize'] ?? null;
-            $validate_cb = $details['validate'] ?? null;
-            if ( is_string( $sanitize_cb ) && method_exists( self::class, $sanitize_cb ) ) {
-                $sanitize_cb = [ self::class, $sanitize_cb ];
-            }
-            if ( is_string( $validate_cb ) && method_exists( self::class, $validate_cb ) ) {
-                $validate_cb = [ self::class, $validate_cb ];
-            }
-            if ( ! $sanitize_cb ) {
-                $sanitize_cb = FieldRegistry::get_normalizer( $type );
-            }
-            if ( ! $validate_cb ) {
-                $validate_cb = FieldRegistry::get_validator( $type );
-            }
+            $value       = $normalized_data[ $field ] ?? '';
+            $type        = $details['type'] ?? 'text';
+            $sanitize_cb = FieldRegistry::get_normalizer( $type );
+            $validate_cb = FieldRegistry::get_validator( $type );
             if ( is_array( $value ) ) {
                 $sanitized = array_map( $sanitize_cb, $value );
             } else {

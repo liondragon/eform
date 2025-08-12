@@ -31,7 +31,7 @@ class Renderer {
             $required  = isset( $field['required'] ) ? ' required aria-required="true"' : '';
             $attr_str  = '';
             foreach ( $field as $attr => $val ) {
-                if ( in_array( $attr, [ 'type', 'required', 'style', 'key', 'sanitize', 'validate' ], true ) ) {
+                if ( in_array( $attr, [ 'type', 'required', 'style', 'key' ], true ) ) {
                     continue;
                 }
                 $attr_str .= sprintf( ' %s="%s"', esc_attr( $attr ), esc_attr( $val ) );

@@ -8,9 +8,7 @@
       "autocomplete": "name",
       "aria-label": "Your Name",
       "aria-required": "true",
-      "style": "grid-area: name",
-      "sanitize": "sanitize_text_field",
-      "validate": "validate_pattern"
+      "style": "grid-area: name"
     },
     "email_input": {
       "key": "email",
@@ -20,9 +18,7 @@
       "autocomplete": "email",
       "aria-label": "email",
       "aria-required": "true",
-      "style": "grid-area: email",
-      "sanitize": "sanitize_email",
-      "validate": "validate_email"
+      "style": "grid-area: email"
     },
     "tel_input": {
       "key": "phone",
@@ -32,9 +28,7 @@
       "autocomplete": "tel",
       "aria-label": "Phone",
       "aria-required": "true",
-      "style": "grid-area: phone",
-      "sanitize": "sanitize_digits",
-      "validate": "validate_phone"
+      "style": "grid-area: phone"
     },
     "zip_input": {
       "key": "zip",
@@ -44,9 +38,7 @@
       "autocomplete": "postal-code",
       "aria-label": "Project Zip Code",
       "aria-required": "true",
-      "style": "grid-area: zip",
-      "sanitize": "sanitize_text_field",
-      "validate": "validate_zip"
+      "style": "grid-area: zip"
     },
     "message_input": {
       "key": "message",
@@ -57,9 +49,7 @@
       "required": true,
       "aria-label": "Message",
       "aria-required": "true",
-      "style": "grid-area: message",
-      "sanitize": "sanitize_textarea_field",
-      "validate": "validate_message"
+      "style": "grid-area: message"
     }
   },
   "success": {

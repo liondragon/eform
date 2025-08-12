@@ -42,7 +42,7 @@ class ValidatorTest extends TestCase {
         $this->assertSame(['name'], $result['invalid_fields']);
     }
 
-    public function test_per_field_rules_override_type() {
+    public function test_per_field_rules_ignored() {
         $validator = new Validator();
         $field_map = [
             'zip' => [
@@ -52,9 +52,9 @@ class ValidatorTest extends TestCase {
                 'required' => true,
             ],
         ];
-        $submitted = [ 'zip' => '12345' ];
+        $submitted = [ 'zip' => '12-34' ];
         $result = $validator->process_submission( $field_map, $submitted, ['checkbox'] );
-        $this->assertSame('12345', $result['data']['zip']);
+        $this->assertSame('12-34', $result['data']['zip']);
         $this->assertSame([], $result['errors']);
     }
     public function test_normalization_trims_before_validation() {
