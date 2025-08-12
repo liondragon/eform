@@ -41,7 +41,9 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/mail-error-logger.php';
 new Mail_Error_Logger( $logger );
 require_once plugin_dir_path( __FILE__ ) . 'includes/field-registry.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/template-tags.php';
-require_once plugin_dir_path( __FILE__ ) . 'includes/render.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/FormData.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/Renderer.php';
+require_once plugin_dir_path( __FILE__ ) . 'includes/FormManager.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/template-config.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf-processor.php';
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf.php';
@@ -50,12 +52,14 @@ require_once plugin_dir_path( __FILE__ ) . 'includes/class-enhanced-icf.php';
 $registry  = new FieldRegistry();
 $GLOBALS['eform_registry'] = $registry;
 $processor = new Enhanced_ICF_Form_Processor( $logger, $registry );
-$form      = new Enhanced_Internal_Contact_Form( $processor, $logger );
+$renderer  = new Renderer();
+$form      = new Enhanced_Internal_Contact_Form( $processor, $logger, $renderer );
+$manager   = new FormManager( $form, $renderer );
 
 // Each shortcode instance gets its own registry and processor.
-add_shortcode( 'enhanced_icf_shortcode', function( $atts = [] ) use ( $logger, $form ) {
+add_shortcode( 'enhanced_icf_shortcode', function( $atts = [] ) use ( $logger, $manager ) {
     $registry_instance  = new FieldRegistry();
     $processor_instance = new Enhanced_ICF_Form_Processor( $logger, $registry_instance );
-    return $form->handle_shortcode( $atts, $registry_instance, $processor_instance );
+    return $manager->handle_shortcode( $atts, $registry_instance, $processor_instance );
 } );
 
