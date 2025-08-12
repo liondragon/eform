@@ -7,7 +7,6 @@ class AssetsEnqueueTest extends TestCase {
     protected function setUp(): void {
         $GLOBALS['enqueued_scripts'] = [];
         $GLOBALS['enqueued_styles']  = [];
-        $GLOBALS['inline_styles']    = [];
         $GLOBALS['registered_styles'] = [];
         $GLOBALS['printed_styles']   = [];
         $_SERVER['REQUEST_METHOD']   = 'GET';
@@ -42,6 +41,6 @@ class AssetsEnqueueTest extends TestCase {
         $form->handle_shortcode( [ 'template' => 'default', 'style' => 'true' ], $processor );
 
         $this->assertCount( 1, $GLOBALS['enqueued_styles'] );
-        $this->assertArrayHasKey( 'enhanced-icf-inline-default', $GLOBALS['inline_styles'] );
+        $this->assertContains( 'enhanced-icf-default', $GLOBALS['enqueued_styles'] );
     }
 }
