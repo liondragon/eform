@@ -1,11 +1,11 @@
 <?php
-namespace LoggerTesting;
+namespace LoggingTesting;
 
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 
 #[RunTestsInSeparateProcesses]
-class LoggerTest extends TestCase {
+class LoggingTest extends TestCase {
     private string $logDir;
     private string $logFile;
 
@@ -47,7 +47,7 @@ class LoggerTest extends TestCase {
     }
 
     public function test_prepare_log_file_creates_log_file(): void {
-        $logger = new \Logger();
+        $logger = new \Logging();
         $ref    = new \ReflectionClass($logger);
         $method = $ref->getMethod('prepare_log_file');
         $method->setAccessible(true);
@@ -57,20 +57,20 @@ class LoggerTest extends TestCase {
 
     public function test_format_context_sanitizes_data(): void {
         $_SERVER['REQUEST_URI'] = '/test';
-        $logger = new \Logger();
+        $logger = new \Logging();
         $ref    = new \ReflectionClass($logger);
         $method = $ref->getMethod('format_context');
         $method->setAccessible(true);
-        $context = $method->invoke($logger, 'msg', \Logger::LEVEL_WARNING, ['template' => '<b>tpl</b>'], ['name' => 'John']);
+        $context = $method->invoke($logger, 'msg', \Logging::LEVEL_WARNING, ['template' => '<b>tpl</b>'], ['name' => 'John']);
         $this->assertSame('tpl', $context['template']);
         $this->assertSame('msg', $context['message']);
-        $this->assertSame(\Logger::LEVEL_WARNING, $context['level']);
+        $this->assertSame(\Logging::LEVEL_WARNING, $context['level']);
         $this->assertSame('/test', $context['request_uri']);
         $this->assertArrayHasKey('timestamp', $context);
     }
 
     public function test_write_log_entry_does_not_escape_slashes(): void {
-        $logger = new \Logger();
+        $logger = new \Logging();
         $ref    = new \ReflectionClass($logger);
         $prep   = $ref->getMethod('prepare_log_file');
         $prep->setAccessible(true);
@@ -85,7 +85,7 @@ class LoggerTest extends TestCase {
     }
 
     public function test_rotation_when_size_exceeded(): void {
-        $logger = new \Logger();
+        $logger = new \Logging();
         $message = str_repeat('a', 300);
         $logger->log($message);
         $this->assertFileExists($this->logFile);
@@ -99,7 +99,7 @@ class LoggerTest extends TestCase {
     }
 
     public function test_old_rotated_logs_are_deleted(): void {
-        $logger = new \Logger();
+        $logger = new \Logging();
         $message = str_repeat('a', 300);
 
         // Initial rotation to create first rotated file.
@@ -126,8 +126,8 @@ class LoggerTest extends TestCase {
 
     public function test_logs_request_uri_and_template(): void {
         $_SERVER['REQUEST_URI'] = '/sample-page';
-        $logger = new \Logger();
-        $logger->log('hi', \Logger::LEVEL_INFO, ['template' => 'contact']);
+        $logger = new \Logging();
+        $logger->log('hi', \Logging::LEVEL_INFO, ['template' => 'contact']);
         $contents = file_get_contents($this->logFile);
         $this->assertNotEmpty($contents);
         $entry = json_decode($contents, true);

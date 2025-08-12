@@ -1,5 +1,5 @@
 <?php
-// includes/class-enhanced-icf-processor.php
+// src/class-enhanced-icf-processor.php
 
 class Enhanced_ICF_Form_Processor {
     private $ipaddress;
@@ -9,7 +9,7 @@ class Enhanced_ICF_Form_Processor {
     private $emailer;
     private array $array_field_types;
 
-    public function __construct(Logger $logger, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null, array $array_field_types = ['checkbox']) {
+    public function __construct(Logging $logger, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null, array $array_field_types = ['checkbox']) {
         $this->logger           = $logger;
         $this->ipaddress        = $logger->get_ip();
         $this->security         = $security  ?? new Security();
@@ -138,7 +138,7 @@ class Enhanced_ICF_Form_Processor {
         $safe_fields = eform_get_safe_fields( $data );
         $safe_data   = array_intersect_key( $data, array_flip( $safe_fields ) );
         if ( $this->logger ) {
-            $this->logger->log( 'Form submission sent', Logger::LEVEL_INFO, [ 'form_data' => $safe_data, 'template' => $template ] );
+            $this->logger->log( 'Form submission sent', Logging::LEVEL_INFO, [ 'form_data' => $safe_data, 'template' => $template ] );
         }
     }
 
@@ -148,7 +148,7 @@ class Enhanced_ICF_Form_Processor {
             unset($details['form_data']);
         }
         if ( $this->logger ) {
-            $this->logger->log($type, Logger::LEVEL_ERROR, [
+            $this->logger->log($type, Logging::LEVEL_ERROR, [
                 'type'    => $type,
                 'details' => $details,
             ], $form_data);

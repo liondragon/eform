@@ -1,5 +1,5 @@
 <?php
-// includes/class-enhanced-icf.php
+// src/class-enhanced-icf.php
 
 class Enhanced_Internal_Contact_Form extends FormData {
     private $redirect_url='/?page_id=20'; // Set to empty string to disable redirect
@@ -14,7 +14,7 @@ class Enhanced_Internal_Contact_Form extends FormData {
     public $template_config = [];
     private $renderer;
 
-    public function __construct( ?Enhanced_ICF_Form_Processor $processor = null, ?Logger $logger = null, ?Renderer $renderer = null ) {
+    public function __construct( ?Enhanced_ICF_Form_Processor $processor = null, ?Logging $logger = null, ?Renderer $renderer = null ) {
         $this->processor = $processor;
         $this->logger    = $logger;
         $this->renderer  = $renderer ?: new Renderer();
@@ -135,24 +135,24 @@ class Enhanced_Internal_Contact_Form extends FormData {
             return;
         }
 
-        $css_file = "assets/{$template}.css";
+        $css_file = 'assets/forms.css';
         $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
 
         if ( ! file_exists( $css_path ) ) {
             if ( $this->logger ) {
-                $this->logger->log( sprintf( 'Enhanced ICF CSS file missing: %s', $css_path ), Logger::LEVEL_WARNING );
+                $this->logger->log( sprintf( 'Enhanced ICF CSS file missing: %s', $css_path ), Logging::LEVEL_WARNING );
             }
             return;
         }
 
         if ( ! is_readable( $css_path ) ) {
             if ( $this->logger ) {
-                $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ), Logger::LEVEL_WARNING );
+                $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ), Logging::LEVEL_WARNING );
             }
             return;
         }
 
-        $handle  = 'enhanced-icf-' . $template;
+        $handle  = 'eforms-' . $template;
         $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
 
         wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );

@@ -2,7 +2,7 @@
 
 use PHPUnit\Framework\TestCase;
 
-require_once __DIR__ . '/../includes/template-tags.php';
+require_once __DIR__ . '/../src/Helpers.php';
 
 class TemplateTagsTest extends TestCase {
 
