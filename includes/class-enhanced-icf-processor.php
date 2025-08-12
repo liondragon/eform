@@ -5,11 +5,17 @@ class Enhanced_ICF_Form_Processor {
     private $ipaddress;
     private $logger;
     private $registry;
+    private $security;
+    private $validator;
+    private $emailer;
 
-    public function __construct(Logger $logger, FieldRegistry $registry) {
+    public function __construct(Logger $logger, FieldRegistry $registry, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null) {
         $this->logger    = $logger;
         $this->ipaddress = $logger->get_ip();
         $this->registry  = $registry;
+        $this->security  = $security  ?? new Security();
+        $this->validator = $validator ?? new Validator();
+        $this->emailer   = $emailer   ?? new Emailer( $this->ipaddress );
     }
 
     private function get_first_value( $value ) {
@@ -50,7 +56,7 @@ class Enhanced_ICF_Form_Processor {
         ];
 
         foreach ( $validators as $validator ) {
-            if ( $error = $this->$validator( $submitted_data ) ) {
+            if ( $error = $this->security->$validator( $submitted_data ) ) {
                 return $this->error_response( $error['type'], [], $error['message'] );
             }
         }
@@ -69,7 +75,7 @@ class Enhanced_ICF_Form_Processor {
             $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
         }
 
-        $result = $this->sanitize_submission( $field_map, $form_scope );
+        $result = $this->validator->sanitize_submission( $field_map, $form_scope );
         $data   = $result['data'];
         if ( ! empty( $result['invalid_fields'] ) ) {
             $details  = [ 'invalid_fields' => $result['invalid_fields'] ];
@@ -77,7 +83,7 @@ class Enhanced_ICF_Form_Processor {
             return $this->error_response( 'Invalid form input', $details, $user_msg );
         }
 
-        $errors = $this->validate_submission( $field_map, $data );
+        $errors = $this->validator->validate_submission( $field_map, $data );
         if ( $errors ) {
             $details = [
                 'errors'    => $errors,
@@ -87,7 +93,7 @@ class Enhanced_ICF_Form_Processor {
             return $this->error_response( 'Validation errors', $details, $user_msg );
         }
 
-        if ( ! $this->dispatch_email( $data ) ) {
+        if ( ! $this->emailer->dispatch_email( $data ) ) {
             $details = [ 'form_data' => $data ];
             return $this->error_response( 'Email Sending Failure', $details, 'Something went wrong. Please try again later.' );
         }
@@ -101,88 +107,6 @@ class Enhanced_ICF_Form_Processor {
             return $matches[1] . '-' . $matches[2] . '-' . $matches[3];
         }
         return $digits;
-    }
-
-    private function build_error(string $type, string $message): array {
-        return [
-            'type'    => $type,
-            'message' => $message,
-        ];
-    }
-
-    private function check_nonce(array $submitted_data): array {
-        $nonce = $this->get_first_value( $submitted_data['enhanced_icf_form_nonce'] ?? '' );
-        if ( empty( $nonce ) || ! wp_verify_nonce( $nonce, 'enhanced_icf_form_action' ) ) {
-            return $this->build_error('Nonce Failed', 'Invalid submission detected.');
-        }
-        return [];
-    }
-
-    private function check_honeypot(array $submitted_data): array {
-        $honeypot_field = $submitted_data['enhanced_url'] ?? '';
-        if ( is_array( $honeypot_field ) ) {
-            return $this->build_error('Bot Alert: Honeypot Filled', 'Bot test failed.');
-        }
-        $honeypot = $this->get_first_value( $honeypot_field );
-        if ( ! empty( $honeypot ) ) {
-            return $this->build_error('Bot Alert: Honeypot Filled', 'Bot test failed.');
-        }
-        return [];
-    }
-
-    private function check_submission_time(array $submitted_data): array {
-        $submit_time_field = $submitted_data['enhanced_form_time'] ?? 0;
-        if ( is_array( $submit_time_field ) ) {
-            return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
-        }
-        $submit_time = intval( $this->get_first_value( $submit_time_field ) );
-        if ( time() - $submit_time < 5 ) {
-            return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
-        }
-        return [];
-    }
-
-    private function check_js_enabled(array $submitted_data): array {
-        $js_check = $this->get_first_value( $submitted_data['enhanced_js_check'] ?? '' );
-        if ( empty( $js_check ) ) {
-            return $this->build_error('Bot Alert: JS Check Missing', 'JavaScript must be enabled.');
-        }
-        return [];
-    }
-
-    private function sanitize_submission( array $field_map, array $submitted_data ): array {
-        $data           = [];
-        $invalid_fields = [];
-
-        foreach ( $field_map as $field => $details ) {
-            $value = $this->get_first_value( $submitted_data[ $field ] ?? '' );
-            if ( null === $value ) {
-                $invalid_fields[] = $field;
-                continue;
-            }
-
-            $sanitize_cb    = $details['sanitize_cb'];
-            $data[ $field ] = $sanitize_cb( $value );
-        }
-
-        return [
-            'data'           => $data,
-            'invalid_fields' => $invalid_fields,
-        ];
-    }
-
-    private function validate_submission( array $field_map, array $data ): array {
-        $errors = [];
-
-        foreach ( $field_map as $field => $details ) {
-            $validate_cb = $details['validate_cb'];
-            $error       = $validate_cb( $data[ $field ] ?? '', $details );
-            if ( $error ) {
-                $errors[ $field ] = $error;
-            }
-        }
-
-        return $errors;
     }
 
     private function log_success( string $template, array $data ): void {
@@ -202,41 +126,6 @@ class Enhanced_ICF_Form_Processor {
         if ( $this->logger ) {
             $this->logger->log( 'Form submission sent', Logger::LEVEL_INFO, [ 'form_data' => $safe_data, 'template' => $template ] );
         }
-    }
-
-    private function build_email_body(array $data): string {
-        $ip = esc_html($this->ipaddress);
-        $rows = [
-            ['label' => 'Name',    'value' => esc_html($data['name'] ?? '')],
-            ['label' => 'Email',   'value' => esc_html($data['email'] ?? '')],
-            ['label' => 'Phone',   'value' => esc_html($this->format_phone($data['phone'] ?? ''))],
-            ['label' => 'Zip',     'value' => esc_html($data['zip'] ?? '')],
-            ['label' => 'Message', 'value' => nl2br(esc_html($data['message'] ?? '')), 'valign' => 'top'],
-            ['label' => 'Sent from', 'value' => $ip],
-        ];
-
-        $message_rows = '';
-        foreach ($rows as $row) {
-            $valign = isset($row['valign']) ? " valign='{$row['valign']}'" : '';
-            $message_rows .= "<tr><td{$valign}><strong>{$row['label']}:</strong></td><td>{$row['value']}</td></tr>";
-        }
-
-        return '<table cellpadding="4" cellspacing="0" border="0">' . $message_rows . '</table>';
-    }
-
-    private function dispatch_email(array $data): bool {
-        $to      = get_option('admin_email');
-        $subject = 'Quote Request - ' . sanitize_text_field($data['name'] ?? '');
-        $message = $this->build_email_body($data);
-
-        $noreply = 'noreply@flooringartists.com';
-        $headers = [];
-        $headers[] = "From: " . ($data['name'] ?? '') . " <{$noreply}>";
-        $headers[] = 'Content-Type: text/html; charset=UTF-8';
-        $headers[] = 'Content-Transfer-Encoding: 8bit';
-        $headers[] = "Reply-To: " . ($data['name'] ?? '') . " <" . ($data['email'] ?? '') . ">";
-
-        return wp_mail($to, $subject, $message, $headers);
     }
 
     private function log_and_message(string $type, array $details = [], string $user_msg = ''): string {

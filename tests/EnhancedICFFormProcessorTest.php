@@ -4,11 +4,13 @@ use PHPUnit\Framework\TestCase;
 class EnhancedICFFormProcessorTest extends TestCase {
     private $processor;
     private $registry;
+    private $security;
 
     protected function setUp(): void {
         $this->registry  = new FieldRegistry();
         register_template_fields_from_config( $this->registry, 'default' );
         $this->processor = new Enhanced_ICF_Form_Processor(new Logger(), $this->registry);
+        $this->security  = new Security();
     }
 
     private function build_submission(string $template = 'default', array $overrides = []): array {
@@ -65,8 +67,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data = $this->build_submission(overrides: ['enhanced_icf_form_nonce' => 'invalid']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Nonce Failed', 'Invalid submission detected.']);
-        $actual   = $this->invoke_method($this->processor, 'check_nonce', [$data]);
+        $expected = $this->invoke_method($this->security, 'build_error', ['Nonce Failed', 'Invalid submission detected.']);
+        $actual   = $this->security->check_nonce($data);
         $this->assertSame($expected, $actual);
         $this->assertSame($expected['message'], $result['message']);
     }
@@ -75,8 +77,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data = $this->build_submission(overrides: ['enhanced_url' => 'http://spam']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
-        $actual   = $this->invoke_method($this->processor, 'check_honeypot', [$data]);
+        $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
+        $actual   = $this->security->check_honeypot($data);
         $this->assertSame($expected, $actual);
         $this->assertSame($expected['message'], $result['message']);
     }
@@ -85,8 +87,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data = $this->build_submission(overrides: ['enhanced_url' => ['spam']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
-        $actual   = $this->invoke_method($this->processor, 'check_honeypot', [$data]);
+        $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
+        $actual   = $this->security->check_honeypot($data);
         $this->assertSame($expected, $actual);
         $this->assertSame($expected['message'], $result['message']);
     }
@@ -95,8 +97,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data = $this->build_submission(overrides: ['enhanced_form_time' => time()]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
-        $actual   = $this->invoke_method($this->processor, 'check_submission_time', [$data]);
+        $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
+        $actual   = $this->security->check_submission_time($data);
         $this->assertSame($expected, $actual);
         $this->assertSame($expected['message'], $result['message']);
     }
@@ -105,8 +107,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $data = $this->build_submission(overrides: ['enhanced_form_time' => ['now']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
-        $actual   = $this->invoke_method($this->processor, 'check_submission_time', [$data]);
+        $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
+        $actual   = $this->security->check_submission_time($data);
         $this->assertSame($expected, $actual);
         $this->assertSame($expected['message'], $result['message']);
     }
@@ -116,8 +118,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
         unset($data['enhanced_js_check']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
-        $expected = $this->invoke_method($this->processor, 'build_error', ['Bot Alert: JS Check Missing', 'JavaScript must be enabled.']);
-        $actual   = $this->invoke_method($this->processor, 'check_js_enabled', [$data]);
+        $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: JS Check Missing', 'JavaScript must be enabled.']);
+        $actual   = $this->security->check_js_enabled($data);
         $this->assertSame($expected, $actual);
         $this->assertSame($expected['message'], $result['message']);
     }
