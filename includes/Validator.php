@@ -32,33 +32,45 @@ class Validator {
             'sanitize_cb' => 'sanitize_textarea_field',
             'validate_cb' => [self::class, 'validate_message'],
         ],
+        'checkbox' => [
+            'sanitize_cb' => 'sanitize_text_field',
+            'validate_cb' => [self::class, 'validate_choices'],
+        ],
     ];
 
     /**
      * Sanitize and validate submitted data in one pass.
      *
-     * @param array $field_map      Field rules keyed by logical field key.
-     * @param array $submitted_data Raw submitted values keyed by logical field key.
+     * @param array $field_map        Field rules keyed by logical field key.
+     * @param array $submitted_data   Raw submitted values keyed by logical field key.
+     * @param array $array_field_types Field types that accept array values.
      * @return array{data:array,errors:array,invalid_fields:array}
      */
-    public function process_submission( array $field_map, array $submitted_data ): array {
+    public function process_submission( array $field_map, array $submitted_data, array $array_field_types = [] ): array {
         $data           = [];
         $errors         = [];
         $invalid_fields = [];
 
         foreach ( $field_map as $field => $details ) {
-            $value = $submitted_data[ $field ] ?? '';
-            if ( is_array( $value ) ) {
+            $value    = $submitted_data[ $field ] ?? '';
+            $type     = $details['type'] ?? 'text';
+            $is_array = is_array( $value );
+
+            if ( $is_array && ! in_array( $type, $array_field_types, true ) ) {
                 $invalid_fields[] = $field;
                 continue;
             }
 
-            $type      = $details['type'] ?? 'text';
             $callbacks = $this->type_map[ $type ] ?? $this->type_map['text'];
 
-            $sanitize_cb    = $callbacks['sanitize_cb'];
-            $validate_cb    = $callbacks['validate_cb'];
-            $sanitized      = $sanitize_cb( $value );
+            $sanitize_cb = $callbacks['sanitize_cb'];
+            $validate_cb = $callbacks['validate_cb'];
+
+            if ( $is_array ) {
+                $sanitized = array_map( $sanitize_cb, $value );
+            } else {
+                $sanitized = $sanitize_cb( $value );
+            }
             $data[ $field ] = $sanitized;
 
             $error = $validate_cb( $sanitized, $details );
@@ -189,6 +201,23 @@ class Validator {
         $choices = $field['choices'] ?? [];
         if ( ! in_array( $value, $choices, true ) ) {
             return 'Invalid selection.';
+        }
+        return '';
+    }
+
+    /** Validate multiple selections against a list of allowed choices. */
+    public static function validate_choices( array $values, array $field ): string {
+        if ( ! empty( $field['required'] ) && empty( $values ) ) {
+            return 'At least one selection is required.';
+        }
+        if ( empty( $values ) ) {
+            return '';
+        }
+        $choices = $field['choices'] ?? [];
+        foreach ( $values as $value ) {
+            if ( ! in_array( $value, $choices, true ) ) {
+                return 'Invalid selection.';
+            }
         }
         return '';
     }

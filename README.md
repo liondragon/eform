@@ -73,6 +73,26 @@ files are parsed using core PHP functions. If a theme file is not found, the
 plugin will look for a matching configuration within its own `templates/`
 directory, providing a plugin-level fallback.
 
+### Multi-value Fields
+
+Fields that accept multiple values, such as checkbox groups, should define their
+type as `checkbox` and include a `choices` array in the template configuration.
+Submitted data for these fields must be an array of selected choice values:
+
+```json
+{
+    "interests_input": {
+        "type": "checkbox",
+        "choices": ["news", "offers"],
+        "required": true
+    }
+}
+```
+
+When processing the form, each selected value is sanitized and validated against
+the configured choices. If a field of this type is marked as required, at least
+one selection must be present.
+
 ### Template Configuration Caching
 
 Template configurations are cached both in-memory and via WordPress' object
