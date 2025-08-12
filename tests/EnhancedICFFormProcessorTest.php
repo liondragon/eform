@@ -3,18 +3,15 @@ use PHPUnit\Framework\TestCase;
 
 class EnhancedICFFormProcessorTest extends TestCase {
     private $processor;
-    private $registry;
     private $security;
 
     protected function setUp(): void {
-        $this->registry  = new FieldRegistry();
-        register_template_fields_from_config( $this->registry, 'default' );
-        $this->processor = new Enhanced_ICF_Form_Processor(new Logger(), $this->registry);
+        $this->processor = new Enhanced_ICF_Form_Processor(new Logger());
         $this->security  = new Security();
     }
 
     private function build_submission(string $template = 'default', array $overrides = []): array {
-        $field_map = $this->registry->get_fields( $template );
+        $field_map = eform_get_field_rules( $template );
 
         $form_id = $overrides['enhanced_form_id'] ?? 'form123';
         unset( $overrides['enhanced_form_id'] );
@@ -27,7 +24,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
             'enhanced_form_id'       => $form_id,
         ];
 
-        $defaults = get_default_field_values( $this->registry, $template );
+        $defaults = get_default_field_values( $template );
 
         $data[ $form_id ] = [];
         foreach ( $field_map as $field => $details ) {
@@ -133,16 +130,16 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_only_configured_fields_are_validated() {
-        $this->registry->register_field_from_config('partial', 'name', [
-            'post_key' => 'name_input',
-            'type'     => 'text',
-            'required' => true,
-        ]);
-        $this->registry->register_field_from_config('partial', 'email', [
-            'post_key' => 'email_input',
-            'type'     => 'email',
-            'required' => true,
-        ]);
+        $template = 'partial';
+        $config = [
+            'fields' => [
+                'name_input'  => [ 'type' => 'text', 'required' => true ],
+                'email_input' => [ 'type' => 'email', 'required' => true ],
+            ],
+        ];
+        $path = __DIR__ . '/../templates/' . $template . '.json';
+        file_put_contents( $path, json_encode( $config ) );
+
         $data = $this->build_submission('partial', overrides: [ 'email' => 'not-an-email' ]);
         $form_id = $data['enhanced_form_id'];
         $data[ $form_id ]['phone'] = '000';
@@ -152,53 +149,49 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $this->assertArrayHasKey('email', $result['errors']);
         $this->assertArrayNotHasKey('phone', $result['errors']);
         $this->assertSame('Invalid email.', $result['errors']['email']);
+
+        unlink( $path );
     }
 
     public function test_template_without_phone_field() {
-        $this->registry->register_field_from_config('no_phone', 'name', [
-            'post_key' => 'name_input',
-            'type'     => 'text',
-            'required' => true,
-        ]);
-        $this->registry->register_field_from_config('no_phone', 'email', [
-            'post_key' => 'email_input',
-            'type'     => 'email',
-            'required' => true,
-        ]);
-        $this->registry->register_field_from_config('no_phone', 'zip', [
-            'post_key' => 'zip_input',
-            'type'     => 'text',
-            'required' => true,
-        ]);
-        $this->registry->register_field_from_config('no_phone', 'message', [
-            'post_key' => 'message_input',
-            'type'     => 'textarea',
-            'required' => true,
-        ]);
+        $template = 'no_phone';
+        $config = [
+            'fields' => [
+                'name_input'    => [ 'type' => 'text', 'required' => true ],
+                'email_input'   => [ 'type' => 'email', 'required' => true ],
+                'zip_input'     => [ 'type' => 'text', 'required' => true ],
+                'message_input' => [ 'type' => 'textarea', 'required' => true ],
+            ],
+        ];
+        $path = __DIR__ . '/../templates/' . $template . '.json';
+        file_put_contents( $path, json_encode( $config ) );
+
         $data   = $this->build_submission('no_phone');
         $result = $this->processor->process_form_submission('no_phone', $data);
         $this->assertTrue($result['success']);
+
+        unlink( $path );
     }
 
     public function test_required_phone_missing() {
-        $this->registry->register_field_from_config('phone_only', 'name', [
-            'post_key' => 'name_input',
-            'type'     => 'text',
-        ]);
-        $this->registry->register_field_from_config('phone_only', 'email', [
-            'post_key' => 'email_input',
-            'type'     => 'email',
-        ]);
-        $this->registry->register_field_from_config('phone_only', 'phone', [
-            'post_key' => 'tel_input',
-            'type'     => 'tel',
-            'required' => true,
-        ]);
+        $template = 'phone_only';
+        $config = [
+            'fields' => [
+                'name_input'  => [ 'type' => 'text' ],
+                'email_input' => [ 'type' => 'email' ],
+                'tel_input'   => [ 'type' => 'tel', 'required' => true ],
+            ],
+        ];
+        $path = __DIR__ . '/../templates/' . $template . '.json';
+        file_put_contents( $path, json_encode( $config ) );
+
         $data   = $this->build_submission('phone_only', overrides: ['phone' => '']);
         $result = $this->processor->process_form_submission('phone_only', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Please correct the highlighted fields', $result['message']);
         $this->assertSame(['phone' => 'Phone is required.'], $result['errors']);
+
+        unlink( $path );
     }
 
     public function test_required_name_missing() {
@@ -210,12 +203,12 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_optional_field_can_be_blank() {
-        $registry = new FieldRegistry();
-        $registry->register_field_from_config('opt', 'name', [
-            'post_key' => 'name_input',
-            'type'     => 'text',
-        ]);
-        $processor = new Enhanced_ICF_Form_Processor(new Logger(), $registry);
+        $template = 'opt';
+        $config = [ 'fields' => [ 'name_input' => [ 'type' => 'text' ] ] ];
+        $path = __DIR__ . '/../templates/' . $template . '.json';
+        file_put_contents( $path, json_encode( $config ) );
+
+        $processor = new Enhanced_ICF_Form_Processor(new Logger());
         $form_id = 'form123';
         $data    = [
             'enhanced_icf_form_nonce' => 'valid',
@@ -227,10 +220,12 @@ class EnhancedICFFormProcessorTest extends TestCase {
         ];
         $result = $processor->process_form_submission( 'opt', $data );
         $this->assertTrue($result['success']);
+
+        unlink( $path );
     }
 
     public function test_phone_with_leading_one_is_normalized() {
-        $this->assertSame('2345678901', FieldRegistry::sanitize_digits('+1 (234) 567-8901'));
+        $this->assertSame('2345678901', Validator::sanitize_digits('+1 (234) 567-8901'));
         $data   = $this->build_submission(overrides: ['phone' => '+1 (234) 567-8901']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertTrue($result['success']);

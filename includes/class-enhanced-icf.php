@@ -83,7 +83,7 @@ class Enhanced_Internal_Contact_Form extends FormData {
         return $form_id;
     }
 
-    public function handle_shortcode( $atts, ?FieldRegistry $registry = null, ?Enhanced_ICF_Form_Processor $processor = null ) {
+    public function handle_shortcode( $atts, ?Enhanced_ICF_Form_Processor $processor = null ) {
         $atts = shortcode_atts( [
             'template'     => 'default',
             'style'        => 'false',
@@ -98,16 +98,11 @@ class Enhanced_Internal_Contact_Form extends FormData {
             $this->use_inline_css = filter_var( $atts['useinlinecss'], FILTER_VALIDATE_BOOLEAN );
         }
 
-        // Default to global instances if none supplied.
-        if ( null === $registry && isset( $GLOBALS['eform_registry'] ) ) {
-            $registry = $GLOBALS['eform_registry'];
-        }
         if ( null === $processor ) {
             if ( null !== $this->processor ) {
                 $processor = $this->processor;
             } else {
-                $registry  = $registry ?: new FieldRegistry();
-                $processor = new Enhanced_ICF_Form_Processor( $this->logger, $registry );
+                $processor = new Enhanced_ICF_Form_Processor( $this->logger );
             }
         }
 
@@ -116,7 +111,7 @@ class Enhanced_Internal_Contact_Form extends FormData {
 
         $this->maybe_handle_form( $processor );
 
-        return $this->render_form( $template, $registry );
+        return $this->render_form( $template );
     }
 
     private function prepare_css( $template ) {
@@ -196,21 +191,11 @@ class Enhanced_Internal_Contact_Form extends FormData {
         return $form_html;
     }
 
-    private function render_form( $template, ?FieldRegistry $registry = null ) {
+    private function render_form( $template ) {
         $this->prepare_css( $template );
 
-        // Load template configuration and register fields for this template.
+        // Load template configuration for this template.
         $this->template_config = eform_get_template_config( $template );
-        if ( null === $registry && isset( $GLOBALS['eform_registry'] ) ) {
-            $registry = $GLOBALS['eform_registry'];
-        }
-        if ( null !== $registry ) {
-            foreach ( $this->template_config['fields'] ?? [] as $post_key => $field ) {
-                $key   = FieldRegistry::field_key_from_post( $post_key );
-                $field = array_merge( $field, [ 'post_key' => $post_key ] );
-                $registry->register_field_from_config( $template, $key, $field );
-            }
-        }
 
         // If we succeeded *and* have a redirect URL, bail out (we’ll redirect instead)
         if ( $this->form_submitted && ! empty( $this->redirect_url ) ) {
@@ -222,16 +207,11 @@ class Enhanced_Internal_Contact_Form extends FormData {
         $form_html = ob_get_clean();
 
         // Inject hidden field listing keys used in this template for processing
-        if ( null === $registry && isset( $GLOBALS['eform_registry'] ) ) {
-            $registry = $GLOBALS['eform_registry'];
-        }
-        if ( null !== $registry ) {
-            $fields = $registry->get_fields( $template );
-            if ( ! empty( $fields ) ) {
-                $keys   = implode( ',', array_keys( $fields ) );
-                $hidden = '<input type="hidden" name="enhanced_fields" value="' . esc_attr( $keys ) . '">';
-                $form_html = preg_replace( '/<\/form>/', $hidden . '</form>', $form_html, 1 );
-            }
+        $fields = eform_get_field_rules( $template );
+        if ( ! empty( $fields ) ) {
+            $keys   = implode( ',', array_keys( $fields ) );
+            $hidden = '<input type="hidden" name="enhanced_fields" value="' . esc_attr( $keys ) . '">';
+            $form_html = preg_replace( '/<\/form>/', $hidden . '</form>', $form_html, 1 );
         }
 
         $form_html = $this->prepend_form_messages( $template, $form_html );

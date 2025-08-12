@@ -68,16 +68,7 @@ function wp_cache_delete( $key, $group = '' ) {
     return false;
 }
 
-function register_template_fields_from_config( FieldRegistry $registry, string $template ): void {
-    $config = eform_get_template_config( $template );
-    foreach ( $config['fields'] ?? [] as $post_key => $field ) {
-        $key   = FieldRegistry::field_key_from_post( $post_key );
-        $field = array_merge( $field, [ 'post_key' => $post_key ] );
-        $registry->register_field_from_config( $template, $key, $field );
-    }
-}
-
-function get_default_field_values( FieldRegistry $registry, string $template = 'default' ): array {
+function get_default_field_values( string $template = 'default' ): array {
     $defaults = [
         'name'    => 'John Doe',
         'email'   => 'john@example.com',
@@ -86,7 +77,7 @@ function get_default_field_values( FieldRegistry $registry, string $template = '
         'message' => str_repeat('a', 25),
     ];
 
-    $fields = $registry->get_fields( $template );
+    $fields = eform_get_field_rules( $template );
     $values = [];
     foreach ( $fields as $field => $_ ) {
         $values[ $field ] = $defaults[ $field ] ?? '';

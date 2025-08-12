@@ -4,15 +4,13 @@
 class Enhanced_ICF_Form_Processor {
     private $ipaddress;
     private $logger;
-    private $registry;
     private $security;
     private $validator;
     private $emailer;
 
-    public function __construct(Logger $logger, FieldRegistry $registry, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null) {
+    public function __construct(Logger $logger, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null) {
         $this->logger    = $logger;
         $this->ipaddress = $logger->get_ip();
-        $this->registry  = $registry;
         $this->security  = $security  ?? new Security();
         $this->validator = $validator ?? new Validator();
         $this->emailer   = $emailer   ?? new Emailer( $this->ipaddress );
@@ -61,7 +59,7 @@ class Enhanced_ICF_Form_Processor {
             }
         }
 
-        $field_map = $this->registry->get_fields( $template );
+        $field_map = eform_get_field_rules( $template );
 
         $form_id    = $this->get_first_value( $submitted_data['enhanced_form_id'] ?? '' );
         $form_scope = [];
@@ -75,7 +73,7 @@ class Enhanced_ICF_Form_Processor {
             $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
         }
 
-        $result = $this->validator->sanitize_submission( $field_map, $form_scope );
+        $result = $this->validator->process_submission( $field_map, $form_scope );
         $data   = $result['data'];
         if ( ! empty( $result['invalid_fields'] ) ) {
             $details  = [ 'invalid_fields' => $result['invalid_fields'] ];
@@ -83,10 +81,9 @@ class Enhanced_ICF_Form_Processor {
             return $this->error_response( 'Invalid form input', $details, $user_msg );
         }
 
-        $errors = $this->validator->validate_submission( $field_map, $data );
-        if ( $errors ) {
+        if ( ! empty( $result['errors'] ) ) {
             $details = [
-                'errors'    => $errors,
+                'errors'    => $result['errors'],
                 'form_data' => $data,
             ];
             $user_msg = 'Please correct the highlighted fields';

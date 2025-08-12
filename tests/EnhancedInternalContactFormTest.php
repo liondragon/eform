@@ -108,9 +108,7 @@ class EnhancedInternalContactFormTest extends TestCase {
             ],
         ];
 
-        $registry  = new FieldRegistry();
-        register_template_fields_from_config( $registry, 'default' );
-        $processor = new Enhanced_ICF_Form_Processor(new Logger(), $registry);
+        $processor = new Enhanced_ICF_Form_Processor(new Logger());
         $form      = new Enhanced_Internal_Contact_Form($processor, new Logger());
         $ref = new ReflectionClass($form);
         $prop = $ref->getProperty('redirect_url');
@@ -147,11 +145,7 @@ class EnhancedInternalContactFormTest extends TestCase {
         $path = dirname(__DIR__) . "/templates/{$template}.json";
         file_put_contents( $path, json_encode( $config ) );
 
-        $registry = new FieldRegistry();
-        $prev_registry = $GLOBALS['eform_registry'] ?? null;
-        $GLOBALS['eform_registry'] = $registry;
-
-        $processor = new Enhanced_ICF_Form_Processor( new Logger(), $registry );
+        $processor = new Enhanced_ICF_Form_Processor( new Logger() );
         $form      = new Enhanced_Internal_Contact_Form( $processor, new Logger() );
 
         $ref    = new ReflectionClass( $form );
@@ -163,10 +157,5 @@ class EnhancedInternalContactFormTest extends TestCase {
         $this->assertStringContainsString( 'placeholder="JSON Name"', $html );
 
         unlink( $path );
-        if ( $prev_registry !== null ) {
-            $GLOBALS['eform_registry'] = $prev_registry;
-        } else {
-            unset( $GLOBALS['eform_registry'] );
-        }
     }
 }

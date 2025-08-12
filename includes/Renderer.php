@@ -18,7 +18,7 @@ class Renderer {
         $form_id = Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
 
         foreach ( $config['fields'] ?? [] as $post_key => $field ) {
-            $field_key = FieldRegistry::field_key_from_post( $post_key );
+            $field_key = eform_field_key_from_post( $post_key );
             $value     = $form->form_data[ $field_key ] ?? '';
             if ( ( $field['type'] ?? '' ) === 'tel' ) {
                 $value = $form->format_phone( $value );
