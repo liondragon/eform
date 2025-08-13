@@ -71,3 +71,8 @@ FieldRegistry::register( 'number', ['Validator', 'sanitize_number'], ['Validator
 FieldRegistry::register( 'radio', 'sanitize_text_field', ['Validator', 'validate_choice'], 'input' );
 FieldRegistry::register( 'textarea', 'sanitize_textarea_field', ['Validator', 'validate_message'], 'textarea' );
 FieldRegistry::register( 'checkbox', 'sanitize_text_field', ['Validator', 'validate_choices'], 'input' );
+FieldRegistry::register( 'url', 'esc_url_raw', ['Validator', 'validate_url'], 'input' );
+FieldRegistry::register( 'textarea_html', 'wp_kses_post', ['Validator', 'validate_message'], 'textarea' );
+FieldRegistry::register( 'select', 'sanitize_text_field', ['Validator', 'validate_choice'], 'select' );
+FieldRegistry::register( 'range', ['Validator', 'sanitize_number'], ['Validator', 'validate_range'], 'input' );
+FieldRegistry::register( 'zip', ['Validator', 'sanitize_digits'], ['Validator', 'validate_zip'], 'input' );

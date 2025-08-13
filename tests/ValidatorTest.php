@@ -76,4 +76,43 @@ class ValidatorTest extends TestCase {
         $this->assertSame(42, $result['data']['age']);
         $this->assertSame(3.14, $result['data']['pi']);
     }
+
+    public function test_required_if_rule() {
+        $validator = new Validator();
+        $field_map = [
+            'contact' => [ 'type' => 'radio', 'choices' => ['yes','no'] ],
+            'email'   => [ 'type' => 'email', 'required_if' => ['contact', 'yes'] ],
+        ];
+        $submitted = [ 'contact' => 'yes', 'email' => '' ];
+        $result = $validator->process_submission( $field_map, $submitted );
+        $this->assertSame('Email is required.', $result['errors']['email']);
+    }
+
+    public function test_matches_rule() {
+        $validator = new Validator();
+        $field_map = [
+            'pass'    => [ 'type' => 'text' ],
+            'confirm' => [ 'type' => 'text', 'matches' => 'pass' ],
+        ];
+        $submitted = [ 'pass' => 'secret', 'confirm' => 'nope' ];
+        $result = $validator->process_submission( $field_map, $submitted );
+        $this->assertSame('Values do not match.', $result['errors']['confirm']);
+    }
+
+    public function test_url_field() {
+        $validator = new Validator();
+        $field_map = [ 'site' => [ 'type' => 'url', 'required' => true ] ];
+        $submitted = [ 'site' => 'not_a_url' ];
+        $result = $validator->process_submission( $field_map, $submitted );
+        $this->assertSame('Invalid URL.', $result['errors']['site']);
+    }
+
+    public function test_zip_field() {
+        $validator = new Validator();
+        $field_map = [ 'zip' => [ 'type' => 'zip' ] ];
+        $submitted = [ 'zip' => '12-345' ];
+        $result = $validator->process_submission( $field_map, $submitted );
+        $this->assertSame('12345', $result['data']['zip']);
+        $this->assertSame([], $result['errors']);
+    }
 }

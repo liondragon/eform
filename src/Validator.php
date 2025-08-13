@@ -42,25 +42,84 @@ class Validator {
      * @return array{data:array,errors:array}
      */
     public function validate_submission( array $field_map, array $normalized_data, array $array_field_types = [] ): array {
-        $data   = [];
-        $errors = [];
+        $sanitized = [];
         foreach ( $field_map as $field => $details ) {
             $value       = $normalized_data[ $field ] ?? '';
             $type        = $details['type'] ?? 'text';
             $sanitize_cb = FieldRegistry::get_normalizer( $type );
-            $validate_cb = FieldRegistry::get_validator( $type );
             if ( is_array( $value ) ) {
-                $sanitized = array_map( $sanitize_cb, $value );
+                $sanitized[ $field ] = array_map( $sanitize_cb, $value );
             } else {
-                $sanitized = $sanitize_cb( $value );
+                $sanitized[ $field ] = $sanitize_cb( $value );
             }
-            $data[ $field ] = $sanitized;
-            $error = $validate_cb( $sanitized, $details );
+        }
+
+        $errors = [];
+        foreach ( $field_map as $field => $details ) {
+            $type        = $details['type'] ?? 'text';
+            $validate_cb = FieldRegistry::get_validator( $type );
+            $value       = $sanitized[ $field ] ?? '';
+
+            $required = ! empty( $details['required'] );
+            if ( ! empty( $details['required_if'] ) && is_array( $details['required_if'] ) ) {
+                $other    = $details['required_if'][0] ?? '';
+                $expected = $details['required_if'][1] ?? '';
+                $other_val = $sanitized[ $other ] ?? '';
+                if ( is_array( $expected ) ) {
+                    if ( is_array( $other_val ) ) {
+                        $required = $required || (bool) array_intersect( $expected, $other_val );
+                    } else {
+                        $required = $required || in_array( $other_val, $expected, true );
+                    }
+                } else {
+                    if ( is_array( $other_val ) ) {
+                        $required = $required || in_array( $expected, $other_val, true );
+                    } else {
+                        $required = $required || ( $other_val === $expected );
+                    }
+                }
+            }
+            if ( ! empty( $details['required_with'] ) ) {
+                foreach ( (array) $details['required_with'] as $other ) {
+                    $other_val = $sanitized[ $other ] ?? '';
+                    if ( $other_val !== '' && ( ! is_array( $other_val ) || ! empty( $other_val ) ) ) {
+                        $required = true;
+                        break;
+                    }
+                }
+            }
+            if ( ! empty( $details['required_without'] ) ) {
+                $all_empty = true;
+                foreach ( (array) $details['required_without'] as $other ) {
+                    $other_val = $sanitized[ $other ] ?? '';
+                    if ( $other_val !== '' && ( ! is_array( $other_val ) || ! empty( $other_val ) ) ) {
+                        $all_empty = false;
+                        break;
+                    }
+                }
+                if ( $all_empty ) {
+                    $required = true;
+                }
+            }
+
+            if ( $required ) {
+                $details['required'] = true;
+            } else {
+                unset( $details['required'] );
+            }
+
+            $error = $validate_cb( $value, $details );
+            if ( ! $error && ! empty( $details['matches'] ) ) {
+                $other_val = $sanitized[ $details['matches'] ] ?? '';
+                if ( $value !== $other_val ) {
+                    $error = 'Values do not match.';
+                }
+            }
             if ( $error ) {
                 $errors[ $field ] = $error;
             }
         }
-        return [ 'data' => $data, 'errors' => $errors ];
+        return [ 'data' => $sanitized, 'errors' => $errors ];
     }
 
     /**
@@ -153,6 +212,16 @@ class Validator {
         }
         if ( ! preg_match( '/^\d{10}$/', $value ) ) {
             return 'Invalid phone number.';
+        }
+        return '';
+    }
+
+    public static function validate_url( string $value, array $field ): string {
+        if ( $value === '' ) {
+            return ! empty( $field['required'] ) ? 'URL is required.' : '';
+        }
+        if ( ! filter_var( $value, FILTER_VALIDATE_URL ) ) {
+            return 'Invalid URL.';
         }
         return '';
     }
