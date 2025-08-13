@@ -13,9 +13,13 @@ class TemplateConfigTest extends TestCase {
 
     public function test_plugin_config_loaded(): void {
         $result = eform_get_template_config( 'default' );
+        $this->assertSame( 'default', $result['id'] );
+        $this->assertSame( 'inline', $result['success']['mode'] );
+        $this->assertSame( 'Your Name', $result['fields'][0]['placeholder'] );
 
-        $this->assertSame( 'Your Name', $result['fields']['name_input']['placeholder'] );
-        $this->assertArrayHasKey( 'email_input', $result['fields'] );
+        $fields = eform_get_template_fields( 'default' );
+        $this->assertArrayHasKey( 'name', $fields );
+        $this->assertSame( 'Your Name', $fields['name']['placeholder'] );
     }
 
     public function test_missing_template_returns_empty(): void {
@@ -25,7 +29,15 @@ class TemplateConfigTest extends TestCase {
     public function test_cache_can_be_purged(): void {
         $template = 'temp';
         $path     = $this->pluginTemplatesDir . "/$template.json";
-        file_put_contents( $path, json_encode( [ 'fields' => [] ] ) );
+        $config   = [
+            'id'      => $template,
+            'version' => 1,
+            'title'   => 'Temp',
+            'email'   => [],
+            'success' => [],
+            'fields'  => [],
+        ];
+        file_put_contents( $path, json_encode( $config ) );
 
         eform_get_template_config( $template );
 

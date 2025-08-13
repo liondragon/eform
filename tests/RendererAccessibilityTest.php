@@ -9,8 +9,8 @@ class RendererAccessibilityTest extends TestCase {
 
         $config = [
             'fields' => [
-                'name_input'  => [ 'type' => 'text', 'required' => true ],
-                'email_input' => [ 'type' => 'email' ],
+                [ 'key' => 'name',  'type' => 'text',  'required' => true ],
+                [ 'key' => 'email', 'type' => 'email' ],
             ],
         ];
 

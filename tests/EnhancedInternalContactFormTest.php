@@ -133,11 +133,17 @@ class EnhancedInternalContactFormTest extends TestCase {
 
     public function test_render_form_renders_json_template() {
         $template = 'jsononly';
-        $config = [
-            'fields' => [
-                'name_input' => [
-                    'type' => 'text',
-                    'placeholder' => 'JSON Name'
+        $config   = [
+            'id'      => $template,
+            'version' => 1,
+            'title'   => 'JSON Only',
+            'email'   => [],
+            'success' => [ 'mode' => 'inline', 'redirect_url' => '' ],
+            'fields'  => [
+                [
+                    'key'         => 'name',
+                    'type'        => 'text',
+                    'placeholder' => 'JSON Name',
                 ],
             ],
         ];

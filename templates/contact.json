@@ -1,6 +1,17 @@
 {
-  "fields": {
-    "name_input": {
+  "id": "contact",
+  "version": 1,
+  "title": "Contact Form",
+  "email": {
+    "to": "",
+    "subject": ""
+  },
+  "success": {
+    "mode": "inline",
+    "redirect_url": ""
+  },
+  "fields": [
+    {
       "key": "name",
       "type": "text",
       "placeholder": "Your Name",
@@ -10,7 +21,7 @@
       "aria-required": "true",
       "style": "grid-area: name"
     },
-    "email_input": {
+    {
       "key": "email",
       "type": "email",
       "placeholder": "Your Email",
@@ -20,7 +31,7 @@
       "aria-required": "true",
       "style": "grid-area: email"
     },
-    "tel_input": {
+    {
       "key": "phone",
       "type": "tel",
       "placeholder": "Phone",
@@ -30,7 +41,7 @@
       "aria-required": "true",
       "style": "grid-area: phone"
     },
-    "zip_input": {
+    {
       "key": "zip",
       "type": "text",
       "placeholder": "Project Zip Code",
@@ -40,7 +51,7 @@
       "aria-required": "true",
       "style": "grid-area: zip"
     },
-    "message_input": {
+    {
       "key": "message",
       "type": "textarea",
       "cols": "21",
@@ -51,9 +62,5 @@
       "aria-required": "true",
       "style": "grid-area: message"
     }
-  },
-  "success": {
-    "mode": "inline",
-    "redirect_url": ""
-  }
+  ]
 }

@@ -146,10 +146,15 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
     public function test_only_configured_fields_are_validated() {
         $template = 'partial';
-        $config = [
-            'fields' => [
-                'name_input'  => [ 'type' => 'text', 'required' => true ],
-                'email_input' => [ 'type' => 'email', 'required' => true ],
+        $config   = [
+            'id'      => $template,
+            'version' => 1,
+            'title'   => 'Partial',
+            'email'   => [],
+            'success' => [ 'mode' => 'inline', 'redirect_url' => '' ],
+            'fields'  => [
+                [ 'key' => 'name',  'type' => 'text',  'required' => true ],
+                [ 'key' => 'email', 'type' => 'email', 'required' => true ],
             ],
         ];
         $path = __DIR__ . '/../templates/' . $template . '.json';
@@ -170,12 +175,17 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
     public function test_template_without_phone_field() {
         $template = 'no_phone';
-        $config = [
-            'fields' => [
-                'name_input'    => [ 'type' => 'text', 'required' => true ],
-                'email_input'   => [ 'type' => 'email', 'required' => true ],
-                'zip_input'     => [ 'type' => 'text', 'required' => true ],
-                'message_input' => [ 'type' => 'textarea', 'required' => true ],
+        $config   = [
+            'id'      => $template,
+            'version' => 1,
+            'title'   => 'No Phone',
+            'email'   => [],
+            'success' => [ 'mode' => 'inline', 'redirect_url' => '' ],
+            'fields'  => [
+                [ 'key' => 'name',    'type' => 'text',     'required' => true ],
+                [ 'key' => 'email',   'type' => 'email',    'required' => true ],
+                [ 'key' => 'zip',     'type' => 'text',     'required' => true ],
+                [ 'key' => 'message', 'type' => 'textarea', 'required' => true ],
             ],
         ];
         $path = __DIR__ . '/../templates/' . $template . '.json';
@@ -190,11 +200,16 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
     public function test_required_phone_missing() {
         $template = 'phone_only';
-        $config = [
-            'fields' => [
-                'name_input'  => [ 'type' => 'text' ],
-                'email_input' => [ 'type' => 'email' ],
-                'tel_input'   => [ 'type' => 'tel', 'required' => true ],
+        $config   = [
+            'id'      => $template,
+            'version' => 1,
+            'title'   => 'Phone Only',
+            'email'   => [],
+            'success' => [ 'mode' => 'inline', 'redirect_url' => '' ],
+            'fields'  => [
+                [ 'key' => 'name',  'type' => 'text' ],
+                [ 'key' => 'email', 'type' => 'email' ],
+                [ 'key' => 'phone', 'type' => 'tel', 'required' => true ],
             ],
         ];
         $path = __DIR__ . '/../templates/' . $template . '.json';
@@ -219,7 +234,14 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
     public function test_optional_field_can_be_blank() {
         $template = 'opt';
-        $config = [ 'fields' => [ 'name_input' => [ 'type' => 'text' ] ] ];
+        $config   = [
+            'id'      => $template,
+            'version' => 1,
+            'title'   => 'Opt',
+            'email'   => [],
+            'success' => [ 'mode' => 'inline', 'redirect_url' => '' ],
+            'fields'  => [ [ 'key' => 'name', 'type' => 'text' ] ],
+        ];
         $path = __DIR__ . '/../templates/' . $template . '.json';
         file_put_contents( $path, json_encode( $config ) );
 
@@ -248,10 +270,15 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
     public function test_checkbox_field_processed() {
         $template = 'checkbox';
-        $config = [
-            'fields' => [
-                'name_input' => [ 'type' => 'text', 'required' => true ],
-                'opts_input' => [ 'type' => 'checkbox', 'choices' => ['a','b'], 'required' => true ],
+        $config   = [
+            'id'      => $template,
+            'version' => 1,
+            'title'   => 'Checkbox',
+            'email'   => [],
+            'success' => [ 'mode' => 'inline', 'redirect_url' => '' ],
+            'fields'  => [
+                [ 'key' => 'name', 'type' => 'text', 'required' => true ],
+                [ 'key' => 'opts', 'type' => 'checkbox', 'choices' => ['a','b'], 'required' => true ],
             ],
         ];
         $path = __DIR__ . '/../templates/' . $template . '.json';

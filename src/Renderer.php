@@ -20,7 +20,11 @@ class Renderer {
         $form_id = Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
 
         foreach ( $config['fields'] ?? [] as $post_key => $field ) {
-            $field_key = isset( $field['key'] ) ? sanitize_key( $field['key'] ) : sanitize_key( preg_replace( '/_input$/', '', $post_key ) );
+            if ( isset( $field['key'] ) ) {
+                $field_key = sanitize_key( $field['key'] );
+            } else {
+                $field_key = sanitize_key( preg_replace( '/_input$/', '', (string) $post_key ) );
+            }
             if ( 'tel' === $field_key ) {
                 $field_key = 'phone';
             }
