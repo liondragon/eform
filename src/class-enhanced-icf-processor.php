@@ -40,6 +40,12 @@ class Enhanced_ICF_Form_Processor {
             return $this->error_response( 'Form Left Empty', [], 'No data submitted.' );
         }
 
+        $config = eform_get_template_config( $template );
+        $js_mode = isset( $config['js_check'] ) ? sanitize_key( $config['js_check'] ) : 'hard';
+        if ( defined( 'EFORM_JS_CHECK' ) ) {
+            $js_mode = sanitize_key( EFORM_JS_CHECK );
+        }
+
         $validators = [
             'check_nonce',
             'check_honeypot',
@@ -48,7 +54,12 @@ class Enhanced_ICF_Form_Processor {
         ];
 
         foreach ( $validators as $validator ) {
-            if ( $error = $this->security->$validator( $submitted_data ) ) {
+            if ( 'check_js_enabled' === $validator ) {
+                $error = $this->security->$validator( $submitted_data, $js_mode );
+            } else {
+                $error = $this->security->$validator( $submitted_data );
+            }
+            if ( $error ) {
                 return $this->error_response( $error['type'], [], $error['message'] );
             }
         }
@@ -96,7 +107,6 @@ class Enhanced_ICF_Form_Processor {
 
         $this->log_success( $template, $data );
 
-        $config  = eform_get_template_config( $template );
         $success = $config['success'] ?? [];
         $mode    = isset( $success['mode'] ) ? sanitize_key( $success['mode'] ) : 'inline';
         $resp    = [ 'success' => [ 'mode' => $mode ] ];
