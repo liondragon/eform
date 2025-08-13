@@ -25,10 +25,9 @@ class Enhanced_ICF_Form_Processor {
      * sanitized form data.
      *
      * @param string $template       Template slug.
-     * @param array  $submitted_data Associative array of raw form values. Keys
-     *                               include `name_input`, `email_input`,
-     *                               `tel_input`, `zip_input`, and
-     *                               `message_input`.
+     * @param array  $submitted_data Associative array of raw form values keyed
+     *                               by logical field names such as `name`,
+     *                               `email`, `phone`, `zip`, and `message`.
      *
      * @return array {
      *     @type bool   $success   Whether the submission was processed.

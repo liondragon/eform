@@ -101,8 +101,13 @@ function eform_get_template_fields( string $template ): array {
     $fields = [];
 
     foreach ( $config['fields'] ?? [] as $post_key => $field ) {
-        $key = isset( $field['key'] ) ? sanitize_key( $field['key'] )
-            : sanitize_key( preg_replace( '/_input$/', '', $post_key ) );
+        if ( isset( $field['key'] ) ) {
+            $key      = sanitize_key( $field['key'] );
+            $post_key = sanitize_key( $field['post_key'] ?? $field['key'] );
+        } else {
+            $post_key = is_string( $post_key ) ? $post_key : (string) $post_key;
+            $key      = sanitize_key( preg_replace( '/_input$/', '', $post_key ) );
+        }
         if ( 'tel' === $key ) {
             $key = 'phone';
         }
