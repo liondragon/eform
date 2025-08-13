@@ -89,6 +89,8 @@ class Enhanced_Internal_Contact_Form extends FormData {
 
     /**
      * Output hidden fields used across form templates.
+     *
+     * @return array{0:string,1:string} Array containing the form ID and instance ID.
      */
     public static function render_hidden_fields($template) {
         $form_id     = 'f_' . bin2hex( random_bytes( 5 ) );
@@ -102,7 +104,7 @@ class Enhanced_Internal_Contact_Form extends FormData {
         echo '<input type="hidden" name="enhanced_form_id" value="' . esc_attr( $form_id ) . '">';
         echo '<input type="hidden" name="enhanced_instance_id" value="' . esc_attr( $instance_id ) . '">';
 
-        return $form_id;
+        return [ $form_id, $instance_id ];
     }
 
     public function handle_shortcode( $atts, ?Enhanced_ICF_Form_Processor $processor = null ) {

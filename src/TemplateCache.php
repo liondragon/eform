@@ -99,6 +99,18 @@ function eform_load_config_from_paths( array $paths ): array {
 function eform_get_template_fields( string $template ): array {
     $config = eform_get_template_config( $template );
     $fields = [];
+    $reserved_keys    = [
+        'enhanced_form_id',
+        'enhanced_instance_id',
+        'enhanced_fields',
+        'submitted',
+        'enhanced_form_time',
+        'enhanced_template',
+        'enhanced_js_check',
+        'enhanced_url',
+        'enhanced_icf_form_nonce',
+    ];
+    $multi_value_types = [ 'checkbox' ];
 
     foreach ( $config['fields'] ?? [] as $post_key => $field ) {
         if ( isset( $field['key'] ) ) {
@@ -107,9 +119,16 @@ function eform_get_template_fields( string $template ): array {
         } else {
             $post_key = is_string( $post_key ) ? $post_key : (string) $post_key;
             $key      = sanitize_key( preg_replace( '/_input$/', '', $post_key ) );
+            $post_key = sanitize_key( $post_key );
         }
         if ( 'tel' === $key ) {
             $key = 'phone';
+        }
+        if ( in_array( $key, $reserved_keys, true ) ) {
+            continue;
+        }
+        if ( in_array( $field['type'] ?? '', $multi_value_types, true ) ) {
+            $post_key .= '[]';
         }
 
         $field['post_key'] = $post_key;
