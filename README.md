@@ -47,6 +47,19 @@ filtering the behavior:
 add_filter('eform_log_successful_submission', '__return_false');
 ```
 
+## Security Options
+
+Forms include several security checks to deter automated submissions.
+Administrators may tailor these checks globally by defining constants or per
+template via JSON configuration.
+
+* `EFORM_MAX_FORM_AGE` &mdash; Maximum age in seconds for a form submission.
+  Submissions older than this value are rejected. Defaults to 24 hours.
+* `EFORM_JS_CHECK` or template option `js_check` &mdash; Accepts `hard` (default)
+  or `soft` to control whether the JavaScript verification field is required.
+  In `soft` mode the form proceeds even if the `enhanced_js_check` field is
+  missing.
+
 ## Running Tests
 
 Install dependencies and execute the test suite:

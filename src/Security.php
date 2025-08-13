@@ -35,15 +35,23 @@ class Security {
         if ( is_array( $submit_time_field ) ) {
             return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
         }
-        $submit_time = intval( Helpers::get_first_value( $submit_time_field ) );
-        if ( time() - $submit_time < 5 ) {
+        $submit_time  = intval( Helpers::get_first_value( $submit_time_field ) );
+        $current_time = time();
+        if ( $current_time - $submit_time < 5 ) {
             return $this->build_error('Bot Alert: Fast Submission', 'Submission too fast. Please try again.');
+        }
+        $max_age = defined( 'EFORM_MAX_FORM_AGE' ) ? (int) EFORM_MAX_FORM_AGE : 86400;
+        if ( $current_time - $submit_time > $max_age ) {
+            return $this->build_error('Form Expired', 'Form has expired. Please refresh and try again.');
         }
         return [];
     }
 
-    public function check_js_enabled(array $submitted_data): array {
+    public function check_js_enabled(array $submitted_data, string $mode = 'hard'): array {
         $js_check = Helpers::get_first_value( $submitted_data['enhanced_js_check'] ?? '' );
+        if ( 'soft' === $mode ) {
+            return [];
+        }
         if ( empty( $js_check ) ) {
             return $this->build_error('Bot Alert: JS Check Missing', 'JavaScript must be enabled.');
         }

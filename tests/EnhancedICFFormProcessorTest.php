@@ -125,6 +125,19 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $this->assertSame($expected['message'], $result['message']);
     }
 
+    public function test_max_form_age_failure() {
+        if ( ! defined( 'EFORM_MAX_FORM_AGE' ) ) {
+            define( 'EFORM_MAX_FORM_AGE', 1000 );
+        }
+        $data = $this->build_submission(overrides: ['enhanced_form_time' => time() - 1001]);
+        $result = $this->processor->process_form_submission('default', $data);
+        $this->assertFalse($result['success']);
+        $expected = $this->invoke_method($this->security, 'build_error', ['Form Expired', 'Form has expired. Please refresh and try again.']);
+        $actual   = $this->security->check_submission_time($data);
+        $this->assertSame($expected, $actual);
+        $this->assertSame($expected['message'], $result['message']);
+    }
+
     public function test_js_check_failure() {
         $data = $this->build_submission();
         unset($data['enhanced_js_check']);
@@ -134,6 +147,21 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $actual   = $this->security->check_js_enabled($data);
         $this->assertSame($expected, $actual);
         $this->assertSame($expected['message'], $result['message']);
+    }
+
+    public function test_js_check_soft_template() {
+        $template = 'softjs';
+        $config   = json_decode( file_get_contents( __DIR__ . '/../templates/default.json' ), true );
+        $config['js_check'] = 'soft';
+        $path = __DIR__ . '/../templates/' . $template . '.json';
+        file_put_contents( $path, json_encode( $config ) );
+
+        $data = $this->build_submission( $template );
+        unset( $data['enhanced_js_check'] );
+        $result = $this->processor->process_form_submission( $template, $data );
+        $this->assertSame('inline', $result['success']['mode']);
+
+        unlink( $path );
     }
 
     public function test_field_validation_failure() {
@@ -294,5 +322,15 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $this->assertSame(['opts' => 'Invalid selection.'], $result['errors']);
 
         unlink( $path );
+    }
+
+    public function test_js_check_soft_constant() {
+        if ( ! defined( 'EFORM_JS_CHECK' ) ) {
+            define( 'EFORM_JS_CHECK', 'soft' );
+        }
+        $data = $this->build_submission();
+        unset( $data['enhanced_js_check'] );
+        $result = $this->processor->process_form_submission( 'default', $data );
+        $this->assertSame( 'inline', $result['success']['mode'] );
     }
 }
