@@ -15,37 +15,74 @@ class Emailer {
         return $digits;
     }
 
-    public function build_email_body(array $data): string {
-        $ip = esc_html($this->ipaddress);
-        $rows = [
-            ['label' => 'Name',    'value' => esc_html($data['name'] ?? '')],
-            ['label' => 'Email',   'value' => esc_html($data['email'] ?? '')],
-            ['label' => 'Phone',   'value' => esc_html($this->format_phone($data['phone'] ?? ''))],
-            ['label' => 'Zip',     'value' => esc_html($data['zip'] ?? '')],
-            ['label' => 'Message', 'value' => nl2br(esc_html($data['message'] ?? '')), 'valign' => 'top'],
-            ['label' => 'Sent from', 'value' => $ip],
-        ];
+    public function build_email_body(array $data, array $config = [], bool $use_html = false): string {
+        $include = $config['email']['include_fields'] ?? array_keys($data);
+        $display_format_tel = !empty($config['display_format_tel']);
 
-        $message_rows = '';
-        foreach ($rows as $row) {
-            $valign = isset($row['valign']) ? " valign='{$row['valign']}'" : '';
-            $message_rows .= "<tr><td{$valign}><strong>{$row['label']}:</strong></td><td>{$row['value']}</td></tr>";
+        $rows = [];
+        foreach ($include as $field) {
+            if (!isset($data[$field])) {
+                continue;
+            }
+            $label = ucwords(str_replace('_', ' ', $field));
+            $value = $data[$field];
+            if (is_array($value)) {
+                $value = implode(', ', array_map('sanitize_text_field', $value));
+            }
+            if ('phone' === $field && $display_format_tel) {
+                $value = $this->format_phone($value);
+            }
+            if ($use_html) {
+                if ('message' === $field) {
+                    $value = nl2br(esc_html($value));
+                } else {
+                    $value = esc_html($value);
+                }
+            } else {
+                $value = sanitize_textarea_field($value);
+            }
+            $rows[$label] = $value;
         }
 
-        return '<table cellpadding="4" cellspacing="0" border="0">' . $message_rows . '</table>';
+        $rows['Sent from'] = $use_html ? esc_html($this->ipaddress) : sanitize_text_field($this->ipaddress);
+
+        if ($use_html) {
+            $message_rows = '';
+            foreach ($rows as $label => $value) {
+                $message_rows .= "<tr><td><strong>{$label}:</strong></td><td>{$value}</td></tr>";
+            }
+            return '<table cellpadding="4" cellspacing="0" border="0">' . $message_rows . '</table>';
+        }
+
+        $lines = [];
+        foreach ($rows as $label => $value) {
+            $lines[] = $label . ': ' . $value;
+        }
+        return implode("\n", $lines);
     }
 
-    public function dispatch_email(array $data): bool {
-        $to      = get_option('admin_email');
-        $subject = 'Quote Request - ' . sanitize_text_field($data['name'] ?? '');
-        $message = $this->build_email_body($data);
+    public function dispatch_email(array $data, array $config = []): bool {
+        $to      = $config['email']['to'] ?? get_option('admin_email');
+        $subject = $config['email']['subject'] ?? 'Quote Request - ' . sanitize_text_field($data['name'] ?? '');
+
+        $use_html = defined('EFORM_ALLOW_HTML_EMAIL') ? (bool)EFORM_ALLOW_HTML_EMAIL : false;
+        $message  = $this->build_email_body($data, $config, $use_html);
 
         $noreply = 'noreply@flooringartists.com';
         $headers = [];
-        $headers[] = "From: " . ($data['name'] ?? '') . " <{$noreply}>";
-        $headers[] = 'Content-Type: text/html; charset=UTF-8';
+
+        $name  = sanitize_text_field($data['name'] ?? '');
+        $email = sanitize_email($data['email'] ?? '');
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $email = '';
+        }
+
+        $headers[] = 'From: ' . ($name ? $name . ' ' : '') . "<{$noreply}>";
+        if ($email) {
+            $headers[] = 'Reply-To: ' . ($name ? $name . ' ' : '') . "<{$email}>";
+        }
+        $headers[] = 'Content-Type: ' . ($use_html ? 'text/html' : 'text/plain') . '; charset=UTF-8';
         $headers[] = 'Content-Transfer-Encoding: 8bit';
-        $headers[] = "Reply-To: " . ($data['name'] ?? '') . " <" . ($data['email'] ?? '') . ">";
 
         return wp_mail($to, $subject, $message, $headers);
     }
