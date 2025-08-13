@@ -4,12 +4,14 @@
   "title": "Contact Form",
   "email": {
     "to": "",
-    "subject": ""
+    "subject": "",
+    "include_fields": ["name", "email", "phone", "zip", "message"]
   },
   "success": {
     "mode": "inline",
     "redirect_url": ""
   },
+  "display_format_tel": true,
   "fields": [
     {
       "key": "name",

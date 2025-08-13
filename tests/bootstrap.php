@@ -43,6 +43,7 @@ function apply_filters($tag,$value){
     return $value;
 }
 function wp_mail($to,$subject,$message,$headers){
+    $GLOBALS['_last_mail'] = compact('to','subject','message','headers');
     return true;
 }
 function eform_get_safe_fields($data){

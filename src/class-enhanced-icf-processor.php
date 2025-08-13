@@ -100,7 +100,7 @@ class Enhanced_ICF_Form_Processor {
 
         $data = $this->validator->coerce_submission( $field_map, $data );
 
-        if ( ! $this->emailer->dispatch_email( $data ) ) {
+        if ( ! $this->emailer->dispatch_email( $data, $config ) ) {
             $details = [ 'form_data' => $data ];
             return $this->error_response( 'Email Sending Failure', $details, 'Something went wrong. Please try again later.' );
         }
