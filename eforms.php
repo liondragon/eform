@@ -39,15 +39,6 @@ spl_autoload_register( function ( $class ) {
 require_once plugin_dir_path( __FILE__ ) . 'src/Helpers.php';
 require_once plugin_dir_path( __FILE__ ) . 'src/TemplateCache.php';
 
-function eforms_enqueue_assets() {
-    global $post;
-    if ( isset( $post->post_content ) && has_shortcode( $post->post_content, 'eforms' ) ) {
-        $js_url = plugins_url( 'assets/forms.js', __FILE__ );
-        wp_enqueue_script( 'eforms-js', $js_url, [], '1.0', true );
-    }
-}
-add_action( 'wp_enqueue_scripts', 'eforms_enqueue_assets' );
-
 $logger    = new Logging();
 new Mail_Error_Logger( $logger );
 $processor = new Enhanced_ICF_Form_Processor( $logger );

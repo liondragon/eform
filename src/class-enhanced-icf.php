@@ -6,9 +6,7 @@ class Enhanced_Internal_Contact_Form extends FormData {
     private $success_message = '<div class="form-message success">Thank you! Your message has been sent.</div>';
     private $error_message = '';
     private $form_submitted = false;
-    private $load_css = false; // Flag to control CSS loading
     private $processed_template = ''; // Track which template was submitted
-    private $loaded_css_templates = []; // Track templates whose CSS is loaded
     private $processor; // Default processor for backward compatibility
     private $logger;
     public $template_config = [];
@@ -110,11 +108,9 @@ class Enhanced_Internal_Contact_Form extends FormData {
     public function handle_shortcode( $atts, ?Enhanced_ICF_Form_Processor $processor = null ) {
         $atts = shortcode_atts( [
             'template' => 'default',
-            'style'    => 'false',
         ], $atts );
 
-        $template       = sanitize_key( $atts['template'] );
-        $this->load_css = filter_var( $atts['style'], FILTER_VALIDATE_BOOLEAN );
+        $template = sanitize_key( $atts['template'] );
 
         if ( null === $processor ) {
             if ( null !== $this->processor ) {
@@ -132,43 +128,6 @@ class Enhanced_Internal_Contact_Form extends FormData {
         return $this->render_form( $template );
     }
 
-    private function prepare_css( $template ) {
-        if ( ! $this->load_css || in_array( $template, $this->loaded_css_templates, true ) ) {
-            return;
-        }
-
-        $css_file = 'assets/forms.css';
-        $css_path = plugin_dir_path( __FILE__ ) . '/../' . $css_file;
-
-        if ( ! file_exists( $css_path ) ) {
-            if ( $this->logger ) {
-                $this->logger->log( sprintf( 'Enhanced ICF CSS file missing: %s', $css_path ), Logging::LEVEL_WARNING );
-            }
-            return;
-        }
-
-        if ( ! is_readable( $css_path ) ) {
-            if ( $this->logger ) {
-                $this->logger->log( sprintf( 'Enhanced ICF CSS file not readable: %s', $css_path ), Logging::LEVEL_WARNING );
-            }
-            return;
-        }
-
-        $handle  = 'eforms-' . $template;
-        $css_url = plugins_url( $css_file, __DIR__ . '/../eform.php' );
-
-        wp_register_style( $handle, $css_url, [], filemtime( $css_path ) );
-        wp_enqueue_style( $handle );
-
-        if ( did_action( 'wp_head' ) ) {
-            add_action( 'wp_footer', function () use ( $handle ) {
-                wp_print_styles( $handle );
-            } );
-        }
-
-        $this->loaded_css_templates[] = $template;
-    }
-
     private function prepend_form_messages( $template, $form_html ) {
         if ( $template === $this->processed_template ) {
             if ( $this->error_message ) {
@@ -182,8 +141,6 @@ class Enhanced_Internal_Contact_Form extends FormData {
     }
 
     private function render_form( $template ) {
-        $this->prepare_css( $template );
-
         // Load template configuration for this template.
         $this->template_config = eform_get_template_config( $template );
 
