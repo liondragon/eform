@@ -17,7 +17,7 @@ class Renderer {
         echo '<div id="contact_form" class="contact_form">';
         echo '<div aria-live="polite" class="form-errors"></div>';
         echo '<form class="main_contact_form" id="main_contact_form" aria-label="Contact Form" method="post" action="">';
-        $form_id = Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
+        list( $form_id, $instance_id ) = Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
 
         foreach ( $config['fields'] ?? [] as $post_key => $field ) {
             if ( isset( $field['key'] ) ) {
@@ -42,7 +42,7 @@ class Renderer {
             }
             echo '<div class="inputwrap" style="' . esc_attr( $field['style'] ?? '' ) . '">';
             $name      = $form_id . '[' . $field_key . ']';
-            $input_id  = $form_id . '-' . $field_key;
+            $input_id  = $form_id . '-' . $instance_id . '-' . $field_key;
             $error_id  = 'error-' . $input_id;
             $error_msg = $form->field_errors[ $field_key ] ?? '';
             $aria      = $error_msg ? sprintf( ' aria-describedby="%s" aria-invalid="true"', esc_attr( $error_id ) ) : '';
