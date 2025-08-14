@@ -3,7 +3,6 @@
 
 class Enhanced_Internal_Contact_Form extends FormData {
     private $redirect_url='/?page_id=20'; // Set to empty string to disable redirect
-    private $success_message = '<div class="form-message success">Thank you! Your message has been sent.</div>';
     private $error_message = '';
     private $form_submitted = false;
     private $processed_template = ''; // Track which template was submitted
@@ -133,7 +132,8 @@ class Enhanced_Internal_Contact_Form extends FormData {
             if ( $this->error_message ) {
                 $form_html = $this->error_message . $form_html;
             } elseif ( $this->form_submitted ) {
-                $form_html = $this->success_message . $form_html;
+                $message   = $this->template_config['success']['message'] ?? 'Thank you! Your message has been sent.';
+                $form_html = '<div class="form-message success">' . esc_html( $message ) . '</div>' . $form_html;
             }
         }
 
