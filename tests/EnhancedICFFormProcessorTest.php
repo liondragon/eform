@@ -13,15 +13,18 @@ class EnhancedICFFormProcessorTest extends TestCase {
     private function build_submission(string $template = 'default', array $overrides = []): array {
         $field_map = eform_get_template_fields( $template );
 
-        $form_id = $overrides['enhanced_form_id'] ?? 'form123';
-        unset( $overrides['enhanced_form_id'] );
+        $form_id = $overrides['form_id'] ?? $template;
+        unset( $overrides['form_id'] );
+        $instance = $overrides['instance_id'] ?? 'i_test';
+        unset( $overrides['instance_id'] );
 
         $data = [
-            'enhanced_icf_form_nonce' => $overrides['enhanced_icf_form_nonce'] ?? 'valid',
-            'enhanced_url'           => $overrides['enhanced_url'] ?? '',
-            'enhanced_form_time'     => $overrides['enhanced_form_time'] ?? time() - 10,
-            'enhanced_js_check'      => $overrides['enhanced_js_check'] ?? '1',
-            'enhanced_form_id'       => $form_id,
+            '_wpnonce'   => $overrides['_wpnonce'] ?? 'valid',
+            'eforms_hp'  => $overrides['eforms_hp'] ?? '',
+            'timestamp'  => $overrides['timestamp'] ?? time() - 10,
+            'js_ok'      => $overrides['js_ok'] ?? '1',
+            'form_id'    => $form_id,
+            'instance_id'=> $instance,
         ];
 
         $defaults = get_default_field_values( $template );
@@ -36,8 +39,9 @@ class EnhancedICFFormProcessorTest extends TestCase {
             $data[ $form_id ][ $field ] = $value;
         }
 
+        $root_keys = ['_wpnonce', 'eforms_hp', 'timestamp', 'js_ok', 'form_id', 'instance_id'];
         foreach ( $overrides as $key => $value ) {
-            if ( 0 === strpos( $key, 'enhanced_' ) ) {
+            if ( in_array( $key, $root_keys, true ) ) {
                 $data[ $key ] = $value;
             } else {
                 $data[ $form_id ][ $key ] = $value;
@@ -76,7 +80,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_nonce_failure() {
-        $data = $this->build_submission(overrides: ['enhanced_icf_form_nonce' => 'invalid']);
+        $data = $this->build_submission(overrides: ['_wpnonce' => 'invalid']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $expected = $this->invoke_method($this->security, 'build_error', ['Nonce Failed', 'Invalid submission detected.']);
@@ -86,7 +90,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_honeypot_failure() {
-        $data = $this->build_submission(overrides: ['enhanced_url' => 'http://spam']);
+        $data = $this->build_submission(overrides: ['eforms_hp' => 'http://spam']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
@@ -96,7 +100,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_honeypot_array_failure() {
-        $data = $this->build_submission(overrides: ['enhanced_url' => ['spam']]);
+        $data = $this->build_submission(overrides: ['eforms_hp' => ['spam']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: Honeypot Filled', 'Bot test failed.']);
@@ -106,7 +110,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_submission_time_failure() {
-        $data = $this->build_submission(overrides: ['enhanced_form_time' => time()]);
+        $data = $this->build_submission(overrides: ['timestamp' => time()]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
@@ -116,7 +120,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_submission_time_array_failure() {
-        $data = $this->build_submission(overrides: ['enhanced_form_time' => ['now']]);
+        $data = $this->build_submission(overrides: ['timestamp' => ['now']]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: Fast Submission', 'Submission too fast. Please try again.']);
@@ -129,7 +133,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
         if ( ! defined( 'EFORM_MAX_FORM_AGE' ) ) {
             define( 'EFORM_MAX_FORM_AGE', 1000 );
         }
-        $data = $this->build_submission(overrides: ['enhanced_form_time' => time() - 1001]);
+        $data = $this->build_submission(overrides: ['timestamp' => time() - 1001]);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $expected = $this->invoke_method($this->security, 'build_error', ['Form Expired', 'Form has expired. Please refresh and try again.']);
@@ -140,7 +144,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
 
     public function test_js_check_failure() {
         $data = $this->build_submission();
-        unset($data['enhanced_js_check']);
+        unset($data['js_ok']);
         $result = $this->processor->process_form_submission('default', $data);
         $this->assertFalse($result['success']);
         $expected = $this->invoke_method($this->security, 'build_error', ['Bot Alert: JS Check Missing', 'JavaScript must be enabled.']);
@@ -157,7 +161,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
         file_put_contents( $path, json_encode( $config ) );
 
         $data = $this->build_submission( $template );
-        unset( $data['enhanced_js_check'] );
+        unset( $data['js_ok'] );
         $result = $this->processor->process_form_submission( $template, $data );
         $this->assertSame('inline', $result['success']['mode']);
 
@@ -189,7 +193,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
         file_put_contents( $path, json_encode( $config ) );
 
         $data = $this->build_submission('partial', overrides: [ 'email' => 'not-an-email' ]);
-        $form_id = $data['enhanced_form_id'];
+        $form_id = $data['form_id'];
         $data[ $form_id ]['phone'] = '000';
         $result = $this->processor->process_form_submission('partial', $data);
         $this->assertFalse($result['success']);
@@ -274,15 +278,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
         file_put_contents( $path, json_encode( $config ) );
 
         $processor = new Enhanced_ICF_Form_Processor(new Logging());
-        $form_id = 'form123';
-        $data    = [
-            'enhanced_icf_form_nonce' => 'valid',
-            'enhanced_url'           => '',
-            'enhanced_form_time'     => time() - 10,
-            'enhanced_js_check'      => '1',
-            'enhanced_form_id'       => $form_id,
-            $form_id                 => [ 'name' => '' ],
-        ];
+        $data    = $this->build_submission('opt', overrides: ['name' => '']);
         $result = $processor->process_form_submission( 'opt', $data );
         $this->assertSame('inline', $result['success']['mode']);
 
@@ -329,7 +325,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
             define( 'EFORM_JS_CHECK', 'soft' );
         }
         $data = $this->build_submission();
-        unset( $data['enhanced_js_check'] );
+        unset( $data['js_ok'] );
         $result = $this->processor->process_form_submission( 'default', $data );
         $this->assertSame( 'inline', $result['success']['mode'] );
     }

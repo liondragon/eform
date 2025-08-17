@@ -149,7 +149,9 @@ function wp_mkdir_p($dir){
     }
     return true;
 }
-function wp_nonce_field(){ }
+function wp_nonce_field($action = -1){
+    echo '<input type="hidden" name="_wpnonce" value="valid">';
+}
 class WP_Post {
     public $post_content;
 }
