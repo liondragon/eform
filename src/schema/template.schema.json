@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "version", "title", "success", "email", "fields", "submit_button_text"],
+  "properties": {
+    "id": {"type": "string"},
+    "version": {"type": "string"},
+    "title": {"type": "string"},
+    "success": {"type": "object"},
+    "email": {"type": "object"},
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "key": {"type": "string"},
+          "type": {"type": "string"},
+          "label": {"type": "string"},
+          "required": {"type": "boolean"},
+          "placeholder": {"type": "string"},
+          "options": {"type": "array"},
+          "class": {"type": "string"},
+          "mode": {"type": "string"},
+          "tag": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "submit_button_text": {"type": "string"}
+  },
+  "additionalProperties": true
+}

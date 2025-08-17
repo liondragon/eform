@@ -1,69 +1,18 @@
 {
-  "id": "contact",
-  "version": 1,
-  "title": "Contact Form",
+  "id": "contact_us",
+  "version": "1",
+  "title": "Contact Us",
+  "success": { "mode": "inline", "message": "Thanks! We got your message." },
   "email": {
-    "to": "",
-    "subject": "",
-    "include_fields": ["name", "email", "phone", "zip", "message"]
+    "to": "admin@example.com",
+    "subject": "Contact Form",
+    "email_template": "default",
+    "include_fields": ["name", "email", "message"]
   },
-  "success": {
-    "mode": "inline",
-    "redirect_url": "",
-    "message": "Thank you! Your message has been sent."
-  },
-  "display_format_tel": true,
   "fields": [
-    {
-      "key": "name",
-      "type": "text",
-      "placeholder": "Your Name",
-      "required": true,
-      "autocomplete": "name",
-      "aria-label": "Your Name",
-      "aria-required": "true",
-      "style": "grid-area: name"
-    },
-    {
-      "key": "email",
-      "type": "email",
-      "placeholder": "Your Email",
-      "required": true,
-      "autocomplete": "email",
-      "aria-label": "email",
-      "aria-required": "true",
-      "style": "grid-area: email"
-    },
-    {
-      "key": "phone",
-      "type": "tel",
-      "placeholder": "Phone",
-      "required": true,
-      "autocomplete": "tel",
-      "aria-label": "Phone",
-      "aria-required": "true",
-      "style": "grid-area: phone"
-    },
-    {
-      "key": "zip",
-      "type": "text",
-      "placeholder": "Project Zip Code",
-      "required": true,
-      "autocomplete": "postal-code",
-      "aria-label": "Project Zip Code",
-      "aria-required": "true",
-      "style": "grid-area: zip"
-    },
-    {
-      "key": "message",
-      "type": "textarea",
-      "cols": "21",
-      "rows": "5",
-      "placeholder": "Please describe your project and let us know if there is any urgency",
-      "required": true,
-      "aria-label": "Message",
-      "aria-required": "true",
-      "style": "grid-area: message"
-    }
-  ]
+    { "key": "name", "type": "name", "label": "Your Name", "required": true, "before_html": "<h3>Hello,</h3>" },
+    { "key": "message", "type": "textarea", "label": "Message", "required": true, "placeholder": "And continue here ..." },
+    { "key": "email", "type": "email", "label": "Email", "autocomplete": "email", "size": 40, "required": true, "placeholder": "you@example.com" }
+  ],
+  "submit_button_text": "Send Your Request"
 }

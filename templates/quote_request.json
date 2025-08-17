@@ -1,0 +1,23 @@
+{
+  "id": "quote_request",
+  "version": "1",
+  "title": "Quote Request",
+  "success": { "mode": "redirect", "redirect_url": "/?page_id=15" },
+  "email": {
+    "to": "office@flooringartists.com",
+    "subject": "Quote Request",
+    "email_template": "default",
+    "include_fields": ["name", "email", "tel", "message", "ip"],
+    "display_format_tel": "xxx-xxx-xxxx"
+  },
+  "fields": [
+    { "key": "name", "type": "name", "label": "Your Name", "required": true, "placeholder": "Your Name" },
+    { "key": "email", "type": "email", "label": "Email", "required": true, "placeholder": "Your eMail" },
+    { "type": "row_group", "mode": "start", "tag": "div", "class": "columns_nomargins" },
+    { "key": "tel", "type": "tel", "label": "Phone", "required": true, "placeholder": "Your Phone" },
+    { "key": "zip", "type": "zip", "label": "ZIP Code", "required": true, "placeholder": "ZIP Code" },
+    { "type": "row_group", "mode": "end" },
+    { "key": "message", "type": "textarea", "label": "Message", "required": true }
+  ],
+  "submit_button_text": "Send"
+}

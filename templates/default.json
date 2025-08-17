@@ -5,7 +5,7 @@
   "email": {
     "to": "",
     "subject": "",
-    "include_fields": ["name", "email", "phone", "zip", "message"]
+    "include_fields": ["name", "email", "tel", "zip", "message"]
   },
   "success": {
     "mode": "inline",
@@ -35,13 +35,11 @@
       "style": "grid-area: email"
     },
     {
-      "key": "phone",
+      "key": "tel",
       "type": "tel",
       "placeholder": "Phone",
       "required": true,
       "autocomplete": "tel",
-      "aria-label": "Phone",
-      "aria-required": "true",
       "style": "grid-area: phone"
     },
     {

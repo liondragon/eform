@@ -75,7 +75,7 @@ function get_default_field_values( string $template = 'default' ): array {
     $defaults = [
         'name'    => 'John Doe',
         'email'   => 'john@example.com',
-        'phone'   => '1234567890',
+        'tel'   => '1234567890',
         'zip'     => '12345',
         'message' => str_repeat('a', 25),
     ];

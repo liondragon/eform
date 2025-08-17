@@ -67,5 +67,15 @@ form input:focus, form textarea:focus {
 	transition: background-color .3s cubic-bezier(.5,.25,.25,.75),box-shadow .2s cubic-bezier(0,.25,.25,.75),transform .2s cubic-bezier(0,.25,.25,.75),color .3s cubic-bezier(.5,.25,.25,.75),font-size .3s cubic-bezier(.5,.25,.25,.75),block-size .3s cubic-bezier(.5,.25,.25,.75),min-inline-size .3s cubic-bezier(.5,.25,.25,.75),min-block-size .3s cubic-bezier(.5,.25,.25,.75),opacity .2s cubic-bezier(0,.25,.25,.75),padding .3s cubic-bezier(.5,.25,.25,.75),inline-size .3s cubic-bezier(.5,.25,.25,.75);
 }
 #main_contact_form button[type="submit"]:hover {
-	background: #5c5c5d;
+background: #5c5c5d;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  border: 0;
 }
