@@ -66,19 +66,12 @@ class Enhanced_ICF_Form_Processor {
 
         $field_map = eform_get_template_fields( $template );
 
-        $form_id    = Helpers::get_first_value( $submitted_data['enhanced_form_id'] ?? '' );
+        $form_id    = Helpers::get_first_value( $submitted_data['form_id'] ?? '' );
         $form_scope = [];
         if ( $form_id && isset( $submitted_data[ $form_id ] ) && is_array( $submitted_data[ $form_id ] ) ) {
             $form_scope = $submitted_data[ $form_id ];
         }
 
-        $field_list = Helpers::get_first_value( $form_scope['enhanced_fields'] ?? '' );
-        if ( ! empty( $field_list ) ) {
-            $keys      = array_filter( array_map( 'sanitize_key', explode( ',', $field_list ) ) );
-            $field_map = array_intersect_key( $field_map, array_flip( $keys ) );
-        }
-
-        
         $normalized = $this->validator->normalize_submission( $field_map, $form_scope, $this->array_field_types );
         $data       = $normalized['data'];
         if ( ! empty( $normalized['invalid_fields'] ) ) {

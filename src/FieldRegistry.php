@@ -67,6 +67,7 @@ class FieldRegistry {
 FieldRegistry::register( 'text', 'sanitize_text_field', ['Validator', 'validate_pattern'], 'input' );
 FieldRegistry::register( 'email', 'sanitize_email', ['Validator', 'validate_email'], 'input' );
 FieldRegistry::register( 'tel', ['Validator', 'sanitize_digits'], ['Validator', 'validate_phone'], 'input' );
+FieldRegistry::register( 'name', 'sanitize_text_field', ['Validator', 'validate_pattern'], 'input' );
 FieldRegistry::register( 'number', ['Validator', 'sanitize_number'], ['Validator', 'validate_range'], 'input' );
 FieldRegistry::register( 'radio', 'sanitize_text_field', ['Validator', 'validate_choice'], 'input' );
 FieldRegistry::register( 'textarea', 'sanitize_textarea_field', ['Validator', 'validate_message'], 'textarea' );

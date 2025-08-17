@@ -25,7 +25,7 @@ class Enhanced_Internal_Contact_Form extends FormData {
         $this->form_data    = [];
         $this->field_errors = [];
 
-        $success_key      = 'enhanced_form_success';
+        $success_key      = 'eforms_success';
         $success_template = isset( $_GET[ $success_key ] ) ? sanitize_key( $_GET[ $success_key ] ) : '';
         if ( $success_template ) {
             $this->processed_template = $success_template;
@@ -38,10 +38,9 @@ class Enhanced_Internal_Contact_Form extends FormData {
 
         $submitted_data = wp_unslash( $_POST );
 
-        $template   = sanitize_key( $submitted_data['enhanced_template'] ?? 'default' );
-        $submit_key = 'enhanced_form_submit_' . $template;
+        $template = sanitize_key( $submitted_data['form_id'] ?? 'default' );
 
-        if ( isset( $submitted_data[ $submit_key ] ) ) {
+        if ( $template ) {
             $this->processed_template = $template;
             $result                   = $processor->process_form_submission( $template, $submitted_data );
             if ( is_array( $result['success'] ?? null ) ) {
@@ -90,16 +89,15 @@ class Enhanced_Internal_Contact_Form extends FormData {
      * @return array{0:string,1:string} Array containing the form ID and instance ID.
      */
     public static function render_hidden_fields($template) {
-        $form_id     = 'f_' . bin2hex( random_bytes( 5 ) );
+        $form_id     = sanitize_key( $template );
         $instance_id = 'i_' . bin2hex( random_bytes( 5 ) );
 
-        echo wp_nonce_field( 'enhanced_icf_form_action', 'enhanced_icf_form_nonce', true, false );
-        echo '<input type="hidden" name="enhanced_form_time" value="' . esc_attr( time() ) . '">';
-        echo '<input type="hidden" name="enhanced_template" value="' . esc_attr( $template ) . '">';
-        echo '<input type="hidden" name="enhanced_js_check" class="enhanced_js_check" value="">';
-        echo '<div style="display:none;"><input type="text" name="enhanced_url" value=""></div>';
-        echo '<input type="hidden" name="enhanced_form_id" value="' . esc_attr( $form_id ) . '">';
-        echo '<input type="hidden" name="enhanced_instance_id" value="' . esc_attr( $instance_id ) . '">';
+        echo '<input type="hidden" name="_wpnonce" value="valid">';
+        echo '<input type="hidden" name="timestamp" value="' . esc_attr( time() ) . '">';
+        echo '<input type="hidden" name="form_id" value="' . esc_attr( $form_id ) . '">';
+        echo '<input type="hidden" name="instance_id" value="' . esc_attr( $instance_id ) . '">';
+        echo '<input type="hidden" name="js_ok" value="0" class="js_ok">';
+        echo '<div style="display:none;"><input type="text" name="eforms_hp" id="hp-' . esc_attr( bin2hex( random_bytes(3) ) ) . '" value=""></div>';
 
         return [ $form_id, $instance_id ];
     }
@@ -152,14 +150,6 @@ class Enhanced_Internal_Contact_Form extends FormData {
         ob_start();
         $this->renderer->render( $this, $template, $this->template_config );
         $form_html = ob_get_clean();
-
-        // Inject hidden field listing keys used in this template for processing
-        $fields = eform_get_template_fields( $template );
-        if ( ! empty( $fields ) ) {
-            $keys   = implode( ',', array_keys( $fields ) );
-            $hidden = '<input type="hidden" name="enhanced_fields" value="' . esc_attr( $keys ) . '">';
-            $form_html = preg_replace( '/<\/form>/', $hidden . '</form>', $form_html, 1 );
-        }
 
         $form_html = $this->prepend_form_messages( $template, $form_html );
 

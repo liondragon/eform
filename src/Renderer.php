@@ -2,56 +2,123 @@
 // includes/Renderer.php
 require_once __DIR__ . '/FieldRegistry.php';
 
-/**
- * Default renderer for form templates using configuration arrays.
- */
 class Renderer {
-    /**
-     * Render a form from configuration when no PHP template is available.
-     *
-     * @param FormData $form     Form object containing data and helpers.
-     * @param string   $template Template slug for naming fields.
-     * @param array    $config   Template configuration containing field definitions.
-     */
+    /** @var array<int,string> */
+    private array $row_stack = [];
+
+    private function sanitize_fragment( string $html ): string {
+        if ( $html === '' ) {
+            return '';
+        }
+        $allowed = ['div','span','p','br','strong','em','h1','h2','h3','h4','h5','h6','ul','ol','li'];
+        $doc = new DOMDocument();
+        libxml_use_internal_errors(true);
+        $wrapper = '<div>' . $html . '</div>';
+        if ( ! @$doc->loadHTML( $wrapper, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD ) ) {
+            return '';
+        }
+        $body = $doc->getElementsByTagName('div')->item(0);
+        $this->sanitize_dom_node( $body, $allowed );
+        $out = '';
+        foreach ( $body->childNodes as $child ) {
+            $out .= $doc->saveHTML( $child );
+        }
+        return $out;
+    }
+
+    private function sanitize_dom_node( DOMNode $node, array $allowed ): void {
+        if ( $node->nodeType === XML_ELEMENT_NODE ) {
+            $tag = strtolower( $node->nodeName );
+            if ( ! in_array( $tag, $allowed, true ) ) {
+                $this->remove_node( $node );
+                return;
+            }
+            if ( $node->hasAttributes() ) {
+                $class = $node->attributes->getNamedItem('class');
+                foreach ( iterator_to_array( $node->attributes ) as $attr ) {
+                    if ( $attr->nodeName !== 'class' ) {
+                        $node->removeAttributeNode( $attr );
+                    }
+                }
+                if ( $class ) {
+                    $node->setAttribute('class', $class->nodeValue);
+                }
+            }
+        }
+        foreach ( iterator_to_array( $node->childNodes ) as $child ) {
+            $this->sanitize_dom_node( $child, $allowed );
+        }
+    }
+
+    private function remove_node( DOMNode $node ): void {
+        while ( $node->firstChild ) {
+            $node->parentNode->insertBefore( $node->firstChild, $node );
+        }
+        $node->parentNode->removeChild( $node );
+    }
+
     public function render( FormData $form, string $template, array $config ) {
         echo '<div id="contact_form" class="contact_form">';
-        echo '<div aria-live="polite" class="form-errors"></div>';
+        echo '<div aria-live="polite" class="form-errors" role="alert"></div>';
         echo '<form class="main_contact_form" id="main_contact_form" aria-label="Contact Form" method="post" action="">';
         list( $form_id, $instance_id ) = Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
 
-        foreach ( $config['fields'] ?? [] as $post_key => $field ) {
-            if ( isset( $field['key'] ) ) {
-                $field_key = sanitize_key( $field['key'] );
-            } else {
-                $field_key = sanitize_key( preg_replace( '/_input$/', '', (string) $post_key ) );
+        $this->row_stack = [];
+        foreach ( $config['fields'] ?? [] as $field ) {
+            if ( ( $field['type'] ?? '' ) === 'row_group' ) {
+                $mode = $field['mode'] ?? '';
+                if ( $mode === 'start' ) {
+                    $tag   = in_array( $field['tag'] ?? 'div', ['div','section'], true ) ? $field['tag'] : 'div';
+                    $class = 'eforms-row';
+                    if ( ! empty( $field['class'] ) ) {
+                        $class .= ' ' . sanitize_key( $field['class'] );
+                    }
+                    echo '<' . $tag . ' class="' . esc_attr( $class ) . '">';
+                    $this->row_stack[] = $tag;
+                } elseif ( $mode === 'end' ) {
+                    $tag = array_pop( $this->row_stack );
+                    if ( $tag ) {
+                        echo '</' . $tag . '>';
+                    }
+                }
+                continue;
             }
-            if ( 'tel' === $field_key ) {
-                $field_key = 'phone';
+
+            if ( ! isset( $field['key'] ) ) {
+                continue;
             }
+            $field_key = sanitize_key( $field['key'] );
             $value     = $form->form_data[ $field_key ] ?? '';
             if ( ( $field['type'] ?? '' ) === 'tel' ) {
                 $value = $form->format_phone( $value );
             }
-            $required  = isset( $field['required'] ) ? ' required aria-required="true"' : '';
-            $attr_str  = '';
+            $required = ! empty( $field['required'] ) ? ' required' : '';
+            $attr_str = '';
             foreach ( $field as $attr => $val ) {
-                if ( in_array( $attr, [ 'type', 'required', 'style', 'key', 'label', 'choices' ], true ) ) {
+                if ( in_array( $attr, ['type','required','key','label','choices','options','before_html','after_html','class'], true ) ) {
                     continue;
                 }
                 $attr_str .= sprintf( ' %s="%s"', esc_attr( $attr ), esc_attr( $val ) );
             }
-            echo '<div class="inputwrap" style="' . esc_attr( $field['style'] ?? '' ) . '">';
-            $name      = $form_id . '[' . $field_key . ']';
-            $input_id  = $form_id . '-' . $instance_id . '-' . $field_key;
-            $error_id  = 'error-' . $input_id;
-            $error_msg = $form->field_errors[ $field_key ] ?? '';
-            $aria      = $error_msg ? sprintf( ' aria-describedby="%s" aria-invalid="true"', esc_attr( $error_id ) ) : '';
+
+            $before = $this->sanitize_fragment( $field['before_html'] ?? '' );
+            $after  = $this->sanitize_fragment( $field['after_html'] ?? '' );
+            if ( $before ) {
+                echo $before;
+            }
+
+            echo '<div class="inputwrap">';
+            $name        = $form_id . '[' . $field_key . ']';
+            $render_type = FieldRegistry::get_renderer( $field['type'] ?? 'text' );
+            $input_id    = $form_id . '-' . $field_key . '-' . $instance_id;
+            $error_id    = 'error-' . $input_id;
+            $error_msg   = $form->field_errors[ $field_key ] ?? '';
+            $aria        = $error_msg ? sprintf( ' aria-describedby="%s" aria-invalid="true"', esc_attr( $error_id ) ) : '';
 
             $label = $field['label'] ?? ucwords( str_replace( '_', ' ', $field_key ) );
-            $required_marker = isset( $field['required'] ) ? '<span class="required">*</span>' : '';
+            $required_marker = ! empty( $field['required'] ) ? '<span class="required">*</span>' : '';
 
-            $render_type = FieldRegistry::get_renderer( $field['type'] ?? 'text' );
-            if ( in_array( $field['type'] ?? '', [ 'radio', 'checkbox' ], true ) && ! empty( $field['choices'] ) ) {
+            if ( in_array( $field['type'] ?? '', ['radio','checkbox'], true ) && ! empty( $field['choices'] ) ) {
                 echo '<fieldset>';
                 echo '<legend>' . esc_html( $label ) . $required_marker . '</legend>';
                 $choices = $field['choices'];
@@ -65,7 +132,7 @@ class Renderer {
                         $choice_label = ucwords( str_replace( '_', ' ', $choice_value ) );
                     }
                     $option_id = $input_id . '-' . sanitize_key( $choice_value ) . '-' . $choice_key;
-                    $checked   = '';
+                    $checked = '';
                     if ( ( $field['type'] ?? '' ) === 'checkbox' ) {
                         $checked = in_array( $choice_value, (array) $values, true ) ? ' checked' : '';
                     } else {
@@ -86,12 +153,22 @@ class Renderer {
                 echo '<label for="' . esc_attr( $input_id ) . '">' . esc_html( $label ) . $required_marker . '</label>';
                 echo '<input id="' . esc_attr( $input_id ) . '" type="' . esc_attr( $type ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $required . $attr_str . $aria . '>';
             }
-            echo '<span id="' . esc_attr( $error_id ) . '" class="field-error">' . esc_html( $error_msg ) . '</span>';
+            echo '<span id="' . esc_attr( $error_id ) . '" class="eforms-error">' . esc_html( $error_msg ) . '</span>';
             echo '</div>';
+
+            if ( $after ) {
+                echo $after;
+            }
+        }
+
+        while ( $tag = array_pop( $this->row_stack ) ) {
+            echo '</' . $tag . '>';
         }
 
         echo '<input type="hidden" name="submitted" value="1" aria-hidden="true">';
-        echo '<button type="submit" name="enhanced_form_submit_' . esc_attr( $template ) . '" aria-label="Send Request" value="Send Request">Send Request</button>';
+        $button_text = $config['submit_button_text'] ?? 'Send';
+        echo '<button type="submit" name="eforms_submit" aria-label="Send Request" value="' . esc_attr( $button_text ) . '">' . esc_html( $button_text ) . '</button>';
         echo '</form></div>';
     }
 }
+
