@@ -28,6 +28,11 @@ class FormManager {
      * @return string Rendered form HTML.
      */
     public function handle_shortcode( $atts = [], ?Enhanced_ICF_Form_Processor $processor = null ) {
+        // Opportunistic cleanup of stale uploads before rendering any form.
+        if ( class_exists( 'Uploads' ) ) {
+            Uploads::maybe_gc();
+        }
+
         self::enqueue_assets();
         return $this->form->handle_shortcode( $atts, $processor );
     }
