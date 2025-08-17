@@ -66,7 +66,10 @@ class Logging {
         }
 
         $context['timestamp']   = date( 'c' );
-        $context['ip']          = $this->get_ip();
+        $ip = $this->get_ip();
+        if ( null !== $ip ) {
+            $context['ip'] = $ip;
+        }
         $context['source']      = 'Enhanced iContact Form';
         $context['level']       = $level;
         $context['message']     = $message;
@@ -249,36 +252,78 @@ class Logging {
             'REMOTE_ADDR'
         ];
 
-        foreach ($candidates as $key) {
-            if (!empty($server[$key])) {
-                $ipList = explode(',', $server[$key]);
-                foreach ($ipList as $ip) {
-                    $ip = trim($ip);
+        $ip = null;
+
+        foreach ( $candidates as $key ) {
+            if ( ! empty( $server[ $key ] ) ) {
+                $ipList = explode( ',', $server[ $key ] );
+                foreach ( $ipList as $candidate ) {
+                    $candidate = trim( $candidate );
 
                     // Filter out local/private/reserved IPs
-                    if (
-                        filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)
-                    ) {
-                        return $ip;
+                    if ( filter_var( $candidate, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) {
+                        $ip = $candidate;
+                        break 2;
                     }
                 }
             }
         }
 
         // Fallback (still return something, even if private)
-        foreach ($candidates as $key) {
-            if (!empty($server[$key])) {
-                $ipList = explode(',', $server[$key]);
-                foreach ($ipList as $ip) {
-                    $ip = trim($ip);
-                    if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                        return $ip;
+        if ( null === $ip ) {
+            foreach ( $candidates as $key ) {
+                if ( ! empty( $server[ $key ] ) ) {
+                    $ipList = explode( ',', $server[ $key ] );
+                    foreach ( $ipList as $candidate ) {
+                        $candidate = trim( $candidate );
+                        if ( filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+                            $ip = $candidate;
+                            break 2;
+                        }
                     }
                 }
             }
         }
 
-        return 'UNKNOWN';
+        if ( null === $ip ) {
+            $ip = 'UNKNOWN';
+        }
+
+        $mode = defined( 'EFORMS_IP_MODE' ) ? EFORMS_IP_MODE : 'masked';
+
+        if ( 'none' === $mode ) {
+            return null;
+        }
+
+        if ( 'UNKNOWN' === $ip ) {
+            return $ip;
+        }
+
+        if ( 'hash' === $mode ) {
+            $salt = defined( 'EFORMS_IP_SALT' ) ? EFORMS_IP_SALT : '';
+            return hash( 'sha256', $ip . $salt );
+        }
+
+        if ( 'full' === $mode ) {
+            return $ip;
+        }
+
+        // Default: masked
+        if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+            $parts    = explode( '.', $ip );
+            $parts[3] = '0';
+            return implode( '.', $parts );
+        }
+
+        if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+            $parts = explode( ':', $ip );
+            for ( $i = 4; $i < count( $parts ); $i++ ) {
+                $parts[ $i ] = '0000';
+            }
+            return implode( ':', $parts );
+        }
+
+        return $ip;
     }
 }
 

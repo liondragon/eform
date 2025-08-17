@@ -68,7 +68,7 @@ template via JSON configuration.
 
 The `From` address defaults to `noreply` at the site's domain derived from `home_url()`. Override the user or domain by defining `EFORMS_FROM_USER` and `EFORMS_FROM_DOMAIN`.
 
-The IP address is included in outbound messages only when the template's `email.include_fields` contains `ip` and `EFORMS_IP_MODE` permits. Set `EFORMS_IP_MODE` to `anonymize` (default), `full`, or `none`.
+The IP address is included in outbound messages only when the template's `email.include_fields` contains `ip` and `EFORMS_IP_MODE` permits. Set `EFORMS_IP_MODE` to `masked` (default), `hash`, `full`, or `none`. When using `hash`, optionally define `EFORMS_IP_SALT` to influence the hash value.
 
 Define `EFORMS_STAGING_REDIRECT` to add an `X-Staging-Redirect` header for staging environments. When a submission is marked suspect and `EFORMS_SUSPECT_TAG` is defined, an `X-Tag` header is appended with that tag.
 

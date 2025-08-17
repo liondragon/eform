@@ -60,8 +60,11 @@ class EmailerTest extends TestCase {
         }
         $this->assertFalse($hasReply, 'Reply-To header should be omitted for invalid email');
     }
-    public function test_ip_included_when_requested(): void {
-        $emailer = new Emailer('203.0.113.5');
+    public function test_ip_masked_by_default(): void {
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.5';
+        $logger = new Logging();
+        $ip = $logger->get_ip();
+        $emailer = new Emailer($ip);
         $config = ['email' => ['include_fields' => ['ip']]];
         $this->assertTrue($emailer->dispatch_email([], $config));
         $mail = $GLOBALS['_last_mail'];
@@ -74,11 +77,49 @@ class EmailerTest extends TestCase {
      */
     public function test_ip_excluded_when_mode_none(): void {
         define('EFORMS_IP_MODE', 'none');
-        $emailer = new Emailer('203.0.113.5');
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.5';
+        $logger = new Logging();
+        $ip = $logger->get_ip();
+        $emailer = new Emailer($ip);
         $config = ['email' => ['include_fields' => ['ip']]];
         $this->assertTrue($emailer->dispatch_email([], $config));
         $mail = $GLOBALS['_last_mail'];
         $this->assertStringNotContainsString('IP:', $mail['message']);
+    }
+
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function test_ip_full_when_mode_full(): void {
+        define('EFORMS_IP_MODE', 'full');
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.5';
+        $logger = new Logging();
+        $ip = $logger->get_ip();
+        $emailer = new Emailer($ip);
+        $config = ['email' => ['include_fields' => ['ip']]];
+        $this->assertTrue($emailer->dispatch_email([], $config));
+        $mail = $GLOBALS['_last_mail'];
+        $this->assertStringContainsString('203.0.113.5', $mail['message']);
+    }
+
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function test_ip_hashed_when_mode_hash(): void {
+        define('EFORMS_IP_MODE', 'hash');
+        define('EFORMS_IP_SALT', 'salt');
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.5';
+        $logger = new Logging();
+        $expected = hash('sha256', '203.0.113.5' . 'salt');
+        $ip = $logger->get_ip();
+        $this->assertSame($expected, $ip);
+        $emailer = new Emailer($ip);
+        $config = ['email' => ['include_fields' => ['ip']]];
+        $this->assertTrue($emailer->dispatch_email([], $config));
+        $mail = $GLOBALS['_last_mail'];
+        $this->assertStringContainsString($expected, $mail['message']);
     }
 
     /**
