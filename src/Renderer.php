@@ -10,51 +10,26 @@ class Renderer {
         if ( $html === '' ) {
             return '';
         }
-        $allowed = ['div','span','p','br','strong','em','h1','h2','h3','h4','h5','h6','ul','ol','li'];
-        $doc = new DOMDocument();
-        libxml_use_internal_errors(true);
-        $wrapper = '<div>' . $html . '</div>';
-        if ( ! @$doc->loadHTML( $wrapper, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD ) ) {
-            return '';
-        }
-        $body = $doc->getElementsByTagName('div')->item(0);
-        $this->sanitize_dom_node( $body, $allowed );
-        $out = '';
-        foreach ( $body->childNodes as $child ) {
-            $out .= $doc->saveHTML( $child );
-        }
-        return $out;
-    }
 
-    private function sanitize_dom_node( DOMNode $node, array $allowed ): void {
-        if ( $node->nodeType === XML_ELEMENT_NODE ) {
-            $tag = strtolower( $node->nodeName );
-            if ( ! in_array( $tag, $allowed, true ) ) {
-                $this->remove_node( $node );
-                return;
-            }
-            if ( $node->hasAttributes() ) {
-                $class = $node->attributes->getNamedItem('class');
-                foreach ( iterator_to_array( $node->attributes ) as $attr ) {
-                    if ( $attr->nodeName !== 'class' ) {
-                        $node->removeAttributeNode( $attr );
-                    }
-                }
-                if ( $class ) {
-                    $node->setAttribute('class', $class->nodeValue);
-                }
-            }
-        }
-        foreach ( iterator_to_array( $node->childNodes ) as $child ) {
-            $this->sanitize_dom_node( $child, $allowed );
-        }
-    }
+        $allowed = [
+            'div'   => [ 'class' => true ],
+            'span'  => [ 'class' => true ],
+            'p'     => [ 'class' => true ],
+            'br'    => [],
+            'strong'=> [ 'class' => true ],
+            'em'    => [ 'class' => true ],
+            'h1'    => [ 'class' => true ],
+            'h2'    => [ 'class' => true ],
+            'h3'    => [ 'class' => true ],
+            'h4'    => [ 'class' => true ],
+            'h5'    => [ 'class' => true ],
+            'h6'    => [ 'class' => true ],
+            'ul'    => [ 'class' => true ],
+            'ol'    => [ 'class' => true ],
+            'li'    => [ 'class' => true ],
+        ];
 
-    private function remove_node( DOMNode $node ): void {
-        while ( $node->firstChild ) {
-            $node->parentNode->insertBefore( $node->firstChild, $node );
-        }
-        $node->parentNode->removeChild( $node );
+        return wp_kses( $html, $allowed );
     }
 
     public function render( FormData $form, string $template, array $config ) {

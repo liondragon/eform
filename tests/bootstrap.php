@@ -23,6 +23,46 @@ function wp_verify_nonce($nonce,$action){
 function wp_strip_all_tags($str){
     return strip_tags($str);
 }
+function wp_kses( $html, $allowed_html = [] ) {
+    if ( $html === '' ) {
+        return '';
+    }
+    $doc = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $wrapper = '<div>' . $html . '</div>';
+    if ( ! @$doc->loadHTML( $wrapper, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD ) ) {
+        return '';
+    }
+    $body = $doc->getElementsByTagName('div')->item(0);
+    $sanitize = function( DOMNode $node ) use ( &$sanitize, $allowed_html ) {
+        if ( $node->nodeType === XML_ELEMENT_NODE ) {
+            $tag = strtolower( $node->nodeName );
+            if ( ! isset( $allowed_html[ $tag ] ) ) {
+                while ( $node->firstChild ) {
+                    $node->parentNode->insertBefore( $node->firstChild, $node );
+                }
+                $node->parentNode->removeChild( $node );
+                return;
+            }
+            if ( $node->hasAttributes() ) {
+                foreach ( iterator_to_array( $node->attributes ) as $attr ) {
+                    if ( ! isset( $allowed_html[ $tag ][ $attr->nodeName ] ) ) {
+                        $node->removeAttributeNode( $attr );
+                    }
+                }
+            }
+        }
+        foreach ( iterator_to_array( $node->childNodes ) as $child ) {
+            $sanitize( $child );
+        }
+    };
+    $sanitize( $body );
+    $out = '';
+    foreach ( iterator_to_array( $body->childNodes ) as $child ) {
+        $out .= $doc->saveHTML( $child );
+    }
+    return $out;
+}
 function wp_kses_post( $content ){
     return strip_tags( $content );
 }
