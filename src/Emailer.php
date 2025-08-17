@@ -2,9 +2,9 @@
 // includes/Emailer.php
 
 class Emailer {
-    private string $ipaddress;
+    private ?string $ipaddress;
 
-    public function __construct( string $ipaddress ) {
+    public function __construct( ?string $ipaddress ) {
         $this->ipaddress = $ipaddress;
     }
 
@@ -13,27 +13,6 @@ class Emailer {
             return $matches[1] . '-' . $matches[2] . '-' . $matches[3];
         }
         return $digits;
-    }
-    private function get_email_ip(): ?string {
-        $mode = defined('EFORMS_IP_MODE') ? EFORMS_IP_MODE : 'anonymize';
-        if ($mode === 'none') {
-            return null;
-        }
-        $ip = $this->ipaddress;
-        if ($mode === 'anonymize') {
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                $parts = explode('.', $ip);
-                $parts[3] = '0';
-                $ip = implode('.', $parts);
-            } elseif (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-                $parts = explode(':', $ip);
-                for ($i = 4; $i < count($parts); $i++) {
-                    $parts[$i] = '0000';
-                }
-                $ip = implode(':', $parts);
-            }
-        }
-        return $ip;
     }
 
 
@@ -66,11 +45,8 @@ class Emailer {
             $rows[$label] = $value;
         }
 
-        if (in_array('ip', $include, true)) {
-            $ip = $this->get_email_ip();
-            if (null !== $ip) {
-                $rows['IP'] = $use_html ? esc_html($ip) : sanitize_text_field($ip);
-            }
+        if (in_array('ip', $include, true) && null !== $this->ipaddress) {
+            $rows['IP'] = $use_html ? esc_html($this->ipaddress) : sanitize_text_field($this->ipaddress);
         }
 
         if ($use_html) {
