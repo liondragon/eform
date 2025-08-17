@@ -50,7 +50,7 @@ class EmailerTest extends TestCase {
         ];
         $this->assertTrue($emailer->dispatch_email($data, []));
         $mail = $GLOBALS['_last_mail'];
-        $this->assertContains('From: Jane Doe <noreply@flooringartists.com>', $mail['headers']);
+        $this->assertContains('From: Jane Doe <noreply@example.test>', $mail['headers']);
         $hasReply = false;
         foreach ($mail['headers'] as $h) {
             $this->assertStringNotContainsString('Bcc', $h);
@@ -59,5 +59,71 @@ class EmailerTest extends TestCase {
             }
         }
         $this->assertFalse($hasReply, 'Reply-To header should be omitted for invalid email');
+    }
+    public function test_ip_included_when_requested(): void {
+        $emailer = new Emailer('203.0.113.5');
+        $config = ['email' => ['include_fields' => ['ip']]];
+        $this->assertTrue($emailer->dispatch_email([], $config));
+        $mail = $GLOBALS['_last_mail'];
+        $this->assertStringContainsString('203.0.113.0', $mail['message']);
+    }
+
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function test_ip_excluded_when_mode_none(): void {
+        define('EFORMS_IP_MODE', 'none');
+        $emailer = new Emailer('203.0.113.5');
+        $config = ['email' => ['include_fields' => ['ip']]];
+        $this->assertTrue($emailer->dispatch_email([], $config));
+        $mail = $GLOBALS['_last_mail'];
+        $this->assertStringNotContainsString('IP:', $mail['message']);
+    }
+
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function test_from_domain_can_be_overridden(): void {
+        define('EFORMS_FROM_DOMAIN', 'override.test');
+        define('EFORMS_FROM_USER', 'robot');
+        $emailer = new Emailer('127.0.0.1');
+        $this->assertTrue($emailer->dispatch_email([], []));
+        $mail = $GLOBALS['_last_mail'];
+        $found = false;
+        foreach ($mail['headers'] as $h) {
+            if (strpos($h, 'From:') === 0) {
+                $found = $h;
+                break;
+            }
+        }
+        $this->assertNotFalse($found);
+        $this->assertStringContainsString('robot@override.test', $found);
+    }
+
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function test_staging_redirect_header(): void {
+        define('EFORMS_STAGING_REDIRECT', 'stage@example.com');
+        $emailer = new Emailer('127.0.0.1');
+        $this->assertTrue($emailer->dispatch_email([], []));
+        $mail = $GLOBALS['_last_mail'];
+        $this->assertContains('X-Staging-Redirect: stage@example.com', $mail['headers']);
+    }
+
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function test_suspect_tag_header(): void {
+        define('EFORMS_SUSPECT_TAG', 'suspect');
+        $emailer = new Emailer('127.0.0.1');
+        $config = ['email' => ['suspect' => true]];
+        $this->assertTrue($emailer->dispatch_email([], $config));
+        $mail = $GLOBALS['_last_mail'];
+        $this->assertContains('X-Tag: suspect', $mail['headers']);
     }
 }

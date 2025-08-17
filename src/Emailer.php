@@ -14,6 +14,28 @@ class Emailer {
         }
         return $digits;
     }
+    private function get_email_ip(): ?string {
+        $mode = defined('EFORMS_IP_MODE') ? EFORMS_IP_MODE : 'anonymize';
+        if ($mode === 'none') {
+            return null;
+        }
+        $ip = $this->ipaddress;
+        if ($mode === 'anonymize') {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $parts = explode('.', $ip);
+                $parts[3] = '0';
+                $ip = implode('.', $parts);
+            } elseif (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+                $parts = explode(':', $ip);
+                for ($i = 4; $i < count($parts); $i++) {
+                    $parts[$i] = '0000';
+                }
+                $ip = implode(':', $parts);
+            }
+        }
+        return $ip;
+    }
+
 
     public function build_email_body(array $data, array $config = [], bool $use_html = false): string {
         $include = $config['email']['include_fields'] ?? array_keys($data);
@@ -44,7 +66,12 @@ class Emailer {
             $rows[$label] = $value;
         }
 
-        $rows['Sent from'] = $use_html ? esc_html($this->ipaddress) : sanitize_text_field($this->ipaddress);
+        if (in_array('ip', $include, true)) {
+            $ip = $this->get_email_ip();
+            if (null !== $ip) {
+                $rows['IP'] = $use_html ? esc_html($ip) : sanitize_text_field($ip);
+            }
+        }
 
         if ($use_html) {
             $message_rows = '';
@@ -68,7 +95,10 @@ class Emailer {
         $use_html = defined('EFORM_ALLOW_HTML_EMAIL') ? (bool)EFORM_ALLOW_HTML_EMAIL : false;
         $message  = $this->build_email_body($data, $config, $use_html);
 
-        $noreply = 'noreply@flooringartists.com';
+        $user   = defined('EFORMS_FROM_USER') ? sanitize_key(EFORMS_FROM_USER) : 'noreply';
+        $home   = function_exists('home_url') ? home_url() : '';
+        $domain = defined('EFORMS_FROM_DOMAIN') ? sanitize_text_field(EFORMS_FROM_DOMAIN) : (parse_url($home, PHP_URL_HOST) ?: 'localhost');
+        $noreply = $user . '@' . $domain;
         $headers = [];
 
         $name  = sanitize_text_field($data['name'] ?? '');
@@ -83,6 +113,13 @@ class Emailer {
         }
         $headers[] = 'Content-Type: ' . ($use_html ? 'text/html' : 'text/plain') . '; charset=UTF-8';
         $headers[] = 'Content-Transfer-Encoding: 8bit';
+        if (defined('EFORMS_STAGING_REDIRECT')) {
+            $headers[] = 'X-Staging-Redirect: ' . sanitize_text_field(EFORMS_STAGING_REDIRECT);
+        }
+        if (!empty($config['email']['suspect'])) {
+            $tag = defined('EFORMS_SUSPECT_TAG') ? EFORMS_SUSPECT_TAG : 'suspect';
+            $headers[] = 'X-Tag: ' . sanitize_text_field($tag);
+        }
 
         return wp_mail($to, $subject, $message, $headers);
     }

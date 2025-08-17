@@ -79,6 +79,9 @@ function get_option($name,$default=''){
     if($name==='admin_email'){return 'admin@example.com';}
     return $default;
 }
+function home_url($path = ''){
+    return 'https://example.test';
+}
 function apply_filters($tag,$value){
     return $value;
 }
