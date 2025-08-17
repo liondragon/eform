@@ -10,6 +10,9 @@ class LoggingTest extends TestCase {
     private string $logFile;
 
     protected function setUp(): void {
+        $this->logDir  = dirname(WP_CONTENT_DIR) . '/eform-logs';
+        $this->logFile = $this->logDir . '/forms.jsonl';
+
         if (defined('WP_CONTENT_DIR') && is_dir(WP_CONTENT_DIR)) {
             foreach (glob(WP_CONTENT_DIR . '/*') ?: [] as $file) {
                 is_dir($file) ? $this->rrmdir($file) : unlink($file);
@@ -18,28 +21,21 @@ class LoggingTest extends TestCase {
             mkdir(WP_CONTENT_DIR, 0777, true);
         }
 
+        if (is_dir($this->logDir)) {
+            $this->rrmdir($this->logDir);
+        }
+
         if ( ! defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ) {
             define( 'EFORM_LOG_FILE_MAX_SIZE', 200 );
         }
         if ( ! defined( 'EFORM_LOG_RETENTION_DAYS' ) ) {
             define( 'EFORM_LOG_RETENTION_DAYS', 1 );
         }
-        $this->logDir = WP_CONTENT_DIR . '/uploads/logs';
-        $this->logFile = $this->logDir . '/forms.log';
     }
 
     protected function tearDown(): void {
-        if (file_exists($this->logFile)) {
-            unlink($this->logFile);
-        }
-        foreach (glob($this->logDir . '/forms-*.log') ?: [] as $file) {
-            unlink($file);
-        }
         if (is_dir($this->logDir)) {
-            rmdir($this->logDir);
-        }
-        if (is_dir(WP_CONTENT_DIR . '/uploads')) {
-            rmdir(WP_CONTENT_DIR . '/uploads');
+            $this->rrmdir($this->logDir);
         }
         if (is_dir(WP_CONTENT_DIR)) {
             $this->rrmdir(WP_CONTENT_DIR);
@@ -91,10 +87,10 @@ class LoggingTest extends TestCase {
         $this->assertFileExists($this->logFile);
         clearstatcache();
         $this->assertGreaterThan(200, filesize($this->logFile));
-        $this->assertCount(0, glob($this->logDir . '/forms-*.log'));
+        $this->assertCount(0, glob($this->logDir . '/forms-*.jsonl'));
 
         $logger->log('second');
-        $rotated = glob($this->logDir . '/forms-*.log');
+        $rotated = glob($this->logDir . '/forms-*.jsonl');
         $this->assertNotEmpty($rotated, 'Log file should rotate after exceeding size limit');
     }
 
@@ -105,7 +101,7 @@ class LoggingTest extends TestCase {
         // Initial rotation to create first rotated file.
         $logger->log($message);
         $logger->log('second');
-        $rotated = glob($this->logDir . '/forms-*.log');
+        $rotated = glob($this->logDir . '/forms-*.jsonl');
         $this->assertCount(1, $rotated);
 
         // Age the rotated file beyond retention.
@@ -119,7 +115,7 @@ class LoggingTest extends TestCase {
         $logger->log($message);
         $logger->log('fourth');
 
-        $rotatedAfter = glob($this->logDir . '/forms-*.log');
+        $rotatedAfter = glob($this->logDir . '/forms-*.jsonl');
         $this->assertCount(1, $rotatedAfter, 'Old rotated log should be removed after retention period');
         $this->assertNotEquals($oldFile, $rotatedAfter[0], 'Old rotated log should be deleted');
     }
@@ -133,6 +129,16 @@ class LoggingTest extends TestCase {
         $entry = json_decode($contents, true);
         $this->assertSame('/sample-page', $entry['request_uri']);
         $this->assertSame('contact', $entry['template']);
+    }
+
+    public function test_prepare_log_file_creates_deny_files(): void {
+        $logger = new \Logging();
+        $ref    = new \ReflectionClass($logger);
+        $method = $ref->getMethod('prepare_log_file');
+        $method->setAccessible(true);
+        $method->invoke($logger);
+        $this->assertFileExists($this->logDir . '/.htaccess');
+        $this->assertFileExists($this->logDir . '/index.html');
     }
 
     private function rrmdir(string $dir): void {
