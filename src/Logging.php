@@ -18,6 +18,16 @@ class Logging {
     public const LEVEL_ERROR = 'error';
 
     /**
+     * Default maximum log file size in bytes before rotation occurs.
+     */
+    public const DEFAULT_MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+    /**
+     * Default number of days to retain rotated log files.
+     */
+    public const DEFAULT_RETENTION_DAYS = 30;
+
+    /**
      * Cached path to the log file.
      *
      * @var string|null
@@ -83,15 +93,7 @@ class Logging {
         }
 
         if ( ! empty( $log_file ) && is_writable( dirname( $log_file ) ) ) {
-            $written = false;
-            $handle  = fopen( $log_file, 'a' );
-            if ( $handle ) {
-                if ( flock( $handle, LOCK_EX ) ) {
-                    $written = ( false !== fwrite( $handle, $jsonLogEntry . "\n" ) );
-                    flock( $handle, LOCK_UN );
-                }
-                fclose( $handle );
-            }
+            $written = ( false !== file_put_contents( $log_file, $jsonLogEntry . "\n", FILE_APPEND | LOCK_EX ) );
             if ( ! $written ) {
                 error_log( $jsonLogEntry );
             } else {
@@ -113,13 +115,19 @@ class Logging {
      * @return string Path to the log file.
      */
     private function prepare_log_file() {
-        $log_dir = WP_CONTENT_DIR . '/uploads/logs';
+        $default_dir = dirname( WP_CONTENT_DIR ) . '/eform-logs';
+        $log_dir     = defined( 'EFORM_LOG_DIR' ) ? EFORM_LOG_DIR : $default_dir;
+        if ( function_exists( 'apply_filters' ) ) {
+            $log_dir = apply_filters( 'eform_log_dir', $log_dir );
+        }
+
         if ( ! file_exists( $log_dir ) ) {
             wp_mkdir_p( $log_dir );
         }
+        $this->create_deny_files( $log_dir );
 
         if ( empty( $this->log_file ) ) {
-            $this->log_file = $log_dir . '/forms.log';
+            $this->log_file = $log_dir . '/forms.jsonl';
         }
 
         if ( ! file_exists( $this->log_file ) ) {
@@ -133,7 +141,7 @@ class Logging {
 
         if ( $this->should_rotate() ) {
             $timestamp    = date( 'YmdHis' );
-            $rotated_file = $log_dir . '/forms-' . $timestamp . '.log';
+            $rotated_file = $log_dir . '/forms-' . $timestamp . '.jsonl';
             if ( ! rename( $this->log_file, $rotated_file ) ) {
                 error_log( 'Failed to rotate log file: ' . $this->log_file );
             }
@@ -151,12 +159,31 @@ class Logging {
     }
 
     /**
+     * Create web server deny files to block direct access to logs.
+     *
+     * @param string $log_dir Directory containing log files.
+     */
+    private function create_deny_files( $log_dir ) {
+        $files = [
+            '.htaccess'  => "Require all denied\n",
+            'index.html' => '',
+        ];
+
+        foreach ( $files as $name => $contents ) {
+            $path = $log_dir . '/' . $name;
+            if ( ! file_exists( $path ) ) {
+                file_put_contents( $path, $contents, LOCK_EX );
+            }
+        }
+    }
+
+    /**
      * Delete rotated log files older than the configured retention period.
      *
      * @param string $log_dir Directory containing the log files.
      */
     private function purge_old_logs( $log_dir ) {
-        $retention_days = defined( 'EFORM_LOG_RETENTION_DAYS' ) ? EFORM_LOG_RETENTION_DAYS : 30;
+        $retention_days = defined( 'EFORM_LOG_RETENTION_DAYS' ) ? EFORM_LOG_RETENTION_DAYS : self::DEFAULT_RETENTION_DAYS;
         if ( function_exists( 'apply_filters' ) ) {
             $retention_days = apply_filters( 'eform_log_retention_days', $retention_days, $log_dir );
         }
@@ -169,7 +196,7 @@ class Logging {
         $day_in_seconds = defined( 'DAY_IN_SECONDS' ) ? DAY_IN_SECONDS : 86400;
         $threshold      = time() - ( $retention_days * $day_in_seconds );
 
-        foreach ( glob( $log_dir . '/forms-*.log' ) as $file ) {
+        foreach ( glob( $log_dir . '/forms-*.jsonl' ) as $file ) {
             if ( filemtime( $file ) < $threshold ) {
                 @unlink( $file );
             }
@@ -189,7 +216,7 @@ class Logging {
             return false;
         }
 
-        $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : 5 * 1024 * 1024;
+        $max_size = defined( 'EFORM_LOG_FILE_MAX_SIZE' ) ? EFORM_LOG_FILE_MAX_SIZE : self::DEFAULT_MAX_FILE_SIZE;
         if ( function_exists( 'apply_filters' ) ) {
             $max_size = apply_filters( 'eform_log_file_max_size', $max_size, $file );
         }
