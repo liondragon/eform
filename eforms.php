@@ -30,6 +30,7 @@ spl_autoload_register( function ( $class ) {
         'Enhanced_Internal_Contact_Form' => 'src/class-enhanced-icf.php',
         'FieldRegistry'                => 'src/FieldRegistry.php',
         'ValueNormalizer'              => 'src/Normalizer.php',
+        'Uploads'                      => 'src/Uploads.php',
     ];
     if ( isset( $map[ $class ] ) ) {
         require_once plugin_dir_path( __FILE__ ) . $map[ $class ];
