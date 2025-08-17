@@ -14,7 +14,8 @@ class Security {
         $nonce       = Helpers::get_first_value( $submitted_data['_wpnonce'] ?? '' );
         $form_id     = Helpers::get_first_value( $submitted_data['form_id'] ?? '' );
         $instance_id = Helpers::get_first_value( $submitted_data['instance_id'] ?? '' );
-        if ( empty( $nonce ) || empty( $form_id ) || empty( $instance_id ) || ! wp_verify_nonce( $nonce, 'eforms_form_' . $form_id . ':' . $instance_id ) ) {
+        $action      = "eforms_form_{$form_id}:{$instance_id}";
+        if ( empty( $nonce ) || empty( $form_id ) || empty( $instance_id ) || ! wp_verify_nonce( $nonce, $action ) ) {
             return $this->build_error('Nonce Failed', 'Invalid submission detected.');
         }
         return [];

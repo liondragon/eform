@@ -92,7 +92,7 @@ class Enhanced_Internal_Contact_Form extends FormData {
         $form_id     = sanitize_key( $template );
         $instance_id = 'i_' . bin2hex( random_bytes( 5 ) );
 
-        echo '<input type="hidden" name="_wpnonce" value="valid">';
+        wp_nonce_field( "eforms_form_{$form_id}:{$instance_id}" );
         echo '<input type="hidden" name="timestamp" value="' . esc_attr( time() ) . '">';
         echo '<input type="hidden" name="form_id" value="' . esc_attr( $form_id ) . '">';
         echo '<input type="hidden" name="instance_id" value="' . esc_attr( $instance_id ) . '">';

@@ -20,7 +20,7 @@ class TemplateCacheFieldHandlingTest extends TestCase {
             'success' => [],
             'fields'  => [
                 [ 'key' => 'options', 'type' => 'checkbox' ],
-                [ 'key' => 'enhanced_form_id', 'type' => 'text' ],
+                [ 'key' => 'form_id', 'type' => 'text' ],
             ],
         ];
         file_put_contents( $path, json_encode( $config ) );
@@ -28,7 +28,7 @@ class TemplateCacheFieldHandlingTest extends TestCase {
         $fields = eform_get_template_fields( $template );
         $this->assertArrayHasKey( 'options', $fields );
         $this->assertSame( 'options[]', $fields['options']['post_key'] );
-        $this->assertArrayNotHasKey( 'enhanced_form_id', $fields );
+        $this->assertArrayNotHasKey( 'form_id', $fields );
 
         unlink( $path );
     }

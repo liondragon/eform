@@ -5,12 +5,15 @@ class EnhancedInternalContactFormTest extends TestCase {
     public function test_maybe_handle_form_forwards_raw_data_and_redirects_on_success() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
         $_SERVER['REQUEST_URI']    = '/contact';
-        $form_id = 'form123';
+        $time = time() - 10;
         $_POST = [
-            'enhanced_template' => 'default',
-            'enhanced_form_submit_default' => 'send',
-            'enhanced_form_id' => $form_id,
-            $form_id => [
+            '_wpnonce' => 'valid',
+            'timestamp' => $time,
+            'form_id' => 'default',
+            'instance_id' => 'i_test',
+            'js_ok' => '1',
+            'eforms_hp' => '',
+            'default' => [
                 'name' => ' <b>Jane</b> ',
             ],
         ];
@@ -19,16 +22,10 @@ class EnhancedInternalContactFormTest extends TestCase {
             ->disableOriginalConstructor()
             ->onlyMethods(['process_form_submission'])
             ->getMock();
+        $expected = $_POST;
         $processor->expects($this->once())
             ->method('process_form_submission')
-            ->with('default', [
-                'enhanced_template' => 'default',
-                'enhanced_form_submit_default' => 'send',
-                'enhanced_form_id' => $form_id,
-                $form_id => [
-                    'name' => ' <b>Jane</b> ',
-                ],
-            ])
+            ->with('default', $expected)
             ->willReturn(['success' => ['mode' => 'inline']]);
 
         $form = new Enhanced_Internal_Contact_Form($processor, new Logging());
@@ -39,17 +36,20 @@ class EnhancedInternalContactFormTest extends TestCase {
 
         $form->maybe_handle_form( $processor );
 
-        $this->assertSame('/contact?enhanced_form_success=default', $GLOBALS['redirected_to']);
+        $this->assertSame('/contact?eforms_success=default', $GLOBALS['redirected_to']);
     }
 
     public function test_maybe_handle_form_handles_error_response() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
-        $form_id = 'form123';
+        $time = time() - 10;
         $_POST = [
-            'enhanced_template' => 'default',
-            'enhanced_form_submit_default' => 'send',
-            'enhanced_form_id' => $form_id,
-            $form_id => [
+            '_wpnonce' => 'valid',
+            'timestamp' => $time,
+            'form_id' => 'default',
+            'instance_id' => 'i_test',
+            'js_ok' => '1',
+            'eforms_hp' => '',
+            'default' => [
                 'name' => ' <b>Jane</b> ',
             ],
         ];
@@ -89,19 +89,18 @@ class EnhancedInternalContactFormTest extends TestCase {
 
     public function test_maybe_handle_form_rejects_array_fields() {
         $_SERVER['REQUEST_METHOD'] = 'POST';
-        $form_id = 'form123';
+        $time = time() - 10;
         $_POST = [
-            'enhanced_template' => 'default',
-            'enhanced_form_submit_default' => 'send',
-            'enhanced_icf_form_nonce' => 'valid',
-            'enhanced_url' => '',
-            'enhanced_form_time' => time() - 10,
-            'enhanced_js_check' => '1',
-            'enhanced_form_id' => $form_id,
-            $form_id => [
+            '_wpnonce' => 'valid',
+            'eforms_hp' => '',
+            'timestamp' => $time,
+            'js_ok' => '1',
+            'form_id' => 'default',
+            'instance_id' => 'i_test',
+            'default' => [
                 'name'    => [ ' <b>Jane</b> ', 'Doe' ],
                 'email'   => [ 'jane@example.com', 'evil@example.com' ],
-                'phone'   => [ '123-456-7890', '000' ],
+                'tel'     => [ '123-456-7890', '000' ],
                 'zip'     => [ '12345', '' ],
                 'message' => [ 'short' ],
             ],
@@ -126,7 +125,7 @@ class EnhancedInternalContactFormTest extends TestCase {
         $error = $ref->getProperty('error_message');
         $error->setAccessible(true);
         $this->assertSame(
-            '<div class="form-message error">Invalid array input for field(s): name, email, phone, zip, message.</div>',
+            '<div class="form-message error">Invalid array input for field(s): name, email, tel, zip, message.</div>',
             $error->getValue($form)
         );
     }
