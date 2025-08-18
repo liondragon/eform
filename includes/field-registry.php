@@ -38,6 +38,54 @@ class FieldRegistry {
             'sanitize_cb'  => 'sanitize_textarea_field',
             'validate_cb'  => [self::class, 'validate_message'],
         ],
+        'first_name' => [
+            'post_key'     => 'first_name_input',
+            'required'     => false,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_name'],
+        ],
+        'last_name' => [
+            'post_key'     => 'last_name_input',
+            'required'     => false,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_name'],
+        ],
+        'street_address' => [
+            'post_key'     => 'street_address_input',
+            'required'     => false,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_text'],
+        ],
+        'city' => [
+            'post_key'     => 'city_input',
+            'required'     => false,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_text'],
+        ],
+        'state' => [
+            'post_key'     => 'state_input',
+            'required'     => false,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_state'],
+        ],
+        'floor_size' => [
+            'post_key'     => 'floor_size_input',
+            'required'     => false,
+            'sanitize_cb'  => [self::class, 'sanitize_digits'],
+            'validate_cb'  => [self::class, 'validate_positive_number'],
+        ],
+        'steps' => [
+            'post_key'     => 'steps_input',
+            'required'     => false,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_yes_no'],
+        ],
+        'railings' => [
+            'post_key'     => 'railings_input',
+            'required'     => false,
+            'sanitize_cb'  => 'sanitize_text_field',
+            'validate_cb'  => [self::class, 'validate_yes_no'],
+        ],
     ];
 
     /**
@@ -103,6 +151,9 @@ class FieldRegistry {
     }
 
     public static function validate_name(string $value, array $field): string {
+        if ($value === '' && empty($field['required'])) {
+            return '';
+        }
         if (strlen($value) < 3) {
             return 'Name too short.';
         }
@@ -140,6 +191,43 @@ class FieldRegistry {
         $plain = wp_strip_all_tags($value);
         if (strlen($plain) < 20) {
             return 'Message too short.';
+        }
+        return '';
+    }
+
+    public static function validate_text(string $value, array $field): string {
+        if ($field['required'] && trim($value) === '') {
+            return 'Field is required.';
+        }
+        return '';
+    }
+
+    public static function validate_state(string $value, array $field): string {
+        if ($field['required'] && trim($value) === '') {
+            return 'Field is required.';
+        }
+        if ($value !== '' && strtoupper($value) !== 'CO') {
+            return 'Invalid state.';
+        }
+        return '';
+    }
+
+    public static function validate_positive_number(string $value, array $field): string {
+        if ($field['required'] && $value === '') {
+            return 'Field is required.';
+        }
+        if ($value !== '' && !preg_match('/^\\d+$/', $value)) {
+            return 'Invalid number.';
+        }
+        return '';
+    }
+
+    public static function validate_yes_no(string $value, array $field): string {
+        if ($field['required'] && $value === '') {
+            return 'Field is required.';
+        }
+        if ($value !== '' && !in_array($value, ['yes','no'], true)) {
+            return 'Invalid value.';
         }
         return '';
     }

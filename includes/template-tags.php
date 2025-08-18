@@ -73,6 +73,30 @@ if ( ! function_exists( 'eform_field' ) ) {
                 'placeholder' => 'Please describe your project and let us know if there is any urgency',
                 'is_textarea' => true,
             ],
+            'first_name' => [
+                'template'    => '<input class="form_field" type="text" name="first_name_input" autocomplete="given-name"%1$s aria-label="First Name" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'First Name',
+            ],
+            'last_name' => [
+                'template'    => '<input class="form_field" type="text" name="last_name_input" autocomplete="family-name"%1$s aria-label="Last Name" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Last Name',
+            ],
+            'street_address' => [
+                'template'    => '<input class="form_field" type="text" name="street_address_input" autocomplete="street-address"%1$s aria-label="Street Address" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Street Address',
+            ],
+            'city' => [
+                'template'    => '<input class="form_field" type="text" name="city_input" autocomplete="address-level2"%1$s aria-label="City" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'City',
+            ],
+            'state' => [
+                'template'    => '<input class="form_field" type="text" name="state_input" autocomplete="address-level1" value="CO" readonly%1$s aria-label="State">',
+                'placeholder' => 'State',
+            ],
+            'floor_size' => [
+                'template'    => '<input class="form_field" type="number" name="floor_size_input"%1$s aria-label="Existing Hardwood Floor size (sqft)" placeholder="%2$s" value="%3$s">',
+                'placeholder' => 'Existing Hardwood Floor size (sqft)',
+            ],
         ];
 
         if ( ! isset( $field_map[ $field ] ) ) {
