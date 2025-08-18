@@ -9,13 +9,13 @@ class Enhanced_ICF_Form_Processor {
     private $emailer;
     private array $array_field_types;
 
-    public function __construct(Logging $logger, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null, array $array_field_types = ['checkbox']) {
+    public function __construct(Logging $logger, ?Security $security = null, ?Validator $validator = null, ?Emailer $emailer = null, ?array $array_field_types = null) {
         $this->logger           = $logger;
         $this->ipaddress        = $logger->get_ip();
         $this->security         = $security  ?? new Security();
         $this->validator        = $validator ?? new Validator();
         $this->emailer          = $emailer   ?? new Emailer( $this->ipaddress );
-        $this->array_field_types = $array_field_types;
+        $this->array_field_types = $array_field_types ?? FieldRegistry::get_multivalue_types();
     }
 
     /**
