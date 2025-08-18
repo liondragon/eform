@@ -34,9 +34,18 @@ class Renderer {
 
     public function render( FormData $form, string $template, array $config ) {
         echo '<div id="contact_form" class="contact_form">';
-        echo '<div aria-live="polite" class="form-errors" role="alert"></div>';
         echo '<form class="main_contact_form" id="main_contact_form" aria-label="Contact Form" method="post" action="">';
         list( $form_id, $instance_id ) = Enhanced_Internal_Contact_Form::render_hidden_fields( $template );
+        echo '<div aria-live="polite" class="form-errors" role="alert" tabindex="-1" hidden><ul>';
+        foreach ( $config['fields'] ?? [] as $summary_field ) {
+            if ( ! isset( $summary_field['key'] ) ) {
+                continue;
+            }
+            $summary_key = sanitize_key( $summary_field['key'] );
+            $summary_id  = $form_id . '-' . $summary_key . '-' . $instance_id;
+            echo '<li><a href="#' . esc_attr( $summary_id ) . '"></a></li>';
+        }
+        echo '</ul></div>';
 
         $this->row_stack = [];
         foreach ( $config['fields'] ?? [] as $field ) {
@@ -94,7 +103,7 @@ class Renderer {
             $required_marker = ! empty( $field['required'] ) ? '<span class="required">*</span>' : '';
 
             if ( in_array( $field['type'] ?? '', ['radio','checkbox'], true ) && ! empty( $field['choices'] ) ) {
-                echo '<fieldset>';
+                echo '<fieldset id="' . esc_attr( $input_id ) . '">';
                 echo '<legend>' . esc_html( $label ) . $required_marker . '</legend>';
                 $choices = $field['choices'];
                 $values  = $form->form_data[ $field_key ] ?? ( ( $field['type'] ?? '' ) === 'checkbox' ? [] : '' );
