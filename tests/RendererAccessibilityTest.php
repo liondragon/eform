@@ -50,5 +50,44 @@ class RendererAccessibilityTest extends TestCase {
         $this->assertNotNull( $valid_label );
         $this->assertSame( 'Email', trim( $valid_label->textContent ) );
         $this->assertNull( $xpath->query('.//span[@class="required"]', $valid_label)->item(0) );
+
+        $summary_anchor_invalid = $xpath->query('//div[contains(@class,"form-errors")]//a[@href="#' . $id . '"]')->item(0);
+        $this->assertNotNull( $summary_anchor_invalid );
+        $summary_anchor_valid = $xpath->query('//div[contains(@class,"form-errors")]//a[@href="#' . $valid_id . '"]')->item(0);
+        $this->assertNotNull( $summary_anchor_valid );
+    }
+
+    public function test_fieldset_has_id_and_summary_anchor() {
+        $form = new FormData();
+        $form->form_data = [];
+        $form->field_errors = [ 'color' => 'Required' ];
+
+        $config = [
+            'fields' => [
+                [
+                    'key'     => 'color',
+                    'type'    => 'radio',
+                    'required'=> true,
+                    'choices' => [ 'red', 'blue' ],
+                ],
+            ],
+        ];
+
+        $renderer = new Renderer();
+        ob_start();
+        $renderer->render( $form, 'default', $config );
+        $output = ob_get_clean();
+
+        $dom = new DOMDocument();
+        @$dom->loadHTML('<!DOCTYPE html><html><body>' . $output . '</body></html>');
+        $xpath = new DOMXPath( $dom );
+
+        $fieldset = $xpath->query('//fieldset')->item(0);
+        $this->assertNotNull( $fieldset );
+        $fieldset_id = $fieldset->getAttribute('id');
+        $this->assertNotEmpty( $fieldset_id );
+
+        $summary_anchor = $xpath->query('//div[contains(@class,"form-errors")]//a[@href="#' . $fieldset_id . '"]')->item(0);
+        $this->assertNotNull( $summary_anchor );
     }
 }
