@@ -86,8 +86,8 @@ function home_url($path = ''){
 function apply_filters($tag,$value){
     return $value;
 }
-function wp_mail($to,$subject,$message,$headers){
-    $GLOBALS['_last_mail'] = compact('to','subject','message','headers');
+function wp_mail($to,$subject,$message,$headers,$attachments = []){
+    $GLOBALS['_last_mail'] = compact('to','subject','message','headers','attachments');
     return true;
 }
 function eform_get_safe_fields($data){
@@ -216,3 +216,4 @@ require_once __DIR__.'/../src/Security.php';
 require_once __DIR__.'/../src/class-enhanced-icf-processor.php';
 require_once __DIR__.'/../src/class-enhanced-icf.php';
 require_once __DIR__.'/../src/TemplateCache.php';
+require_once __DIR__.'/../src/Uploads.php';

@@ -27,8 +27,8 @@ class EmailerTest extends TestCase {
     }
 
     public function test_html_email_enabled_via_constant(): void {
-        if (!defined('EFORM_ALLOW_HTML_EMAIL')) {
-            define('EFORM_ALLOW_HTML_EMAIL', true);
+        if (!defined('EFORMS_EMAIL_HTML')) {
+            define('EFORMS_EMAIL_HTML', true);
         }
         $emailer = new Emailer('127.0.0.1');
         $data = [
@@ -50,7 +50,7 @@ class EmailerTest extends TestCase {
         ];
         $this->assertTrue($emailer->dispatch_email($data, []));
         $mail = $GLOBALS['_last_mail'];
-        $this->assertContains('From: Jane Doe <noreply@example.test>', $mail['headers']);
+        $this->assertContains('From: no-reply@example.test', $mail['headers']);
         $hasReply = false;
         foreach ($mail['headers'] as $h) {
             $this->assertStringNotContainsString('Bcc', $h);
@@ -59,6 +59,35 @@ class EmailerTest extends TestCase {
             }
         }
         $this->assertFalse($hasReply, 'Reply-To header should be omitted for invalid email');
+    }
+
+    public function test_template_tokens_and_attachments(): void {
+        $emailer = new Emailer('127.0.0.1');
+        $dir = Uploads::get_dir();
+        $file = $dir . '/token.txt';
+        if (!is_dir(dirname($file))) {
+            wp_mkdir_p(dirname($file));
+        }
+        file_put_contents($file, 'file');
+        $data = [
+            'name' => 'Alice',
+            'submitted_at' => 1700000000,
+            '_uploads' => [
+                ['field' => 'resume', 'stored_path' => basename($file), 'size' => filesize($file)],
+            ],
+        ];
+        $config = [
+            'email' => [
+                'subject' => 'Hi {{field.name}}',
+                'body' => 'Time {{submitted_at}}',
+                'email_attach' => true,
+            ],
+        ];
+        $this->assertTrue($emailer->dispatch_email($data, $config));
+        $mail = $GLOBALS['_last_mail'];
+        $this->assertSame('Hi Alice', $mail['subject']);
+        $this->assertStringContainsString(gmdate('c', 1700000000), $mail['message']);
+        $this->assertNotEmpty($mail['attachments']);
     }
     public function test_ip_masked_by_default(): void {
         $_SERVER['REMOTE_ADDR'] = '203.0.113.5';

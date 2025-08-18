@@ -64,17 +64,51 @@ class Emailer {
         return implode("\n", $lines);
     }
 
+    private function render_tokens(string $template, array $data, bool $use_html = false): string {
+        return preg_replace_callback('/{{\s*([^}\s]+)\s*}}/', function ($m) use ($data, $use_html) {
+            $token = $m[1];
+            $value = '';
+            if (0 === strpos($token, 'field.')) {
+                $key   = substr($token, 6);
+                $value = $data[$key] ?? '';
+            } elseif ('submitted_at' === $token) {
+                $stamp = $data['submitted_at'] ?? time();
+                if (is_numeric($stamp)) {
+                    $value = gmdate('c', (int) $stamp);
+                } else {
+                    $value = (string) $stamp;
+                }
+            } else {
+                $value = $data[$token] ?? '';
+            }
+
+            if (is_array($value)) {
+                $value = implode(', ', array_map('sanitize_text_field', $value));
+            }
+            $value = (string) $value;
+            return $use_html ? esc_html($value) : sanitize_text_field($value);
+        }, $template);
+    }
+
     public function dispatch_email(array $data, array $config = []): bool {
         $to      = $config['email']['to'] ?? get_option('admin_email');
         $subject = $config['email']['subject'] ?? 'Quote Request - ' . sanitize_text_field($data['name'] ?? '');
 
-        $use_html = defined('EFORM_ALLOW_HTML_EMAIL') ? (bool)EFORM_ALLOW_HTML_EMAIL : false;
-        $message  = $this->build_email_body($data, $config, $use_html);
+        $use_html = defined('EFORMS_EMAIL_HTML') ? (bool)EFORMS_EMAIL_HTML : false;
 
-        $user   = defined('EFORMS_FROM_USER') ? sanitize_key(EFORMS_FROM_USER) : 'noreply';
+        if (isset($config['email']['body'])) {
+            $message = $this->render_tokens((string) $config['email']['body'], $data, $use_html);
+        } else {
+            $message = $this->build_email_body($data, $config, $use_html);
+        }
+
+        $to      = $this->render_tokens($to, $data, false);
+        $subject = $this->render_tokens($subject, $data, false);
+
         $home   = function_exists('home_url') ? home_url() : '';
         $domain = defined('EFORMS_FROM_DOMAIN') ? sanitize_text_field(EFORMS_FROM_DOMAIN) : (parse_url($home, PHP_URL_HOST) ?: 'localhost');
-        $noreply = $user . '@' . $domain;
+        $user   = defined('EFORMS_FROM_USER') ? sanitize_key(EFORMS_FROM_USER) : 'no-reply';
+        $from   = $user . '@' . $domain;
         $headers = [];
 
         $name  = sanitize_text_field($data['name'] ?? '');
@@ -83,7 +117,7 @@ class Emailer {
             $email = '';
         }
 
-        $headers[] = 'From: ' . ($name ? $name . ' ' : '') . "<{$noreply}>";
+        $headers[] = 'From: ' . $from;
         if ($email) {
             $headers[] = 'Reply-To: ' . ($name ? $name . ' ' : '') . "<{$email}>";
         }
@@ -97,6 +131,35 @@ class Emailer {
             $headers[] = 'X-Tag: ' . sanitize_text_field($tag);
         }
 
-        return wp_mail($to, $subject, $message, $headers);
+        $attachments = [];
+        $attach_cfg  = $config['email']['email_attach'] ?? false;
+        if ($attach_cfg && !empty($data['_uploads']) && is_array($data['_uploads'])) {
+            $allowed_fields = true === $attach_cfg ? null : array_map('sanitize_key', (array) $attach_cfg);
+            $max_req_bytes  = defined('EFORMS_EMAIL_MAX_REQUEST_BYTES') ? (int) EFORMS_EMAIL_MAX_REQUEST_BYTES : PHP_INT_MAX;
+            $max_file_bytes = defined('EFORMS_EMAIL_MAX_FILE_BYTES') ? (int) EFORMS_EMAIL_MAX_FILE_BYTES : PHP_INT_MAX;
+            $max_req_count  = defined('EFORMS_EMAIL_MAX_REQUEST_COUNT') ? (int) EFORMS_EMAIL_MAX_REQUEST_COUNT : PHP_INT_MAX;
+            $count = 0;
+            $bytes = 0;
+            $dir   = Uploads::get_dir();
+            foreach ($data['_uploads'] as $meta) {
+                $field = sanitize_key($meta['field'] ?? '');
+                if (null !== $allowed_fields && !in_array($field, $allowed_fields, true)) {
+                    continue;
+                }
+                $size = (int) ($meta['size'] ?? 0);
+                $path = $dir . '/' . ltrim($meta['stored_path'] ?? '', '/');
+                if (!file_exists($path)) {
+                    continue;
+                }
+                if ($size > $max_file_bytes || $bytes + $size > $max_req_bytes || $count + 1 > $max_req_count) {
+                    continue;
+                }
+                $attachments[] = $path;
+                $bytes += $size;
+                $count++;
+            }
+        }
+
+        return wp_mail($to, $subject, $message, $headers, $attachments);
     }
 }
