@@ -9,7 +9,7 @@ class TemplateValidatorPipelineTest extends TestCase {
     }
 
     public function test_invalid_template_triggers_error_code() {
-        $template = 'invalid_schema';
+        $template = 'invalid-schema';
         $path     = $this->templatesDir . '/' . $template . '.json';
         $config   = [
             'id'      => $template,

@@ -26,6 +26,11 @@ class TemplateConfigTest extends TestCase {
         $this->assertSame( [], eform_get_template_config( 'missing' ) );
     }
 
+    public function test_invalid_template_slug_rejected(): void {
+        $this->assertSame( [], eform_get_template_config( '../secret' ) );
+        $this->assertSame( [], eform_get_template_config( 'Default' ) );
+    }
+
     public function test_cache_can_be_purged(): void {
         $template = 'temp';
         $path     = $this->pluginTemplatesDir . "/$template.json";

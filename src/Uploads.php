@@ -95,7 +95,7 @@ class Uploads {
      * @param Logging $logger   Optional logger instance.
      * @return array|null Metadata about stored file or null on failure.
      */
-    public static function store_uploaded_file( array $item, string $field, array $accept = [], Logging $logger = null ) {
+    public static function store_uploaded_file( array $item, string $field, array $accept = [], ?Logging $logger = null ) {
         if ( ( $item['error'] ?? UPLOAD_ERR_NO_FILE ) !== UPLOAD_ERR_OK || (int) $item['size'] <= 0 ) {
             return null;
         }

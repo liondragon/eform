@@ -10,7 +10,7 @@ class TemplateCacheFieldHandlingTest extends TestCase {
     }
 
     public function test_multivalue_fields_and_reserved_keys(): void {
-        $template = 'field_handling';
+        $template = 'field-handling';
         $path     = $this->templatesDir . '/' . $template . '.json';
         $config   = [
             'id'      => $template,
