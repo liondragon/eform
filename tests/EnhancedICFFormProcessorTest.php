@@ -130,8 +130,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_max_form_age_failure() {
-        if ( ! defined( 'EFORM_MAX_FORM_AGE' ) ) {
-            define( 'EFORM_MAX_FORM_AGE', 1000 );
+        if ( ! defined( 'EFORMS_MAX_FILL_TIME' ) ) {
+            define( 'EFORMS_MAX_FILL_TIME', 1000 );
         }
         $data = $this->build_submission(overrides: ['timestamp' => time() - 1001]);
         $result = $this->processor->process_form_submission('default', $data);
@@ -140,6 +140,21 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $actual   = $this->security->check_submission_time($data);
         $this->assertSame($expected, $actual);
         $this->assertSame($expected['message'], $result['message']);
+    }
+
+    public function test_post_size_cap_failure() {
+        if ( ! defined( 'EFORMS_MAX_POST_BYTES' ) ) {
+            define( 'EFORMS_MAX_POST_BYTES', 10 );
+        }
+        $_SERVER['CONTENT_LENGTH'] = 20;
+        $data = $this->build_submission();
+        $result = $this->processor->process_form_submission( 'default', $data );
+        $this->assertFalse( $result['success'] );
+        $expected = $this->invoke_method( $this->security, 'build_error', ['POST Size Exceeded', 'Submission too large.'] );
+        $actual   = $this->security->check_post_size();
+        $this->assertSame( $expected, $actual );
+        $this->assertSame( $expected['message'], $result['message'] );
+        unset( $_SERVER['CONTENT_LENGTH'] );
     }
 
     public function test_js_check_failure() {

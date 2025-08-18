@@ -47,15 +47,19 @@ class Enhanced_ICF_Form_Processor {
         }
 
         $validators = [
+            'check_post_size',
             'check_nonce',
             'check_honeypot',
             'check_submission_time',
+            'check_referrer',
             'check_js_enabled',
         ];
 
         foreach ( $validators as $validator ) {
             if ( 'check_js_enabled' === $validator ) {
                 $error = $this->security->$validator( $submitted_data, $js_mode );
+            } elseif ( 'check_post_size' === $validator || 'check_referrer' === $validator ) {
+                $error = $this->security->$validator();
             } else {
                 $error = $this->security->$validator( $submitted_data );
             }
@@ -139,7 +143,8 @@ class Enhanced_ICF_Form_Processor {
         $safe_fields = eform_get_safe_fields( $data );
         $safe_data   = array_intersect_key( $data, array_flip( $safe_fields ) );
         if ( $this->logger ) {
-            $this->logger->log( 'Form submission sent', Logging::LEVEL_INFO, [ 'form_data' => $safe_data, 'template' => $template ] );
+            $signals = $this->security->get_signals();
+            $this->logger->log( 'Form submission sent', Logging::LEVEL_INFO, [ 'form_data' => $safe_data, 'template' => $template, 'signals' => $signals['signals'], 'score' => $signals['score'], 'soft_fail' => $signals['soft_fail'] ] );
         }
     }
 
@@ -149,10 +154,15 @@ class Enhanced_ICF_Form_Processor {
             unset($details['form_data']);
         }
         if ( $this->logger ) {
-            $this->logger->log($type, Logging::LEVEL_ERROR, [
+            $signals = $this->security->get_signals();
+            $context = [
                 'type'    => $type,
                 'details' => $details,
-            ], $form_data);
+                'signals' => $signals['signals'],
+                'score'   => $signals['score'],
+                'soft_fail' => $signals['soft_fail'],
+            ];
+            $this->logger->log( $type, Logging::LEVEL_ERROR, $context, $form_data );
         }
 
         return $user_msg;
