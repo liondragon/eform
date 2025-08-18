@@ -14,6 +14,9 @@ class Validator {
      * @return array{data:array,invalid_fields:array}
      */
     public function normalize_submission( array $field_map, array $submitted_data, array $array_field_types = [] ): array {
+        if ( empty( $array_field_types ) ) {
+            $array_field_types = FieldRegistry::get_multivalue_types();
+        }
         $data           = [];
         $invalid_fields = [];
         foreach ( $field_map as $field => $details ) {
@@ -42,13 +45,20 @@ class Validator {
      * @return array{data:array,errors:array}
      */
     public function validate_submission( array $field_map, array $normalized_data, array $array_field_types = [] ): array {
+        if ( empty( $array_field_types ) ) {
+            $array_field_types = FieldRegistry::get_multivalue_types();
+        }
         $sanitized = [];
         foreach ( $field_map as $field => $details ) {
             $value       = $normalized_data[ $field ] ?? '';
             $type        = $details['type'] ?? 'text';
             $sanitize_cb = FieldRegistry::get_normalizer( $type );
             if ( is_array( $value ) ) {
-                $sanitized[ $field ] = array_map( $sanitize_cb, $value );
+                if ( is_array( $sanitize_cb ) || is_string( $sanitize_cb ) ) {
+                    $sanitized[ $field ] = array_map( $sanitize_cb, $value );
+                } else {
+                    $sanitized[ $field ] = $value;
+                }
             } else {
                 $sanitized[ $field ] = $sanitize_cb( $value );
             }
@@ -106,6 +116,25 @@ class Validator {
                 $details['required'] = true;
             } else {
                 unset( $details['required'] );
+            }
+
+            $max_length = $details['max_length'] ?? FieldRegistry::get_max_length( $type );
+            if ( $max_length && ! is_array( $value ) && mb_strlen( (string) $value ) > $max_length ) {
+                $errors[ $field ] = 'Value too long.';
+                continue;
+            }
+            if ( $max_length && is_array( $value ) ) {
+                $too_long = false;
+                foreach ( $value as $v ) {
+                    if ( mb_strlen( (string) $v ) > $max_length ) {
+                        $too_long = true;
+                        break;
+                    }
+                }
+                if ( $too_long ) {
+                    $errors[ $field ] = 'Value too long.';
+                    continue;
+                }
             }
 
             $error = $validate_cb( $value, $details );
@@ -310,6 +339,14 @@ class Validator {
             if ( ! in_array( $value, $choices, true ) ) {
                 return 'Invalid selection.';
             }
+        }
+        return '';
+    }
+
+    /** Validate uploaded files. */
+    public static function validate_file( array $files, array $field ): string {
+        if ( ! empty( $field['required'] ) && empty( $files ) ) {
+            return 'File is required.';
         }
         return '';
     }

@@ -93,7 +93,9 @@ class Renderer {
 
             echo '<div class="inputwrap">';
             $name        = $form_id . '[' . $field_key . ']';
-            $render_type = FieldRegistry::get_renderer( $field['type'] ?? 'text' );
+            $type        = $field['type'] ?? 'text';
+            $render_type = FieldRegistry::get_renderer( $type );
+            $option_mode = FieldRegistry::get_option_mode( $type );
             $input_id    = $form_id . '-' . $field_key . '-' . $instance_id;
             $error_id    = 'error-' . $input_id;
             $error_msg   = $form->field_errors[ $field_key ] ?? '';
@@ -102,11 +104,11 @@ class Renderer {
             $label = $field['label'] ?? ucwords( str_replace( '_', ' ', $field_key ) );
             $required_marker = ! empty( $field['required'] ) ? '<span class="required">*</span>' : '';
 
-            if ( in_array( $field['type'] ?? '', ['radio','checkbox'], true ) && ! empty( $field['choices'] ) ) {
+            if ( $option_mode === 'choices' && ! empty( $field['choices'] ) ) {
                 echo '<fieldset id="' . esc_attr( $input_id ) . '">';
                 echo '<legend>' . esc_html( $label ) . $required_marker . '</legend>';
                 $choices = $field['choices'];
-                $values  = $form->form_data[ $field_key ] ?? ( ( $field['type'] ?? '' ) === 'checkbox' ? [] : '' );
+                $values  = $form->form_data[ $field_key ] ?? ( $type === 'checkbox' ? [] : '' );
                 foreach ( $choices as $choice_key => $choice ) {
                     if ( is_array( $choice ) ) {
                         $choice_value = (string) ( $choice['value'] ?? '' );
@@ -116,24 +118,35 @@ class Renderer {
                         $choice_label = ucwords( str_replace( '_', ' ', $choice_value ) );
                     }
                     $option_id = $input_id . '-' . sanitize_key( $choice_value ) . '-' . $choice_key;
-                    $checked = '';
-                    if ( ( $field['type'] ?? '' ) === 'checkbox' ) {
-                        $checked = in_array( $choice_value, (array) $values, true ) ? ' checked' : '';
-                    } else {
-                        $checked = ( (string) $values === $choice_value ) ? ' checked' : '';
-                    }
-                    $option_name = $name . ( ( $field['type'] ?? '' ) === 'checkbox' ? '[]' : '' );
+                    $checked   = $type === 'checkbox'
+                        ? ( in_array( $choice_value, (array) $values, true ) ? ' checked' : '' )
+                        : ( (string) $values === $choice_value ? ' checked' : '' );
+                    $option_name = $name . ( $type === 'checkbox' ? '[]' : '' );
                     echo '<div class="choice">';
-                    echo '<input id="' . esc_attr( $option_id ) . '" type="' . esc_attr( $field['type'] ) . '" name="' . esc_attr( $option_name ) . '" value="' . esc_attr( $choice_value ) . '"' . $checked . $required . $attr_str . $aria . '>';
+                    echo '<input id="' . esc_attr( $option_id ) . '" type="' . esc_attr( $type ) . '" name="' . esc_attr( $option_name ) . '" value="' . esc_attr( $choice_value ) . '"' . $checked . $required . $attr_str . $aria . '>';
                     echo '<label for="' . esc_attr( $option_id ) . '">' . esc_html( $choice_label ) . '</label>';
                     echo '</div>';
                 }
                 echo '</fieldset>';
+            } elseif ( $render_type === 'select' && ! empty( $field['choices'] ) ) {
+                echo '<label for="' . esc_attr( $input_id ) . '">' . esc_html( $label ) . $required_marker . '</label>';
+                echo '<select id="' . esc_attr( $input_id ) . '" name="' . esc_attr( $name ) . '"' . $required . $attr_str . $aria . '>';
+                foreach ( $field['choices'] as $choice_key => $choice ) {
+                    if ( is_array( $choice ) ) {
+                        $choice_value = (string) ( $choice['value'] ?? '' );
+                        $choice_label = (string) ( $choice['label'] ?? $choice_value );
+                    } else {
+                        $choice_value = (string) $choice;
+                        $choice_label = ucwords( str_replace( '_', ' ', $choice_value ) );
+                    }
+                    $selected = ( (string) $value === $choice_value ) ? ' selected' : '';
+                    echo '<option value="' . esc_attr( $choice_value ) . '"' . $selected . '>' . esc_html( $choice_label ) . '</option>';
+                }
+                echo '</select>';
             } elseif ( $render_type === 'textarea' ) {
                 echo '<label for="' . esc_attr( $input_id ) . '">' . esc_html( $label ) . $required_marker . '</label>';
                 echo '<textarea id="' . esc_attr( $input_id ) . '" name="' . esc_attr( $name ) . '"' . $required . $attr_str . $aria . '>' . esc_textarea( $value ) . '</textarea>';
             } else {
-                $type = $field['type'] ?? 'text';
                 echo '<label for="' . esc_attr( $input_id ) . '">' . esc_html( $label ) . $required_marker . '</label>';
                 echo '<input id="' . esc_attr( $input_id ) . '" type="' . esc_attr( $type ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $required . $attr_str . $aria . '>';
             }
