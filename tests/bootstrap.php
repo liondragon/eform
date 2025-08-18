@@ -17,7 +17,8 @@ function sanitize_email($email){
 function sanitize_textarea_field($str){
     return strip_tags($str);
 }
-function wp_verify_nonce($nonce,$action){
+function wp_verify_nonce($nonce,$action,$ttl=86400){
+    $GLOBALS['_last_nonce_ttl'] = $ttl;
     return $nonce === 'valid';
 }
 function wp_strip_all_tags($str){

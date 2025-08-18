@@ -16,37 +16,60 @@ class SecurityTest extends TestCase {
         $this->assertFalse($signals['soft_fail']);
     }
     
-    public function test_referrer_policy_same_origin_increments_score_on_mismatch() {
-        if ( ! defined('EFORMS_SECURITY_SOFT_FAIL_THRESHOLD') ) {
-            define('EFORMS_SECURITY_SOFT_FAIL_THRESHOLD', 1);
+    public function test_referrer_policy_soft_path_increments_score_on_mismatch() {
+        if ( ! defined('EFORMS_SOFT_FAIL_THRESHOLD') ) {
+            define('EFORMS_SOFT_FAIL_THRESHOLD', 1);
         }
         $security = new Security();
         $server = [
             'HTTP_USER_AGENT' => 'UA',
-            'HTTP_REFERER'    => 'https://bad.com/',
+            'HTTP_REFERER'    => 'https://bad.com/path',
             'HTTP_HOST'       => 'example.com',
+            'REQUEST_URI'     => '/home',
         ];
-        $signals = $security->get_signals($server, 'same-origin');
-        $this->assertSame(1, $signals['score']);
-        $this->assertTrue($signals['soft_fail']);
-        $this->assertSame('mismatch', $signals['signals']['referrer_status']);
+        $security->check_referrer( $server, 'soft_path' );
+        $signals = $security->get_signals( $server );
+        $this->assertSame( 1, $signals['score'] );
+        $this->assertTrue( $signals['soft_fail'] );
+        $this->assertFalse( $signals['signals']['referrer_ok'] );
     }
 
     public function test_js_soft_mode_increments_score() {
-        if ( ! defined('EFORMS_SECURITY_SOFT_FAIL_THRESHOLD') ) {
-            define('EFORMS_SECURITY_SOFT_FAIL_THRESHOLD', 1);
+        if ( ! defined('EFORMS_SOFT_FAIL_THRESHOLD') ) {
+            define('EFORMS_SOFT_FAIL_THRESHOLD', 1);
         }
         $security = new Security();
         $data = [];
-        $security->check_js_enabled($data, 'soft');
+        $security->check_js_enabled( $data, 'soft' );
         $server = [
             'HTTP_USER_AGENT' => 'UA',
             'HTTP_HOST'       => 'example.com',
         ];
-        $signals = $security->get_signals($server);
-        $this->assertSame(1, $signals['score']);
-        $this->assertTrue($signals['soft_fail']);
-        $this->assertSame('missing', $signals['signals']['js']);
+        $signals = $security->get_signals( $server );
+        $this->assertSame( 1, $signals['score'] );
+        $this->assertTrue( $signals['soft_fail'] );
+        $this->assertFalse( $signals['signals']['js_ok'] );
+    }
+
+    public function test_nonce_lifetime_constant_passed() {
+        if ( ! defined( 'EFORMS_NONCE_LIFETIME' ) ) {
+            define( 'EFORMS_NONCE_LIFETIME', 123 );
+        }
+        $security = new Security();
+        $data = [ '_wpnonce' => 'valid', 'form_id' => 'f', 'instance_id' => 'i' ];
+        $security->check_nonce( $data );
+        $this->assertSame( 123, $GLOBALS['_last_nonce_ttl'] );
+    }
+
+    public function test_referrer_policy_hard_returns_error_on_mismatch() {
+        $security = new Security();
+        $server = [
+            'HTTP_REFERER' => 'https://bad.com/x',
+            'HTTP_HOST'    => 'example.com',
+            'REQUEST_URI'  => '/y',
+        ];
+        $error = $security->check_referrer( $server, 'hard' );
+        $this->assertSame( 'Referrer Check Failed', $error['type'] );
     }
 }
 

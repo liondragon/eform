@@ -57,8 +57,18 @@ Forms include several security checks to deter automated submissions.
 Administrators may tailor these checks globally by defining constants or per
 template via JSON configuration.
 
-* `EFORM_MAX_FORM_AGE` &mdash; Maximum age in seconds for a form submission.
-  Submissions older than this value are rejected. Defaults to 24 hours.
+* `EFORMS_MIN_FILL_TIME` &mdash; Minimum seconds between page render and
+  submission. Defaults to 5 seconds.
+* `EFORMS_MAX_FILL_TIME` &mdash; Maximum seconds between page render and
+  submission. Defaults to 24 hours.
+* `EFORMS_NONCE_LIFETIME` &mdash; Lifetime in seconds for form nonces.
+  Defaults to 24 hours.
+* `EFORMS_MAX_POST_BYTES` &mdash; Maximum allowed POST body size. Requests
+  exceeding this limit are rejected.
+* `EFORMS_REFERRER_POLICY` &mdash; Referrer enforcement mode: `off`, `soft`,
+  `soft_path`, or `hard`.
+* `EFORMS_SOFT_FAIL_THRESHOLD` &mdash; Number of soft-fail points before the
+  request is flagged.
 * `EFORM_JS_CHECK` or template option `js_check` &mdash; Accepts `hard` (default)
   or `soft` to control whether the JavaScript verification field is required.
   In `soft` mode the form proceeds even if the `enhanced_js_check` field is
