@@ -221,7 +221,7 @@ class EnhancedICFFormProcessorTest extends TestCase {
     }
 
     public function test_template_without_phone_field() {
-        $template = 'no_phone';
+        $template = 'no-phone';
         $config   = [
             'id'      => $template,
             'version' => 1,
@@ -238,15 +238,15 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $path = __DIR__ . '/../templates/' . $template . '.json';
         file_put_contents( $path, json_encode( $config ) );
 
-        $data   = $this->build_submission('no_phone');
-        $result = $this->processor->process_form_submission('no_phone', $data);
+        $data   = $this->build_submission('no-phone');
+        $result = $this->processor->process_form_submission('no-phone', $data);
         $this->assertSame('inline', $result['success']['mode']);
 
         unlink( $path );
     }
 
     public function test_required_phone_missing() {
-        $template = 'phone_only';
+        $template = 'phone-only';
         $config   = [
             'id'      => $template,
             'version' => 1,
@@ -262,8 +262,8 @@ class EnhancedICFFormProcessorTest extends TestCase {
         $path = __DIR__ . '/../templates/' . $template . '.json';
         file_put_contents( $path, json_encode( $config ) );
 
-        $data   = $this->build_submission('phone_only', overrides: ['phone' => '']);
-        $result = $this->processor->process_form_submission('phone_only', $data);
+        $data   = $this->build_submission('phone-only', overrides: ['phone' => '']);
+        $result = $this->processor->process_form_submission('phone-only', $data);
         $this->assertFalse($result['success']);
         $this->assertSame('Please correct the highlighted fields', $result['message']);
         $this->assertSame(['phone' => 'Phone is required.'], $result['errors']);

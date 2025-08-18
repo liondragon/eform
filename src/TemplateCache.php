@@ -12,8 +12,13 @@
 function eform_get_template_config( string $template ): array {
     static $cache = [];
 
+    $file = $template . '.json';
+    if ( ! preg_match( '/^[a-z0-9-]+\.json$/', $file ) ) {
+        return [];
+    }
+
     $plugin_dir = rtrim( plugin_dir_path( __DIR__ ), '/\\' ) . '/templates';
-    $path       = $plugin_dir . '/' . $template . '.json';
+    $path       = $plugin_dir . '/' . $file;
 
     $version  = eform_config_version_token( [ $path ] );
     $cache_key = $template;
@@ -76,6 +81,10 @@ function eform_config_version_token( array $paths ): string {
  */
 function eform_load_config_from_paths( array $paths ): array {
     foreach ( $paths as $path ) {
+        $file = basename( $path );
+        if ( ! preg_match( '/^[a-z0-9-]+\.json$/', $file ) ) {
+            continue;
+        }
         if ( file_exists( $path ) && is_readable( $path ) ) {
             if ( 'json' === pathinfo( $path, PATHINFO_EXTENSION ) ) {
                 $content = file_get_contents( $path );
