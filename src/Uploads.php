@@ -4,6 +4,20 @@
  * Handle file uploads: normalization, storage, and garbage collection.
  */
 class Uploads {
+    /** Error code when accept[] intersection is empty. */
+    public const ERR_ACCEPT_EMPTY = 'EFORMS_ERR_ACCEPT_EMPTY';
+
+    /** Total bytes seen in this request. */
+    private static $request_bytes = 0;
+
+    /** Total files seen in this request. */
+    private static $request_count = 0;
+
+    /** Bytes per field for this request. */
+    private static $field_bytes = [];
+
+    /** File count per field for this request. */
+    private static $field_count = [];
     /**
      * Return path to uploads directory, creating it if necessary.
      */
@@ -75,12 +89,50 @@ class Uploads {
     /**
      * Store an uploaded file on disk using hashed filename.
      *
-     * @param array  $item     Single normalized file array.
-     * @param string $field    Field key (used in metadata).
+     * @param array   $item     Single normalized file array.
+     * @param string  $field    Field key (used in metadata).
+     * @param array   $accept   Allowed MIME types from the field definition.
+     * @param Logging $logger   Optional logger instance.
      * @return array|null Metadata about stored file or null on failure.
      */
-    public static function store_uploaded_file( array $item, string $field ) {
+    public static function store_uploaded_file( array $item, string $field, array $accept = [], Logging $logger = null ) {
         if ( ( $item['error'] ?? UPLOAD_ERR_NO_FILE ) !== UPLOAD_ERR_OK || (int) $item['size'] <= 0 ) {
+            return null;
+        }
+
+        $size = (int) $item['size'];
+
+        // Enforce per-file byte limit.
+        $max_file_bytes = defined( 'EFORMS_UPLOAD_MAX_FILE_BYTES' ) ? (int) EFORMS_UPLOAD_MAX_FILE_BYTES : PHP_INT_MAX;
+        if ( $size > $max_file_bytes ) {
+            return null;
+        }
+
+        // Enforce per-request and per-field limits.
+        $max_request_bytes = defined( 'EFORMS_UPLOAD_MAX_REQUEST_BYTES' ) ? (int) EFORMS_UPLOAD_MAX_REQUEST_BYTES : PHP_INT_MAX;
+        $max_request_count = defined( 'EFORMS_UPLOAD_MAX_REQUEST_COUNT' ) ? (int) EFORMS_UPLOAD_MAX_REQUEST_COUNT : PHP_INT_MAX;
+        $max_field_bytes   = defined( 'EFORMS_UPLOAD_MAX_FIELD_BYTES' ) ? (int) EFORMS_UPLOAD_MAX_FIELD_BYTES : PHP_INT_MAX;
+        $max_field_count   = defined( 'EFORMS_UPLOAD_MAX_FIELD_COUNT' ) ? (int) EFORMS_UPLOAD_MAX_FIELD_COUNT : PHP_INT_MAX;
+
+        $field_bytes = self::$field_bytes[ $field ] ?? 0;
+        $field_count = self::$field_count[ $field ] ?? 0;
+
+        if (
+            self::$request_bytes + $size > $max_request_bytes ||
+            self::$request_count + 1 > $max_request_count ||
+            $field_bytes + $size > $max_field_bytes ||
+            $field_count + 1 > $max_field_count
+        ) {
+            return null;
+        }
+
+        // Determine allowed MIME types from registries.
+        $allowed = self::get_allowed_mime_types();
+        $accept  = array_filter( array_map( 'strval', $accept ) );
+        $intersection = $accept ? array_intersect( $accept, $allowed ) : $allowed;
+        if ( $accept && empty( $intersection ) ) {
+            $logger = $logger ?: new Logging();
+            $logger->log( self::ERR_ACCEPT_EMPTY, Logging::LEVEL_ERROR, [ 'field' => $field ] );
             return null;
         }
 
@@ -102,22 +154,51 @@ class Uploads {
             $seq++;
         } while ( file_exists( $dest ) );
 
+        $mime = function_exists( 'finfo_open' ) ? mime_content_type( $item['tmp_name'] ) : '';
+        if ( empty( $mime ) || 'application/octet-stream' === $mime || ! in_array( $mime, $intersection, true ) ) {
+            return null;
+        }
+
         if ( ! move_uploaded_file( $item['tmp_name'], $dest ) ) {
             return null;
         }
         @chmod( $dest, 0600 );
 
         $sha256 = hash_file( 'sha256', $dest );
-        $mime   = function_exists( 'finfo_open' ) ? mime_content_type( $dest ) : 'application/octet-stream';
+
+        // Update request and field counters after successful move.
+        self::$request_bytes += $size;
+        self::$request_count++;
+        self::$field_bytes[ $field ] = $field_bytes + $size;
+        self::$field_count[ $field ] = $field_count + 1;
 
         return [
             'field'          => $field,
             'original_name'  => $orig,
             'stored_path'    => str_replace( $uploads . '/', '', $dest ),
-            'size'           => (int) $item['size'],
+            'size'           => $size,
             'mime'           => $mime,
             'sha256'         => $sha256,
         ];
+    }
+
+    /**
+     * Retrieve allowed MIME types from defined registries or defaults.
+     *
+     * @return array List of allowed MIME types.
+     */
+    private static function get_allowed_mime_types(): array {
+        $allowed = [];
+        $consts  = get_defined_constants( true );
+        foreach ( $consts['user'] ?? [] as $name => $value ) {
+            if ( 0 === strpos( $name, 'EFORMS_UPLOAD_ALLOWED_' ) && is_array( $value ) ) {
+                $allowed = array_merge( $allowed, $value );
+            }
+        }
+        if ( empty( $allowed ) ) {
+            $allowed = [ 'image/jpeg', 'image/png', 'application/pdf' ];
+        }
+        return array_values( array_unique( array_map( 'strval', $allowed ) ) );
     }
 
     /**
