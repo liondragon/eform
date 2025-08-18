@@ -66,6 +66,12 @@ class Enhanced_ICF_Form_Processor {
 
         $field_map = eform_get_template_fields( $template );
 
+        $schema_validator = new TemplateValidator();
+        $schema_result    = $schema_validator->validate( $config );
+        if ( ! $schema_result['valid'] ) {
+            return $this->error_response( $schema_result['code'], [ 'errors' => $schema_result['errors'] ], $schema_result['code'] );
+        }
+
         $form_id    = Helpers::get_first_value( $submitted_data['form_id'] ?? '' );
         $form_scope = [];
         if ( $form_id && isset( $submitted_data[ $form_id ] ) && is_array( $submitted_data[ $form_id ] ) ) {

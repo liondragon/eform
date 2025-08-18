@@ -209,6 +209,7 @@ require_once __DIR__.'/../src/Renderer.php';
 require_once __DIR__.'/../src/FormManager.php';
 require_once __DIR__.'/../src/Normalizer.php';
 require_once __DIR__.'/../src/Validator.php';
+require_once __DIR__.'/../src/TemplateValidator.php';
 require_once __DIR__.'/../src/Emailer.php';
 require_once __DIR__.'/../src/Security.php';
 require_once __DIR__.'/../src/class-enhanced-icf-processor.php';
