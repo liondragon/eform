@@ -1,0 +1,67 @@
+{
+  "id": "default",
+  "version": 1,
+  "title": "Default Contact Form",
+  "email": {
+    "to": "",
+    "subject": "",
+    "include_fields": ["name", "email", "tel", "zip", "message"]
+  },
+  "success": {
+    "mode": "inline",
+    "redirect_url": "",
+    "message": "Thank you! Your message has been sent."
+  },
+  "display_format_tel": true,
+  "fields": [
+    {
+      "key": "name",
+      "type": "text",
+      "placeholder": "Your Name",
+      "required": true,
+      "autocomplete": "name",
+      "aria-label": "Your Name",
+      "aria-required": "true",
+      "style": "grid-area: name"
+    },
+    {
+      "key": "email",
+      "type": "email",
+      "placeholder": "Your Email",
+      "required": true,
+      "autocomplete": "email",
+      "aria-label": "email",
+      "aria-required": "true",
+      "style": "grid-area: email"
+    },
+    {
+      "key": "tel",
+      "type": "tel",
+      "placeholder": "Phone",
+      "required": true,
+      "autocomplete": "tel",
+      "style": "grid-area: phone"
+    },
+    {
+      "key": "zip",
+      "type": "text",
+      "placeholder": "Project Zip Code",
+      "required": true,
+      "autocomplete": "postal-code",
+      "aria-label": "Project Zip Code",
+      "aria-required": "true",
+      "style": "grid-area: zip"
+    },
+    {
+      "key": "message",
+      "type": "textarea",
+      "cols": "21",
+      "rows": "5",
+      "placeholder": "Please describe your project and let us know if there is any urgency",
+      "required": true,
+      "aria-label": "Message",
+      "aria-required": "true",
+      "style": "grid-area: message"
+    }
+  ]
+}
