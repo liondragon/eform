@@ -1,0 +1,132 @@
+<?php
+/**
+ * Plugin Name: Electronic Forms
+ * Description: Lightweight plugin for forms.
+ * Version: 0.1.0
+ * Requires PHP: 8.0
+ * Requires at least: 5.8
+ */
+declare(strict_types=1);
+
+namespace {
+    defined('ABSPATH') || exit;
+}
+
+namespace EForms {
+    const VERSION = '0.1.0';
+    // Paths/URLs for assets & templates
+    const PLUGIN_DIR = __DIR__;
+    const TEMPLATES_DIR = __DIR__ . '/templates';
+    const ASSETS_DIR = __DIR__ . '/assets';
+}
+
+namespace {
+    \define('EForms\\PLUGIN_URL', \plugins_url('', __FILE__));
+    \define('EForms\\ASSETS_URL', \EForms\PLUGIN_URL . '/assets');
+}
+
+namespace {
+    use EForms\Config;
+    use EForms\FormManager;
+
+    spl_autoload_register(function ($class) {
+        if (strpos($class, 'EForms\\') === 0) {
+            $path = __DIR__ . '/src/' . str_replace('EForms\\', '', $class) . '.php';
+            if (is_file($path)) {
+                require $path;
+            }
+        }
+    });
+
+    Config::bootstrap();
+
+    /**
+     * Rewrite rules + query vars for /eforms/prime and /eforms/submit.
+     */
+    \register_activation_hook(__FILE__, function () {
+        add_rewrite_rule('^eforms/prime$', 'index.php?eforms_prime=1', 'top');
+        add_rewrite_rule('^eforms/submit$', 'index.php?eforms_submit=1', 'top');
+        \flush_rewrite_rules();
+    });
+    \register_deactivation_hook(__FILE__, function () {
+        \flush_rewrite_rules();
+    });
+    \add_action('init', function () {
+        add_rewrite_rule('^eforms/prime$', 'index.php?eforms_prime=1', 'top');
+        add_rewrite_rule('^eforms/submit$', 'index.php?eforms_submit=1', 'top');
+    });
+    \add_filter('query_vars', function ($vars) {
+        $vars[] = 'eforms_prime';
+        $vars[] = 'eforms_submit';
+        return $vars;
+    });
+
+    /**
+     * Router for prime/submit.
+     */
+    \add_action('template_redirect', function () {
+        $isPrime = get_query_var('eforms_prime');
+        $isSubmit = get_query_var('eforms_submit');
+        if ($isPrime) {
+            // /eforms/prime?f={form_id}
+            $formId = isset($_GET['f']) ? sanitize_key((string)$_GET['f']) : '';
+            if ($formId === '') {
+                status_header(400);
+                header('Content-Type: text/plain; charset=utf-8');
+                echo 'Missing form id.';
+                exit;
+            }
+            $ttl = (int) Config::get('security.token_ttl_seconds', 600);
+            $cookie = 'eforms_t_' . $formId;
+            $value = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : bin2hex(random_bytes(16));
+            $params = [
+                'expires'  => time() + $ttl,
+                'path'     => '/',
+                'secure'   => is_ssl(),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ];
+            setcookie($cookie, $value, $params);
+            // No-store 204
+            \nocache_headers();
+            header('Cache-Control: no-store, max-age=0');
+            status_header(204);
+            exit;
+        }
+        if ($isSubmit) {
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                header('Allow: POST');
+                status_header(405);
+                exit;
+            }
+            $ct = $_SERVER['CONTENT_TYPE'] ?? '';
+            if ($ct && !preg_match('~^(application/x-www-form-urlencoded|multipart/form-data)(;|$)~i', $ct)) {
+                status_header(415);
+                echo 'Unsupported Media Type';
+                exit;
+            }
+            // Placeholder only – full pipeline lands in Stage-3.
+            status_header(501);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'Not implemented yet.';
+            exit;
+        }
+    });
+
+    function eform_render(string $formId, array $opts = []): string
+    {
+        $fm = new FormManager();
+        return $fm->render($formId, $opts);
+    }
+
+    add_shortcode('eform', function ($atts) {
+        $atts = shortcode_atts([
+            'id' => '',
+            'cacheable' => 'true',
+        ], $atts, 'eform');
+        $formId = sanitize_key($atts['id']);
+        $cacheable = filter_var($atts['cacheable'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        $fm = new FormManager();
+        return $fm->render($formId, ['cacheable' => $cacheable !== false]);
+    });
+}
