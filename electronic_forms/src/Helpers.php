@@ -32,7 +32,23 @@ class Helpers
 
     public static function bytes_from_ini(?string $v): int
     {
-        // TODO: implement K/M/G suffix parsing
-        return 0;
+        // "0"/null/"" -> PHP_INT_MAX (per spec)
+        if ($v === null) return PHP_INT_MAX;
+        $t = trim($v);
+        if ($t === '' || $t === '0') return PHP_INT_MAX;
+        // Accept forms like "128M", "1G", "512K", case-insensitive, with optional "B"
+        if (!preg_match('/^(\d+(?:\.\d+)?)([KMG])?B?$/i', $t, $m)) {
+            // Fallback: best-effort integer
+            $n = (int)$t;
+            return max(0, $n);
+        }
+        $num = (float)$m[1];
+        $unit = isset($m[2]) ? strtolower($m[2]) : '';
+        $mult = 1;
+        if ($unit === 'k') $mult = 1024;
+        elseif ($unit === 'm') $mult = 1024 * 1024;
+        elseif ($unit === 'g') $mult = 1024 * 1024 * 1024;
+        $bytes = (int) floor($num * $mult);
+        return max(0, $bytes);
     }
 }
