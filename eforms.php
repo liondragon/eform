@@ -124,10 +124,9 @@ namespace {
                 echo 'Unsupported Media Type';
                 exit;
             }
-            // Placeholder only – full pipeline lands in Stage-3.
-            status_header(501);
-            header('Content-Type: text/plain; charset=utf-8');
-            echo 'Not implemented yet.';
+            // Delegate to FormManager for full submit pipeline.
+            $fm = new FormManager();
+            $fm->handleSubmit();
             exit;
         }
     });
