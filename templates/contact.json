@@ -4,7 +4,7 @@
   "title": "Contact Us",
   "success": { "mode": "inline", "message": "Thanks! We got your message." },
   "email": {
-    "to": "admin@example.com",
+    "to": "office@flooringartists.com",
     "subject": "Contact Form",
     "email_template": "default",
     "include_fields": ["name","email","message"]
