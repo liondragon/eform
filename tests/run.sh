@@ -18,6 +18,17 @@ function run_test() {
   echo "  -> exit code: $code"
 }
 
+function run_test_keep() {
+  local name="$1"; shift
+  echo "[TEST] $name (keep tmp)"
+  mkdir -p tmp
+  set +e
+  $PHP "$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
+  local code=$?
+  set -e
+  echo "  -> exit code: $code"
+}
+
 function assert_grep() {
   local file="$1"; shift
   local pattern="$1"; shift
@@ -78,7 +89,7 @@ record_result "origin policy soft: not blocked" $ok
 run_test test_origin_hard
 ok=0
 assert_grep tmp/stdout.txt 'Security check failed\.' || ok=1
-! assert_grep tmp/mail.json '.' || ok=1
+! assert_grep tmp/mail.json 'alice@example.com' || ok=1
 record_result "origin policy hard: blocked" $ok
 
 # 3) Honeypot stealth success
@@ -86,7 +97,7 @@ run_test test_honeypot
 ok=0
 assert_grep tmp/redirect.txt '"status":303' || ok=1
 assert_grep tmp/redirect.txt '\\?eforms_success=contact_us' || ok=1
-! assert_grep tmp/mail.json '.' || ok=1
+! assert_grep tmp/mail.json 'bot-foo|alice@example.com|zed@example.com' || ok=1
 record_result "honeypot: stealth success, no email" $ok
 
 # 4) Validation missing required
@@ -105,7 +116,7 @@ record_result "validation: email/zip/tel formats" $ok
 
 # 5) Ledger reserve duplicate token
 run_test test_ledger_dup_first
-run_test test_ledger_dup_second
+run_test_keep test_ledger_dup_second
 ok=0
 assert_grep tmp/stdout.txt 'Already submitted or expired\.' || ok=1
 record_result "ledger reserve: duplicate token" $ok
