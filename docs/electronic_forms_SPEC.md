@@ -144,7 +144,12 @@ electronic_forms - Spec
 			- Unknown rule values are rejected by the PHP validator.
 			- Structural preflight enforces that for file/files fields, accept[] intersect global allow-list is non-empty; otherwise emit EFORMS_ERR_ACCEPT_EMPTY.
 			- CI MUST validate /templates/*.json against /src/schema/template.schema.json and assert parity with the PHP TEMPLATE_SPEC to prevent drift.
-			- Enforce email.display_format_tel is one of the allowed enum values; unknown values are dropped at runtime but flagged in preflight.
+                        - Enforce email.display_format_tel is one of the allowed enum values; unknown values are dropped at runtime but flagged in preflight.
+        7. TemplateContext (internal)
+                - TemplateValidator returns a normalized TemplateContext array consumed by Renderer, Validator, and Security.
+                - Keys include: has_uploads (bool), descriptors[] (field descriptors from Spec), version, id, email, success, rules, fields (normalized copies).
+                - max_input_vars_estimate: int advisory for potential PHP max_input_vars limit.
+                - The descriptors array drives attribute mirroring so Renderer and Validator stay perfectly in sync.
 
 6. CENTRAL REGISTRIES (INTERNAL ONLY)
 	- Static registries (no public filters): field_types, validators, normalizers/coercers, renderers
@@ -408,9 +413,13 @@ electronic_forms - Spec
 	- Multiple violations reported together
 
 11. BUILT-IN FIELD TYPES (DEFAULTS; US-FOCUSED)
-	- name / first_name / last_name: alias of text; trim internal multiples; default autocomplete accordingly
-	- text: length/charset/regex
-	- textarea: length/charset/regex
+        - Spec::descriptorFor($type) exposes a descriptor for each field type with:
+                - is_multivalue: bool
+                - html { tag:"input|textarea|select", type?, multiple?, inputmode?, pattern?, attrs_mirror:{ maxlength?, minlength?, min?, max?, step? } }
+                - validate { required?, pattern?, range?, canonicalize? }
+        - name / first_name / last_name: alias of text; trim internal multiples; default autocomplete accordingly
+        - text: length/charset/regex
+        - textarea: length/charset/regex
 	- textarea_html: see 9. mirror maxlength/minlength when provided.
 	- email: type="email", inputmode="email", spellcheck="false", autocapitalize="off"; mirror maxlength/minlength when set.
 	- url: wp_http_validate_url + allowed schemes (http, https). type="url", spellcheck="false", autocapitalize="off". (No need for inputmode here; type="url" already pulls the right keyboard.)
