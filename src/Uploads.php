@@ -13,7 +13,8 @@ class Uploads
     public static function hasUploadFields(array $tpl): bool
     {
         foreach ($tpl['fields'] as $f) {
-            if (($f['type'] ?? '') === 'file') {
+            $t = $f['type'] ?? '';
+            if ($t === 'file' || $t === 'files') {
                 return true;
             }
         }

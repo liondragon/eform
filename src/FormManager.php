@@ -19,6 +19,7 @@ class FormManager
         $cacheable = (bool) ($opts['cacheable'] ?? true);
         $instanceId = bin2hex(random_bytes(16));
         $timestamp = time();
+        $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
         $meta = [
             'form_id' => $formId,
             'instance_id' => $instanceId,
@@ -27,6 +28,7 @@ class FormManager
             'client_validation' => (bool) Config::get('html5.client_validation', false),
             'action' => \home_url('/eforms/submit'),
             'hidden_token' => $cacheable ? null : (function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : $instanceId),
+            'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
         ];
         $this->enqueueAssetsIfNeeded();
         return Renderer::form($tpl, $meta, [], []);
@@ -75,6 +77,7 @@ class FormManager
         $desc = Validator::descriptors($tpl);
         $val = Validator::validate($tpl, $desc, $values);
         if (!empty($val['errors'])) {
+            $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
             $meta = [
                 'form_id' => $formId,
                 'instance_id' => $_POST['instance_id'] ?? '',
@@ -83,6 +86,7 @@ class FormManager
                 'client_validation' => (bool) Config::get('html5.client_validation', false),
                 'action' => \home_url('/eforms/submit'),
                 'hidden_token' => $hasHidden ? $postedToken : null,
+                'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
             ];
             $this->enqueueAssetsIfNeeded();
             $html = Renderer::form($tpl, $meta, $val['errors'], $values);
@@ -104,6 +108,7 @@ class FormManager
         $email = Emailer::send($tpl, $canonical, $metaInfo);
         if (!$email['ok']) {
             Logging::write('error', 'EFORMS_EMAIL_FAIL', ['form_id'=>$formId,'instance_id'=>$metaInfo['instance_id'],'msg'=>'send_fail']);
+            $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
             $meta = [
                 'form_id' => $formId,
                 'instance_id' => bin2hex(random_bytes(16)),
@@ -112,6 +117,7 @@ class FormManager
                 'client_validation' => (bool) Config::get('html5.client_validation', false),
                 'action' => \home_url('/eforms/submit'),
                 'hidden_token' => $hasHidden ? (function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : $postedToken) : null,
+                'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
             ];
             $errors = ['_global' => ['Operational error. Please try again later.']];
             $this->enqueueAssetsIfNeeded();

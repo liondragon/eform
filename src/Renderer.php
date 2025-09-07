@@ -70,7 +70,12 @@ class Renderer
             $html .= '</ul></div>';
         }
 
-        $html .= '<form method="post"' . ($clientValidation ? '' : ' novalidate') . ' action="' . \esc_url($meta['action']) . '">';
+        $enctype = $meta['enctype'] ?? 'application/x-www-form-urlencoded';
+        $html .= '<form method="post"' . ($clientValidation ? '' : ' novalidate') . ' action="' . \esc_url($meta['action']) . '"';
+        if ($enctype === 'multipart/form-data') {
+            $html .= ' enctype="multipart/form-data"';
+        }
+        $html .= '>';
         // hidden meta
         $html .= '<input type="hidden" name="form_id" value="' . \esc_attr($formId) . '">';
         $html .= '<input type="hidden" name="instance_id" value="' . \esc_attr($meta['instance_id']) . '">';
@@ -82,6 +87,14 @@ class Renderer
             $html .= '<input type="hidden" name="eforms_token" value="' . \esc_attr($token) . '">';
         } else {
             $html .= '<img src="' . \esc_url(\home_url('/eforms/prime?f=' . $formId)) . '" aria-hidden="true" alt="" width="1" height="1" style="position:absolute;left:-9999px;">';
+        }
+
+        $lastText = null;
+        foreach ($tpl['fields'] as $tf) {
+            $tt = $tf['type'];
+            if (in_array($tt, ['textarea','email','name','tel_us','zip_us'], true)) {
+                $lastText = $tf['key'];
+            }
         }
 
         foreach ($tpl['fields'] as $f) {
@@ -112,38 +125,66 @@ class Renderer
             switch ($type) {
                 case 'textarea':
                     $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
                     $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($key) . '"';
                     if (!empty($f['required'])) $html .= ' required';
-                    $html .= $errAttr . '>' . \esc_textarea((string)$value) . '</textarea>';
+                    $html .= $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
                     break;
                 case 'select':
                     $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
-                    $html .= '<select id="' . \esc_attr($id) . '" name="' . \esc_attr($key) . '"';
+                    $multiple = !empty($f['multiple']);
+                    $nameAttr = $key . ($multiple ? '[]' : '');
+                    $vals = $multiple && is_array($value) ? $value : (string)$value;
+                    $html .= '<select id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"';
+                    if ($multiple) $html .= ' multiple';
                     if (!empty($f['required'])) $html .= ' required';
                     $html .= $errAttr . '>';
                     foreach ($f['options'] ?? [] as $opt) {
                         $disabled = !empty($opt['disabled']);
                         $html .= '<option value="' . \esc_attr($opt['key']) . '"' . ($disabled ? ' disabled' : '');
-                        if ((string)$value === (string)$opt['key']) $html .= ' selected';
+                        if ($multiple) {
+                            if (in_array($opt['key'], (array)$vals, true)) $html .= ' selected';
+                        } else {
+                            if ((string)$vals === (string)$opt['key']) $html .= ' selected';
+                        }
                         $html .= '>' . \esc_html($opt['label']) . '</option>';
                     }
                     $html .= '</select>';
                     break;
                 case 'radio':
                 case 'checkbox':
-                    $html .= '<fieldset';
+                    $html .= '<fieldset id="' . \esc_attr($id) . '"';
                     if (!empty($f['required'])) $html .= ' required';
                     if ($fieldErrors) $html .= ' aria-describedby="' . \esc_attr($errId) . '" aria-invalid="true"';
                     $html .= '><legend>' . \esc_html($label) . '</legend>';
+                    $vals = $type === 'checkbox' ? (array)$value : $value;
                     foreach ($f['options'] ?? [] as $opt) {
                         $idOpt = self::makeId($formId, $key . '-' . $opt['key']);
-                        $html .= '<label><input type="' . ($type === 'radio' ? 'radio' : 'checkbox') . '" name="' . \esc_attr($key) . '" value="' . \esc_attr($opt['key']) . '" id="' . \esc_attr($idOpt) . '"';
-                        if ((string)$value === (string)$opt['key']) $html .= ' checked';
+                        $nameAttr = $type === 'checkbox' ? $key . '[]' : $key;
+                        $html .= '<label><input type="' . ($type === 'radio' ? 'radio' : 'checkbox') . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr($opt['key']) . '" id="' . \esc_attr($idOpt) . '"';
+                        if ($type === 'checkbox') {
+                            if (in_array($opt['key'], (array)$vals, true)) $html .= ' checked';
+                        } else {
+                            if ((string)$vals === (string)$opt['key']) $html .= ' checked';
+                        }
                         if (!empty($opt['disabled'])) $html .= ' disabled';
                         if (!empty($f['required'])) $html .= ' required';
                         $html .= '> ' . \esc_html($opt['label']) . '</label>';
                     }
                     $html .= '</fieldset>';
+                    break;
+                case 'file':
+                case 'files':
+                    $nameAttr = $key . ($type === 'files' ? '[]' : '');
+                    $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $html .= '<input type="file" id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"';
+                    if ($type === 'files') $html .= ' multiple';
+                    if (!empty($f['required'])) $html .= ' required';
+                    if (!empty($f['accept']) && is_array($f['accept'])) {
+                        $accept = self::acceptAttr($f['accept']);
+                        if ($accept !== '') $html .= ' accept="' . \esc_attr($accept) . '"';
+                    }
+                    $html .= $errAttr . '>';
                     break;
                 case 'email':
                 case 'name':
@@ -163,9 +204,10 @@ class Renderer
                         $extra .= ' inputmode="numeric" pattern="\d{5}" maxlength="5"';
                     }
                     $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
                     $html .= '<input type="' . \esc_attr($inputType) . '" id="' . \esc_attr($id) . '" name="' . \esc_attr($key) . '" value="' . \esc_attr((string)$value) . '"';
                     if (!empty($f['required'])) $html .= ' required';
-                    $html .= $extra . $errAttr . '>';
+                    $html .= $extra . $errAttr . $extraHint . '>';
                     break;
             }
             if ($fieldErrors) {
@@ -177,5 +219,23 @@ class Renderer
         $html .= '<button type="submit">' . \esc_html($btn) . '</button>';
         $html .= '</form>';
         return $html;
+    }
+
+    private static function acceptAttr(array $tokens): string
+    {
+        $map = [
+            'image' => 'image/jpeg,image/png,image/gif,image/webp',
+            'pdf' => 'application/pdf',
+        ];
+        $out = [];
+        foreach ($tokens as $t) {
+            $t = trim((string)$t);
+            if (isset($map[$t])) {
+                $out[] = $map[$t];
+            } elseif ($t !== '') {
+                $out[] = $t;
+            }
+        }
+        return implode(',', $out);
     }
 }
