@@ -5,6 +5,13 @@ namespace EForms;
 
 class Validator
 {
+    private static function isMultivalue(array $f): bool
+    {
+        $type = $f['type'] ?? '';
+        if ($type === 'checkbox') return true;
+        if ($type === 'select' && !empty($f['multiple'])) return true;
+        return false;
+    }
     public static function descriptors(array $tpl): array
     {
         $desc = [];
@@ -23,11 +30,25 @@ class Validator
         foreach ($tpl['fields'] as $f) {
             if (($f['type'] ?? '') === 'row_group') continue;
             $k = $f['key'];
-            $v = $post[$k] ?? '';
-            if (is_array($v)) {
-                $v = '';
+            if (self::isMultivalue($f)) {
+                $raw = $post[$k] ?? [];
+                if (!is_array($raw)) {
+                    $raw = [];
+                }
+                $vals = [];
+                foreach ($raw as $rv) {
+                    if (is_scalar($rv)) {
+                        $vals[] = trim((string)$rv);
+                    }
+                }
+                $values[$k] = $vals;
+            } else {
+                $v = $post[$k] ?? '';
+                if (is_array($v)) {
+                    $v = '';
+                }
+                $values[$k] = trim((string)$v);
             }
-            $values[$k] = trim((string)$v);
         }
         return $values;
     }
@@ -37,7 +58,34 @@ class Validator
         $errors = [];
         $canonical = [];
         foreach ($desc as $k => $f) {
-            $v = $values[$k] ?? '';
+            $v = $values[$k] ?? (self::isMultivalue($f) ? [] : '');
+            if (self::isMultivalue($f)) {
+                if (!empty($f['required']) && count($v) === 0) {
+                    $errors[$k][] = 'This field is required.';
+                }
+                $max = (int) Config::get('validation.max_items_per_multivalue', 50);
+                if (count($v) > $max) {
+                    $errors[$k][] = 'Too many selections.';
+                }
+                $opts = array_column($f['options'] ?? [], 'key');
+                $enabled = [];
+                foreach ($f['options'] ?? [] as $opt) {
+                    if (empty($opt['disabled'])) {
+                        $enabled[] = $opt['key'];
+                    }
+                }
+                $clean = [];
+                foreach ($v as $vv) {
+                    if (in_array($vv, $enabled, true) && !in_array($vv, $clean, true)) {
+                        $clean[] = $vv;
+                    } elseif (!in_array($vv, $enabled, true)) {
+                        $errors[$k][] = 'Invalid choice.';
+                        break;
+                    }
+                }
+                $canonical[$k] = $clean;
+                continue;
+            }
             if (!empty($f['required']) && $v === '') {
                 $errors[$k][] = 'This field is required.';
             }
@@ -84,7 +132,7 @@ class Validator
     {
         $out = [];
         foreach ($desc as $k => $f) {
-            $v = $values[$k] ?? '';
+            $v = $values[$k] ?? (self::isMultivalue($f) ? [] : '');
             switch ($f['type']) {
                 case 'email':
                     if ($v !== '' && strpos($v, '@') !== false) {
