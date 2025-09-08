@@ -54,6 +54,28 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
     }
 
+    public function testDisplayFormatTelBadEnum(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['email']['display_format_tel'] = 'bogus';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+    }
+
+    public function testDisplayFormatTelEnumAllowed(): void
+    {
+        $formats = ['xxx-xxx-xxxx', '(xxx) xxx-xxxx', 'xxx.xxx.xxxx'];
+        foreach ($formats as $fmt) {
+            $tpl = $this->baseTpl();
+            $tpl['email']['display_format_tel'] = $fmt;
+            $res = TemplateValidator::preflight($tpl);
+            $codes = array_column($res['errors'], 'code');
+            $this->assertNotContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+            $this->assertTrue($res['ok']);
+        }
+    }
+
     public function testEmptyAcceptIntersection(): void
     {
         $tpl = $this->baseTpl();
