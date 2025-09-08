@@ -113,7 +113,7 @@ class TemplateValidator
             }
 
             // Non row_group field
-            self::checkUnknown($f, ['type','key','label','required','options','multiple','accept','before_html','after_html','class','placeholder','autocomplete','size'], $path, $errors);
+            self::checkUnknown($f, ['type','key','label','required','options','multiple','accept','before_html','after_html','class','placeholder','autocomplete','size','max_length','min','max','pattern'], $path, $errors);
             $key = $f['key'] ?? null;
             if (!is_string($key) || !preg_match('/^[a-z0-9_:-]{1,64}$/', $key)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'key'];
@@ -165,6 +165,33 @@ class TemplateValidator
                 }
             }
 
+            // numeric and pattern constraints
+            if (isset($f['max_length'])) {
+                if (!is_int($f['max_length'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'max_length'];
+                } elseif ($f['max_length'] < 1 || $f['max_length'] > 1000) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'max_length'];
+                }
+            }
+            $minVal = $f['min'] ?? null;
+            $maxVal = $f['max'] ?? null;
+            if ($minVal !== null && !is_numeric($minVal)) {
+                $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'min'];
+            }
+            if ($maxVal !== null && !is_numeric($maxVal)) {
+                $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'max'];
+            }
+            if (is_numeric($minVal) && is_numeric($maxVal) && $minVal > $maxVal) {
+                $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'min'];
+            }
+            if (isset($f['pattern'])) {
+                if (!is_string($f['pattern'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'pattern'];
+                } elseif (@preg_match('#'.$f['pattern'].'#', '') === false) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'pattern'];
+                }
+            }
+
             $normFields[] = [
                 'type' => $type,
                 'key' => $key,
@@ -174,6 +201,10 @@ class TemplateValidator
                 'multiple' => !empty($f['multiple']),
                 'accept' => $f['accept'] ?? null,
                 'class' => self::sanitizeClass($f['class'] ?? ''),
+                'max_length' => isset($f['max_length']) && is_int($f['max_length']) ? $f['max_length'] : null,
+                'min' => is_numeric($minVal) ? $minVal + 0 : null,
+                'max' => is_numeric($maxVal) ? $maxVal + 0 : null,
+                'pattern' => is_string($f['pattern'] ?? null) ? $f['pattern'] : null,
             ];
         }
         if ($rowStack !== 0) {

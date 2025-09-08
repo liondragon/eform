@@ -229,6 +229,9 @@ class Validator
                         }
                     }
                     break;
+                default:
+                    Logging::write('warn', TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, ['rule'=>$type]);
+                    break;
             }
         }
     }
