@@ -108,6 +108,11 @@ class FormManager
             if ($ver['ok'] ?? false) {
                 $softFailCount = 0;
             } elseif (!($ver['unconfigured'] ?? false)) {
+                $softFailCount++;
+                Logging::write('warn', 'EFORMS_ERR_CHALLENGE_FAILED', [
+                    'form_id' => $formId,
+                    'instance_id' => $_POST['instance_id'] ?? '',
+                ]);
                 $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.');
             }
         }
