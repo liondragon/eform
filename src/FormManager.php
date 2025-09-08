@@ -19,6 +19,9 @@ class FormManager
         if (Uploads::enabled()) {
             Uploads::gc();
         }
+        if (Config::get('throttle.enable', false)) {
+            Throttle::gc();
+        }
         $cacheable = (bool) ($opts['cacheable'] ?? true);
         $instanceId = bin2hex(random_bytes(16));
         $timestamp = time();
@@ -61,6 +64,9 @@ class FormManager
         }
         if (Uploads::enabled()) {
             Uploads::gc();
+        }
+        if (Config::get('throttle.enable', false)) {
+            Throttle::gc();
         }
         // security gates
         $origin = Security::origin_evaluate();
@@ -157,6 +163,24 @@ class FormManager
             } else {
                 $softFailCount++;
                 Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $meta);
+            }
+        }
+        $throttleState = 'ok';
+        if (Config::get('throttle.enable', false)) {
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            $thr = Throttle::check($ip);
+            $throttleState = $thr['state'] ?? 'ok';
+            if ($throttleState !== 'ok') {
+                Logging::write('warn', 'EFORMS_THROTTLE', [
+                    'form_id' => $formId,
+                    'instance_id' => $_POST['instance_id'] ?? '',
+                    'ip' => $ip,
+                    'state' => $throttleState,
+                ]);
+                if ($throttleState === 'hard') {
+                    $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+                }
+                $softFailCount++;
             }
         }
         $values = Validator::normalize($tpl, $_POST);

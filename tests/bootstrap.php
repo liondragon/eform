@@ -197,6 +197,18 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_RECAPTCHA_SECRET_KEY')) {
         $defaults['challenge']['recaptcha']['secret_key'] = getenv('EFORMS_RECAPTCHA_SECRET_KEY');
     }
+    if (getenv('EFORMS_THROTTLE_ENABLE')) {
+        $defaults['throttle']['enable'] = (getenv('EFORMS_THROTTLE_ENABLE') === '1');
+    }
+    if (getenv('EFORMS_THROTTLE_MAX_PER_MINUTE')) {
+        $defaults['throttle']['per_ip']['max_per_minute'] = (int) getenv('EFORMS_THROTTLE_MAX_PER_MINUTE');
+    }
+    if (getenv('EFORMS_THROTTLE_COOLDOWN_SECONDS')) {
+        $defaults['throttle']['per_ip']['cooldown_seconds'] = (int) getenv('EFORMS_THROTTLE_COOLDOWN_SECONDS');
+    }
+    if (getenv('EFORMS_THROTTLE_HARD_MULTIPLIER')) {
+        $defaults['throttle']['per_ip']['hard_multiplier'] = (float) getenv('EFORMS_THROTTLE_HARD_MULTIPLIER');
+    }
     return $defaults;
 });
 
