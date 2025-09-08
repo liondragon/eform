@@ -110,8 +110,8 @@ ok=0
 assert_grep tmp/redirect.txt '"status":303' || ok=1
 assert_grep tmp/redirect.txt '\\?eforms_success=contact_us' || ok=1
 ! assert_grep tmp/mail.json 'bot-foo|alice@example.com|zed@example.com' || ok=1
-assert_grep tmp/php_error.log 'EFORMS_ERR_HONEYPOT' || ok=1
-assert_grep tmp/php_error.log '"stealth":true' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_HONEYPOT' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log '"stealth":true' || ok=1
 record_result "honeypot: stealth success, no email" $ok
 
 # 3b) Honeypot hard fail
@@ -120,8 +120,8 @@ ok=0
 assert_grep tmp/stdout.txt 'Security check failed\.' || ok=1
 ! assert_grep tmp/redirect.txt '"status":303' || ok=1
 ! assert_grep tmp/mail.json 'bot-foo|alice@example.com|zed@example.com' || ok=1
-assert_grep tmp/php_error.log 'EFORMS_ERR_HONEYPOT' || ok=1
-assert_grep tmp/php_error.log '"stealth":false' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_HONEYPOT' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log '"stealth":false' || ok=1
 record_result "honeypot: hard fail" $ok
 
 # 4) Validation missing required
@@ -164,7 +164,8 @@ record_result "minimal email: to/subject/body" $ok
 # 8) Logging minimal: SMTP failure
 run_test test_logging
 ok=0
-assert_grep tmp/php_error.log 'eforms severity=error code=EFORMS_EMAIL_FAIL' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log '"severity":"error"' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log '"code":"EFORMS_EMAIL_FAIL"' || ok=1
 record_result "logging: SMTP failure" $ok
 
 echo
