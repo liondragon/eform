@@ -72,8 +72,21 @@ class Security
         }
         $cookie = $_COOKIE['eforms_t_' . $formId] ?? '';
         $tokenOk = $cookie !== '';
-        $hard = $required && !$tokenOk;
-        return ['mode'=>'cookie','token_ok'=>$tokenOk,'hard_fail'=>$hard,'soft_signal'=>$tokenOk?0:1,'require_challenge'=>false];
+        if ($tokenOk) {
+            return ['mode'=>'cookie','token_ok'=>true,'hard_fail'=>false,'soft_signal'=>0,'require_challenge'=>false];
+        }
+        $policy = Config::get('security.cookie_missing_policy', 'soft');
+        switch ($policy) {
+            case 'hard':
+                return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>true,'soft_signal'=>0,'require_challenge'=>false];
+            case 'challenge':
+                return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>false,'soft_signal'=>1,'require_challenge'=>true];
+            case 'off':
+                return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>false,'soft_signal'=>0,'require_challenge'=>false];
+            case 'soft':
+            default:
+                return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>false,'soft_signal'=>1,'require_challenge'=>false];
+        }
     }
 
     public static function ledger_reserve(string $formId, string $token): array

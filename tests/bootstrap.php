@@ -149,6 +149,9 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_SUBMISSION_TOKEN_REQUIRED')) {
         $defaults['security']['submission_token']['required'] = (getenv('EFORMS_SUBMISSION_TOKEN_REQUIRED') === '1');
     }
+    if (getenv('EFORMS_COOKIE_MISSING_POLICY')) {
+        $defaults['security']['cookie_missing_policy'] = getenv('EFORMS_COOKIE_MISSING_POLICY');
+    }
     return $defaults;
 });
 
