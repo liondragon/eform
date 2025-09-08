@@ -5,7 +5,7 @@
   "success": { "mode": "inline", "message": "Thanks! We got your message." },
   "email": {
     "to": "office@flooringartists.com",
-    "subject": "Contact Form",
+    "subject": "Contact Form - {{field.name}}",
     "email_template": "default",
     "include_fields": ["name","email","message"]
   },

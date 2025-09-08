@@ -6,6 +6,11 @@ echo 'Form: ' . ($meta['form_id'] ?? '') . "\n";
 echo 'Instance: ' . ($meta['instance_id'] ?? '') . "\n";
 echo 'Submitted: ' . ($meta['submitted_at'] ?? '') . "\n\n";
 foreach ($include_fields as $key) {
-    $val = $canonical[$key] ?? ($meta[$key] ?? '');
+    if (isset($canonical['_uploads'][$key])) {
+        $names = array_column($canonical['_uploads'][$key], 'original_name_safe');
+        $val = implode(', ', $names);
+    } else {
+        $val = $canonical[$key] ?? ($meta[$key] ?? '');
+    }
     echo $key . ': ' . $val . "\n";
 }
