@@ -67,6 +67,7 @@ class FormManager
         if ($origin['hard_fail']) {
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
+        $softFails = $origin['soft_signal'];
         $hasHidden = isset($_POST['eforms_token']) && $_POST['eforms_token'] !== '';
         $postedToken = $_POST['eforms_token'] ?? null;
         $cookieName = 'eforms_t_' . $formId;
@@ -87,6 +88,7 @@ class FormManager
         if ($tokenInfo['hard_fail']) {
             $this->renderErrorAndExit($tpl, $formId, 'Security token error.');
         }
+        $softFails += $tokenInfo['soft_signal'];
         if ($tokenInfo['require_challenge']) {
             $provider = Config::get('challenge.provider', 'turnstile');
             $site = Config::get('challenge.' . $provider . '.site_key', null);
@@ -119,6 +121,27 @@ class FormManager
             return;
         }
         $timestamp = (int) ($_POST['timestamp'] ?? 0);
+        $now = time();
+        $minFill = (int) Config::get('security.min_fill_seconds', 4);
+        if ($timestamp > 0 && ($now - $timestamp) < $minFill) {
+            $softFails++;
+            Logging::write('warn', 'EFORMS_ERR_MIN_FILL', [
+                'form_id' => $formId,
+                'instance_id' => $_POST['instance_id'] ?? '',
+                'delta' => $now - $timestamp,
+            ]);
+        }
+        if ($hasHidden) {
+            $maxAge = (int) Config::get('security.max_form_age_seconds', Config::get('security.token_ttl_seconds', 600));
+            if ($timestamp > 0 && ($now - $timestamp) > $maxAge) {
+                $softFails++;
+                Logging::write('warn', 'EFORMS_ERR_FORM_AGE', [
+                    'form_id' => $formId,
+                    'instance_id' => $_POST['instance_id'] ?? '',
+                    'age' => $now - $timestamp,
+                ]);
+            }
+        }
         $values = Validator::normalize($tpl, $_POST);
         $desc = Validator::descriptors($tpl);
         $val = Validator::validate($tpl, $desc, $values);
