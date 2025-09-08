@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["id","version","success","email","fields","submit_button_text"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string"},
+    "version": {"type": ["string","number"]},
+    "title": {"type": "string"},
+    "submit_button_text": {"type": "string"},
+    "success": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["inline","redirect"]},
+        "redirect_url": {"type": "string"},
+        "message": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "email": {
+      "type": "object",
+      "properties": {
+        "display_format_tel": {"enum": ["xxx-xxx-xxxx","(xxx) xxx-xxxx","xxx.xxx.xxxx"]}
+      },
+      "additionalProperties": false
+    },
+    "fields": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/field"}
+    },
+    "rules": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/rule"}
+    }
+  },
+  "definitions": {
+    "field": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"enum": ["name","email","textarea","tel_us","zip_us","select","radio","checkbox","file","files","row_group"]},
+        "key": {"type": "string"},
+        "label": {"type": "string"},
+        "required": {"type": "boolean"},
+        "options": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/option"}
+        },
+        "multiple": {"type": "boolean"},
+        "accept": {"type": "array", "items": {"type": "string"}},
+        "mode": {"enum": ["start","end"]},
+        "tag": {"enum": ["div","section"]},
+        "class": {"type": "string"}
+      }
+    },
+    "option": {
+      "type": "object",
+      "required": ["key","label"],
+      "additionalProperties": false,
+      "properties": {
+        "key": {"type": "string"},
+        "label": {"type": "string"},
+        "disabled": {"type": "boolean"}
+      }
+    },
+    "rule": {
+      "type": "object",
+      "required": ["rule"],
+      "additionalProperties": false,
+      "properties": {
+        "rule": {"enum": ["required_if","required_if_any","required_unless","matches","one_of","mutually_exclusive"]},
+        "field": {"type": "string"},
+        "fields": {"type": "array", "items": {"type": "string"}},
+        "other": {"type": "string"},
+        "equals": {"type": "string"},
+        "equals_any": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

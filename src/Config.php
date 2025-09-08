@@ -13,8 +13,77 @@ class Config
         if (self::$bootstrapped) {
             return;
         }
+        $defaults = self::defaults();
+        $config = apply_filters('eforms_config', $defaults);
+        self::$data = self::clampTypes($config, $defaults);
+        self::$bootstrapped = true;
+    }
 
-        $defaults = [
+    public static function get(string $path, $default = null)
+    {
+        $segments = explode('.', $path);
+        $value = self::$data;
+        foreach ($segments as $seg) {
+            if (!is_array($value) || !array_key_exists($seg, $value)) {
+                return $default;
+            }
+            $value = $value[$seg];
+        }
+        return $value;
+    }
+
+    private static function clampTypes(array $config, array $defaults): array
+    {
+        $cfg = array_replace_recursive($defaults, $config);
+
+        // security
+        $sec =& $cfg['security'];
+        $sec['origin_mode'] = in_array($sec['origin_mode'], ['off','soft','hard'], true) ? $sec['origin_mode'] : $defaults['security']['origin_mode'];
+        $sec['origin_missing_soft'] = (bool)$sec['origin_missing_soft'];
+        $sec['origin_missing_hard'] = (bool)$sec['origin_missing_hard'];
+        $sec['min_fill_seconds'] = self::clampInt($sec['min_fill_seconds'], 0, 60);
+        $sec['token_ttl_seconds'] = self::clampInt($sec['token_ttl_seconds'], 1, 86400);
+        $sec['max_form_age_seconds'] = self::clampInt($sec['max_form_age_seconds'] ?? $sec['token_ttl_seconds'], 1, 86400);
+        $sec['js_hard_mode'] = (bool)$sec['js_hard_mode'];
+        $sec['max_post_bytes'] = self::clampInt($sec['max_post_bytes'], 0, PHP_INT_MAX);
+        $sec['ua_maxlen'] = self::clampInt($sec['ua_maxlen'], 0, 10000);
+        $sec['honeypot_response'] = in_array($sec['honeypot_response'], ['stealth_success','error','redirect'], true) ? $sec['honeypot_response'] : $defaults['security']['honeypot_response'];
+        $sec['cookie_missing_policy'] = in_array($sec['cookie_missing_policy'], ['soft','hard','off'], true) ? $sec['cookie_missing_policy'] : $defaults['security']['cookie_missing_policy'];
+        $sec['token_ledger']['enable'] = (bool)($sec['token_ledger']['enable'] ?? true);
+        $sec['submission_token']['required'] = (bool)($sec['submission_token']['required'] ?? true);
+
+        // challenge
+        $cfg['challenge']['http_timeout_seconds'] = self::clampInt($cfg['challenge']['http_timeout_seconds'], 1, 5);
+
+        // logging
+        $cfg['logging']['mode'] = in_array($cfg['logging']['mode'], ['off','minimal','jsonl'], true) ? $cfg['logging']['mode'] : $defaults['logging']['mode'];
+        $cfg['logging']['level'] = self::clampInt($cfg['logging']['level'], 0, 2);
+        $cfg['logging']['headers'] = (bool)$cfg['logging']['headers'];
+        $cfg['logging']['pii'] = (bool)$cfg['logging']['pii'];
+        $cfg['logging']['on_failure_canonical'] = (bool)$cfg['logging']['on_failure_canonical'];
+        $cfg['logging']['file_max_size'] = self::clampInt($cfg['logging']['file_max_size'], 0, PHP_INT_MAX);
+        $cfg['logging']['retention_days'] = self::clampInt($cfg['logging']['retention_days'], 1, 365);
+
+        // validation
+        $cfg['validation']['max_fields_per_form'] = self::clampInt($cfg['validation']['max_fields_per_form'], 1, 1000);
+        $cfg['validation']['max_options_per_group'] = self::clampInt($cfg['validation']['max_options_per_group'], 1, 1000);
+        $cfg['validation']['max_items_per_multivalue'] = self::clampInt($cfg['validation']['max_items_per_multivalue'], 1, 1000);
+        $cfg['validation']['textarea_html_max_bytes'] = self::clampInt($cfg['validation']['textarea_html_max_bytes'], 1, 1000000);
+
+        return $cfg;
+    }
+
+    private static function clampInt($v, int $min, int $max): int
+    {
+        $n = (int)$v;
+        if ($n < $min) $n = $min;
+        if ($n > $max) $n = $max;
+        return $n;
+    }
+
+    private static function defaults(): array
+    {
+        return [
             'security' => [
                 'token_ledger' => ['enable' => true],
                 'token_ttl_seconds' => 600,
@@ -137,29 +206,6 @@ class Config
                 'max_relative_path_chars' => 180,
             ],
         ];
-
-        $config = apply_filters('eforms_config', $defaults);
-        self::$data = self::clampTypes($config);
-        self::$bootstrapped = true;
-    }
-
-    public static function get(string $path, $default = null)
-    {
-        $segments = explode('.', $path);
-        $value = self::$data;
-        foreach ($segments as $seg) {
-            if (!is_array($value) || !array_key_exists($seg, $value)) {
-                return $default;
-            }
-            $value = $value[$seg];
-        }
-        return $value;
-    }
-
-    private static function clampTypes(array $config): array
-    {
-        // TODO: implement type validation/clamping
-        return $config;
     }
 
     private static function defaultUploadsDir(): string
