@@ -214,6 +214,20 @@ class TemplateValidator
             $errors[] = ['code'=>self::EFORMS_ERR_ROW_GROUP_UNBALANCED,'path'=>'fields'];
         }
 
+        $rules = is_array($tpl['rules'] ?? null) ? $tpl['rules'] : [];
+        $allowedRules = ['required_if','required_if_any','required_unless','matches','one_of','mutually_exclusive'];
+        foreach ($rules as $rIdx => $rule) {
+            $rpath = 'rules['.$rIdx.'].';
+            if (!is_array($rule)) {
+                $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_OBJECT,'path'=>rtrim($rpath,'.')];
+                continue;
+            }
+            $type = $rule['rule'] ?? '';
+            if (!in_array($type, $allowedRules, true)) {
+                $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$rpath.'rule'];
+            }
+        }
+
         $ctx = [
             'has_uploads' => $hasUploads,
             'descriptors' => self::buildDescriptors($normFields),
@@ -221,7 +235,7 @@ class TemplateValidator
             'id' => $tpl['id'] ?? '',
             'email' => $email,
             'success' => $success,
-            'rules' => $tpl['rules'] ?? [],
+            'rules' => $rules,
             'fields' => $normFields,
             'max_input_vars_estimate' => count($normFields) * 3,
         ];

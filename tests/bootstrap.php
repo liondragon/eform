@@ -73,8 +73,13 @@ function esc_html($s) { return (string)$s; }
 function esc_attr($s) { return (string)$s; }
 function esc_url($s) { return (string)$s; }
 function esc_textarea($s) { return (string)$s; }
-function wp_kses($html, $allowed, $allowed_protocols = []) { return $html; }
-function wp_kses_post($html) { return $html; }
+function wp_kses($html, $allowed, $allowed_protocols = []) {
+    $tags = '<' . implode('><', array_keys($allowed)) . '>';
+    return strip_tags((string)$html, $tags);
+}
+function wp_kses_post($html) {
+    return strip_tags((string)$html);
+}
 function sanitize_key($key) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string)$key)); }
 function shortcode_atts($pairs, $atts, $shortcode = '') {
     $atts = (array)$atts;

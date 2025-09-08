@@ -54,4 +54,38 @@ final class RendererRowGroupTest extends TestCase
         $log = file_get_contents($logFile);
         $this->assertStringContainsString(TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, (string)$log);
     }
+
+    public function testRowGroupStrayEndLogged(): void
+    {
+        $tpl = [
+            'id' => 't1',
+            'version' => '1',
+            'title' => 't',
+            'success' => ['mode' => 'inline'],
+            'email' => ['to' => 'a@example.com', 'subject' => 's', 'email_template' => '', 'include_fields' => []],
+            'fields' => [
+                ['type' => 'row_group', 'mode' => 'end', 'tag' => 'section'],
+                ['type' => 'name', 'key' => 'name', 'label' => 'Name'],
+            ],
+            'submit_button_text' => 'Send',
+            'rules' => [],
+        ];
+        $meta = [
+            'form_id' => 'f1',
+            'instance_id' => 'i1',
+            'timestamp' => time(),
+            'cacheable' => true,
+            'client_validation' => false,
+            'action' => '#',
+            'hidden_token' => null,
+            'enctype' => 'application/x-www-form-urlencoded',
+        ];
+        $logFile = Config::get('uploads.dir', sys_get_temp_dir()) . '/eforms.log';
+        @unlink($logFile);
+        $html = Renderer::form($tpl, $meta, [], []);
+        $this->assertStringContainsString('<form', $html);
+        $this->assertStringContainsString('<button', $html);
+        $log = file_get_contents($logFile);
+        $this->assertStringContainsString(TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, (string)$log);
+    }
 }
