@@ -74,6 +74,7 @@ function esc_attr($s) { return (string)$s; }
 function esc_url($s) { return (string)$s; }
 function esc_textarea($s) { return (string)$s; }
 function wp_kses($html, $allowed) { return $html; }
+function wp_kses_post($html) { return $html; }
 function sanitize_key($key) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string)$key)); }
 function shortcode_atts($pairs, $atts, $shortcode = '') {
     $atts = (array)$atts;
@@ -107,6 +108,7 @@ function plugins_url($path = '', $plugin_file = '') {
 function wp_upload_dir() {
     return ['basedir' => __DIR__ . '/tmp/uploads', 'baseurl' => 'http://hub.local/wp-content/uploads'];
 }
+function wp_http_validate_url($url) { return filter_var((string)$url, FILTER_VALIDATE_URL) ? $url : false; }
 function wp_generate_uuid4() { return bin2hex(random_bytes(16)); }
 function wp_mail($to, $subject, $message, $headers = []) {
     global $TEST_ARTIFACTS;

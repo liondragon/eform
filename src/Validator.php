@@ -125,6 +125,8 @@ class Validator
             }
             $canonical[$k] = $v;
         }
+        // Cross-field rules
+        self::applyRules($tpl['rules'] ?? [], $canonical, $errors, $desc);
         return ['errors'=>$errors,'values'=>$canonical];
     }
 
@@ -151,5 +153,83 @@ class Validator
             $out[$k] = $v;
         }
         return $out;
+    }
+
+    private static function isEmpty($v): bool
+    {
+        return is_array($v) ? count($v) === 0 : ($v === '' || $v === null);
+    }
+
+    private static function applyRules(array $rules, array $values, array &$errors, array $desc): void
+    {
+        foreach ($rules as $rule) {
+            $type = $rule['rule'] ?? '';
+            switch ($type) {
+                case 'required_if':
+                    $field = $rule['field'] ?? '';
+                    $other = $rule['other'] ?? '';
+                    $equals = (string)($rule['equals'] ?? '');
+                    if ((string)($values[$other] ?? '') === $equals && self::isEmpty($values[$field] ?? null)) {
+                        $errors[$field][] = 'This field is required.';
+                    }
+                    break;
+                case 'required_if_any':
+                    $field = $rule['field'] ?? '';
+                    $fields = $rule['fields'] ?? [];
+                    $equalsAny = $rule['equals_any'] ?? [];
+                    $trigger = false;
+                    foreach ($fields as $f) {
+                        $val = (string)($values[$f] ?? '');
+                        if (in_array($val, array_map('strval', $equalsAny), true)) { $trigger = true; break; }
+                    }
+                    if ($trigger && self::isEmpty($values[$field] ?? null)) {
+                        $errors[$field][] = 'This field is required.';
+                    }
+                    break;
+                case 'required_unless':
+                    $field = $rule['field'] ?? '';
+                    $other = $rule['other'] ?? '';
+                    $equals = (string)($rule['equals'] ?? '');
+                    if ((string)($values[$other] ?? '') !== $equals && self::isEmpty($values[$field] ?? null)) {
+                        $errors[$field][] = 'This field is required.';
+                    }
+                    break;
+                case 'matches':
+                    $field = $rule['field'] ?? '';
+                    $other = $rule['other'] ?? '';
+                    if (($values[$field] ?? null) !== ($values[$other] ?? null)) {
+                        $errors[$field][] = 'Fields must match.';
+                    }
+                    break;
+                case 'one_of':
+                    $fields = $rule['fields'] ?? [];
+                    $count = 0;
+                    foreach ($fields as $f) {
+                        if (!self::isEmpty($values[$f] ?? null)) $count++;
+                    }
+                    if ($count === 0 || $count > 1) {
+                        foreach ($fields as $f) {
+                            if ($count === 0 || !self::isEmpty($values[$f] ?? null)) {
+                                $errors[$f][] = $count === 0 ? 'One field is required.' : 'Only one field allowed.';
+                            }
+                        }
+                    }
+                    break;
+                case 'mutually_exclusive':
+                    $fields = $rule['fields'] ?? [];
+                    $count = 0;
+                    foreach ($fields as $f) {
+                        if (!self::isEmpty($values[$f] ?? null)) $count++;
+                    }
+                    if ($count > 1) {
+                        foreach ($fields as $f) {
+                            if (!self::isEmpty($values[$f] ?? null)) {
+                                $errors[$f][] = 'Fields are mutually exclusive.';
+                            }
+                        }
+                    }
+                    break;
+            }
+        }
     }
 }

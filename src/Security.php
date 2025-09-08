@@ -9,26 +9,29 @@ class Security
     {
         $origin = $_SERVER['HTTP_ORIGIN'] ?? null;
         $home = \home_url();
-        $homeParts = parse_url($home);
+        $homeParts = self::originParts($home);
         $state = 'missing';
         $hard = false;
         $soft = 0;
         if ($origin === null || $origin === '') {
             $state = 'missing';
+            if (Config::get('security.origin_mode', 'soft') === 'off') {
+                return ['state'=>$state,'hard_fail'=>false,'soft_signal'=>0];
+            }
             $hard = (bool) Config::get('security.origin_missing_hard', false);
             $soft = Config::get('security.origin_missing_soft', false) ? 1 : 0;
             return ['state'=>$state,'hard_fail'=>$hard,'soft_signal'=>$soft];
         }
-        $o = parse_url($origin);
+        $o = self::originParts($origin);
         if (!$o || !$homeParts) {
             $state = 'unknown';
         } else {
-            $same = ($o['scheme'] ?? '') === ($homeParts['scheme'] ?? '')
-                && ($o['host'] ?? '') === ($homeParts['host'] ?? '')
-                && (($o['port'] ?? '') === ($homeParts['port'] ?? ''));
-            $state = $same ? 'same' : 'cross';
+            $state = ($o === $homeParts) ? 'same' : 'cross';
         }
         $mode = Config::get('security.origin_mode', 'soft');
+        if ($mode === 'off') {
+            return ['state'=>$state,'hard_fail'=>false,'soft_signal'=>0];
+        }
         if ($state !== 'same') {
             if ($mode === 'hard') {
                 $hard = true;
@@ -37,6 +40,26 @@ class Security
             }
         }
         return ['state'=>$state,'hard_fail'=>$hard,'soft_signal'=>$soft];
+    }
+
+    private static function originParts(string $url): ?array
+    {
+        $p = parse_url($url);
+        if (!$p || empty($p['scheme']) || empty($p['host'])) {
+            return null;
+        }
+        $scheme = strtolower($p['scheme']);
+        $host = strtolower($p['host']);
+        $port = $p['port'] ?? null;
+        if ($port === null) {
+            $port = ($scheme === 'https') ? 443 : (($scheme === 'http') ? 80 : null);
+        }
+        if ($scheme === 'http' && $port == 80) {
+            $port = 80;
+        } elseif ($scheme === 'https' && $port == 443) {
+            $port = 443;
+        }
+        return [$scheme,$host,$port];
     }
 
     public static function token_validate(string $formId, bool $hasHidden, ?string $postedToken): array
