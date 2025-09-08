@@ -22,15 +22,26 @@ class Renderer
 
     private static function sanitizeFragment(string $html): string
     {
+        $common = ['class' => []];
         $allowed = [
-            'a' => ['href' => []],
-            'strong' => [],
-            'em' => [],
-            'span' => ['class' => []],
-            'p' => [],
-            'br' => [],
+            'a' => ['href' => [], 'class' => []],
+            'strong' => $common,
+            'em' => $common,
+            'span' => $common,
+            'p' => $common,
+            'br' => $common,
+            'div' => $common,
+            'h1' => $common,
+            'h2' => $common,
+            'h3' => $common,
+            'h4' => $common,
+            'h5' => $common,
+            'h6' => $common,
+            'ul' => $common,
+            'ol' => $common,
+            'li' => $common,
         ];
-        return \wp_kses($html, $allowed);
+        return \wp_kses($html, $allowed, ['http','https','mailto']);
     }
 
     public static function form(array $tpl, array $meta, array $errors, array $values): string
@@ -97,15 +108,23 @@ class Renderer
             }
         }
 
+        $rowStack = [];
+        $rowErr = false;
         foreach ($tpl['fields'] as $f) {
             $type = $f['type'];
             if ($type === 'row_group') {
                 $tag = $f['tag'] ?? 'div';
-                $class = isset($f['class']) ? ' class="' . \esc_attr($f['class']) . '"' : '';
+                $classes = trim('eforms-row ' . ($f['class'] ?? ''));
                 if (($f['mode'] ?? '') === 'start') {
-                    $html .= "<{$tag}{$class}>";
+                    $rowStack[] = $tag;
+                    $html .= '<' . $tag . ' class="' . \esc_attr($classes) . '">';
                 } else {
-                    $html .= "</{$tag}>";
+                    if (!empty($rowStack)) {
+                        $open = array_pop($rowStack);
+                        $html .= '</' . $open . '>';
+                    } else {
+                        $rowErr = true;
+                    }
                 }
                 continue;
             }
@@ -214,6 +233,14 @@ class Renderer
                 $html .= '<span id="' . \esc_attr($errId) . '" class="eforms-error">' . \esc_html($fieldErrors[0]) . '</span>';
             }
             $html .= $after;
+        }
+        while (!empty($rowStack)) {
+            $rowErr = true;
+            $open = array_pop($rowStack);
+            $html .= '</' . $open . '>';
+        }
+        if ($rowErr) {
+            Logging::write('warn', TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, ['form_id'=>$formId,'instance_id'=>$meta['instance_id'] ?? '']);
         }
         $btn = $tpl['submit_button_text'] ?? 'Submit';
         $html .= '<button type="submit">' . \esc_html($btn) . '</button>';
