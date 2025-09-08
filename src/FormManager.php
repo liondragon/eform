@@ -142,6 +142,20 @@ class FormManager
                 ]);
             }
         }
+        $jsOk = $_POST['js_ok'] ?? '';
+        if ($jsOk !== '1') {
+            $meta = [
+                'form_id' => $formId,
+                'instance_id' => $_POST['instance_id'] ?? '',
+            ];
+            if (Config::get('security.js_hard_mode', false)) {
+                Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $meta);
+                $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+            } else {
+                $softFails++;
+                Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $meta);
+            }
+        }
         $values = Validator::normalize($tpl, $_POST);
         $desc = Validator::descriptors($tpl);
         $val = Validator::validate($tpl, $desc, $values);
