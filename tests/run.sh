@@ -92,6 +92,18 @@ assert_grep tmp/stdout.txt 'Security check failed\.' || ok=1
 ! assert_grep tmp/mail.json 'alice@example.com' || ok=1
 record_result "origin policy hard: blocked" $ok
 
+# 2b) Cookie missing policies
+run_test test_cookie_policy_hard
+ok=0
+assert_grep tmp/stdout.txt 'Security token error\.' || ok=1
+! assert_grep tmp/mail.json 'zed@example.com' || ok=1
+record_result "cookie policy hard: missing cookie hard fail" $ok
+
+run_test test_cookie_policy_challenge
+ok=0
+assert_grep tmp/mail.json 'zed@example.com' || ok=1
+record_result "cookie policy challenge: allow when unconfigured" $ok
+
 # 3) Honeypot stealth success
 run_test test_honeypot
 ok=0

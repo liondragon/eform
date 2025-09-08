@@ -27,7 +27,7 @@ class FormManager
             'cacheable' => $cacheable,
             'client_validation' => (bool) Config::get('html5.client_validation', false),
             'action' => \home_url('/eforms/submit'),
-            'hidden_token' => $cacheable ? null : (function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : $instanceId),
+            'hidden_token' => $cacheable ? null : (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : $instanceId),
             'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
         ];
         $this->enqueueAssetsIfNeeded();
@@ -63,9 +63,36 @@ class FormManager
         }
         $hasHidden = isset($_POST['eforms_token']) && $_POST['eforms_token'] !== '';
         $postedToken = $_POST['eforms_token'] ?? null;
+        $cookieName = 'eforms_t_' . $formId;
+        $cookieToken = $_COOKIE[$cookieName] ?? '';
         $tokenInfo = Security::token_validate($formId, $hasHidden, $postedToken);
-        if ($tokenInfo['hard_fail'] || !$tokenInfo['token_ok']) {
+        if ($tokenInfo['mode'] === 'cookie') {
+            $ttl = (int) Config::get('security.token_ttl_seconds', 600);
+            $newToken = function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : bin2hex(random_bytes(16));
+            \setcookie($cookieName, $newToken, [
+                'expires' => time() + $ttl,
+                'path' => '/',
+                'secure' => \is_ssl(),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+            $_COOKIE[$cookieName] = $newToken;
+        }
+        if ($tokenInfo['hard_fail']) {
             $this->renderErrorAndExit($tpl, $formId, 'Security token error.');
+        }
+        if ($tokenInfo['require_challenge']) {
+            $provider = Config::get('challenge.provider', 'turnstile');
+            $site = Config::get('challenge.' . $provider . '.site_key', null);
+            $secret = Config::get('challenge.' . $provider . '.secret_key', null);
+            if (!$site || !$secret) {
+                Logging::write('warn', 'EFORMS_CHALLENGE_UNCONFIGURED', ['form_id'=>$formId,'instance_id'=>$_POST['instance_id'] ?? '']);
+            } else {
+                $resp = $_POST['cf-turnstile-response'] ?? ($_POST['h-captcha-response'] ?? ($_POST['g-recaptcha-response'] ?? ''));
+                if ($resp !== 'pass') {
+                    $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.');
+                }
+            }
         }
         // Honeypot
         if (!empty($_POST['eforms_hp'])) {
@@ -94,7 +121,7 @@ class FormManager
             exit;
         }
         $canonical = Validator::coerce($tpl, $desc, $val['values']);
-        $token = $hasHidden ? (string)$postedToken : ($_COOKIE['eforms_t_' . $formId] ?? '');
+        $token = $hasHidden ? (string)$postedToken : $cookieToken;
         $reserve = Security::ledger_reserve($formId, $token);
         if (!$reserve['ok']) {
             $this->renderErrorAndExit($tpl, $formId, 'Already submitted or expired.');
