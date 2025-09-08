@@ -64,6 +64,15 @@ class Config
         $cfg['logging']['file_max_size'] = self::clampInt($cfg['logging']['file_max_size'], 0, PHP_INT_MAX);
         $cfg['logging']['retention_days'] = self::clampInt($cfg['logging']['retention_days'], 1, 365);
 
+        // throttle
+        $cfg['throttle']['enable'] = (bool)($cfg['throttle']['enable'] ?? false);
+        $thr =& $cfg['throttle']['per_ip'];
+        $thr['max_per_minute'] = self::clampInt($thr['max_per_minute'] ?? 5, 1, 120);
+        $thr['cooldown_seconds'] = self::clampInt($thr['cooldown_seconds'] ?? 60, 10, 600);
+        $thr['hard_multiplier'] = (float)($thr['hard_multiplier'] ?? 3.0);
+        if ($thr['hard_multiplier'] < 1.5) $thr['hard_multiplier'] = 1.5;
+        if ($thr['hard_multiplier'] > 10.0) $thr['hard_multiplier'] = 10.0;
+
         // validation
         $cfg['validation']['max_fields_per_form'] = self::clampInt($cfg['validation']['max_fields_per_form'], 1, 1000);
         $cfg['validation']['max_options_per_group'] = self::clampInt($cfg['validation']['max_options_per_group'], 1, 1000);
