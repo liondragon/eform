@@ -173,6 +173,30 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_UPLOAD_RETENTION_SECONDS')) {
         $defaults['uploads']['retention_seconds'] = (int) getenv('EFORMS_UPLOAD_RETENTION_SECONDS');
     }
+    if (getenv('EFORMS_CHALLENGE_MODE')) {
+        $defaults['challenge']['mode'] = getenv('EFORMS_CHALLENGE_MODE');
+    }
+    if (getenv('EFORMS_CHALLENGE_PROVIDER')) {
+        $defaults['challenge']['provider'] = getenv('EFORMS_CHALLENGE_PROVIDER');
+    }
+    if (getenv('EFORMS_TURNSTILE_SITE_KEY')) {
+        $defaults['challenge']['turnstile']['site_key'] = getenv('EFORMS_TURNSTILE_SITE_KEY');
+    }
+    if (getenv('EFORMS_TURNSTILE_SECRET_KEY')) {
+        $defaults['challenge']['turnstile']['secret_key'] = getenv('EFORMS_TURNSTILE_SECRET_KEY');
+    }
+    if (getenv('EFORMS_HCAPTCHA_SITE_KEY')) {
+        $defaults['challenge']['hcaptcha']['site_key'] = getenv('EFORMS_HCAPTCHA_SITE_KEY');
+    }
+    if (getenv('EFORMS_HCAPTCHA_SECRET_KEY')) {
+        $defaults['challenge']['hcaptcha']['secret_key'] = getenv('EFORMS_HCAPTCHA_SECRET_KEY');
+    }
+    if (getenv('EFORMS_RECAPTCHA_SITE_KEY')) {
+        $defaults['challenge']['recaptcha']['site_key'] = getenv('EFORMS_RECAPTCHA_SITE_KEY');
+    }
+    if (getenv('EFORMS_RECAPTCHA_SECRET_KEY')) {
+        $defaults['challenge']['recaptcha']['secret_key'] = getenv('EFORMS_RECAPTCHA_SECRET_KEY');
+    }
     return $defaults;
 });
 
