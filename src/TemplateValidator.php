@@ -60,7 +60,7 @@ class TemplateValidator
 
         // email block
         $email = is_array($tpl['email'] ?? null) ? $tpl['email'] : [];
-        self::checkUnknown($email, ['display_format_tel','to','subject'], 'email.', $errors);
+        self::checkUnknown($email, ['display_format_tel','to','subject','email_template','include_fields'], 'email.', $errors);
         if (isset($email['display_format_tel'])) {
             $enum = ['xxx-xxx-xxxx','(xxx) xxx-xxxx','xxx.xxx.xxxx'];
             if (!in_array($email['display_format_tel'], $enum, true)) {
@@ -113,7 +113,7 @@ class TemplateValidator
             }
 
             // Non row_group field
-            self::checkUnknown($f, ['type','key','label','required','options','multiple','accept','before_html','after_html','class'], $path, $errors);
+            self::checkUnknown($f, ['type','key','label','required','options','multiple','accept','before_html','after_html','class','placeholder','autocomplete','size'], $path, $errors);
             $key = $f['key'] ?? null;
             if (!is_string($key) || !preg_match('/^[a-z0-9_:-]{1,64}$/', $key)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'key'];
