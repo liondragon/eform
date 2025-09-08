@@ -72,6 +72,19 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains(TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, $codes);
     }
 
+    public function testUnknownValidationRule(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'bogus_rule', 'field' => 'name'],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].rule', $paths);
+    }
+
     public function testMaxLengthValidation(): void
     {
         $tpl = $this->baseTpl();
