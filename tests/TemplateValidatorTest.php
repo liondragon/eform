@@ -71,4 +71,47 @@ class TemplateValidatorTest extends TestCase
         $codes = array_column($res['errors'], 'code');
         $this->assertContains(TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, $codes);
     }
+
+    public function testMaxLengthValidation(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['max_length'] = '10';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['max_length'] = 0;
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+    }
+
+    public function testMinMaxPatternValidation(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['min'] = 'a';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['min'] = 5;
+        $tpl['fields'][0]['max'] = 3;
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['pattern'] = 123;
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['pattern'] = '[';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+    }
 }
