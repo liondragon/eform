@@ -124,6 +124,19 @@ assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_HONEYPOT' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"stealth":false' || ok=1
 record_result "honeypot: hard fail" $ok
 
+# 3c) Timing checks
+run_test test_timing_min_fill
+ok=0
+assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_MIN_FILL' || ok=1
+assert_grep tmp/mail.json 'alice@example.com' || ok=1
+record_result "timing: early submission soft fail" $ok
+
+run_test test_timing_expired
+ok=0
+assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_FORM_AGE' || ok=1
+assert_grep tmp/mail.json 'zed@example.com' || ok=1
+record_result "timing: expired form soft fail" $ok
+
 # 4) Validation missing required
 run_test test_validation_required
 ok=0
