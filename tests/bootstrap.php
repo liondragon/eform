@@ -152,6 +152,12 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_COOKIE_MISSING_POLICY')) {
         $defaults['security']['cookie_missing_policy'] = getenv('EFORMS_COOKIE_MISSING_POLICY');
     }
+    if (getenv('EFORMS_HONEYPOT_RESPONSE')) {
+        $defaults['security']['honeypot_response'] = getenv('EFORMS_HONEYPOT_RESPONSE');
+    }
+    if (getenv('EFORMS_LOG_LEVEL')) {
+        $defaults['logging']['level'] = (int) getenv('EFORMS_LOG_LEVEL');
+    }
     return $defaults;
 });
 

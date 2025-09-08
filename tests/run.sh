@@ -110,7 +110,19 @@ ok=0
 assert_grep tmp/redirect.txt '"status":303' || ok=1
 assert_grep tmp/redirect.txt '\\?eforms_success=contact_us' || ok=1
 ! assert_grep tmp/mail.json 'bot-foo|alice@example.com|zed@example.com' || ok=1
+assert_grep tmp/php_error.log 'EFORMS_ERR_HONEYPOT' || ok=1
+assert_grep tmp/php_error.log '"stealth":true' || ok=1
 record_result "honeypot: stealth success, no email" $ok
+
+# 3b) Honeypot hard fail
+run_test test_honeypot_hard
+ok=0
+assert_grep tmp/stdout.txt 'Security check failed\.' || ok=1
+! assert_grep tmp/redirect.txt '"status":303' || ok=1
+! assert_grep tmp/mail.json 'bot-foo|alice@example.com|zed@example.com' || ok=1
+assert_grep tmp/php_error.log 'EFORMS_ERR_HONEYPOT' || ok=1
+assert_grep tmp/php_error.log '"stealth":false' || ok=1
+record_result "honeypot: hard fail" $ok
 
 # 4) Validation missing required
 run_test test_validation_required

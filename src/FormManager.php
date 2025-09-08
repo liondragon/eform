@@ -95,7 +95,20 @@ class FormManager
             }
         }
         // Honeypot
+        $token = $hasHidden ? (string)$postedToken : $cookieToken;
         if (!empty($_POST['eforms_hp'])) {
+            Security::ledger_reserve($formId, $token);
+            $mode = Config::get('security.honeypot_response', 'stealth_success');
+            $stealth = ($mode === 'stealth_success');
+            Logging::write('warn', 'EFORMS_ERR_HONEYPOT', [
+                'form_id' => $formId,
+                'instance_id' => $_POST['instance_id'] ?? '',
+                'stealth' => $stealth,
+            ]);
+            \header('X-EForms-Stealth: 1');
+            if ($mode === 'hard_fail') {
+                $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+            }
             $this->successAndRedirect($tpl, $formId, $_POST['instance_id'] ?? '');
             return;
         }
