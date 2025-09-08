@@ -67,7 +67,7 @@ class FormManager
         if ($origin['hard_fail']) {
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
-        $softFails = $origin['soft_signal'];
+        $softFailCount = $origin['soft_signal'];
         $hasHidden = isset($_POST['eforms_token']) && $_POST['eforms_token'] !== '';
         $postedToken = $_POST['eforms_token'] ?? null;
         $cookieName = 'eforms_t_' . $formId;
@@ -88,18 +88,21 @@ class FormManager
         if ($tokenInfo['hard_fail']) {
             $this->renderErrorAndExit($tpl, $formId, 'Security token error.');
         }
-        $softFails += $tokenInfo['soft_signal'];
-        if ($tokenInfo['require_challenge']) {
+        $softFailCount += $tokenInfo['soft_signal'];
+        $challengeMode = Config::get('challenge.mode', 'off');
+        $requireChallenge = $tokenInfo['require_challenge'];
+        if ($challengeMode === 'always' || ($challengeMode === 'auto' && $softFailCount > 0)) {
+            $requireChallenge = true;
+        }
+        if ($requireChallenge) {
             $provider = Config::get('challenge.provider', 'turnstile');
-            $site = Config::get('challenge.' . $provider . '.site_key', null);
-            $secret = Config::get('challenge.' . $provider . '.secret_key', null);
-            if (!$site || !$secret) {
-                Logging::write('warn', 'EFORMS_CHALLENGE_UNCONFIGURED', ['form_id'=>$formId,'instance_id'=>$_POST['instance_id'] ?? '']);
-            } else {
-                $resp = $_POST['cf-turnstile-response'] ?? ($_POST['h-captcha-response'] ?? ($_POST['g-recaptcha-response'] ?? ''));
-                if ($resp !== 'pass') {
-                    $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.');
-                }
+            $resp = $_POST['cf-turnstile-response'] ?? ($_POST['h-captcha-response'] ?? ($_POST['g-recaptcha-response'] ?? ''));
+            $timeout = (int) Config::get('challenge.http_timeout_seconds', 2);
+            $ver = Challenge::verify($provider, $resp, $timeout, $formId, $_POST['instance_id'] ?? '');
+            if ($ver['ok'] ?? false) {
+                $softFailCount = 0;
+            } elseif (!($ver['unconfigured'] ?? false)) {
+                $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.');
             }
         }
         // Honeypot
@@ -124,7 +127,7 @@ class FormManager
         $now = time();
         $minFill = (int) Config::get('security.min_fill_seconds', 4);
         if ($timestamp > 0 && ($now - $timestamp) < $minFill) {
-            $softFails++;
+            $softFailCount++;
             Logging::write('warn', 'EFORMS_ERR_MIN_FILL', [
                 'form_id' => $formId,
                 'instance_id' => $_POST['instance_id'] ?? '',
@@ -134,7 +137,7 @@ class FormManager
         if ($hasHidden) {
             $maxAge = (int) Config::get('security.max_form_age_seconds', Config::get('security.token_ttl_seconds', 600));
             if ($timestamp > 0 && ($now - $timestamp) > $maxAge) {
-                $softFails++;
+                $softFailCount++;
                 Logging::write('warn', 'EFORMS_ERR_FORM_AGE', [
                     'form_id' => $formId,
                     'instance_id' => $_POST['instance_id'] ?? '',
@@ -152,7 +155,7 @@ class FormManager
                 Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $meta);
                 $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
             } else {
-                $softFails++;
+                $softFailCount++;
                 Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $meta);
             }
         }
