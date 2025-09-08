@@ -11,7 +11,7 @@
   },
   "fields": [
     {"key":"name","type":"name","label":"Name"},
-    {"key":"file1","type":"file","label":"File","accept":["pdf"]}
+    {"key":"file1","type":"file","label":"File","accept":["pdf"],"email_attach":true}
   ],
   "submit_button_text": "Send"
 }

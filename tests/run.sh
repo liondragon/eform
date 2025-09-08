@@ -155,11 +155,17 @@ record_result "success inline: shows message" $ok
 run_test test_minimal_email
 ok=0
 assert_grep tmp/mail.json 'office@flooringartists.com' || ok=1
-assert_grep tmp/mail.json 'Contact Form' || ok=1
+assert_grep tmp/mail.json 'Contact Form - Zed' || ok=1
 assert_grep tmp/mail.json 'name: Zed' || ok=1
 assert_grep tmp/mail.json 'email: zed@example.com' || ok=1
 assert_grep tmp/mail.json 'message: Ping' || ok=1
 record_result "minimal email: to/subject/body" $ok
+
+# 7b) Email attachments
+run_test test_email_attachment
+ok=0
+assert_grep tmp/mail.json 'doc.pdf' || ok=1
+record_result "email attachments: file included" $ok
 
 # 8) Logging minimal: SMTP failure
 run_test test_logging

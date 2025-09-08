@@ -113,7 +113,7 @@ class TemplateValidator
             }
 
             // Non row_group field
-            self::checkUnknown($f, ['type','key','label','required','options','multiple','accept','before_html','after_html','class','placeholder','autocomplete','size','max_length','min','max','pattern'], $path, $errors);
+            self::checkUnknown($f, ['type','key','label','required','options','multiple','accept','before_html','after_html','class','placeholder','autocomplete','size','max_length','min','max','pattern','email_attach'], $path, $errors);
             $key = $f['key'] ?? null;
             if (!is_string($key) || !preg_match('/^[a-z0-9_:-]{1,64}$/', $key)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'key'];
@@ -162,6 +162,9 @@ class TemplateValidator
                 $intersection = array_intersect($accept, $global);
                 if ($accept && empty($intersection)) {
                     $errors[] = ['code'=>self::EFORMS_ERR_ACCEPT_EMPTY,'path'=>$path.'accept'];
+                }
+                if (isset($f['email_attach']) && !is_bool($f['email_attach'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'email_attach'];
                 }
             }
 

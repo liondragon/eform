@@ -110,7 +110,7 @@ function wp_upload_dir() {
 }
 function wp_http_validate_url($url) { return filter_var((string)$url, FILTER_VALIDATE_URL) ? $url : false; }
 function wp_generate_uuid4() { return bin2hex(random_bytes(16)); }
-function wp_mail($to, $subject, $message, $headers = []) {
+function wp_mail($to, $subject, $message, $headers = [], $attachments = []) {
     global $TEST_ARTIFACTS;
     $list = json_decode((string)file_get_contents($TEST_ARTIFACTS['mail_file']), true) ?: [];
     $list[] = [
@@ -118,6 +118,7 @@ function wp_mail($to, $subject, $message, $headers = []) {
         'subject' => $subject,
         'message' => $message,
         'headers' => $headers,
+        'attachments' => $attachments,
     ];
     file_put_contents($TEST_ARTIFACTS['mail_file'], json_encode($list));
     // Allow forcing failure via env variable
