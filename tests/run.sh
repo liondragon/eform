@@ -168,6 +168,25 @@ assert_grep tmp/uploads/eforms-private/eforms.log '"severity":"error"' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"code":"EFORMS_EMAIL_FAIL"' || ok=1
 record_result "logging: SMTP failure" $ok
 
+# 9) Upload valid
+run_test test_upload_valid
+ok=0
+assert_grep tmp/uploaded.txt 'test-file-' || ok=1
+record_result "upload: valid file stored" $ok
+
+# 9b) Upload too large
+EFORMS_UPLOAD_MAX_FILE_BYTES=100 run_test test_upload_reject
+ok=0
+assert_grep tmp/stdout.txt 'File too large\.' || ok=1
+! assert_grep tmp/uploaded.txt 'eforms-private' || ok=1
+record_result "upload: file too large rejected" $ok
+
+# 9c) Upload retention GC
+EFORMS_UPLOAD_RETENTION_SECONDS=1 run_test test_upload_gc
+ok=0
+assert_equal_file tmp/gc.txt 'empty' || ok=1
+record_result "upload: retention GC" $ok
+
 echo
 echo "Summary: $pass passed, $fail failed"
 exit $(( fail > 0 ))

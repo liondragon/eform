@@ -158,6 +158,12 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_LOG_LEVEL')) {
         $defaults['logging']['level'] = (int) getenv('EFORMS_LOG_LEVEL');
     }
+    if (getenv('EFORMS_UPLOAD_MAX_FILE_BYTES')) {
+        $defaults['uploads']['max_file_bytes'] = (int) getenv('EFORMS_UPLOAD_MAX_FILE_BYTES');
+    }
+    if (getenv('EFORMS_UPLOAD_RETENTION_SECONDS')) {
+        $defaults['uploads']['retention_seconds'] = (int) getenv('EFORMS_UPLOAD_RETENTION_SECONDS');
+    }
     return $defaults;
 });
 

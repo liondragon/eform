@@ -16,6 +16,9 @@ class FormManager
         if (!$pre['ok']) {
             return '<div class="eforms-error">Form configuration error.</div>';
         }
+        if (Uploads::enabled()) {
+            Uploads::gc();
+        }
         $cacheable = (bool) ($opts['cacheable'] ?? true);
         $instanceId = bin2hex(random_bytes(16));
         $timestamp = time();
@@ -55,6 +58,9 @@ class FormManager
         $pre = TemplateValidator::preflight($tpl);
         if (!$pre['ok']) {
             $this->renderErrorAndExit($tpl, $formId, 'Form configuration error.');
+        }
+        if (Uploads::enabled()) {
+            Uploads::gc();
         }
         // security gates
         $origin = Security::origin_evaluate();
@@ -116,8 +122,23 @@ class FormManager
         $values = Validator::normalize($tpl, $_POST);
         $desc = Validator::descriptors($tpl);
         $val = Validator::validate($tpl, $desc, $values);
-        if (!empty($val['errors'])) {
-            $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
+        $uploadsData = [];
+        $uploadErrors = [];
+        $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
+        if ($hasUploads) {
+            $u = Uploads::normalizeAndValidate($tpl, $_FILES);
+            $uploadsData = $u['files'];
+            $uploadErrors = $u['errors'];
+        }
+        $errors = $val['errors'];
+        foreach ($uploadErrors as $k => $msgs) {
+            if (isset($errors[$k])) {
+                $errors[$k] = array_merge($errors[$k], $msgs);
+            } else {
+                $errors[$k] = $msgs;
+            }
+        }
+        if (!empty($errors)) {
             $meta = [
                 'form_id' => $formId,
                 'instance_id' => $_POST['instance_id'] ?? '',
@@ -129,11 +150,17 @@ class FormManager
                 'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
             ];
             $this->enqueueAssetsIfNeeded();
-            $html = Renderer::form($tpl, $meta, $val['errors'], $values);
+            $html = Renderer::form($tpl, $meta, $errors, $values);
             echo $html;
             exit;
         }
         $canonical = Validator::coerce($tpl, $desc, $val['values']);
+        if ($hasUploads) {
+            $stored = Uploads::store($uploadsData);
+            if (!empty($stored)) {
+                $canonical['_uploads'] = $stored;
+            }
+        }
         $token = $hasHidden ? (string)$postedToken : $cookieToken;
         $reserve = Security::ledger_reserve($formId, $token);
         if (!$reserve['ok']) {
