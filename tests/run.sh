@@ -137,6 +137,20 @@ assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_FORM_AGE' || ok=1
 assert_grep tmp/mail.json 'zed@example.com' || ok=1
 record_result "timing: expired form soft fail" $ok
 
+# 3d) JS disabled checks
+run_test test_js_soft
+ok=0
+assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_JS_DISABLED' || ok=1
+assert_grep tmp/mail.json 'alice@example.com' || ok=1
+record_result "js disabled: soft signal" $ok
+
+run_test test_js_hard
+ok=0
+assert_grep tmp/stdout.txt 'Security check failed\.' || ok=1
+! assert_grep tmp/mail.json 'alice@example.com' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_JS_DISABLED' || ok=1
+record_result "js disabled: hard fail" $ok
+
 # 4) Validation missing required
 run_test test_validation_required
 ok=0
