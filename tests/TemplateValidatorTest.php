@@ -256,6 +256,34 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains('email.include_fields', $paths);
     }
 
+    public function testMaxFieldsPerForm(): void
+    {
+        $tpl = $this->baseTpl();
+        for ($i = 0; $i < 149; $i++) {
+            $tpl['fields'][] = ['type' => 'text', 'key' => 'f'.$i];
+        }
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('fields', $paths);
+    }
+
+    public function testMaxOptionsPerGroup(): void
+    {
+        $tpl = $this->baseTpl();
+        $opts = [];
+        for ($i = 0; $i < 101; $i++) {
+            $opts[] = ['key' => 'o'.$i, 'label' => 'L'.$i];
+        }
+        $tpl['fields'][] = ['type' => 'select', 'key' => 'sel', 'options' => $opts];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('fields[2].options', $paths);
+    }
+
     public function testEmptyVersionReplacedWithMtime(): void
     {
         $tpl = $this->baseTpl();

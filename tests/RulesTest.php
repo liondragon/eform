@@ -4,7 +4,7 @@ use EForms\Validator;
 
 class RulesTest extends TestCase
 {
-    private function run(array $tpl, array $post): array
+    private function runRules(array $tpl, array $post): array
     {
         $desc = Validator::descriptors($tpl);
         $values = Validator::normalize($tpl, $post);
@@ -23,7 +23,7 @@ class RulesTest extends TestCase
                 ['rule'=>'required_if','field'=>'a','other'=>'b','equals'=>'x']
             ],
         ];
-        $errors = $this->run($tpl, ['b'=>'x']);
+        $errors = $this->runRules($tpl, ['b'=>'x']);
         $this->assertArrayHasKey('a', $errors);
     }
 
@@ -39,7 +39,7 @@ class RulesTest extends TestCase
                 ['rule'=>'required_if_any','field'=>'a','fields'=>['b','c'],'equals_any'=>['yes','y']]
             ],
         ];
-        $errors = $this->run($tpl, ['b'=>'y']);
+        $errors = $this->runRules($tpl, ['b'=>'y']);
         $this->assertArrayHasKey('a', $errors);
     }
 
@@ -54,7 +54,7 @@ class RulesTest extends TestCase
                 ['rule'=>'required_unless','field'=>'a','other'=>'b','equals'=>'skip']
             ],
         ];
-        $errors = $this->run($tpl, ['b'=>'no']);
+        $errors = $this->runRules($tpl, ['b'=>'no']);
         $this->assertArrayHasKey('a', $errors);
     }
 
@@ -69,7 +69,7 @@ class RulesTest extends TestCase
                 ['rule'=>'matches','field'=>'a','other'=>'b']
             ],
         ];
-        $errors = $this->run($tpl, ['a'=>'one','b'=>'two']);
+        $errors = $this->runRules($tpl, ['a'=>'one','b'=>'two']);
         $this->assertArrayHasKey('a', $errors);
     }
 
@@ -85,7 +85,7 @@ class RulesTest extends TestCase
                 ['rule'=>'one_of','fields'=>['a','b','c']]
             ],
         ];
-        $errors = $this->run($tpl, []);
+        $errors = $this->runRules($tpl, []);
         $this->assertArrayHasKey('a', $errors);
         $this->assertArrayHasKey('b', $errors);
         $this->assertArrayHasKey('c', $errors);
@@ -102,7 +102,7 @@ class RulesTest extends TestCase
                 ['rule'=>'mutually_exclusive','fields'=>['a','b']]
             ],
         ];
-        $errors = $this->run($tpl, ['a'=>'one','b'=>'two']);
+        $errors = $this->runRules($tpl, ['a'=>'one','b'=>'two']);
         $this->assertArrayHasKey('a', $errors);
         $this->assertArrayHasKey('b', $errors);
     }
