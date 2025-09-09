@@ -245,6 +245,27 @@ ok=0
 assert_grep tmp/mail.json 'doc.pdf' || ok=1
 record_result "email attachments: file included" $ok
 
+# 7c) Email policy autocorrect
+EFORMS_EMAIL_POLICY=autocorrect run_test test_email_policy_autocorrect
+ok=0
+assert_grep tmp/mail.json 'a@example.com' || ok=1
+record_result "email policy autocorrect" $ok
+
+# 7d) Email disable send
+EFORMS_EMAIL_DISABLE_SEND=1 run_test test_email_disable_send
+ok=0
+assert_equal_file tmp/mail.json '[]' || ok=1
+record_result "email disable send" $ok
+
+# 7e) Email staging redirect
+EFORMS_EMAIL_STAGING_REDIRECT_TO=stage@example.com run_test test_email_staging_redirect
+ok=0
+assert_grep tmp/mail.json 'stage@example.com' || ok=1
+assert_grep tmp/mail.json '\[STAGING\]' || ok=1
+assert_grep tmp/mail.json 'X-EForms-Env: staging' || ok=1
+assert_grep tmp/mail.json 'X-EForms-Original-To: a@example.com' || ok=1
+record_result "email staging redirect" $ok
+
 # 8) Logging minimal: SMTP failure
 run_test test_logging
 ok=0

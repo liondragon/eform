@@ -242,6 +242,16 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_THROTTLE_HARD_MULTIPLIER')) {
         $defaults['throttle']['per_ip']['hard_multiplier'] = (float) getenv('EFORMS_THROTTLE_HARD_MULTIPLIER');
     }
+    if (getenv('EFORMS_EMAIL_POLICY')) {
+        $defaults['email']['policy'] = getenv('EFORMS_EMAIL_POLICY');
+    }
+    if (getenv('EFORMS_EMAIL_DISABLE_SEND')) {
+        $defaults['email']['disable_send'] = (getenv('EFORMS_EMAIL_DISABLE_SEND') === '1');
+    }
+    if (getenv('EFORMS_EMAIL_STAGING_REDIRECT_TO')) {
+        $val = getenv('EFORMS_EMAIL_STAGING_REDIRECT_TO');
+        $defaults['email']['staging_redirect_to'] = str_contains($val, ',') ? array_map('trim', explode(',', $val)) : $val;
+    }
     return $defaults;
 });
 
