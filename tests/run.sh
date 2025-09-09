@@ -225,6 +225,12 @@ assert_grep tmp/uploads/eforms-private/eforms.log '"severity":"error"' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"code":"EFORMS_EMAIL_FAIL"' || ok=1
 record_result "logging: SMTP failure" $ok
 
+# 8b) Logging User-Agent sanitization
+EFORMS_LOG_HEADERS=1 run_test test_logging_user_agent
+ok=0
+assert_grep tmp/ua.txt '^A{256}$' || ok=1
+record_result "logging: user-agent sanitized" $ok
+
 # 9) Upload valid
 run_test test_upload_valid
 ok=0
