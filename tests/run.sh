@@ -290,7 +290,7 @@ record_result "upload: valid file handled" $ok
 # 9b) Upload too large
 EFORMS_UPLOAD_MAX_FILE_BYTES=100 run_test test_upload_reject
 ok=0
-assert_grep tmp/stdout.txt 'File too large\.' || ok=1
+assert_grep tmp/stdout.txt 'This file exceeds the size limit\.' || ok=1
 ! assert_grep tmp/uploaded.txt 'eforms-private' || ok=1
 record_result "upload: file too large rejected" $ok
 

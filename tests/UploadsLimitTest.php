@@ -26,7 +26,7 @@ final class UploadsLimitTest extends TestCase
         ];
         $res = Uploads::normalizeAndValidate($tpl, $files);
         $this->assertArrayHasKey('up', $res['errors']);
-        $this->assertSame('File too large.', $res['errors']['up'][0]);
+        $this->assertSame('This file exceeds the size limit.', $res['errors']['up'][0]);
         @unlink($tmp);
     }
 

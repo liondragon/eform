@@ -8,9 +8,19 @@ class Emailer
     public static function send(array $tpl, array $canonical, array $meta, int $softFails = 0): array
     {
         $policy = (string) Config::get('email.policy', 'strict');
-        $to = self::parseEmail($tpl['email']['to'] ?? '', $policy);
+        $correctedTo = false;
+        $to = self::parseEmail($tpl['email']['to'] ?? '', $policy, $correctedTo);
         if ($to === '') {
             return ['ok' => false, 'msg' => 'invalid_to'];
+        }
+        if ($correctedTo) {
+            Logging::write('info', 'EFORMS_EMAIL_AUTOCORRECT', [
+                'form_id' => $meta['form_id'] ?? '',
+                'instance_id' => $meta['instance_id'] ?? '',
+                'msg' => 'corrected',
+                'original' => $tpl['email']['to'] ?? '',
+                'corrected' => $to,
+            ]);
         }
         $meta = self::sanitizeMeta($meta);
         if (isset($meta['ip'])) {
@@ -48,9 +58,19 @@ class Emailer
         }
         $replyField = Config::get('email.reply_to_field', '');
         if ($replyField && isset($canonical[$replyField])) {
-            $reply = self::parseEmail((string) $canonical[$replyField], $policy);
+            $replyCorrected = false;
+            $reply = self::parseEmail((string) $canonical[$replyField], $policy, $replyCorrected);
             if ($reply !== '') {
                 $headers[] = 'Reply-To: ' . self::sanitizeHeader($reply);
+                if ($replyCorrected) {
+                    Logging::write('info', 'EFORMS_EMAIL_AUTOCORRECT', [
+                        'form_id' => $meta['form_id'] ?? '',
+                        'instance_id' => $meta['instance_id'] ?? '',
+                        'msg' => 'corrected',
+                        'original' => (string) $canonical[$replyField],
+                        'corrected' => $reply,
+                    ]);
+                }
             }
         }
         $canonicalDisplay = self::applyDisplayFormatting($tpl, $canonical);
@@ -115,8 +135,13 @@ class Emailer
 
         $attempts = $maxRetries + 1;
         $ok = false;
+        $tries = 0;
+        $debugEnabled = Config::get('email.debug.enable', false) && (int) Config::get('logging.level', 0) >= 1;
+        $debugLog = '';
+        $lastError = null;
         for ($i = 0; $i < $attempts && !$ok; $i++) {
-            $hook = function ($phpmailer) use ($sender, $timeout, $dkimEnabled, $dkimDomain, $dkimSelector, $dkimKeyPath, $dkimPass) {
+            $tries++;
+            $hook = function ($phpmailer) use ($sender, $timeout, $dkimEnabled, $dkimDomain, $dkimSelector, $dkimKeyPath, $dkimPass, $debugEnabled, &$debugLog) {
                 if ($sender !== '') {
                     $phpmailer->Sender = $sender;
                 }
@@ -129,10 +154,21 @@ class Emailer
                     $phpmailer->DKIM_passphrase = $dkimPass;
                     $phpmailer->DKIM_identity = $phpmailer->From;
                 }
+                if ($debugEnabled) {
+                    $phpmailer->SMTPDebug = 3;
+                    $phpmailer->Debugoutput = function ($str) use (&$debugLog) {
+                        $debugLog .= $str . "\n";
+                    };
+                }
+            };
+            $failHook = function ($wpError) use (&$lastError) {
+                $lastError = $wpError;
             };
             add_action('phpmailer_init', $hook);
+            add_action('wp_mail_failed', $failHook);
             $ok = \wp_mail($to, $subject, $body, $headers, $attachments);
             remove_action('phpmailer_init', $hook);
+            remove_action('wp_mail_failed', $failHook);
             if (!$ok && $i < $attempts - 1 && $backoff > 0) {
                 sleep($backoff);
             }
@@ -140,7 +176,38 @@ class Emailer
         if ($ok) {
             return ['ok' => true];
         }
-        return ['ok' => false, 'msg' => 'send_fail'];
+        $errMsg = '';
+        if (is_object($lastError) && method_exists($lastError, 'get_error_message')) {
+            $errMsg = $lastError->get_error_message();
+        }
+        $ctx = [
+            'form_id' => $meta['form_id'] ?? '',
+            'instance_id' => $meta['instance_id'] ?? '',
+            'msg' => 'send_fail',
+            'error' => $errMsg,
+            'attempts' => $tries,
+        ];
+        if (Config::get('logging.on_failure_canonical', false)) {
+            $ctx['canonical'] = $canonical;
+        }
+        Logging::write('error', 'EFORMS_EMAIL_FAIL', $ctx);
+        if ($debugEnabled && $debugLog !== '') {
+            $dbg = preg_replace('/[\r\n]+/', ' ', $debugLog);
+            $dbg = preg_replace('/(password|pass|auth)[^\s]*/i', '[redacted]', $dbg);
+            if (!Config::get('logging.pii', false)) {
+                $dbg = preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i', '[redacted]', $dbg);
+            }
+            $maxB = (int) Config::get('email.debug.max_bytes', 8192);
+            if (strlen($dbg) > $maxB) {
+                $dbg = substr($dbg, -$maxB);
+            }
+            Logging::write('info', 'EFORMS_EMAIL_DEBUG', [
+                'form_id' => $meta['form_id'] ?? '',
+                'instance_id' => $meta['instance_id'] ?? '',
+                'debug' => $dbg,
+            ]);
+        }
+        return ['ok' => false, 'msg' => 'send_fail', 'error' => $errMsg];
     }
 
     private static function renderBody(array $tpl, array $canonical, array $meta, bool $html): string
@@ -195,16 +262,30 @@ class Emailer
         }, $str);
     }
 
-    private static function parseEmail(string $email, string $policy): string
+    private static function parseEmail(string $email, string $policy, ?bool &$corrected = null): string
     {
+        $corrected = false;
         $email = trim($email);
         if ($policy === 'autocorrect') {
             $email = preg_replace('/\s+/', '', $email);
             if (str_contains($email, '@')) {
                 [$local, $domain] = explode('@', $email, 2);
+                $orig = $domain;
                 $domain = strtolower($domain);
                 $domain = preg_replace('/\.c0m$/i', '.com', $domain);
                 $domain = preg_replace('/\.con$/i', '.com', $domain);
+                $map = [
+                    'gamil.com' => 'gmail.com',
+                    'gmial.com' => 'gmail.com',
+                    'hotnail.com' => 'hotmail.com',
+                    'yaho.com' => 'yahoo.com',
+                ];
+                if (isset($map[$domain])) {
+                    $domain = $map[$domain];
+                }
+                if ($domain !== $orig) {
+                    $corrected = true;
+                }
                 $email = $local . '@' . $domain;
             }
         }

@@ -87,32 +87,37 @@ class Logging
             return;
         }
         $data = [
+            'timestamp' => gmdate('c'),
             'severity' => $severity,
             'code' => $code,
             'form_id' => $ctx['form_id'] ?? '',
             'instance_id' => $ctx['instance_id'] ?? '',
+            'uri' => self::requestUri(),
             'msg' => $ctx['msg'] ?? '',
         ];
         $meta = $ctx;
         unset($meta['form_id'], $meta['instance_id'], $meta['msg']);
+        if (isset($meta['ip'])) {
+            $ipDisp = Helpers::ip_display((string) $meta['ip']);
+            if ($ipDisp !== '') {
+                $data['ip'] = $ipDisp;
+            }
+            unset($meta['ip']);
+        }
+        if (isset($meta['spam'])) {
+            $data['spam'] = $meta['spam'];
+            unset($meta['spam']);
+        }
+        if (Config::get('logging.on_failure_canonical', false) && isset($meta['canonical'])) {
+            $data['canonical'] = $meta['canonical'];
+            unset($meta['canonical']);
+        }
+        if (!Config::get('logging.pii', false) && isset($meta['email'])) {
+            $parts = explode('@', (string) $meta['email']);
+            $meta['email'] = ($parts[0] ?? '') !== '' ? substr($parts[0],0,1) . '***@' . ($parts[1] ?? '') : '';
+        }
         if (!empty($meta)) {
-            if (isset($meta['ip'])) {
-                $ipDisp = Helpers::ip_display((string) $meta['ip']);
-                if ($ipDisp === '') {
-                    unset($meta['ip']);
-                } else {
-                    $meta['ip'] = $ipDisp;
-                }
-            }
-            if (!Config::get('logging.pii', false)) {
-                if (isset($meta['email'])) {
-                    $parts = explode('@', (string) $meta['email']);
-                    $meta['email'] = ($parts[0] ?? '') !== '' ? substr($parts[0],0,1) . '***@' . ($parts[1] ?? '') : '';
-                }
-            }
-            if (!empty($meta)) {
-                $data['meta'] = $meta;
-            }
+            $data['meta'] = $meta;
         }
         if (Config::get('logging.headers', false)) {
             $headers = [];
@@ -138,16 +143,26 @@ class Logging
             self::logLine($data);
         } else {
             $parts = [];
+            $parts[] = 'ts=' . $data['timestamp'];
             $parts[] = 'sev=' . $severity;
             $parts[] = 'code=' . $code;
+            if ($data['uri'] !== '') {
+                $parts[] = 'uri=' . $data['uri'];
+            }
             if ($data['form_id'] !== '') {
                 $parts[] = 'form=' . $data['form_id'];
             }
             if ($data['instance_id'] !== '') {
                 $parts[] = 'inst=' . $data['instance_id'];
             }
+            if (!empty($data['ip'])) {
+                $parts[] = 'ip=' . $data['ip'];
+            }
             if ($data['msg'] !== '') {
                 $parts[] = 'msg=' . preg_replace('/\s+/', ' ', (string) $data['msg']);
+            }
+            if (isset($data['spam'])) {
+                $parts[] = 'spam=' . substr(json_encode($data['spam']), 0, 200);
             }
             if (isset($data['meta']) && is_array($data['meta'])) {
                 foreach ($data['meta'] as $k => $v) {
@@ -219,5 +234,27 @@ class Logging
             return;
         }
         error_log($line);
+    }
+
+    private static function requestUri(): string
+    {
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        if ($uri === '') return '';
+        $parts = parse_url($uri);
+        $path = $parts['path'] ?? '';
+        $query = '';
+        if (!empty($parts['query'])) {
+            parse_str($parts['query'], $q);
+            $keep = [];
+            foreach ($q as $k => $v) {
+                if (str_starts_with((string)$k, 'eforms_')) {
+                    $keep[$k] = $v;
+                }
+            }
+            if (!empty($keep)) {
+                $query = '?' . http_build_query($keep);
+            }
+        }
+        return $path . $query;
     }
 }
