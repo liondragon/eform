@@ -24,6 +24,13 @@ class FormManager
             Throttle::gc();
         }
         $cacheable = (bool) ($opts['cacheable'] ?? true);
+        if (!$cacheable) {
+            \nocache_headers();
+            \header('Cache-Control: private, no-store, max-age=0');
+            if (function_exists('eforms_header')) {
+                eforms_header('Cache-Control: private, no-store, max-age=0');
+            }
+        }
         $instanceId = bin2hex(random_bytes(16));
         $timestamp = time();
         $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
@@ -320,6 +327,10 @@ class FormManager
     private function successAndRedirect(array $tpl, string $formId, string $instanceId): void
     {
         \nocache_headers();
+        \header('Cache-Control: private, no-store, max-age=0');
+        if (function_exists('eforms_header')) {
+            eforms_header('Cache-Control: private, no-store, max-age=0');
+        }
         if (($tpl['success']['mode'] ?? '') === 'redirect') {
             $url = $tpl['success']['redirect_url'] ?? \home_url('/');
             \wp_safe_redirect($url, 303);
