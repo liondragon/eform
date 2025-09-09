@@ -408,19 +408,20 @@ class FormManager
             \wp_safe_redirect($url, 303);
             exit;
         }
-        $cookie = 'eforms_s_' . $formId;
-        $value = $formId . ':' . $instanceId;
-        \setcookie($cookie, $value, [
-            'expires' => time() + 60,
-            'path' => '/',
-            'secure' => \is_ssl(),
-            'httponly' => false,
-            'samesite' => 'Lax',
-        ]);
         $ref = \wp_get_referer();
         if (!$ref) {
             $ref = \home_url('/');
         }
+        $path = parse_url($ref, PHP_URL_PATH) ?: '/';
+        $cookie = 'eforms_s_' . $formId;
+        $value = $formId . ':' . $instanceId;
+        \setcookie($cookie, $value, [
+            'expires' => time() + 300,
+            'path' => $path,
+            'secure' => \is_ssl(),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
         $ref = \add_query_arg('eforms_success', $formId, $ref);
         \header('Vary: Cookie');
         \wp_safe_redirect($ref, 303);

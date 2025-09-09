@@ -7,28 +7,28 @@ class Emailer
 {
     public static function send(array $tpl, array $canonical, array $meta, int $softFails = 0): array
     {
-        $to = $tpl['email']['to'] ?? '';
+        $to = self::sanitizeHeader($tpl['email']['to'] ?? '');
         $meta = self::sanitizeMeta($meta);
         $subjectRaw = $tpl['email']['subject'] ?? 'Form Submission';
         $subjectRaw = self::expandTokens($subjectRaw, $canonical, $meta);
-        $subject = substr(preg_replace("/[\r\n]+/", ' ', $subjectRaw), 0, 255);
+        $subject = self::sanitizeHeader($subjectRaw);
         if ($softFails > 0) {
             $tag = (string) Config::get('email.suspect_subject_tag', '[SUSPECT]');
             if ($tag !== '') {
-                $subject = $tag . ' ' . $subject;
+                $subject = self::sanitizeHeader($tag . ' ' . $subject);
             }
         }
         $site = parse_url(\home_url(), PHP_URL_HOST) ?: 'example.com';
         $fromCfg = Config::get('email.from_address', '');
         if (is_string($fromCfg) && preg_match('/@' . preg_quote($site, '/') . '$/i', $fromCfg)) {
-            $from = $fromCfg;
+            $from = self::sanitizeHeader($fromCfg);
         } else {
             $from = 'no-reply@' . $site;
         }
         $html = (bool) Config::get('email.html', false);
         $headers = ['From: ' . $from];
         if ($softFails > 0) {
-            $headers[] = 'X-EForms-Soft-Fails: ' . $softFails;
+            $headers[] = 'X-EForms-Soft-Fails: ' . (int) $softFails;
             $headers[] = 'X-EForms-Suspect: 1';
         }
         if ($html) {
@@ -36,7 +36,7 @@ class Emailer
         }
         $replyField = Config::get('email.reply_to_field', '');
         if ($replyField && isset($canonical[$replyField]) && \is_email($canonical[$replyField])) {
-            $headers[] = 'Reply-To: ' . $canonical[$replyField];
+            $headers[] = 'Reply-To: ' . self::sanitizeHeader($canonical[$replyField]);
         }
         $canonicalDisplay = self::applyDisplayFormatting($tpl, $canonical);
         [$attachments, $overflow] = self::collectAttachments($tpl, $canonicalDisplay);
@@ -49,7 +49,17 @@ class Emailer
                 $body .= "\nOmitted attachments: $note\n";
             }
         }
+        $sender = Config::get('email.envelope_sender', '');
+        $sender = is_string($sender) ? self::sanitizeHeader($sender) : '';
+        $hook = null;
+        if ($sender !== '') {
+            $hook = function ($phpmailer) use ($sender) { $phpmailer->Sender = $sender; };
+            add_action('phpmailer_init', $hook);
+        }
         $ok = \wp_mail($to, $subject, $body, $headers, $attachments);
+        if ($hook) {
+            remove_action('phpmailer_init', $hook);
+        }
         if ($ok) {
             return ['ok'=>true];
         }
@@ -84,6 +94,12 @@ class Emailer
     {
         $allowed = ['submitted_at','ip','form_id','instance_id'];
         return array_intersect_key($meta, array_flip($allowed));
+    }
+
+    private static function sanitizeHeader(string $v): string
+    {
+        $v = preg_replace('/[\r\n\x00-\x1F\x7F]+/', ' ', $v);
+        return substr(trim($v), 0, 255);
     }
 
     private static function expandTokens(string $str, array $canonical, array $meta): string

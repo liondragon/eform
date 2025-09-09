@@ -224,4 +224,26 @@ class TemplateValidatorTest extends TestCase
         $this->assertNotContains(TemplateValidator::EFORMS_ERR_SCHEMA_UNKNOWN_KEY, $codes);
         $this->assertTrue($res['ok']);
     }
+
+    public function testIncludeFieldsValidation(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['email']['include_fields'] = ['name','email','ip','bogus',123];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('email.include_fields[3]', $paths);
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+        $this->assertContains('email.include_fields[4]', $paths);
+        $this->assertSame(['name','email','ip'], $res['context']['email']['include_fields']);
+
+        $tpl = $this->baseTpl();
+        $tpl['email']['include_fields'] = 'name';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+        $this->assertContains('email.include_fields', $paths);
+    }
 }
