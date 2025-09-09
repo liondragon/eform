@@ -131,7 +131,22 @@ class Renderer
             }
             $key = $f['key'];
             $id = self::makeId($formId, $key, $instanceId);
-            $label = $f['label'] ?? ucwords(str_replace(['_','-'], ' ', $key));
+            $labelHidden = false;
+            if (array_key_exists('label', $f)) {
+                if ($f['label'] === null) {
+                    $labelHidden = true;
+                    $label = ucwords(str_replace(['_','-'], ' ', $key));
+                } else {
+                    $label = $f['label'];
+                }
+            } else {
+                $label = ucwords(str_replace(['_','-'], ' ', $key));
+            }
+            $labelAttr = $labelHidden ? ' class="visually-hidden"' : '';
+            $labelHtml = \esc_html($label);
+            if (!empty($f['required'])) {
+                $labelHtml .= '<span class="required">*</span>';
+            }
             $value = $values[$key] ?? '';
             $fieldErrors = $errors[$key] ?? [];
             $errId = 'error-' . $id;
@@ -144,7 +159,7 @@ class Renderer
             $html .= $before;
             switch ($type) {
                 case 'textarea':
-                    $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
                     $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
                     $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '"';
                     if (!empty($f['required'])) $html .= ' required';
@@ -154,7 +169,7 @@ class Renderer
                     $html .= $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
                     break;
                 case 'textarea_html':
-                    $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
                     $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
                     $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '"';
                     if (!empty($f['required'])) $html .= ' required';
@@ -164,7 +179,7 @@ class Renderer
                     $html .= $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
                     break;
                 case 'select':
-                    $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
                     $multiple = !empty($f['multiple']);
                     $nameAttr = $formId . '[' . $key . ']' . ($multiple ? '[]' : '');
                     $vals = $multiple && is_array($value) ? $value : (string)$value;
@@ -191,7 +206,7 @@ class Renderer
                     $html .= '<fieldset id="' . \esc_attr($id) . '"';
                     if (!empty($f['required'])) $html .= ' required';
                     if ($fieldErrors) $html .= ' aria-describedby="' . \esc_attr($errId) . '" aria-invalid="true"';
-                    $html .= '><legend>' . \esc_html($label) . '</legend>';
+                    $html .= '><legend' . $labelAttr . '>' . $labelHtml . '</legend>';
                     $vals = $type === 'checkbox' ? (array)$value : $value;
                     foreach ($f['options'] ?? [] as $opt) {
                         $idOpt = self::makeId($formId, $key . '-' . $opt['key'], $instanceId);
@@ -211,7 +226,7 @@ class Renderer
                 case 'file':
                 case 'files':
                     $nameAttr = $formId . '[' . $key . ']' . ($type === 'files' ? '[]' : '');
-                    $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
                     $html .= '<input type="file" id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"';
                     if ($type === 'files') $html .= ' multiple';
                     if (!empty($f['required'])) $html .= ' required';
@@ -238,7 +253,7 @@ class Renderer
                         $inputType = 'text';
                         $extra .= ' inputmode="numeric" pattern="\d{5}" maxlength="5"';
                     }
-                    $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
                     $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
                     $html .= '<input type="' . \esc_attr($inputType) . '" id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '" value="' . \esc_attr((string)$value) . '"';
                     if (!empty($f['required'])) $html .= ' required';
