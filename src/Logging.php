@@ -42,12 +42,31 @@ class Logging
         }
     }
 
-    private static function logLine(string $line): void
+    /**
+     * Write a line of data to the log file.
+     *
+     * Accepts either a pre-formatted string or an array which will be encoded
+     * using WordPress' JSON encoder. If encoding fails, falls back to PHP's
+     * json_encode and ultimately writes an empty line if both fail.
+     */
+    private static function logLine(array|string $line): void
     {
         self::init();
         $max = (int) Config::get('logging.file_max_size', 5000000);
         $ret = (int) Config::get('logging.retention_days', 30);
         self::rotate(self::$file, $max, $ret);
+
+        if (is_array($line)) {
+            $json = \wp_json_encode($line, JSON_UNESCAPED_SLASHES);
+            if ($json === false) {
+                $json = json_encode($line, JSON_UNESCAPED_SLASHES);
+            }
+            $line = ($json === false) ? '' : $json;
+            if ($line !== '') {
+                $line .= "\n";
+            }
+        }
+
         file_put_contents(self::$file, $line, FILE_APPEND | LOCK_EX);
     }
 
@@ -107,7 +126,7 @@ class Logging
                 $data['headers'] = $headers;
             }
         }
-        self::logLine(json_encode($data, JSON_UNESCAPED_SLASHES) . "\n");
+        self::logLine($data);
         if (Config::get('logging.fail2ban.enable', false)) {
             self::emitFail2ban($code, $ctx);
         }
