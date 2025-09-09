@@ -134,7 +134,7 @@ class Logging
 
     private static function emitFail2ban(string $code, array $ctx): void
     {
-        $ip = $ctx['ip'] ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+        $ip = $ctx['ip'] ?? Helpers::client_ip();
         $form = $ctx['form_id'] ?? '';
         $line = sprintf(
             'eforms-fail2ban ts=%d code=%s ip=%s form=%s',

@@ -69,4 +69,32 @@ class Helpers
         }
         return $ua;
     }
+
+    public static function client_ip(): string
+    {
+        $remote = $_SERVER['REMOTE_ADDR'] ?? '';
+        $header = (string) Config::get('privacy.client_ip_header', '');
+        $proxies = (array) Config::get('privacy.trusted_proxies', []);
+        if ($header !== '' && in_array($remote, $proxies, true)) {
+            $key = 'HTTP_' . strtoupper(str_replace('-', '_', $header));
+            $val = $_SERVER[$key] ?? '';
+            if ($val !== '') {
+                $parts = explode(',', $val);
+                foreach ($parts as $p) {
+                    $t = trim($p);
+                    if ($t === '') continue;
+                    if ($t[0] === '[') {
+                        $end = strpos($t, ']');
+                        $t = $end !== false ? substr($t, 1, $end - 1) : $t;
+                    }
+                    $t = preg_replace('/:\d+$/', '', $t);
+                    $ip = filter_var($t, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+                    if ($ip !== false) {
+                        return $ip;
+                    }
+                }
+            }
+        }
+        return $remote;
+    }
 }

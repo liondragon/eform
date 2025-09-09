@@ -164,8 +164,9 @@ function is_wp_error($v) { return false; }
 
 function wp_register_style($handle, $src, $deps = [], $ver = false, $args = []) {}
 function wp_register_script($handle, $src, $deps = [], $ver = false, $in_footer = []) {}
+$GLOBALS['wp_enqueued_scripts'] = [];
 function wp_enqueue_style($handle) {}
-function wp_enqueue_script($handle) {}
+function wp_enqueue_script($handle) { $GLOBALS['wp_enqueued_scripts'][] = $handle; }
 
 // Ensure uploads subdirs exist
 @mkdir(__DIR__ . '/tmp/uploads/eforms-private', 0777, true);

@@ -197,7 +197,7 @@ class TemplateValidator
                 }
                 $global = Config::get('uploads.allowed_tokens', ['image','pdf']);
                 $intersection = array_intersect($accept, $global);
-                if ($accept && empty($intersection)) {
+                if (empty($accept) || empty($intersection)) {
                     $errors[] = ['code'=>self::EFORMS_ERR_ACCEPT_EMPTY,'path'=>$path.'accept'];
                 }
                 if (isset($f['email_attach']) && !is_bool($f['email_attach'])) {

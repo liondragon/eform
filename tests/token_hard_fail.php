@@ -1,16 +1,13 @@
 <?php
 declare(strict_types=1);
-putenv('EFORMS_COOKIE_MISSING_POLICY=challenge');
-putenv('EFORMS_CHALLENGE_MODE=auto');
-putenv('EFORMS_CHALLENGE_PROVIDER=turnstile');
-putenv('EFORMS_TURNSTILE_SITE_KEY=site');
-putenv('EFORMS_TURNSTILE_SECRET_KEY=secret');
+putenv('EFORMS_COOKIE_MISSING_POLICY=hard');
+putenv('EFORMS_LOG_LEVEL=1');
 require __DIR__ . '/bootstrap.php';
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
 $_POST = [
     'form_id' => 'contact_us',
-    'instance_id' => 'instCHFAIL',
+    'instance_id' => 'instTOKH1',
     'timestamp' => time(),
     'eforms_hp' => '',
     'contact_us' => [
@@ -18,7 +15,6 @@ $_POST = [
         'email' => 'zed@example.com',
         'message' => 'Ping',
     ],
-    'cf-turnstile-response' => 'fail',
     'js_ok' => '1',
 ];
 $fm = new \EForms\FormManager();

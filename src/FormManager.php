@@ -45,10 +45,13 @@ class FormManager
             'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
         ];
         $challengeMode = Config::get('challenge.mode', 'off');
-        if ($challengeMode === 'always') {
+        $cookiePolicy = Config::get('security.cookie_missing_policy', 'soft');
+        if ($challengeMode !== 'off' || $cookiePolicy === 'challenge') {
             $prov = Config::get('challenge.provider', 'turnstile');
-            $site = Config::get('challenge.' . $prov . '.site_key', '');
-            $meta['challenge'] = ['provider' => $prov, 'site_key' => $site];
+            if ($challengeMode === 'always') {
+                $site = Config::get('challenge.' . $prov . '.site_key', '');
+                $meta['challenge'] = ['provider' => $prov, 'site_key' => $site];
+            }
             Challenge::enqueueScript($prov);
         }
         $this->enqueueAssetsIfNeeded();
@@ -123,6 +126,11 @@ class FormManager
             $_COOKIE[$cookieName] = $newToken;
         }
         if ($tokenInfo['hard_fail']) {
+            Logging::write('warn', 'EFORMS_ERR_TOKEN', [
+                'form_id' => $formId,
+                'instance_id' => $_POST['instance_id'] ?? '',
+                'ip' => Helpers::client_ip(),
+            ]);
             $this->renderErrorAndExit($tpl, $formId, 'This form was already submitted or has expired – please reload the page.');
         }
         $softFailCount += $tokenInfo['soft_signal'];
@@ -209,7 +217,7 @@ class FormManager
         }
         $throttleState = 'ok';
         if (Config::get('throttle.enable', false)) {
-            $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+            $ip = Helpers::client_ip();
             $thr = Throttle::check($ip);
             $throttleState = $thr['state'] ?? 'ok';
             if ($throttleState !== 'ok') {
@@ -311,7 +319,7 @@ class FormManager
             'form_id' => $formId,
             'instance_id' => $_POST['instance_id'] ?? '',
             'submitted_at' => \gmdate('c'),
-            'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            'ip' => Helpers::client_ip(),
         ];
         $email = Emailer::send($tpl, $canonical, $metaInfo, $softFailCount);
         if (($email['ok'] ?? false) && !empty($canonical['_uploads']) && Config::get('uploads.delete_after_send', true)) {
