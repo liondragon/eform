@@ -19,6 +19,7 @@ $_POST = [
         'message' => 'Ping',
     ],
     'cf-turnstile-response' => 'pass',
+    'js_ok' => '1',
 ];
 $fm = new \EForms\FormManager();
 $fm->handleSubmit();

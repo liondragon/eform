@@ -215,6 +215,9 @@ class Uploads
                 if ($mime === $m && in_array($ext, $exts, true)) {
                     return true;
                 }
+                if ($mime === 'application/octet-stream' && in_array($ext, $exts, true)) {
+                    return true;
+                }
             }
         }
         return false;
