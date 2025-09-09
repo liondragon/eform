@@ -182,6 +182,9 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_LOG_LEVEL')) {
         $defaults['logging']['level'] = (int) getenv('EFORMS_LOG_LEVEL');
     }
+    if (getenv('EFORMS_LOG_HEADERS')) {
+        $defaults['logging']['headers'] = (getenv('EFORMS_LOG_HEADERS') === '1');
+    }
     if (getenv('EFORMS_UPLOAD_MAX_FILE_BYTES')) {
         $defaults['uploads']['max_file_bytes'] = (int) getenv('EFORMS_UPLOAD_MAX_FILE_BYTES');
     }

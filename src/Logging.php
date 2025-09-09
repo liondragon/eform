@@ -90,7 +90,10 @@ class Logging
         if (Config::get('logging.headers', false)) {
             $headers = [];
             if (!empty($_SERVER['HTTP_USER_AGENT'])) {
-                $headers['user_agent'] = $_SERVER['HTTP_USER_AGENT'];
+                $ua = Helpers::sanitize_user_agent((string) $_SERVER['HTTP_USER_AGENT']);
+                if ($ua !== '') {
+                    $headers['user_agent'] = $ua;
+                }
             }
             $origin = $_SERVER['HTTP_ORIGIN'] ?? ($_SERVER['HTTP_REFERER'] ?? '');
             if ($origin !== '') {

@@ -59,4 +59,14 @@ class Helpers
         $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
+
+    public static function sanitize_user_agent(string $ua): string
+    {
+        $ua = preg_replace('/[^\x20-\x7E]/', '', $ua) ?? '';
+        $max = (int) Config::get('security.ua_maxlen', 256);
+        if ($max > 0 && strlen($ua) > $max) {
+            $ua = substr($ua, 0, $max);
+        }
+        return $ua;
+    }
 }
