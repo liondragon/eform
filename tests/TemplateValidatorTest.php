@@ -160,4 +160,36 @@ class TemplateValidatorTest extends TestCase
         $codes = array_column($res['errors'], 'code');
         $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
     }
+
+    public function testAutocompleteInvalid(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['autocomplete'] = 'not-a-token';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('fields[0].autocomplete', $paths);
+        $this->assertNull($res['context']['fields'][0]['autocomplete']);
+    }
+
+    public function testSizeValidation(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['size'] = 'big';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+        $this->assertContains('fields[0].size', $paths);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['size'] = 0;
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('fields[0].size', $paths);
+        $this->assertNull($res['context']['fields'][0]['size']);
+    }
 }
