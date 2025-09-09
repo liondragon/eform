@@ -63,6 +63,20 @@ class Config
         $cfg['logging']['on_failure_canonical'] = (bool)$cfg['logging']['on_failure_canonical'];
         $cfg['logging']['file_max_size'] = self::clampInt($cfg['logging']['file_max_size'], 0, PHP_INT_MAX);
         $cfg['logging']['retention_days'] = self::clampInt($cfg['logging']['retention_days'], 1, 365);
+        $f2b =& $cfg['logging']['fail2ban'];
+        $f2b['enable'] = (bool)($f2b['enable'] ?? false);
+        $f2b['target'] = in_array($f2b['target'], ['error_log','syslog','file'], true) ? $f2b['target'] : 'error_log';
+        $f2b['file'] = is_string($f2b['file']) ? $f2b['file'] : null;
+        $f2b['file_max_size'] = self::clampInt(
+            $f2b['file_max_size'] ?? $cfg['logging']['file_max_size'],
+            0,
+            PHP_INT_MAX
+        );
+        $f2b['retention_days'] = self::clampInt(
+            $f2b['retention_days'] ?? $cfg['logging']['retention_days'],
+            1,
+            365
+        );
 
         // throttle
         $cfg['throttle']['enable'] = (bool)($cfg['throttle']['enable'] ?? false);
