@@ -59,6 +59,18 @@ namespace {
 
     Config::bootstrap();
 
+    // If the request includes any eforms_* query args, ensure responses are not cached.
+    foreach (array_keys($_GET) as $key) {
+        if (str_starts_with($key, 'eforms_')) {
+            \nocache_headers();
+            header('Cache-Control: private, no-store, max-age=0');
+            if (function_exists('eforms_header')) {
+                eforms_header('Cache-Control: private, no-store, max-age=0');
+            }
+            break;
+        }
+    }
+
     /**
      * Rewrite rules + query vars for /eforms/prime and /eforms/submit.
      */
@@ -108,7 +120,10 @@ namespace {
             setcookie($cookie, $value, $params);
             // No-store 204
             \nocache_headers();
-            header('Cache-Control: no-store, max-age=0');
+            header('Cache-Control: private, no-store, max-age=0');
+            if (function_exists('eforms_header')) {
+                eforms_header('Cache-Control: private, no-store, max-age=0');
+            }
             status_header(204);
             exit;
         }

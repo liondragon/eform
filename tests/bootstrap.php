@@ -14,13 +14,16 @@ $TEST_ARTIFACTS = [
     'redirect_file' => __DIR__ . '/tmp/redirect.txt',
     'mail_file' => __DIR__ . '/tmp/mail.json',
     'log_file' => __DIR__ . '/tmp/php_error.log',
+    'headers_file' => __DIR__ . '/tmp/headers.txt',
 ];
 @mkdir($TEST_ARTIFACTS['dir'], 0777, true);
 @file_put_contents($TEST_ARTIFACTS['status_file'], '');
 @file_put_contents($TEST_ARTIFACTS['redirect_file'], '');
 @file_put_contents($TEST_ARTIFACTS['mail_file'], '[]');
 @file_put_contents($TEST_ARTIFACTS['log_file'], '');
+@file_put_contents($TEST_ARTIFACTS['headers_file'], '');
 ini_set('error_log', $TEST_ARTIFACTS['log_file']);
+
 
 // Simulate WP env
 $GLOBALS['wp_version'] = '6.5.0';
@@ -106,6 +109,10 @@ function status_header($code) {
     file_put_contents($TEST_ARTIFACTS['status_file'], (string)$code);
 }
 function nocache_headers() {}
+function eforms_header(string $h): void {
+    global $TEST_ARTIFACTS;
+    file_put_contents($TEST_ARTIFACTS['headers_file'], $h . "\n", FILE_APPEND);
+}
 function wp_get_referer() { return $_SERVER['HTTP_REFERER'] ?? null; }
 function plugins_url($path = '', $plugin_file = '') {
     return 'http://hub.local/wp-content/plugins/eform/' . ltrim((string)$path, '/');

@@ -15,6 +15,7 @@ function run_test() {
   echo "[TEST] $name"
   rm -rf tmp && mkdir -p tmp/uploads/eforms-private
   touch tmp/uploads/eforms-private/eforms.log
+  : > tmp/headers.txt
   set +e
   $PHP "$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
   local code=$?
@@ -27,6 +28,7 @@ function run_test_keep() {
   echo "[TEST] $name (keep tmp)"
   mkdir -p tmp/uploads/eforms-private
   touch tmp/uploads/eforms-private/eforms.log
+  : > tmp/headers.txt
   set +e
   $PHP "$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
   local code=$?
@@ -88,6 +90,7 @@ ok=0
 assert_grep tmp/redirect.txt '"status":303' || ok=1
 assert_grep tmp/redirect.txt '\\?eforms_success=contact_us' || ok=1
 assert_grep tmp/mail.json 'alice@example.com' || ok=1
+assert_grep tmp/headers.txt 'Cache-Control: private, no-store, max-age=0' || ok=1
 record_result "origin policy soft: not blocked" $ok
 
 # 2) Origin hard: block cross origin
@@ -196,6 +199,7 @@ record_result "ledger reserve: duplicate token" $ok
 run_test test_success_inline
 ok=0
 assert_grep tmp/out_success_inline.html 'Thanks! We got your message\.' || ok=1
+assert_grep tmp/headers.txt 'Cache-Control: private, no-store, max-age=0' || ok=1
 record_result "success inline: shows message" $ok
 
 # 7) Minimal email: subject/to/body
@@ -255,6 +259,17 @@ assert_grep tmp/stdout.txt 'Security check failed\.' || ok=1
 ! assert_grep tmp/mail.json 'alice@example.com.*alice@example.com' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"state":"hard"' || ok=1
 record_result "throttle: hard over-limit" $ok
+
+# 11) Cache-Control headers for render()
+run_test test_render_cacheable
+ok=0
+! assert_grep tmp/headers.txt 'Cache-Control: private, no-store, max-age=0' || ok=1
+record_result "render cacheable: no cache-control" $ok
+
+run_test test_render_nocache
+ok=0
+assert_grep tmp/headers.txt 'Cache-Control: private, no-store, max-age=0' || ok=1
+record_result "render non-cacheable: cache-control set" $ok
 
 echo
 echo "Summary: $pass passed, $fail failed"

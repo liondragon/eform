@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
-require __DIR__ . '/bootstrap.php';
-
 // Simulate that a success cookie is present and renderer should show success message
 $_GET['eforms_success'] = 'contact_us';
 $_COOKIE['eforms_s_contact_us'] = 'contact_us:instOK';
+
+require __DIR__ . '/bootstrap.php';
 
 $fm = new \EForms\FormManager();
 $html = $fm->render('contact_us');
