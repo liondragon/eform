@@ -58,11 +58,6 @@ class Emailer
         }
         $sender = Config::get('email.envelope_sender', '');
         $sender = is_string($sender) ? self::sanitizeHeader($sender) : '';
-        $hook = null;
-        if ($sender !== '') {
-            $hook = function ($phpmailer) use ($sender) { $phpmailer->Sender = $sender; };
-            add_action('phpmailer_init', $hook);
-        }
         $disableSend = (bool) Config::get('email.disable_send', false);
         $redirect = Config::get('email.staging_redirect_to');
         if ($disableSend || $redirect) {
@@ -85,19 +80,59 @@ class Emailer
             $headers[] = 'X-EForms-Original-To: ' . $origTo;
         }
         if ($disableSend) {
-            if ($hook) {
-                remove_action('phpmailer_init', $hook);
-            }
             return ['ok' => true];
         }
-        $ok = \wp_mail($to, $subject, $body, $headers, $attachments);
-        if ($hook) {
+
+        $smtp = Config::get('email.smtp', []);
+        $timeout = (int) ($smtp['timeout_seconds'] ?? 10);
+        $maxRetries = (int) ($smtp['max_retries'] ?? 2);
+        $backoff = (int) ($smtp['retry_backoff_seconds'] ?? 2);
+
+        $dkimCfg = Config::get('email.dkim', []);
+        $dkimDomain = trim((string) ($dkimCfg['domain'] ?? ''));
+        $dkimSelector = trim((string) ($dkimCfg['selector'] ?? ''));
+        $dkimKeyPath = trim((string) ($dkimCfg['private_key_path'] ?? ''));
+        $dkimPass = (string) ($dkimCfg['pass_phrase'] ?? '');
+        $dkimEnabled = false;
+        if ($dkimDomain !== '' || $dkimSelector !== '' || $dkimKeyPath !== '' || $dkimPass !== '') {
+            if ($dkimDomain !== '' && $dkimSelector !== '' && $dkimKeyPath !== '' && is_readable($dkimKeyPath)) {
+                $dkimEnabled = true;
+            } else {
+                Logging::write('warn', 'EFORMS_DKIM_INVALID', [
+                    'form_id' => $meta['form_id'] ?? '',
+                    'instance_id' => $meta['instance_id'] ?? '',
+                ]);
+            }
+        }
+
+        $attempts = $maxRetries + 1;
+        $ok = false;
+        for ($i = 0; $i < $attempts && !$ok; $i++) {
+            $hook = function ($phpmailer) use ($sender, $timeout, $dkimEnabled, $dkimDomain, $dkimSelector, $dkimKeyPath, $dkimPass) {
+                if ($sender !== '') {
+                    $phpmailer->Sender = $sender;
+                }
+                $phpmailer->Timeout = $timeout;
+                $phpmailer->SMTPTimeout = $timeout;
+                if ($dkimEnabled) {
+                    $phpmailer->DKIM_domain = $dkimDomain;
+                    $phpmailer->DKIM_selector = $dkimSelector;
+                    $phpmailer->DKIM_private = $dkimKeyPath;
+                    $phpmailer->DKIM_passphrase = $dkimPass;
+                    $phpmailer->DKIM_identity = $phpmailer->From;
+                }
+            };
+            add_action('phpmailer_init', $hook);
+            $ok = \wp_mail($to, $subject, $body, $headers, $attachments);
             remove_action('phpmailer_init', $hook);
+            if (!$ok && $i < $attempts - 1 && $backoff > 0) {
+                sleep($backoff);
+            }
         }
         if ($ok) {
-            return ['ok'=>true];
+            return ['ok' => true];
         }
-        return ['ok'=>false,'msg'=>'send_fail'];
+        return ['ok' => false, 'msg' => 'send_fail'];
     }
 
     private static function renderBody(array $tpl, array $canonical, array $meta, bool $html): string

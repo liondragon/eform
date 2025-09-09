@@ -45,6 +45,15 @@ function do_action($hook, ...$args) {
         }
     }
 }
+function remove_action($hook, $callable, $priority = 10) {
+    global $TEST_HOOKS;
+    if (!isset($TEST_HOOKS[$hook][$priority])) return;
+    foreach ($TEST_HOOKS[$hook][$priority] as $i => $cb) {
+        if ($cb === $callable) {
+            unset($TEST_HOOKS[$hook][$priority][$i]);
+        }
+    }
+}
 function add_filter($hook, $callable, $priority = 10, $args = 1) {
     global $TEST_FILTERS;
     $TEST_FILTERS[$hook][$priority][] = $callable;
@@ -127,6 +136,9 @@ function wp_http_validate_url($url) { return filter_var((string)$url, FILTER_VAL
 function wp_generate_uuid4() { return bin2hex(random_bytes(16)); }
 function wp_mail($to, $subject, $message, $headers = [], $attachments = []) {
     global $TEST_ARTIFACTS;
+    $mailer = new \stdClass();
+    $mailer->From = '';
+    do_action('phpmailer_init', $mailer);
     $list = json_decode((string)file_get_contents($TEST_ARTIFACTS['mail_file']), true) ?: [];
     $list[] = [
         'to' => $to,
@@ -251,6 +263,27 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_EMAIL_STAGING_REDIRECT_TO')) {
         $val = getenv('EFORMS_EMAIL_STAGING_REDIRECT_TO');
         $defaults['email']['staging_redirect_to'] = str_contains($val, ',') ? array_map('trim', explode(',', $val)) : $val;
+    }
+    if (getenv('EFORMS_EMAIL_SMTP_TIMEOUT_SECONDS')) {
+        $defaults['email']['smtp']['timeout_seconds'] = (int) getenv('EFORMS_EMAIL_SMTP_TIMEOUT_SECONDS');
+    }
+    if (getenv('EFORMS_EMAIL_SMTP_MAX_RETRIES')) {
+        $defaults['email']['smtp']['max_retries'] = (int) getenv('EFORMS_EMAIL_SMTP_MAX_RETRIES');
+    }
+    if (getenv('EFORMS_EMAIL_SMTP_RETRY_BACKOFF_SECONDS')) {
+        $defaults['email']['smtp']['retry_backoff_seconds'] = (int) getenv('EFORMS_EMAIL_SMTP_RETRY_BACKOFF_SECONDS');
+    }
+    if (getenv('EFORMS_EMAIL_DKIM_DOMAIN')) {
+        $defaults['email']['dkim']['domain'] = getenv('EFORMS_EMAIL_DKIM_DOMAIN');
+    }
+    if (getenv('EFORMS_EMAIL_DKIM_SELECTOR')) {
+        $defaults['email']['dkim']['selector'] = getenv('EFORMS_EMAIL_DKIM_SELECTOR');
+    }
+    if (getenv('EFORMS_EMAIL_DKIM_PRIVATE_KEY_PATH')) {
+        $defaults['email']['dkim']['private_key_path'] = getenv('EFORMS_EMAIL_DKIM_PRIVATE_KEY_PATH');
+    }
+    if (getenv('EFORMS_EMAIL_DKIM_PASS_PHRASE')) {
+        $defaults['email']['dkim']['pass_phrase'] = getenv('EFORMS_EMAIL_DKIM_PASS_PHRASE');
     }
     return $defaults;
 });
