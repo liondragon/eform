@@ -8,11 +8,11 @@ class FormManager
     public function render(string $formId, array $opts = []): string
     {
         $formId = \sanitize_key($formId);
-        $tpl = $this->loadTemplateById($formId);
-        if (!$tpl) {
+        $tplInfo = $this->loadTemplateById($formId);
+        if (!$tplInfo) {
             return '<div class="eforms-error">Form configuration error.</div>';
         }
-        $pre = TemplateValidator::preflight($tpl);
+        $pre = TemplateValidator::preflight($tplInfo['tpl'], $tplInfo['path']);
         if (!$pre['ok']) {
             return '<div class="eforms-error">Form configuration error.</div>';
         }
@@ -83,14 +83,15 @@ class FormManager
             exit;
         }
         $formId = \sanitize_key($_POST['form_id'] ?? '');
-        $tpl = $this->loadTemplateById($formId);
-        if (!$tpl) {
+        $tplInfo = $this->loadTemplateById($formId);
+        if (!$tplInfo) {
             $this->renderErrorAndExit(['id'=>$formId,'title'=>''], $formId, 'Form configuration error.');
         }
-        $pre = TemplateValidator::preflight($tpl);
+        $pre = TemplateValidator::preflight($tplInfo['tpl'], $tplInfo['path']);
         if (!$pre['ok']) {
-            $this->renderErrorAndExit($tpl, $formId, 'Form configuration error.');
+            $this->renderErrorAndExit($tplInfo['tpl'], $formId, 'Form configuration error.');
         }
+        $tpl = $tplInfo['tpl'];
         if (Uploads::enabled()) {
             Uploads::gc();
         }
@@ -369,6 +370,9 @@ class FormManager
         $this->successAndRedirect($tpl, $formId, $metaInfo['instance_id']);
     }
 
+    /**
+     * @return array{tpl:array,path:string}|null
+     */
     private function loadTemplateById(string $formId): ?array
     {
         if ($formId === '') return null;
@@ -380,7 +384,7 @@ class FormManager
             }
             $json = json_decode((string) file_get_contents($file), true);
             if (is_array($json) && ($json['id'] ?? '') === $formId) {
-                return $json;
+                return ['tpl' => $json, 'path' => $file];
             }
         }
         return null;
