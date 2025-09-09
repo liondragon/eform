@@ -87,7 +87,7 @@ electronic_forms - Spec
 5. TEMPLATE MODEL
 	1. Field Generation and Namespacing
 		- Template field keys may include:
-			- key (slug), type, label?, placeholder?, required (bool), size (1-100; text-like only), autocomplete?, options (for radios/checkboxes/select), class?, max_length?, before_html?, after_html?
+                        - key (slug), type, label?, placeholder?, required (bool), size (1-100; text-like only), autocomplete?, options (for radios/checkboxes/select), class?, max_length?, min?, max?, step?, pattern?, before_html?, after_html?
 		- key (slug): required; must match ^[a-z0-9_:-]{1,64}$ (lowercase); [] prohibited to prevent PHP array collisions; reserved keys remain disallowed.
 		- autocomplete: exactly one token is allowed. The literal "on"/"off" are accepted as-is. All other values must match the WHATWG tokens (e.g., name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
 		- size: 1-100; ignored for non-text types.
@@ -103,7 +103,7 @@ electronic_forms - Spec
 			- Attributes: class for all listed elements; for <a> allow href and class only.
 			- Allowed URL schemes for <a href> are restricted to http, https, and mailto (pass ['http','https','mailto'] as the third wp_kses() arg).
 			- No inline styles. May not cross row_group boundaries.
-		- For type=file/files fields, optional properties are supported: accept[], max_file_bytes, max_files (files only), and email_attach (bool).
+                - For type=file/files fields, optional properties are supported: accept[], max_file_bytes, max_files (files only), and email_attach (bool). max_file_bytes and max_files override the global upload limits for that field.
 		- Attribute emission list (summary): maxlength, min, max, step, minlength, pattern, inputmode, multiple, and accept are emitted when applicable from the template/registry traits.
 		- Client-side attribute mirroring (UX hints only): the Renderer mirrors server limits as HTML attributes - max_length -> maxlength, min/max/step for numeric/date types, and min_length -> minlength (when present in a future template). These attributes never relax server rules; server validation remains authoritative.
 		- Typing/editing aids: the Renderer emits inputmode, pattern (hints only), and editing helpers per field type (see 11).
