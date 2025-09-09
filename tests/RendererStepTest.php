@@ -4,6 +4,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 use EForms\Config;
 use EForms\Renderer;
+use EForms\TemplateValidator;
 
 final class RendererStepTest extends TestCase
 {
@@ -43,6 +44,7 @@ final class RendererStepTest extends TestCase
             'hidden_token' => null,
             'enctype' => 'application/x-www-form-urlencoded',
         ];
+        $tpl = TemplateValidator::preflight($tpl)['context'];
         $html = Renderer::form($tpl, $meta, [], []);
         $this->assertStringContainsString('step="5"', $html);
     }

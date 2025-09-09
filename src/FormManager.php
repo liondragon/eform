@@ -123,7 +123,7 @@ class FormManager
             $_COOKIE[$cookieName] = $newToken;
         }
         if ($tokenInfo['hard_fail']) {
-            $this->renderErrorAndExit($tpl, $formId, 'Security token error.');
+            $this->renderErrorAndExit($tpl, $formId, 'This form was already submitted or has expired – please reload the page.');
         }
         $softFailCount += $tokenInfo['soft_signal'];
         $ua = Helpers::sanitize_user_agent($_SERVER['HTTP_USER_AGENT'] ?? '');

@@ -49,7 +49,7 @@ class TemplateValidator
         self::checkUnknown($tpl, $rootAllowed, '', $errors);
 
         // Required + type
-        $reqRoot = ['id'=>'string','version'=>null,'success'=>'array','email'=>'array','fields'=>'array','submit_button_text'=>'string'];
+        $reqRoot = ['id'=>'string','version'=>null,'title'=>'string','success'=>'array','email'=>'array','fields'=>'array','submit_button_text'=>'string'];
         foreach ($reqRoot as $k => $type) {
             if (!array_key_exists($k, $tpl)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$k];
@@ -102,6 +102,7 @@ class TemplateValidator
         $rowStack = 0;
         $hasUploads = false;
         $normFields = [];
+        $realFieldCount = 0;
         $reserved = ['form_id','instance_id','eforms_token','eforms_hp','timestamp','js_ok','ip','submitted_at'];
         $allowedTypes = ['name','email','textarea','textarea_html','tel_us','zip_us','select','radio','checkbox','file','files','row_group'];
         foreach ($fields as $idx => $f) {
@@ -305,6 +306,7 @@ class TemplateValidator
                 'max_files' => isset($f['max_files']) && is_int($f['max_files']) ? $f['max_files'] : null,
                 'step' => (is_numeric($stepVal) && $stepVal > 0) ? $stepVal + 0 : null,
             ];
+            $realFieldCount++;
         }
         if ($rowStack !== 0) {
             $errors[] = ['code'=>self::EFORMS_ERR_ROW_GROUP_UNBALANCED,'path'=>'fields'];
@@ -329,11 +331,12 @@ class TemplateValidator
             'descriptors' => self::buildDescriptors($normFields),
             'version' => $tpl['version'] ?? '',
             'id' => $tpl['id'] ?? '',
+            'title' => $tpl['title'] ?? '',
             'email' => $email,
             'success' => $success,
             'rules' => $rules,
             'fields' => $normFields,
-            'max_input_vars_estimate' => count($normFields) * 3,
+            'max_input_vars_estimate' => $realFieldCount * 3,
         ];
 
         return ['ok'=>empty($errors), 'errors'=>$errors, 'context'=>$ctx];

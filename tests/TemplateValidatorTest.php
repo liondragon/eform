@@ -27,6 +27,15 @@ class TemplateValidatorTest extends TestCase
         $this->assertTrue($res['ok']);
     }
 
+    public function testTitleIsRequired(): void
+    {
+        $tpl = $this->baseTpl();
+        unset($tpl['title']);
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_REQUIRED, $codes);
+    }
+
     public function testUnknownRootKey(): void
     {
         $tpl = $this->baseTpl();
@@ -103,6 +112,17 @@ class TemplateValidatorTest extends TestCase
         $res = TemplateValidator::preflight($tpl);
         $codes = array_column($res['errors'], 'code');
         $this->assertContains(TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, $codes);
+    }
+
+    public function testRowGroupNotCountedForInputEstimate(): void
+    {
+        $tpl = $this->baseTpl();
+        array_unshift($tpl['fields'], ['type' => 'row_group', 'mode' => 'start', 'tag' => 'div']);
+        $tpl['fields'][] = ['type' => 'row_group', 'mode' => 'end', 'tag' => 'div'];
+        $res = TemplateValidator::preflight($tpl);
+        $this->assertTrue($res['ok']);
+        $this->assertSame(6, $res['context']['max_input_vars_estimate']);
+        $this->assertCount(4, $res['context']['fields']);
     }
 
     public function testUnknownValidationRule(): void
