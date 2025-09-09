@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 putenv('EFORMS_LOG_LEVEL=1');
+putenv('EFORMS_JS_HARD_MODE=0');
 require __DIR__ . '/bootstrap.php';
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
