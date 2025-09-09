@@ -38,9 +38,10 @@ class TemplateValidator
      * Perform structural validation and return context.
      *
      * @param array $tpl
+     * @param string|null $srcPath
      * @return array{ok:bool,errors:array<int,array{code:string,path:string}>,context?:array}
      */
-    public static function preflight(array $tpl): array
+    public static function preflight(array $tpl, ?string $srcPath = null): array
     {
         $errors = [];
 
@@ -350,10 +351,14 @@ class TemplateValidator
             }
         }
 
+        $version = $tpl['version'] ?? '';
+        if ($version === '' && $srcPath && is_file($srcPath)) {
+            $version = (string) (@filemtime($srcPath) ?: '');
+        }
         $ctx = [
             'has_uploads' => $hasUploads,
             'descriptors' => self::buildDescriptors($normFields),
-            'version' => $tpl['version'] ?? '',
+            'version' => $version,
             'id' => $tpl['id'] ?? '',
             'title' => $tpl['title'] ?? '',
             'email' => $email,

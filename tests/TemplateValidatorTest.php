@@ -255,4 +255,16 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
         $this->assertContains('email.include_fields', $paths);
     }
+
+    public function testEmptyVersionReplacedWithMtime(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['version'] = '';
+        $tmp = tempnam(sys_get_temp_dir(), 'tpl');
+        touch($tmp, 123);
+        $res = TemplateValidator::preflight($tpl, $tmp);
+        $this->assertTrue($res['ok']);
+        $this->assertSame('123', $res['context']['version']);
+        unlink($tmp);
+    }
 }
