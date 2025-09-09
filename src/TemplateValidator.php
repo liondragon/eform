@@ -45,6 +45,9 @@ class TemplateValidator
     {
         $errors = [];
 
+        $maxFields = Config::get('validation.max_fields_per_form', 150);
+        $maxOptions = Config::get('validation.max_options_per_group', 100);
+
         // Root unknown keys
         $rootAllowed = ['id','version','title','success','email','fields','submit_button_text','rules'];
         self::checkUnknown($tpl, $rootAllowed, '', $errors);
@@ -172,6 +175,9 @@ class TemplateValidator
                 if (!is_array($f['options'])) {
                     $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'options'];
                 } else {
+                    if (count($f['options']) > $maxOptions) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'options'];
+                    }
                     $optSeen = [];
                     foreach ($f['options'] as $oIdx => $opt) {
                         $opath = $path.'options['.$oIdx.'].';
@@ -311,6 +317,10 @@ class TemplateValidator
         }
         if ($rowStack !== 0) {
             $errors[] = ['code'=>self::EFORMS_ERR_ROW_GROUP_UNBALANCED,'path'=>'fields'];
+        }
+
+        if ($realFieldCount > $maxFields) {
+            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'fields'];
         }
 
         $allowedMeta = ['ip','submitted_at','form_id','instance_id'];
