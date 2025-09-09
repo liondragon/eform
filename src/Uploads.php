@@ -127,8 +127,10 @@ class Uploads
         if ($base === '') {
             return $out;
         }
+        $names = [];
         foreach ($files as $k => $list) {
             foreach ($list as $item) {
+                $safeName = self::uniqueName($item['original_name_safe'], $names);
                 $rel = self::buildPath($base, $item['tmp_name'], $item['slug'], $item['ext']);
                 $dest = $base . '/' . $rel;
                 $dir = dirname($dest);
@@ -144,7 +146,7 @@ class Uploads
                     'size' => $item['size'],
                     'mime' => $item['mime'],
                     'original_name' => $item['original_name'],
-                    'original_name_safe' => $item['original_name_safe'],
+                    'original_name_safe' => $safeName,
                 ];
             }
         }
@@ -234,6 +236,20 @@ class Uploads
         $extSafe = strtolower($ext);
         $originalSafe = $base . ($extSafe !== '' ? '.' . $extSafe : '');
         return [$base, $extSafe, $originalSafe];
+    }
+
+    private static function uniqueName(string $name, array &$used): string
+    {
+        $candidate = $name;
+        $i = 1;
+        while (isset($used[$candidate])) {
+            $i++;
+            $base = pathinfo($name, PATHINFO_FILENAME);
+            $ext = pathinfo($name, PATHINFO_EXTENSION);
+            $candidate = $base . ' (' . $i . ')' . ($ext !== '' ? '.' . $ext : '');
+        }
+        $used[$candidate] = true;
+        return $candidate;
     }
 
     private static function buildPath(string $baseDir, string $tmp, string $slug, string $ext): string
