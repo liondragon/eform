@@ -84,6 +84,26 @@ assert_equal_file tmp/status_code.txt "415" || ok=1
 assert_grep tmp/stdout.txt "Unsupported Media Type" || ok=1
 record_result "submit 415 on bad content-type" $ok
 
+# 1b) Submit route: multipart boundary valid
+run_test test_submit_boundary_valid
+ok=0
+assert_equal_file tmp/status_code.txt "" || ok=1
+record_result "submit multipart valid boundary" $ok
+
+# 1c) Submit route: multipart boundary missing
+run_test test_submit_boundary_missing
+ok=0
+assert_equal_file tmp/status_code.txt "415" || ok=1
+assert_grep tmp/stdout.txt "Unsupported Media Type" || ok=1
+record_result "submit multipart missing boundary" $ok
+
+# 1d) Submit route: multipart boundary empty
+run_test test_submit_boundary_empty
+ok=0
+assert_equal_file tmp/status_code.txt "415" || ok=1
+assert_grep tmp/stdout.txt "Unsupported Media Type" || ok=1
+record_result "submit multipart empty boundary" $ok
+
 # 2) Origin soft default: allow cross origin
 run_test test_origin_soft
 ok=0
