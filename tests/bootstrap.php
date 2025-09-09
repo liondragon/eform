@@ -140,6 +140,17 @@ function is_email($email) {
     return (bool) filter_var((string)$email, FILTER_VALIDATE_EMAIL);
 }
 
+function wp_json_encode($value, $flags = 0, $depth = 512) {
+    $json = json_encode($value, $flags, $depth);
+    if ($json !== false) {
+        return $json;
+    }
+    if (defined('JSON_PARTIAL_OUTPUT_ON_ERROR')) {
+        return json_encode($value, $flags | JSON_PARTIAL_OUTPUT_ON_ERROR, $depth);
+    }
+    return false;
+}
+
 function wp_remote_post($url, $args = []) {
     return ['body' => json_encode(['success' => false])];
 }
