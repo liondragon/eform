@@ -18,6 +18,22 @@ class TemplateValidator
     public const EFORMS_ERR_ACCEPT_EMPTY         = 'EFORMS_ERR_ACCEPT_EMPTY';
     public const EFORMS_ERR_ROW_GROUP_UNBALANCED = 'EFORMS_ERR_ROW_GROUP_UNBALANCED';
 
+    private const AUTOCOMPLETE_TOKENS = [
+        'name','honorific-prefix','given-name','additional-name','family-name',
+        'honorific-suffix','nickname','email','username','new-password',
+        'current-password','one-time-code','organization-title','organization',
+        'street-address','address-line1','address-line2','address-line3',
+        'address-level4','address-level3','address-level2','address-level1',
+        'country','country-name','postal-code','cc-name','cc-given-name',
+        'cc-additional-name','cc-family-name','cc-number','cc-exp',
+        'cc-exp-month','cc-exp-year','cc-csc','cc-type','transaction-currency',
+        'transaction-amount','language','bday','bday-day','bday-month',
+        'bday-year','sex','tel','tel-country-code','tel-national',
+        'tel-area-code','tel-local','tel-local-prefix','tel-local-suffix',
+        'tel-extension','impp','url','photo','webauthn','shipping',
+        'billing','home','work','mobile','fax','pager',
+    ];
+
     /**
      * Perform structural validation and return context.
      *
@@ -179,6 +195,34 @@ class TemplateValidator
                 }
             }
 
+            if (isset($f['autocomplete'])) {
+                if (!is_string($f['autocomplete'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'autocomplete'];
+                    unset($f['autocomplete']);
+                } else {
+                    $token = strtolower(trim($f['autocomplete']));
+                    if ($token === '' || preg_match('/\s/', $token)) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'autocomplete'];
+                        unset($f['autocomplete']);
+                    } elseif ($token !== 'on' && $token !== 'off' && !in_array($token, self::AUTOCOMPLETE_TOKENS, true)) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'autocomplete'];
+                        unset($f['autocomplete']);
+                    } else {
+                        $f['autocomplete'] = $token;
+                    }
+                }
+            }
+
+            if (isset($f['size'])) {
+                if (!is_int($f['size'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'size'];
+                    unset($f['size']);
+                } elseif ($f['size'] < 1 || $f['size'] > 100) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'size'];
+                    unset($f['size']);
+                }
+            }
+
             // numeric and pattern constraints
             if (isset($f['max_length'])) {
                 if (!is_int($f['max_length'])) {
@@ -218,7 +262,7 @@ class TemplateValidator
                 'before_html' => isset($f['before_html']) && is_string($f['before_html']) ? $f['before_html'] : null,
                 'after_html' => isset($f['after_html']) && is_string($f['after_html']) ? $f['after_html'] : null,
                 'placeholder' => isset($f['placeholder']) && is_string($f['placeholder']) ? substr($f['placeholder'],0,255) : null,
-                'autocomplete' => isset($f['autocomplete']) && is_string($f['autocomplete']) ? preg_replace('/[^a-z0-9_-]+/i','',$f['autocomplete']) : null,
+                'autocomplete' => isset($f['autocomplete']) && is_string($f['autocomplete']) ? $f['autocomplete'] : null,
                 'size' => isset($f['size']) && is_int($f['size']) ? $f['size'] : null,
                 'max_length' => isset($f['max_length']) && is_int($f['max_length']) ? $f['max_length'] : null,
                 'min' => is_numeric($minVal) ? $minVal + 0 : null,
