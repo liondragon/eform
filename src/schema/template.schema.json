@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["id","version","success","email","fields","submit_button_text"],
+  "required": ["id","version","title","success","email","fields","submit_button_text"],
   "additionalProperties": false,
   "properties": {
     "id": {"type": "string"},
@@ -21,7 +21,11 @@
     "email": {
       "type": "object",
       "properties": {
-        "display_format_tel": {"enum": ["xxx-xxx-xxxx","(xxx) xxx-xxxx","xxx.xxx.xxxx"]}
+        "display_format_tel": {"enum": ["xxx-xxx-xxxx","(xxx) xxx-xxxx","xxx.xxx.xxxx"]},
+        "to": {"type": "string"},
+        "subject": {"type": "string"},
+        "email_template": {"type": "string"},
+        "include_fields": {"type": "array", "items": {"type": "string"}}
       },
       "additionalProperties": false
     },
@@ -40,7 +44,7 @@
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
-        "type": {"enum": ["name","email","textarea","tel_us","zip_us","select","radio","checkbox","file","files","row_group"]},
+        "type": {"enum": ["name","email","textarea","textarea_html","tel_us","zip_us","select","radio","checkbox","file","files","row_group"]},
         "key": {"type": "string"},
         "label": {"type": "string"},
         "required": {"type": "boolean"},
@@ -52,7 +56,20 @@
         "accept": {"type": "array", "items": {"type": "string"}},
         "mode": {"enum": ["start","end"]},
         "tag": {"enum": ["div","section"]},
-        "class": {"type": "string"}
+        "class": {"type": "string"},
+        "before_html": {"type": "string"},
+        "after_html": {"type": "string"},
+        "placeholder": {"type": "string"},
+        "autocomplete": {"type": "string"},
+        "size": {"type": "integer"},
+        "max_length": {"type": "integer"},
+        "min": {"type": ["number","string"]},
+        "max": {"type": ["number","string"]},
+        "pattern": {"type": "string"},
+        "email_attach": {"type": "boolean"},
+        "max_file_bytes": {"type": "integer"},
+        "max_files": {"type": "integer"},
+        "step": {"type": ["number","string"]}
       }
     },
     "option": {

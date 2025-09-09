@@ -48,7 +48,7 @@ final class RendererRowGroupTest extends TestCase
         ];
         $logFile = Config::get('uploads.dir', sys_get_temp_dir()) . '/eforms.log';
         @unlink($logFile);
-        $html = Renderer::form($tpl, $meta, [], []);
+        $html = Renderer::form(TemplateValidator::preflight($tpl)['context'], $meta, [], []);
         $this->assertStringContainsString('<section class="eforms-row custom">', $html);
         $this->assertStringContainsString('</section><button', $html);
         $log = file_get_contents($logFile);
@@ -82,7 +82,7 @@ final class RendererRowGroupTest extends TestCase
         ];
         $logFile = Config::get('uploads.dir', sys_get_temp_dir()) . '/eforms.log';
         @unlink($logFile);
-        $html = Renderer::form($tpl, $meta, [], []);
+        $html = Renderer::form(TemplateValidator::preflight($tpl)['context'], $meta, [], []);
         $this->assertStringContainsString('<form', $html);
         $this->assertStringContainsString('<button', $html);
         $log = file_get_contents($logFile);

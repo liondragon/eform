@@ -71,6 +71,12 @@ function record_result() {
   fi
 }
 
+# Schema validation for templates
+run_test template_schema_check
+ok=0
+assert_grep tmp/stdout.txt '^OK$' || ok=1
+record_result "template schema parity" $ok
+
 # 1) Submit route: 405
 run_test test_submit_405
 ok=0
@@ -123,7 +129,7 @@ record_result "origin policy hard: blocked" $ok
 # 2b) Cookie missing policies
 run_test test_cookie_policy_hard
 ok=0
-assert_grep tmp/stdout.txt 'Security token error\.' || ok=1
+assert_grep tmp/stdout.txt 'This form was already submitted or has expired – please reload the page\.' || ok=1
 ! assert_grep tmp/mail.json 'zed@example.com' || ok=1
 record_result "cookie policy hard: missing cookie hard fail" $ok
 
