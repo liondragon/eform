@@ -133,6 +133,14 @@ function is_email($email) {
     return (bool) filter_var((string)$email, FILTER_VALIDATE_EMAIL);
 }
 
+function wp_remote_post($url, $args = []) {
+    return ['body' => json_encode(['success' => false])];
+}
+function wp_remote_retrieve_body($res) {
+    return is_array($res) ? ($res['body'] ?? '') : '';
+}
+function is_wp_error($v) { return false; }
+
 function wp_register_style($handle, $src, $deps = [], $ver = false, $args = []) {}
 function wp_register_script($handle, $src, $deps = [], $ver = false, $in_footer = []) {}
 function wp_enqueue_style($handle) {}

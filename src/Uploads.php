@@ -176,13 +176,40 @@ class Uploads
 
     private static function allowedToken(array $accept, string $mime, string $ext): bool
     {
-        if (in_array('image', $accept, true) && str_starts_with($mime, 'image/')) {
-            return true;
-        }
-        if (in_array('pdf', $accept, true) && $mime === 'application/pdf' && $ext === 'pdf') {
-            return true;
+        $map = [
+            'image' => [
+                'image/jpeg' => ['jpg','jpeg'],
+                'image/png' => ['png'],
+                'image/gif' => ['gif'],
+                'image/webp' => ['webp'],
+            ],
+            'pdf' => [
+                'application/pdf' => ['pdf'],
+            ],
+        ];
+        foreach ($accept as $token) {
+            if (!isset($map[$token])) continue;
+            foreach ($map[$token] as $m => $exts) {
+                if ($mime === $m && in_array($ext, $exts, true)) {
+                    return true;
+                }
+            }
         }
         return false;
+    }
+
+    public static function deleteStored(array $files): void
+    {
+        $base = rtrim((string) Config::get('uploads.dir', ''), '/');
+        if ($base === '') return;
+        foreach ($files as $list) {
+            foreach ($list as $item) {
+                $path = $base . '/' . ($item['path'] ?? '');
+                if ($path !== $base . '/') {
+                    @unlink($path);
+                }
+            }
+        }
     }
 
     private static function sanitizeOriginal(string $name, string $ext): array

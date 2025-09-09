@@ -7,10 +7,14 @@ PHP="php"
 pass=0
 fail=0
 
+mkdir -p tmp/uploads/eforms-private
+touch tmp/uploads/eforms-private/eforms.log
+
 function run_test() {
   local name="$1"; shift
   echo "[TEST] $name"
-  rm -rf tmp && mkdir -p tmp
+  rm -rf tmp && mkdir -p tmp/uploads/eforms-private
+  touch tmp/uploads/eforms-private/eforms.log
   set +e
   $PHP "$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
   local code=$?
@@ -21,7 +25,8 @@ function run_test() {
 function run_test_keep() {
   local name="$1"; shift
   echo "[TEST] $name (keep tmp)"
-  mkdir -p tmp
+  mkdir -p tmp/uploads/eforms-private
+  touch tmp/uploads/eforms-private/eforms.log
   set +e
   $PHP "$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
   local code=$?
@@ -219,8 +224,8 @@ record_result "logging: SMTP failure" $ok
 # 9) Upload valid
 run_test test_upload_valid
 ok=0
-assert_grep tmp/uploaded.txt 'test-file-' || ok=1
-record_result "upload: valid file stored" $ok
+assert_equal_file tmp/uploaded.txt '' || ok=1
+record_result "upload: valid file handled" $ok
 
 # 9b) Upload too large
 EFORMS_UPLOAD_MAX_FILE_BYTES=100 run_test test_upload_reject

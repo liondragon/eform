@@ -5,9 +5,9 @@ namespace EForms;
 
 class Renderer
 {
-    private static function makeId(string $formId, string $key): string
+    private static function makeId(string $formId, string $key, string $instanceId): string
     {
-        $id = 'eforms-' . $formId . '-' . $key;
+        $id = $formId . '-' . $key . '-' . $instanceId;
         if (strlen($id) > 128) {
             $hash = substr(md5($id), 0, 8);
             $start = substr($id, 0, 60);
@@ -47,6 +47,7 @@ class Renderer
     public static function form(array $tpl, array $meta, array $errors, array $values): string
     {
         $formId = $meta['form_id'];
+        $instanceId = $meta['instance_id'];
         // Success message check
         $successHtml = '';
         if (isset($_GET['eforms_success']) && \sanitize_key((string)$_GET['eforms_success']) === $formId) {
@@ -71,7 +72,7 @@ class Renderer
                     }
                     continue;
                 }
-                $id = self::makeId($formId, $k);
+                $id = self::makeId($formId, $k, $instanceId);
                 $html .= '<li><a href="#' . \esc_attr($id) . '">' . \esc_html($k) . '</a>';
                 if ($msgs) {
                     $html .= ': ' . \esc_html($msgs[0]);
@@ -103,7 +104,7 @@ class Renderer
         $lastText = null;
         foreach ($tpl['fields'] as $tf) {
             $tt = $tf['type'];
-            if (in_array($tt, ['textarea','email','name','tel_us','zip_us'], true)) {
+            if (in_array($tt, ['textarea','textarea_html','email','name','tel_us','zip_us'], true)) {
                 $lastText = $tf['key'];
             }
         }
@@ -129,7 +130,7 @@ class Renderer
                 continue;
             }
             $key = $f['key'];
-            $id = self::makeId($formId, $key);
+            $id = self::makeId($formId, $key, $instanceId);
             $label = $f['label'] ?? ucwords(str_replace(['_','-'], ' ', $key));
             $value = $values[$key] ?? '';
             $fieldErrors = $errors[$key] ?? [];
@@ -145,18 +146,33 @@ class Renderer
                 case 'textarea':
                     $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
                     $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
-                    $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($key) . '"';
+                    $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '"';
                     if (!empty($f['required'])) $html .= ' required';
+                    if (!empty($f['placeholder'])) $html .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
+                    if (!empty($f['autocomplete'])) $html .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+                    if (!empty($f['max_length'])) $html .= ' maxlength="' . (int)$f['max_length'] . '"';
+                    $html .= $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
+                    break;
+                case 'textarea_html':
+                    $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
+                    $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
+                    $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '"';
+                    if (!empty($f['required'])) $html .= ' required';
+                    if (!empty($f['placeholder'])) $html .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
+                    if (!empty($f['autocomplete'])) $html .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+                    if (!empty($f['max_length'])) $html .= ' maxlength="' . (int)$f['max_length'] . '"';
                     $html .= $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
                     break;
                 case 'select':
                     $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
                     $multiple = !empty($f['multiple']);
-                    $nameAttr = $key . ($multiple ? '[]' : '');
+                    $nameAttr = $formId . '[' . $key . ']' . ($multiple ? '[]' : '');
                     $vals = $multiple && is_array($value) ? $value : (string)$value;
                     $html .= '<select id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"';
                     if ($multiple) $html .= ' multiple';
                     if (!empty($f['required'])) $html .= ' required';
+                    if (!empty($f['autocomplete'])) $html .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+                    if (!empty($f['size'])) $html .= ' size="' . (int)$f['size'] . '"';
                     $html .= $errAttr . '>';
                     foreach ($f['options'] ?? [] as $opt) {
                         $disabled = !empty($opt['disabled']);
@@ -178,8 +194,8 @@ class Renderer
                     $html .= '><legend>' . \esc_html($label) . '</legend>';
                     $vals = $type === 'checkbox' ? (array)$value : $value;
                     foreach ($f['options'] ?? [] as $opt) {
-                        $idOpt = self::makeId($formId, $key . '-' . $opt['key']);
-                        $nameAttr = $type === 'checkbox' ? $key . '[]' : $key;
+                        $idOpt = self::makeId($formId, $key . '-' . $opt['key'], $instanceId);
+                        $nameAttr = $type === 'checkbox' ? $formId . '[' . $key . '][]' : $formId . '[' . $key . ']';
                         $html .= '<label><input type="' . ($type === 'radio' ? 'radio' : 'checkbox') . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr($opt['key']) . '" id="' . \esc_attr($idOpt) . '"';
                         if ($type === 'checkbox') {
                             if (in_array($opt['key'], (array)$vals, true)) $html .= ' checked';
@@ -194,7 +210,7 @@ class Renderer
                     break;
                 case 'file':
                 case 'files':
-                    $nameAttr = $key . ($type === 'files' ? '[]' : '');
+                    $nameAttr = $formId . '[' . $key . ']' . ($type === 'files' ? '[]' : '');
                     $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
                     $html .= '<input type="file" id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"';
                     if ($type === 'files') $html .= ' multiple';
@@ -224,8 +240,15 @@ class Renderer
                     }
                     $html .= '<label for="' . \esc_attr($id) . '">' . \esc_html($label) . '</label>';
                     $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
-                    $html .= '<input type="' . \esc_attr($inputType) . '" id="' . \esc_attr($id) . '" name="' . \esc_attr($key) . '" value="' . \esc_attr((string)$value) . '"';
+                    $html .= '<input type="' . \esc_attr($inputType) . '" id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '" value="' . \esc_attr((string)$value) . '"';
                     if (!empty($f['required'])) $html .= ' required';
+                    if (!empty($f['placeholder'])) $html .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
+                    if (!empty($f['autocomplete'])) $html .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+                    if (!empty($f['max_length'])) $html .= ' maxlength="' . (int)$f['max_length'] . '"';
+                    if ($f['min'] !== null) $html .= ' min="' . \esc_attr((string)$f['min']) . '"';
+                    if ($f['max'] !== null) $html .= ' max="' . \esc_attr((string)$f['max']) . '"';
+                    if (!empty($f['pattern'])) $html .= ' pattern="' . \esc_attr($f['pattern']) . '"';
+                    if (!empty($f['size'])) $html .= ' size="' . (int)$f['size'] . '"';
                     $html .= $extra . $errAttr . $extraHint . '>';
                     break;
             }
@@ -250,10 +273,7 @@ class Renderer
 
     private static function acceptAttr(array $tokens): string
     {
-        $map = [
-            'image' => 'image/jpeg,image/png,image/gif,image/webp',
-            'pdf' => 'application/pdf',
-        ];
+        $map = Spec::acceptTokenMap();
         $out = [];
         foreach ($tokens as $t) {
             $t = trim((string)$t);

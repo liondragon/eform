@@ -16,6 +16,7 @@ class FormManager
         if (!$pre['ok']) {
             return '<div class="eforms-error">Form configuration error.</div>';
         }
+        $tpl = $pre['context'];
         if (Uploads::enabled()) {
             Uploads::gc();
         }
@@ -33,7 +34,7 @@ class FormManager
             'cacheable' => $cacheable,
             'client_validation' => (bool) Config::get('html5.client_validation', false),
             'action' => \home_url('/eforms/submit'),
-            'hidden_token' => $cacheable ? null : (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : $instanceId),
+            'hidden_token' => $cacheable ? null : (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()),
             'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
         ];
         $this->enqueueAssetsIfNeeded();
@@ -182,20 +183,34 @@ class FormManager
                     'ip' => $ip,
                     'state' => $throttleState,
                 ]);
+                if (!headers_sent()) {
+                    $retry = (int)($thr['retry_after'] ?? 0);
+                    if ($retry > 0) {
+                        \header('Retry-After: ' . $retry);
+                    }
+                }
                 if ($throttleState === 'hard') {
                     $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
                 }
                 $softFailCount++;
             }
         }
-        $values = Validator::normalize($tpl, $_POST);
+        $postedFields = $_POST[$formId] ?? [];
+        $values = Validator::normalize($tpl, $postedFields);
         $desc = Validator::descriptors($tpl);
         $val = Validator::validate($tpl, $desc, $values);
         $uploadsData = [];
         $uploadErrors = [];
         $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
         if ($hasUploads) {
-            $u = Uploads::normalizeAndValidate($tpl, $_FILES);
+            $filesRoot = $_FILES[$formId] ?? [];
+            $files = [];
+            foreach ($filesRoot as $attr => $arr) {
+                foreach ($arr as $k => $v) {
+                    $files[$k][$attr] = $v;
+                }
+            }
+            $u = Uploads::normalizeAndValidate($tpl, $files);
             $uploadsData = $u['files'];
             $uploadErrors = $u['errors'];
         }
@@ -242,6 +257,9 @@ class FormManager
             'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
         ];
         $email = Emailer::send($tpl, $canonical, $metaInfo);
+        if (($email['ok'] ?? false) && !empty($canonical['_uploads']) && Config::get('uploads.delete_after_send', true)) {
+            Uploads::deleteStored($canonical['_uploads']);
+        }
         if (!$email['ok']) {
             Logging::write('error', 'EFORMS_EMAIL_FAIL', ['form_id'=>$formId,'instance_id'=>$metaInfo['instance_id'],'msg'=>'send_fail']);
             $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
@@ -252,7 +270,7 @@ class FormManager
                 'cacheable' => !$hasHidden,
                 'client_validation' => (bool) Config::get('html5.client_validation', false),
                 'action' => \home_url('/eforms/submit'),
-                'hidden_token' => $hasHidden ? (function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : $postedToken) : null,
+                'hidden_token' => $hasHidden ? (function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()) : null,
                 'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
             ];
             $errors = ['_global' => ['Operational error. Please try again later.']];

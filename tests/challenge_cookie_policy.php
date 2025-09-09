@@ -10,9 +10,11 @@ $_POST = [
     'instance_id' => 'instCCHAL1',
     'timestamp' => time(),
     'eforms_hp' => '',
-    'name' => 'Zed',
-    'email' => 'zed@example.com',
-    'message' => 'Ping',
+    'contact_us' => [
+        'name' => 'Zed',
+        'email' => 'zed@example.com',
+        'message' => 'Ping',
+    ],
 ];
 $fm = new \EForms\FormManager();
 $fm->handleSubmit();

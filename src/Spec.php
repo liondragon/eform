@@ -24,6 +24,11 @@ class Spec
             'html' => ['tag'=>'textarea','attrs_mirror'=>['maxlength'=>null,'minlength'=>null]],
             'validate' => [],
         ],
+        'textarea_html' => [
+            'is_multivalue' => false,
+            'html' => ['tag'=>'textarea','attrs_mirror'=>['maxlength'=>null,'minlength'=>null]],
+            'validate' => [],
+        ],
         'tel_us' => [
             'is_multivalue' => false,
             'html' => ['tag'=>'input','type'=>'tel','inputmode'=>'tel','attrs_mirror'=>['maxlength'=>null]],

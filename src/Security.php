@@ -66,12 +66,12 @@ class Security
     {
         $required = (bool) Config::get('security.submission_token.required', true);
         if ($hasHidden) {
-            $tokenOk = !empty($postedToken);
+            $tokenOk = self::isUuid((string) $postedToken);
             $hard = $required && !$tokenOk;
             return ['mode'=>'hidden','token_ok'=>$tokenOk,'hard_fail'=>$hard,'soft_signal'=>$tokenOk?0:1,'require_challenge'=>false];
         }
         $cookie = $_COOKIE['eforms_t_' . $formId] ?? '';
-        $tokenOk = $cookie !== '';
+        $tokenOk = self::isUuid($cookie);
         if ($tokenOk) {
             return ['mode'=>'cookie','token_ok'=>true,'hard_fail'=>false,'soft_signal'=>0,'require_challenge'=>false];
         }
@@ -87,6 +87,11 @@ class Security
             default:
                 return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>false,'soft_signal'=>1,'require_challenge'=>false];
         }
+    }
+
+    private static function isUuid(string $v): bool
+    {
+        return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $v);
     }
 
     public static function ledger_reserve(string $formId, string $token): array

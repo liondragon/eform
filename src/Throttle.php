@@ -64,9 +64,9 @@ class Throttle
             flock($fh, LOCK_UN);
             fclose($fh);
             @chmod($file, 0600);
-            return ['state' => $state, 'count' => $data['count']];
+            return ['state' => $state, 'count' => $data['count'], 'retry_after' => max(0, (int)$data['cooldown_until'] - $now)];
         }
-        return ['state' => 'ok'];
+        return ['state' => 'ok', 'retry_after' => 0];
     }
 
     public static function gc(): void

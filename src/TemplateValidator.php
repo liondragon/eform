@@ -76,7 +76,7 @@ class TemplateValidator
         $hasUploads = false;
         $normFields = [];
         $reserved = ['form_id','instance_id','eforms_token','eforms_hp','timestamp','js_ok','ip','submitted_at'];
-        $allowedTypes = ['name','email','textarea','tel_us','zip_us','select','radio','checkbox','file','files','row_group'];
+        $allowedTypes = ['name','email','textarea','textarea_html','tel_us','zip_us','select','radio','checkbox','file','files','row_group'];
         foreach ($fields as $idx => $f) {
             $path = 'fields['.$idx.'].';
             if (!is_array($f)) {
@@ -204,6 +204,11 @@ class TemplateValidator
                 'multiple' => !empty($f['multiple']),
                 'accept' => $f['accept'] ?? null,
                 'class' => self::sanitizeClass($f['class'] ?? ''),
+                'before_html' => isset($f['before_html']) && is_string($f['before_html']) ? $f['before_html'] : null,
+                'after_html' => isset($f['after_html']) && is_string($f['after_html']) ? $f['after_html'] : null,
+                'placeholder' => isset($f['placeholder']) && is_string($f['placeholder']) ? substr($f['placeholder'],0,255) : null,
+                'autocomplete' => isset($f['autocomplete']) && is_string($f['autocomplete']) ? preg_replace('/[^a-z0-9_-]+/i','',$f['autocomplete']) : null,
+                'size' => isset($f['size']) && is_int($f['size']) ? $f['size'] : null,
                 'max_length' => isset($f['max_length']) && is_int($f['max_length']) ? $f['max_length'] : null,
                 'min' => is_numeric($minVal) ? $minVal + 0 : null,
                 'max' => is_numeric($maxVal) ? $maxVal + 0 : null,

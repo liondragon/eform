@@ -20,9 +20,11 @@ $_POST = [
     'instance_id' => 'instDup1',
     'timestamp' => time(),
     'eforms_hp' => '',
-    'name' => 'Alice',
-    'email' => 'alice@example.com',
-    'message' => 'Hello',
+    'contact_us' => [
+        'name' => 'Alice',
+        'email' => 'alice@example.com',
+        'message' => 'Hello',
+    ],
 ];
 
 $fm = new \EForms\FormManager();

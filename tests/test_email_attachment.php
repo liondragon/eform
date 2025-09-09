@@ -8,12 +8,12 @@ $_COOKIE['eforms_t_upload_test'] = 'tokEA1';
 $tmp = __DIR__ . '/tmp/upload.pdf';
 file_put_contents($tmp, "%PDF-1.4\n");
 $_FILES = [
-    'file1' => [
-        'name' => 'doc.pdf',
-        'type' => 'application/pdf',
-        'tmp_name' => $tmp,
-        'error' => UPLOAD_ERR_OK,
-        'size' => filesize($tmp),
+    'upload_test' => [
+        'name' => ['file1' => 'doc.pdf'],
+        'type' => ['file1' => 'application/pdf'],
+        'tmp_name' => ['file1' => $tmp],
+        'error' => ['file1' => UPLOAD_ERR_OK],
+        'size' => ['file1' => filesize($tmp)],
     ],
 ];
 $_POST = [
@@ -21,7 +21,9 @@ $_POST = [
     'instance_id' => 'instEA1',
     'timestamp' => time(),
     'eforms_hp' => '',
-    'name' => 'Zed',
+    'upload_test' => [
+        'name' => 'Zed',
+    ],
 ];
 
 $fm = new \EForms\FormManager();

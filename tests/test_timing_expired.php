@@ -11,9 +11,11 @@ $_POST = [
     'instance_id' => 'instOld',
     'timestamp' => time() - 1000,
     'eforms_token' => 'tokOld',
-    'name' => 'Zed',
-    'email' => 'zed@example.com',
-    'message' => 'Hi',
+    'contact_us' => [
+        'name' => 'Zed',
+        'email' => 'zed@example.com',
+        'message' => 'Hi',
+    ],
 ];
 
 $fm = new \EForms\FormManager();

@@ -13,9 +13,11 @@ $_POST = [
     'instance_id' => 'instJS1',
     'timestamp' => time() - 10,
     'eforms_hp' => '',
-    'name' => 'Alice',
-    'email' => 'alice@example.com',
-    'message' => 'Hi',
+    'contact_us' => [
+        'name' => 'Alice',
+        'email' => 'alice@example.com',
+        'message' => 'Hi',
+    ],
     'js_ok' => '0',
 ];
 

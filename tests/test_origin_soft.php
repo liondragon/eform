@@ -18,9 +18,11 @@ $_POST = [
     // honeypot empty
     'eforms_hp' => '',
     // required fields
-    'name' => 'Alice',
-    'email' => 'alice@example.com',
-    'message' => 'Hello',
+    'contact_us' => [
+        'name' => 'Alice',
+        'email' => 'alice@example.com',
+        'message' => 'Hello',
+    ],
 ];
 
 // Call handler directly (router checks already passed)

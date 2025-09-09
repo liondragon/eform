@@ -28,8 +28,9 @@ class Emailer
         if ($replyField && isset($canonical[$replyField]) && \is_email($canonical[$replyField])) {
             $headers[] = 'Reply-To: ' . $canonical[$replyField];
         }
-        [$attachments, $overflow] = self::collectAttachments($tpl, $canonical);
-        $body = self::renderBody($tpl, $canonical, $meta, $html);
+        $canonicalDisplay = self::applyDisplayFormatting($tpl, $canonical);
+        [$attachments, $overflow] = self::collectAttachments($tpl, $canonicalDisplay);
+        $body = self::renderBody($tpl, $canonicalDisplay, $meta, $html);
         if (!empty($overflow)) {
             $note = implode(', ', $overflow);
             if ($html) {
@@ -115,5 +116,36 @@ class Emailer
             }
         }
         return [$attachments, $overflow];
+    }
+
+    private static function applyDisplayFormatting(array $tpl, array $canonical): array
+    {
+        $fmt = $tpl['email']['display_format_tel'] ?? '';
+        if (!in_array($fmt, ['xxx-xxx-xxxx','(xxx) xxx-xxxx','xxx.xxx.xxxx'], true)) {
+            return $canonical;
+        }
+        foreach ($tpl['fields'] as $f) {
+            if (($f['type'] ?? '') === 'tel_us') {
+                $k = $f['key'];
+                $digits = preg_replace('/\D+/', '', (string)($canonical[$k] ?? ''));
+                if (strlen($digits) === 10) {
+                    $canonical[$k] = self::formatTel($digits, $fmt);
+                }
+            }
+        }
+        return $canonical;
+    }
+
+    private static function formatTel(string $digits, string $fmt): string
+    {
+        $a = substr($digits,0,3);
+        $b = substr($digits,3,3);
+        $c = substr($digits,6,4);
+        return match($fmt) {
+            'xxx-xxx-xxxx' => "$a-$b-$c",
+            '(xxx) xxx-xxxx' => "($a) $b-$c",
+            'xxx.xxx.xxxx' => "$a.$b.$c",
+            default => $digits,
+        };
     }
 }

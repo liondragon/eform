@@ -13,9 +13,11 @@ $_POST = [
     'instance_id' => 'instCHFAIL',
     'timestamp' => time(),
     'eforms_hp' => '',
-    'name' => 'Zed',
-    'email' => 'zed@example.com',
-    'message' => 'Ping',
+    'contact_us' => [
+        'name' => 'Zed',
+        'email' => 'zed@example.com',
+        'message' => 'Ping',
+    ],
     'cf-turnstile-response' => 'fail',
 ];
 $fm = new \EForms\FormManager();
