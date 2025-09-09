@@ -28,7 +28,7 @@ final class RendererRowGroupTest extends TestCase
             'version' => '1',
             'title' => 't',
             'success' => ['mode' => 'inline'],
-            'email' => ['to' => 'a@example.com', 'subject' => 's', 'email_template' => '', 'include_fields' => []],
+            'email' => ['to' => 'a@example.com', 'subject' => 's', 'email_template' => 'default', 'include_fields' => []],
             'fields' => [
                 ['type' => 'row_group', 'mode' => 'start', 'tag' => 'section', 'class' => 'custom'],
                 ['type' => 'name', 'key' => 'name', 'label' => 'Name'],
@@ -62,7 +62,7 @@ final class RendererRowGroupTest extends TestCase
             'version' => '1',
             'title' => 't',
             'success' => ['mode' => 'inline'],
-            'email' => ['to' => 'a@example.com', 'subject' => 's', 'email_template' => '', 'include_fields' => []],
+            'email' => ['to' => 'a@example.com', 'subject' => 's', 'email_template' => 'default', 'include_fields' => []],
             'fields' => [
                 ['type' => 'row_group', 'mode' => 'end', 'tag' => 'section'],
                 ['type' => 'name', 'key' => 'name', 'label' => 'Name'],

@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 defined('ABSPATH') || exit;
+// Rendered when email.email_template="default".
 ?>
 <p>
 Form: <?= htmlspecialchars($meta['form_id'] ?? '', ENT_QUOTES) ?><br>

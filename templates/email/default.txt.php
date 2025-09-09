@@ -2,6 +2,7 @@
 declare(strict_types=1);
 defined('ABSPATH') || exit;
 
+// Rendered when email.email_template="default".
 echo 'Form: ' . ($meta['form_id'] ?? '') . "\n";
 echo 'Instance: ' . ($meta['instance_id'] ?? '') . "\n";
 echo 'Submitted: ' . ($meta['submitted_at'] ?? '') . "\n\n";

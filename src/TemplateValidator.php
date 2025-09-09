@@ -69,6 +69,17 @@ class TemplateValidator
             }
         }
 
+        $tmpl = $email['email_template'] ?? 'default';
+        if (!is_string($tmpl) || !preg_match('/^[a-z0-9_-]+$/', $tmpl)) {
+            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'email.email_template'];
+        } else {
+            $base = __DIR__ . '/../templates/email/' . $tmpl;
+            if (!is_file($base . '.txt.php') && !is_file($base . '.html.php')) {
+                $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'email.email_template'];
+            }
+        }
+        $email['email_template'] = $tmpl;
+
         // fields
         $fields = is_array($tpl['fields'] ?? null) ? $tpl['fields'] : [];
         $seenKeys = [];

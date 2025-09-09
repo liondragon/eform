@@ -48,7 +48,14 @@ class Emailer
 
     private static function renderBody(array $tpl, array $canonical, array $meta, bool $html): string
     {
-        $file = __DIR__ . '/../templates/email/' . ($html ? 'default.html.php' : 'default.txt.php');
+        $template = $tpl['email']['email_template'] ?? 'default';
+        if (!is_string($template) || !preg_match('/^[a-z0-9_-]+$/', $template)) {
+            throw new \RuntimeException('Invalid email template');
+        }
+        $file = __DIR__ . '/../templates/email/' . $template . ($html ? '.html.php' : '.txt.php');
+        if (!is_file($file)) {
+            throw new \RuntimeException('Email template not found');
+        }
         $allowedMeta = ['submitted_at','ip','form_id','instance_id'];
         $include_fields = $tpl['email']['include_fields'] ?? [];
         $include_fields = array_values(array_filter($include_fields, function ($k) use ($canonical, $meta, $allowedMeta) {

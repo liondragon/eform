@@ -124,7 +124,7 @@ electronic_forms - Spec
 		- Minimal shape:
 			- id (slug), version (string), title (string)
 			- success { mode:"inline"|"redirect", redirect_url?, message? }
-			- email { to, subject, email_template, include_fields[], display_format_tel? }
+                    - email { to, subject, email_template ("foo" -> templates/email/foo.*), include_fields[], display_format_tel? }
 				- display_format_tel enum: "xxx-xxx-xxxx" (default), "(xxx) xxx-xxxx", "xxx.xxx.xxxx" (any other value falls back to default at runtime)
 			- fields[] of field objects (see 5.1)
 			- submit_button_text (string)
@@ -838,10 +838,8 @@ uploads.*
 	- Cookie mode does not require JS
 	
 24. EMAIL TEMPLATES (REGISTRY)
-	- Files:
-		- /templates/email/default.txt.php
-		- /templates/email/default.html.php (used only when email.html=true)
-	- JSON "email_template": "default" maps to those files
+        - Files live in /templates/email/{name}.txt.php and {name}.html.php
+        - JSON "email_template": "foo" selects those files ("foo.html.php" when email.html=true); missing or unknown names raise an error
 	- Template inputs:
 		- form_id, instance_id, submitted_at (UTC ISO-8601)
 		- fields (canonical values only, keyed by field key)
