@@ -7,7 +7,11 @@ class Emailer
 {
     public static function send(array $tpl, array $canonical, array $meta, int $softFails = 0): array
     {
-        $to = self::sanitizeHeader($tpl['email']['to'] ?? '');
+        $policy = (string) Config::get('email.policy', 'strict');
+        $to = self::parseEmail($tpl['email']['to'] ?? '', $policy);
+        if ($to === '') {
+            return ['ok' => false, 'msg' => 'invalid_to'];
+        }
         $meta = self::sanitizeMeta($meta);
         $subjectRaw = $tpl['email']['subject'] ?? 'Form Submission';
         $subjectRaw = self::expandTokens($subjectRaw, $canonical, $meta);
@@ -35,8 +39,11 @@ class Emailer
             $headers[] = 'Content-Type: text/html; charset=UTF-8';
         }
         $replyField = Config::get('email.reply_to_field', '');
-        if ($replyField && isset($canonical[$replyField]) && \is_email($canonical[$replyField])) {
-            $headers[] = 'Reply-To: ' . self::sanitizeHeader($canonical[$replyField]);
+        if ($replyField && isset($canonical[$replyField])) {
+            $reply = self::parseEmail((string) $canonical[$replyField], $policy);
+            if ($reply !== '') {
+                $headers[] = 'Reply-To: ' . self::sanitizeHeader($reply);
+            }
         }
         $canonicalDisplay = self::applyDisplayFormatting($tpl, $canonical);
         [$attachments, $overflow] = self::collectAttachments($tpl, $canonicalDisplay);
@@ -55,6 +62,33 @@ class Emailer
         if ($sender !== '') {
             $hook = function ($phpmailer) use ($sender) { $phpmailer->Sender = $sender; };
             add_action('phpmailer_init', $hook);
+        }
+        $disableSend = (bool) Config::get('email.disable_send', false);
+        $redirect = Config::get('email.staging_redirect_to');
+        if ($disableSend || $redirect) {
+            $subject = self::sanitizeHeader('[STAGING] ' . $subject);
+            $headers[] = 'X-EForms-Env: staging';
+        }
+        if ($redirect) {
+            $origTo = $to;
+            $list = is_array($redirect) ? $redirect : [$redirect];
+            $parsed = [];
+            foreach ($list as $r) {
+                $addr = self::parseEmail((string) $r, $policy);
+                if ($addr !== '') {
+                    $parsed[] = $addr;
+                }
+            }
+            if (!empty($parsed)) {
+                $to = implode(',', $parsed);
+            }
+            $headers[] = 'X-EForms-Original-To: ' . $origTo;
+        }
+        if ($disableSend) {
+            if ($hook) {
+                remove_action('phpmailer_init', $hook);
+            }
+            return ['ok' => true];
         }
         $ok = \wp_mail($to, $subject, $body, $headers, $attachments);
         if ($hook) {
@@ -116,6 +150,22 @@ class Emailer
             }
             return (string) ($meta[$token] ?? '');
         }, $str);
+    }
+
+    private static function parseEmail(string $email, string $policy): string
+    {
+        $email = trim($email);
+        if ($policy === 'autocorrect') {
+            $email = preg_replace('/\s+/', '', $email);
+            if (str_contains($email, '@')) {
+                [$local, $domain] = explode('@', $email, 2);
+                $domain = strtolower($domain);
+                $domain = preg_replace('/\.c0m$/i', '.com', $domain);
+                $domain = preg_replace('/\.con$/i', '.com', $domain);
+                $email = $local . '@' . $domain;
+            }
+        }
+        return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
     }
 
     private static function collectAttachments(array $tpl, array $canonical): array
