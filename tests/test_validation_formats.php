@@ -12,11 +12,13 @@ $_POST = [
     'instance_id' => 'instVAL2',
     'timestamp' => time(),
     'eforms_hp' => '',
-    'name' => 'Bob',
-    'email' => 'not-an-email',
-    'message' => 'Hi',
-    'zip_us' => '12',
-    'tel_us' => '123',
+    'quote_request' => [
+        'name' => 'Bob',
+        'email' => 'not-an-email',
+        'message' => 'Hi',
+        'zip_us' => '12',
+        'tel_us' => '123',
+    ],
 ];
 
 $fm = new \EForms\FormManager();

@@ -107,6 +107,21 @@ class Validator
                             $errors[$k][] = 'Invalid phone.';
                         }
                         break;
+                    case 'textarea_html':
+                        $max = (int) Config::get('validation.textarea_html_max_bytes', 32768);
+                        if (strlen($v) > $max) {
+                            $errors[$k][] = 'Content too long.';
+                            $v = '';
+                        } else {
+                            $san = \wp_kses_post($v);
+                            if (strlen($san) > $max) {
+                                $errors[$k][] = 'Content too long.';
+                                $v = '';
+                            } else {
+                                $v = $san;
+                            }
+                        }
+                        break;
                     case 'select':
                     case 'radio':
                     case 'checkbox':

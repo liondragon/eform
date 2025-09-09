@@ -11,9 +11,11 @@ $_POST = [
     'form_id' => 'contact_us',
     'instance_id' => 'instTS',
     'timestamp' => time(),
-    'name' => 'Alice',
-    'email' => 'alice@example.com',
-    'message' => 'Hi',
+    'contact_us' => [
+        'name' => 'Alice',
+        'email' => 'alice@example.com',
+        'message' => 'Hi',
+    ],
 ];
 
 $fm = new \EForms\FormManager();

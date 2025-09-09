@@ -15,9 +15,11 @@ $_POST = [
     'form_id' => 'contact_us',
     'instance_id' => 'instH2',
     'timestamp' => time() - 10,
-    'name' => 'Alice',
-    'email' => 'alice@example.com',
-    'message' => 'Hello again',
+    'contact_us' => [
+        'name' => 'Alice',
+        'email' => 'alice@example.com',
+        'message' => 'Hello again',
+    ],
     'js_ok' => '1',
 ];
 

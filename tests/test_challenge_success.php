@@ -15,9 +15,11 @@ $_POST = [
     'timestamp' => time() - 5,
     'eforms_hp' => '',
     'js_ok' => '1',
-    'name' => 'Zed',
-    'email' => 'zed@example.com',
-    'message' => 'Ping',
+    'contact_us' => [
+        'name' => 'Zed',
+        'email' => 'zed@example.com',
+        'message' => 'Ping',
+    ],
     'cf-turnstile-response' => 'pass',
 ];
 $fm = new \EForms\FormManager();

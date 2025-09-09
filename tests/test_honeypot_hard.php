@@ -13,9 +13,11 @@ $_POST = [
     'instance_id' => 'instHPH',
     'timestamp' => time(),
     'eforms_hp' => 'bot-hard',
-    'name' => '',
-    'email' => '',
-    'message' => '',
+    'contact_us' => [
+        'name' => '',
+        'email' => '',
+        'message' => '',
+    ],
 ];
 
 $fm = new \EForms\FormManager();

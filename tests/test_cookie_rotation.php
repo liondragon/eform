@@ -10,9 +10,11 @@ $_POST = [
     'instance_id' => 'instROT',
     'timestamp' => time(),
     'eforms_hp' => '',
-    'name' => 'Zed',
-    'email' => 'zed@example.com',
-    'message' => 'Ping',
+    'contact_us' => [
+        'name' => 'Zed',
+        'email' => 'zed@example.com',
+        'message' => 'Ping',
+    ],
 ];
 
 register_shutdown_function(function () {
