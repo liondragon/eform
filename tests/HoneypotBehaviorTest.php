@@ -28,7 +28,7 @@ class HoneypotBehaviorTest extends TestCase
         $this->assertStringContainsString('EFORMS_ERR_HONEYPOT', $log);
         $this->assertStringContainsString('"stealth":true', $log);
 
-        $hash = sha1('contact_us:tokHP');
+        $hash = sha1('contact_us:00000000-0000-4000-8000-000000000013');
         $ledgerFile = $tmpDir . '/uploads/eforms-private/ledger/' . substr($hash,0,2) . '/' . $hash . '.used';
         $this->assertFileExists($ledgerFile);
     }

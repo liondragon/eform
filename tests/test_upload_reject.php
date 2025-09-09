@@ -4,7 +4,7 @@ require __DIR__ . '/bootstrap.php';
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_upload_test'] = 'tokU2';
+$_COOKIE['eforms_t_upload_test'] = '00000000-0000-4000-8000-000000000008';
 $tmp = __DIR__ . '/tmp/upload_big.pdf';
 file_put_contents($tmp, "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n" . str_repeat('B', 200));
 $_FILES = [
@@ -24,6 +24,7 @@ $_POST = [
     'upload_test' => [
         'name' => 'Zed',
     ],
+    'js_ok' => '1',
 ];
 register_shutdown_function(function () {
     $files = array_filter(glob(__DIR__ . '/tmp/uploads/eforms-private/*/*') ?: [], function ($f) {

@@ -4,7 +4,7 @@ require __DIR__ . '/bootstrap.php';
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_upload_test'] = 'tokEA1';
+$_COOKIE['eforms_t_upload_test'] = '00000000-0000-4000-8000-000000000007';
 $tmp = __DIR__ . '/tmp/upload.pdf';
 file_put_contents($tmp, "%PDF-1.4\n");
 $_FILES = [
@@ -24,6 +24,7 @@ $_POST = [
     'upload_test' => [
         'name' => 'Zed',
     ],
+    'js_ok' => '1',
 ];
 
 $fm = new \EForms\FormManager();

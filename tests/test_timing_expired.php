@@ -17,6 +17,7 @@ $_POST = [
         'email' => 'zed@example.com',
         'message' => 'Hi',
     ],
+    'js_ok' => '1',
 ];
 
 $fm = new \EForms\FormManager();

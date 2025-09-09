@@ -15,6 +15,7 @@ $_POST = [
         'email' => 'zed@example.com',
         'message' => 'Ping',
     ],
+    'js_ok' => '1',
 ];
 
 $fm = new \EForms\FormManager();

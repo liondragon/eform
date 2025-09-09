@@ -6,7 +6,7 @@ require __DIR__ . '/bootstrap.php';
 // Honeypot: non-empty should result in PRG 303 and no email
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_contact_us'] = 'tokHP';
+$_COOKIE['eforms_t_contact_us'] = '00000000-0000-4000-8000-000000000012';
 
 $_POST = [
     'form_id' => 'contact_us',

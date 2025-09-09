@@ -44,7 +44,7 @@ class SecurityTokenModesTest extends TestCase
 
     public function testHiddenTokenMode(): void
     {
-        $res = Security::token_validate('contact_us', true, 'tokHidden');
+        $res = Security::token_validate('contact_us', true, '00000000-0000-4000-8000-000000000015');
         $this->assertSame('hidden', $res['mode']);
         $this->assertTrue($res['token_ok']);
         $this->assertFalse($res['hard_fail']);
