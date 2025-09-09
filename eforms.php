@@ -134,10 +134,24 @@ namespace {
                 exit;
             }
             $ct = $_SERVER['CONTENT_TYPE'] ?? '';
-            if ($ct && !preg_match('~^(application/x-www-form-urlencoded|multipart/form-data)(;|$)~i', $ct)) {
-                status_header(415);
-                echo 'Unsupported Media Type';
-                exit;
+            if ($ct) {
+                if (stripos($ct, 'multipart/form-data') === 0) {
+                    if (!preg_match('~boundary=(?:"([^"]+)"|([^;]+))~i', $ct, $m)) {
+                        status_header(415);
+                        echo 'Unsupported Media Type';
+                        exit;
+                    }
+                    $boundary = $m[1] !== '' ? $m[1] : ($m[2] ?? '');
+                    if ($boundary === '') {
+                        status_header(415);
+                        echo 'Unsupported Media Type';
+                        exit;
+                    }
+                } elseif (!preg_match('~^application/x-www-form-urlencoded($|;)~i', $ct)) {
+                    status_header(415);
+                    echo 'Unsupported Media Type';
+                    exit;
+                }
             }
             // Delegate to FormManager for full submit pipeline.
             $fm = new FormManager();
