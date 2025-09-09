@@ -76,6 +76,17 @@ class TemplateValidatorTest extends TestCase
         }
     }
 
+    public function testUnknownEmailTemplate(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['email']['email_template'] = 'bogus';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('email.email_template', $paths);
+    }
+
     public function testEmptyAcceptIntersection(): void
     {
         $tpl = $this->baseTpl();
