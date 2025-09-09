@@ -135,7 +135,56 @@ class Logging
     private static function emitFail2ban(string $code, array $ctx): void
     {
         $ip = $ctx['ip'] ?? ($_SERVER['REMOTE_ADDR'] ?? '');
-        $line = sprintf('eforms-fail2ban code=%s ip=%s', $code, $ip);
+        $form = $ctx['form_id'] ?? '';
+        $line = sprintf(
+            'eforms-fail2ban ts=%d code=%s ip=%s form=%s',
+            time(),
+            $code,
+            $ip,
+            $form
+        );
+        $target = Config::get('logging.fail2ban.target', 'error_log');
+        if ($target === 'syslog') {
+            syslog(LOG_INFO, $line);
+            return;
+        }
+        if ($target === 'file') {
+            $file = (string) Config::get('logging.fail2ban.file', '');
+            if ($file === '') {
+                error_log($line);
+                return;
+            }
+            if ($file[0] !== '/') {
+                $base = rtrim((string) Config::get('uploads.dir', sys_get_temp_dir()), '/');
+                $file = $base . '/' . ltrim($file, '/');
+            }
+            $dir = dirname($file);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0700, true);
+            }
+            $max = (int) Config::get(
+                'logging.fail2ban.file_max_size',
+                (int) Config::get('logging.file_max_size', 5000000)
+            );
+            $ret = (int) Config::get(
+                'logging.fail2ban.retention_days',
+                (int) Config::get('logging.retention_days', 30)
+            );
+            self::rotate($file, $max, $ret);
+            $isNew = !file_exists($file);
+            $ok = @file_put_contents($file, $line . "\n", FILE_APPEND | LOCK_EX);
+            if ($ok === false) {
+                error_log($line);
+                if (Config::get('logging.mode', 'minimal') !== 'off') {
+                    self::logLine(['severity' => 'warn', 'code' => 'EFORMS_FAIL2BAN_IO']);
+                }
+            } else {
+                if ($isNew) {
+                    @chmod($file, 0600);
+                }
+            }
+            return;
+        }
         error_log($line);
     }
 }
