@@ -77,11 +77,17 @@ class Uploads
                 $err = $it['error'];
                 $size = $it['size'];
                 $name = $it['original_name'];
-                if ($err !== UPLOAD_ERR_OK || $size <= 0 || $name === '') {
+                if ($err !== UPLOAD_ERR_OK) {
+                    if ($err !== UPLOAD_ERR_NO_FILE) {
+                        $errors[$k][] = 'File upload failed. Please try again.';
+                    }
+                    continue;
+                }
+                if ($size <= 0 || $name === '') {
                     continue;
                 }
                 if ($size > $fieldMaxFile) {
-                    $errors[$k][] = 'File too large.';
+                    $errors[$k][] = 'This file exceeds the size limit.';
                     continue;
                 }
                 $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -89,20 +95,20 @@ class Uploads
                 if ($finfo) finfo_close($finfo);
                 $ext = strtolower((string) pathinfo($name, PATHINFO_EXTENSION));
                 if (!self::allowedToken($accept, $mime, $ext)) {
-                    $errors[$k][] = 'Invalid file type.';
+                    $errors[$k][] = "This file type isn't allowed.";
                     continue;
                 }
                 if ($allowedMime && !in_array($mime, $allowedMime, true)) {
-                    $errors[$k][] = 'Invalid file type.';
+                    $errors[$k][] = "This file type isn't allowed.";
                     continue;
                 }
                 if ($allowedExt && !in_array($ext, $allowedExt, true)) {
-                    $errors[$k][] = 'Invalid file type.';
+                    $errors[$k][] = "This file type isn't allowed.";
                     continue;
                 }
                 if (str_starts_with($mime, 'image/')) {
                     if (!@getimagesize($it['tmp_name'])) {
-                        $errors[$k][] = 'Invalid image file.';
+                        $errors[$k][] = "This file type isn't allowed.";
                         continue;
                     }
                 }
@@ -124,14 +130,14 @@ class Uploads
                 $errors[$k][] = 'This field is required.';
             }
             if ($fieldBytes > $maxFieldBytes) {
-                $errors[$k][] = 'Total upload size exceeded.';
+                $errors[$k][] = 'This file exceeds the size limit.';
             }
             if ($fieldCount > $fieldMaxFiles) {
                 $errors[$k][] = 'Too many files.';
             }
         }
         if ($totalRequest > $maxRequest) {
-            $errors['_global'][] = 'Upload limit exceeded.';
+            $errors['_global'][] = 'This file exceeds the size limit.';
         }
         return ['files' => $valid, 'errors' => $errors];
     }
@@ -147,6 +153,7 @@ class Uploads
         foreach ($files as $k => $list) {
             foreach ($list as $item) {
                 $safeName = self::uniqueName($item['original_name_safe'], $names);
+                $sha256 = hash_file('sha256', $item['tmp_name']);
                 $rel = self::buildPath($base, $item['tmp_name'], $item['slug'], $item['ext']);
                 $dest = $base . '/' . $rel;
                 $dir = dirname($dest);
@@ -161,6 +168,7 @@ class Uploads
                     'path' => $rel,
                     'size' => $item['size'],
                     'mime' => $item['mime'],
+                    'sha256' => $sha256,
                     'original_name' => $item['original_name'],
                     'original_name_safe' => $safeName,
                 ];

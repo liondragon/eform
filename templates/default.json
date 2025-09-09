@@ -1,0 +1,18 @@
+{
+  "id": "default",
+  "version": "1",
+  "title": "Sample Form",
+  "success": { "mode": "inline", "message": "Thanks for your submission." },
+  "email": {
+    "to": "admin@example.com",
+    "subject": "New submission from {{field.name}}",
+    "email_template": "default",
+    "include_fields": ["name","email","message"]
+  },
+  "fields": [
+    {"key":"name","type":"text","label":"Your Name","required":true},
+    {"key":"email","type":"email","label":"Email","autocomplete":"email","required":true},
+    {"key":"message","type":"textarea","label":"Message","required":true}
+  ],
+  "submit_button_text": "Send"
+}

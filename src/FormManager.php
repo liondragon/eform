@@ -141,6 +141,7 @@ class FormManager
         }
         $challengeMode = Config::get('challenge.mode', 'off');
         $requireChallenge = $tokenInfo['require_challenge'];
+        $challengeState = 'none';
         if ($challengeMode === 'always' || ($challengeMode === 'auto' && $softFailCount > 0)) {
             $requireChallenge = true;
         }
@@ -151,8 +152,10 @@ class FormManager
             $ver = Challenge::verify($provider, $resp, $timeout, $formId, $_POST['instance_id'] ?? '');
             if ($ver['ok'] ?? false) {
                 $softFailCount = 0;
+                $challengeState = 'passed';
             } elseif (!($ver['unconfigured'] ?? false)) {
                 $softFailCount++;
+                $challengeState = 'failed';
                 Logging::write('warn', 'EFORMS_ERR_CHALLENGE_FAILED', [
                     'form_id' => $formId,
                     'instance_id' => $_POST['instance_id'] ?? '',
@@ -160,6 +163,7 @@ class FormManager
                 $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.');
             } else {
                 $softFailCount++;
+                $challengeState = 'error';
             }
         }
         // Honeypot
@@ -250,7 +254,9 @@ class FormManager
                     'origin_state' => $origin['state'],
                     'throttle_state' => $throttleState,
                     'honeypot' => false,
+                    'challenge_state' => $challengeState,
                 ],
+                'canonical' => $val['values'],
             ]);
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
@@ -327,7 +333,6 @@ class FormManager
             Uploads::deleteStored($canonical['_uploads']);
         }
         if (!$email['ok']) {
-            Logging::write('error', 'EFORMS_EMAIL_FAIL', ['form_id'=>$formId,'instance_id'=>$metaInfo['instance_id'],'msg'=>'send_fail']);
             $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
             $meta = [
                 'form_id' => $formId,
@@ -364,6 +369,7 @@ class FormManager
                     'origin_state' => $origin['state'],
                     'throttle_state' => $throttleState,
                     'honeypot' => false,
+                    'challenge_state' => $challengeState,
                 ],
             ]);
         }
