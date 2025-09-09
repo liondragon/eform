@@ -44,7 +44,7 @@
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
-        "type": {"enum": ["name","email","textarea","textarea_html","tel_us","zip_us","select","radio","checkbox","file","files","row_group"]},
+        "type": {"enum": ["name","first_name","last_name","text","email","textarea","textarea_html","url","tel","tel_us","number","range","date","zip","zip_us","select","radio","checkbox","file","files","row_group"]},
         "key": {"type": "string"},
         "label": {"type": "string"},
         "required": {"type": "boolean"},

@@ -104,7 +104,7 @@ class TemplateValidator
         $normFields = [];
         $realFieldCount = 0;
         $reserved = ['form_id','instance_id','eforms_token','eforms_hp','timestamp','js_ok','ip','submitted_at'];
-        $allowedTypes = ['name','email','textarea','textarea_html','tel_us','zip_us','select','radio','checkbox','file','files','row_group'];
+        $allowedTypes = ['name','first_name','last_name','text','email','textarea','textarea_html','url','tel','tel_us','number','range','date','zip','zip_us','select','radio','checkbox','file','files','row_group'];
         foreach ($fields as $idx => $f) {
             $path = 'fields['.$idx.'].';
             if (!is_array($f)) {
@@ -310,6 +310,30 @@ class TemplateValidator
         }
         if ($rowStack !== 0) {
             $errors[] = ['code'=>self::EFORMS_ERR_ROW_GROUP_UNBALANCED,'path'=>'fields'];
+        }
+
+        $allowedMeta = ['ip','submitted_at','form_id','instance_id'];
+        if (isset($email['include_fields'])) {
+            if (!is_array($email['include_fields'])) {
+                $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>'email.include_fields'];
+                $email['include_fields'] = [];
+            } else {
+                $filtered = [];
+                foreach ($email['include_fields'] as $idx => $fld) {
+                    if (!is_string($fld)) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>'email.include_fields['.$idx.']'];
+                        continue;
+                    }
+                    if (!isset($seenKeys[$fld]) && !in_array($fld, $allowedMeta, true)) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'email.include_fields['.$idx.']'];
+                        continue;
+                    }
+                    $filtered[] = $fld;
+                }
+                $email['include_fields'] = $filtered;
+            }
+        } else {
+            $email['include_fields'] = [];
         }
 
         $rules = is_array($tpl['rules'] ?? null) ? $tpl['rules'] : [];
