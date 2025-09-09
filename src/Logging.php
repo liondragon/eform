@@ -72,7 +72,8 @@ class Logging
 
     public static function write(string $severity, string $code, array $ctx = []): void
     {
-        if (Config::get('logging.mode', 'minimal') === 'off') {
+        $mode = (string) Config::get('logging.mode', 'minimal');
+        if ($mode === 'off') {
             if (Config::get('logging.fail2ban.enable', false)) {
                 self::emitFail2ban($code, $ctx);
             }
@@ -126,7 +127,32 @@ class Logging
                 $data['headers'] = $headers;
             }
         }
-        self::logLine($data);
+        if ($mode === 'jsonl') {
+            self::logLine($data);
+        } else {
+            $parts = [];
+            $parts[] = 'sev=' . $severity;
+            $parts[] = 'code=' . $code;
+            if ($data['form_id'] !== '') {
+                $parts[] = 'form=' . $data['form_id'];
+            }
+            if ($data['instance_id'] !== '') {
+                $parts[] = 'inst=' . $data['instance_id'];
+            }
+            if ($data['msg'] !== '') {
+                $parts[] = 'msg=' . preg_replace('/\s+/', ' ', (string) $data['msg']);
+            }
+            if (isset($data['meta']) && is_array($data['meta'])) {
+                foreach ($data['meta'] as $k => $v) {
+                    if (is_scalar($v)) {
+                        $parts[] = $k . '=' . preg_replace('/\s+/', ' ', (string) $v);
+                    } else {
+                        $parts[] = $k . '=' . substr(json_encode($v), 0, 200);
+                    }
+                }
+            }
+            error_log('eforms ' . implode(' ', $parts));
+        }
         if (Config::get('logging.fail2ban.enable', false)) {
             self::emitFail2ban($code, $ctx);
         }

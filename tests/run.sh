@@ -4,6 +4,8 @@ cd "$(dirname "$0")"
 
 PHP="php"
 
+export EFORMS_LOG_MODE=jsonl
+
 pass=0
 fail=0
 
