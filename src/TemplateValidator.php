@@ -140,7 +140,16 @@ class TemplateValidator
             }
 
             // Non row_group field
-            self::checkUnknown($f, ['type','key','label','required','options','multiple','accept','before_html','after_html','class','placeholder','autocomplete','size','max_length','min','max','pattern','email_attach'], $path, $errors);
+            self::checkUnknown(
+                $f,
+                [
+                    'type','key','label','required','options','multiple','accept','before_html','after_html','class',
+                    'placeholder','autocomplete','size','max_length','min','max','pattern','email_attach',
+                    'max_file_bytes','max_files','step'
+                ],
+                $path,
+                $errors
+            );
             $key = $f['key'] ?? null;
             if (!is_string($key) || !preg_match('/^[a-z0-9_:-]{1,64}$/', $key)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'key'];
@@ -193,6 +202,22 @@ class TemplateValidator
                 if (isset($f['email_attach']) && !is_bool($f['email_attach'])) {
                     $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'email_attach'];
                 }
+                if (isset($f['max_file_bytes'])) {
+                    if (!is_int($f['max_file_bytes'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'max_file_bytes'];
+                    } elseif ($f['max_file_bytes'] < 1) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'max_file_bytes'];
+                    }
+                }
+                if (isset($f['max_files'])) {
+                    if ($type !== 'files') {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'max_files'];
+                    } elseif (!is_int($f['max_files'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'max_files'];
+                    } elseif ($f['max_files'] < 1) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'max_files'];
+                    }
+                }
             }
 
             if (isset($f['autocomplete'])) {
@@ -233,6 +258,7 @@ class TemplateValidator
             }
             $minVal = $f['min'] ?? null;
             $maxVal = $f['max'] ?? null;
+            $stepVal = $f['step'] ?? null;
             if ($minVal !== null && !is_numeric($minVal)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'min'];
             }
@@ -241,6 +267,13 @@ class TemplateValidator
             }
             if (is_numeric($minVal) && is_numeric($maxVal) && $minVal > $maxVal) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'min'];
+            }
+            if ($stepVal !== null) {
+                if (!is_numeric($stepVal)) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'step'];
+                } elseif ($stepVal <= 0) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'step'];
+                }
             }
             if (isset($f['pattern'])) {
                 if (!is_string($f['pattern'])) {
@@ -268,6 +301,9 @@ class TemplateValidator
                 'min' => is_numeric($minVal) ? $minVal + 0 : null,
                 'max' => is_numeric($maxVal) ? $maxVal + 0 : null,
                 'pattern' => is_string($f['pattern'] ?? null) ? $f['pattern'] : null,
+                'max_file_bytes' => isset($f['max_file_bytes']) && is_int($f['max_file_bytes']) ? $f['max_file_bytes'] : null,
+                'max_files' => isset($f['max_files']) && is_int($f['max_files']) ? $f['max_files'] : null,
+                'step' => (is_numeric($stepVal) && $stepVal > 0) ? $stepVal + 0 : null,
             ];
         }
         if ($rowStack !== 0) {

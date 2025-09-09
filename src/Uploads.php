@@ -65,6 +65,10 @@ class Uploads
                 $accept = [];
             }
             $accept = array_intersect($accept, $allowedGlobal);
+            $fieldMaxFile = isset($f['max_file_bytes']) && is_int($f['max_file_bytes']) ? $f['max_file_bytes'] : $maxFile;
+            $fieldMaxFiles = $type === 'files'
+                ? (isset($f['max_files']) && is_int($f['max_files']) ? $f['max_files'] : $maxFiles)
+                : 1;
             $fieldBytes = 0;
             $fieldCount = 0;
             foreach ($items as $it) {
@@ -74,7 +78,7 @@ class Uploads
                 if ($err !== UPLOAD_ERR_OK || $size <= 0 || $name === '') {
                     continue;
                 }
-                if ($size > $maxFile) {
+                if ($size > $fieldMaxFile) {
                     $errors[$k][] = 'File too large.';
                     continue;
                 }
@@ -106,7 +110,7 @@ class Uploads
             if ($fieldBytes > $maxFieldBytes) {
                 $errors[$k][] = 'Total upload size exceeded.';
             }
-            if ($fieldCount > $maxFiles || ($type === 'file' && $fieldCount > 1)) {
+            if ($fieldCount > $fieldMaxFiles) {
                 $errors[$k][] = 'Too many files.';
             }
         }

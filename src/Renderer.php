@@ -249,6 +249,7 @@ class Renderer
                     if ($f['max'] !== null) $html .= ' max="' . \esc_attr((string)$f['max']) . '"';
                     if (!empty($f['pattern'])) $html .= ' pattern="' . \esc_attr($f['pattern']) . '"';
                     if (!empty($f['size'])) $html .= ' size="' . (int)$f['size'] . '"';
+                    if ($f['step'] !== null) $html .= ' step="' . \esc_attr((string)$f['step']) . '"';
                     $html .= $extra . $errAttr . $extraHint . '>';
                     break;
             }

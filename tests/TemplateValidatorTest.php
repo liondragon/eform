@@ -192,4 +192,16 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains('fields[0].size', $paths);
         $this->assertNull($res['context']['fields'][0]['size']);
     }
+
+    public function testFileLimitsAndStepAllowed(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['step'] = 5;
+        $tpl['fields'][] = ['type' => 'file', 'key' => 'up1', 'max_file_bytes' => 100];
+        $tpl['fields'][] = ['type' => 'files', 'key' => 'up2', 'max_files' => 2];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertNotContains(TemplateValidator::EFORMS_ERR_SCHEMA_UNKNOWN_KEY, $codes);
+        $this->assertTrue($res['ok']);
+    }
 }
