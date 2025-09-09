@@ -96,16 +96,23 @@ class Logging
         $meta = $ctx;
         unset($meta['form_id'], $meta['instance_id'], $meta['msg']);
         if (!empty($meta)) {
-            if (!Config::get('logging.pii', false)) {
-                if (isset($meta['ip'])) {
-                    $meta['ip'] = preg_replace('/\d+\.\d+\.\d+\.\d+/', 'x.x.x.x', (string) $meta['ip']);
+            if (isset($meta['ip'])) {
+                $ipDisp = Helpers::ip_display((string) $meta['ip']);
+                if ($ipDisp === '') {
+                    unset($meta['ip']);
+                } else {
+                    $meta['ip'] = $ipDisp;
                 }
+            }
+            if (!Config::get('logging.pii', false)) {
                 if (isset($meta['email'])) {
                     $parts = explode('@', (string) $meta['email']);
                     $meta['email'] = ($parts[0] ?? '') !== '' ? substr($parts[0],0,1) . '***@' . ($parts[1] ?? '') : '';
                 }
             }
-            $data['meta'] = $meta;
+            if (!empty($meta)) {
+                $data['meta'] = $meta;
+            }
         }
         if (Config::get('logging.headers', false)) {
             $headers = [];

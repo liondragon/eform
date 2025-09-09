@@ -97,4 +97,32 @@ class Helpers
         }
         return $remote;
     }
+
+    public static function mask_ip(string $ip): string
+    {
+        if (str_contains($ip, ':')) {
+            $parts = explode(':', $ip);
+            $parts[count($parts) - 1] = '0';
+            return implode(':', $parts);
+        }
+        $parts = explode('.', $ip);
+        $parts[3] = '0';
+        return implode('.', $parts);
+    }
+
+    public static function ip_display(string $ip): string
+    {
+        $mode = Config::get('privacy.ip_mode', 'masked');
+        if ($mode === 'none' || $ip === '') {
+            return '';
+        }
+        if ($mode === 'masked') {
+            return self::mask_ip($ip);
+        }
+        if ($mode === 'hash') {
+            $salt = (string) Config::get('privacy.ip_salt', '');
+            return hash('sha256', $ip . $salt);
+        }
+        return $ip;
+    }
 }

@@ -94,23 +94,13 @@ class Throttle
         if ($mode === 'none' || $ip === '') {
             return null;
         }
-        $salt = (string) Config::get('privacy.ip_salt', '');
+        if ($mode === 'full') {
+            return $ip;
+        }
         if ($mode === 'masked') {
-            $ip = self::maskIp($ip);
+            $ip = Helpers::mask_ip($ip);
         }
-        // 'hash' and 'full' use raw IP
+        $salt = (string) Config::get('privacy.ip_salt', '');
         return hash('sha256', $ip . $salt);
-    }
-
-    private static function maskIp(string $ip): string
-    {
-        if (str_contains($ip, ':')) {
-            $parts = explode(':', $ip);
-            $parts[count($parts) - 1] = '0';
-            return implode(':', $parts);
-        }
-        $parts = explode('.', $ip);
-        $parts[3] = '0';
-        return implode('.', $parts);
     }
 }

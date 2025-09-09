@@ -13,6 +13,14 @@ class Emailer
             return ['ok' => false, 'msg' => 'invalid_to'];
         }
         $meta = self::sanitizeMeta($meta);
+        if (isset($meta['ip'])) {
+            $ipDisp = Helpers::ip_display((string) $meta['ip']);
+            if ($ipDisp === '') {
+                unset($meta['ip']);
+            } else {
+                $meta['ip'] = $ipDisp;
+            }
+        }
         $subjectRaw = $tpl['email']['subject'] ?? 'Form Submission';
         $subjectRaw = self::expandTokens($subjectRaw, $canonical, $meta);
         $subject = self::sanitizeHeader($subjectRaw);
