@@ -326,10 +326,11 @@ electronic_forms - Spec
 		- add headers: X-EForms-Soft-Fails, X-EForms-Suspect; subject tag (configurable)
 	9. Throttling (optional; file-based)
 		- Purpose: dampen spikes from the same IP without DBs or queues.
-		- Keying: compute a throttle key from the resolved client IP per §16, then apply privacy settings:
-			- privacy.ip_mode=hash → sha256(ip + privacy.ip_salt).
-			- privacy.ip_mode=masked|full → hash the masked/full IP the same way.
-			- privacy.ip_mode=none → throttling disabled (no key available)
+                - Keying: compute a throttle key from the resolved client IP per §16, then apply privacy settings:
+                        - privacy.ip_mode=hash → sha256(ip + privacy.ip_salt).
+                        - privacy.ip_mode=masked → sha256(masked_ip + privacy.ip_salt).
+                        - privacy.ip_mode=full → plain IP (no hashing).
+                        - privacy.ip_mode=none → throttling disabled (no key available)
 		- Algorithm (fixed 60s window, tiny file):
 			- File shape: {"window_start": <unix>, "count": <int>, "cooldown_until": <unix|0>}.
 			- On POST: lock file with flock, roll window if now - window_start >= 60, then count++.
@@ -577,9 +578,11 @@ electronic_forms - Spec
 	
 16. PRIVACY AND IP HANDLING
 	- privacy.ip_mode = none | masked | hash | full (default masked)
-	- masked: IPv4 last octet(s) redacted; IPv6 last 80 bits zeroed (compressed)
-	- hash: sha256(ip + optional salt); store hash only
-	- include ip in email.include_fields only when mode != none
+        - masked: IPv4 last octet(s) redacted; IPv6 last 80 bits zeroed (compressed)
+        - hash: sha256(ip + optional salt); store hash only
+        - full: store/display IP as-is
+        - logs and emails honor this setting for IP presentation
+        - include ip in email.include_fields only when mode != none
 	- UA and Origin never included in emails; logging only
 	- submitted_at set server-side (UTC ISO-8601) for logs/emails
 	- By default, use REMOTE_ADDR. When behind trusted proxies, set:
