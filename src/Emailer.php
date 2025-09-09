@@ -5,13 +5,19 @@ namespace EForms;
 
 class Emailer
 {
-    public static function send(array $tpl, array $canonical, array $meta): array
+    public static function send(array $tpl, array $canonical, array $meta, int $softFails = 0): array
     {
         $to = $tpl['email']['to'] ?? '';
         $meta = self::sanitizeMeta($meta);
         $subjectRaw = $tpl['email']['subject'] ?? 'Form Submission';
         $subjectRaw = self::expandTokens($subjectRaw, $canonical, $meta);
         $subject = substr(preg_replace("/[\r\n]+/", ' ', $subjectRaw), 0, 255);
+        if ($softFails > 0) {
+            $tag = (string) Config::get('email.suspect_subject_tag', '[SUSPECT]');
+            if ($tag !== '') {
+                $subject = $tag . ' ' . $subject;
+            }
+        }
         $site = parse_url(\home_url(), PHP_URL_HOST) ?: 'example.com';
         $fromCfg = Config::get('email.from_address', '');
         if (is_string($fromCfg) && preg_match('/@' . preg_quote($site, '/') . '$/i', $fromCfg)) {
@@ -21,6 +27,10 @@ class Emailer
         }
         $html = (bool) Config::get('email.html', false);
         $headers = ['From: ' . $from];
+        if ($softFails > 0) {
+            $headers[] = 'X-EForms-Soft-Fails: ' . $softFails;
+            $headers[] = 'X-EForms-Suspect: 1';
+        }
         if ($html) {
             $headers[] = 'Content-Type: text/html; charset=UTF-8';
         }

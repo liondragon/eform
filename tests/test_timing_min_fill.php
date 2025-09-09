@@ -5,7 +5,7 @@ require __DIR__ . '/bootstrap.php';
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_contact_us'] = 'tokTS';
+$_COOKIE['eforms_t_contact_us'] = '00000000-0000-4000-8000-000000000002';
 
 $_POST = [
     'form_id' => 'contact_us',
@@ -16,6 +16,7 @@ $_POST = [
         'email' => 'alice@example.com',
         'message' => 'Hi',
     ],
+    'js_ok' => '1',
 ];
 
 $fm = new \EForms\FormManager();

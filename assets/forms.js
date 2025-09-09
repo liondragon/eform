@@ -23,7 +23,12 @@
         if (submitting) { e.preventDefault(); return false; }
         submitting = true;
         var btn = f.querySelector('button[type="submit"]');
-        if (btn) { btn.disabled = true; }
+        if (btn) {
+          btn.disabled = true;
+          var spin = document.createElement('span');
+          spin.className = 'eforms-spinner';
+          btn.parentNode.insertBefore(spin, btn.nextSibling);
+        }
       });
     });
   });

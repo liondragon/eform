@@ -44,8 +44,26 @@ class FormManager
             'hidden_token' => $cacheable ? null : (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()),
             'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
         ];
+        $challengeMode = Config::get('challenge.mode', 'off');
+        if ($challengeMode === 'always') {
+            $prov = Config::get('challenge.provider', 'turnstile');
+            $site = Config::get('challenge.' . $prov . '.site_key', '');
+            $meta['challenge'] = ['provider' => $prov, 'site_key' => $site];
+            Challenge::enqueueScript($prov);
+        }
         $this->enqueueAssetsIfNeeded();
-        return Renderer::form($tpl, $meta, [], []);
+        $html = Renderer::form($tpl, $meta, [], []);
+        $estimate = (int) ($tpl['max_input_vars_estimate'] ?? 0);
+        $max = (int) ini_get('max_input_vars');
+        if ($max <= 0) $max = 1000;
+        $comment = '';
+        if ($estimate >= (int) ceil(0.9 * $max)) {
+            Logging::write('warn', 'EFORMS_MAX_INPUT_VARS_NEAR_LIMIT', ['estimate'=>$estimate,'max_input_vars'=>$max]);
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                $comment = "<!-- eforms: max_input_vars advisory — estimate=$estimate, max_input_vars=$max -->";
+            }
+        }
+        return $html . $comment;
     }
 
     public function handleSubmit(): void
@@ -78,6 +96,11 @@ class FormManager
         }
         // security gates
         $origin = Security::origin_evaluate();
+        Logging::write('info', 'EFORMS_ORIGIN_STATE', [
+            'form_id' => $formId,
+            'instance_id' => $_POST['instance_id'] ?? '',
+            'spam' => ['origin_state' => $origin['state']]
+        ]);
         if ($origin['hard_fail']) {
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
@@ -103,6 +126,10 @@ class FormManager
             $this->renderErrorAndExit($tpl, $formId, 'Security token error.');
         }
         $softFailCount += $tokenInfo['soft_signal'];
+        $ua = Helpers::sanitize_user_agent($_SERVER['HTTP_USER_AGENT'] ?? '');
+        if ($ua === '') {
+            $softFailCount++;
+        }
         $challengeMode = Config::get('challenge.mode', 'off');
         $requireChallenge = $tokenInfo['require_challenge'];
         if ($challengeMode === 'always' || ($challengeMode === 'auto' && $softFailCount > 0)) {
@@ -122,6 +149,8 @@ class FormManager
                     'instance_id' => $_POST['instance_id'] ?? '',
                 ]);
                 $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.');
+            } else {
+                $softFailCount++;
             }
         }
         // Honeypot
@@ -202,6 +231,21 @@ class FormManager
                 $softFailCount++;
             }
         }
+        $threshold = (int) Config::get('spam.soft_fail_threshold', 2);
+        if ($softFailCount >= $threshold) {
+            Logging::write('warn', 'EFORMS_ERR_SPAM_THRESHOLD', [
+                'form_id' => $formId,
+                'instance_id' => $_POST['instance_id'] ?? '',
+                'spam' => [
+                    'soft_fail_count' => $softFailCount,
+                    'origin_state' => $origin['state'],
+                    'throttle_state' => $throttleState,
+                    'honeypot' => false,
+                ],
+            ]);
+            $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+        }
+        $suspect = $softFailCount > 0;
         $postedFields = $_POST[$formId] ?? [];
         $values = Validator::normalize($tpl, $postedFields);
         $desc = Validator::descriptors($tpl);
@@ -240,6 +284,12 @@ class FormManager
                 'hidden_token' => $hasHidden ? $postedToken : null,
                 'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
             ];
+            if ($requireChallenge) {
+                $prov = Config::get('challenge.provider', 'turnstile');
+                $site = Config::get('challenge.' . $prov . '.site_key', '');
+                $meta['challenge'] = ['provider'=>$prov,'site_key'=>$site];
+                Challenge::enqueueScript($prov);
+            }
             $this->enqueueAssetsIfNeeded();
             $html = Renderer::form($tpl, $meta, $errors, $values);
             echo $html;
@@ -263,7 +313,7 @@ class FormManager
             'submitted_at' => \gmdate('c'),
             'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
         ];
-        $email = Emailer::send($tpl, $canonical, $metaInfo);
+        $email = Emailer::send($tpl, $canonical, $metaInfo, $softFailCount);
         if (($email['ok'] ?? false) && !empty($canonical['_uploads']) && Config::get('uploads.delete_after_send', true)) {
             Uploads::deleteStored($canonical['_uploads']);
         }
@@ -280,11 +330,33 @@ class FormManager
                 'hidden_token' => $hasHidden ? (function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()) : null,
                 'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
             ];
+            if ($requireChallenge) {
+                $prov = Config::get('challenge.provider', 'turnstile');
+                $site = Config::get('challenge.' . $prov . '.site_key', '');
+                $meta['challenge'] = ['provider'=>$prov,'site_key'=>$site];
+                Challenge::enqueueScript($prov);
+            }
             $errors = ['_global' => ['Operational error. Please try again later.']];
             $this->enqueueAssetsIfNeeded();
             $html = Renderer::form($tpl, $meta, $errors, $values);
             echo $html;
             exit;
+        }
+        if ($suspect && !headers_sent()) {
+            \header('X-EForms-Soft-Fails: ' . $softFailCount);
+            \header('X-EForms-Suspect: 1');
+        }
+        if ($suspect) {
+            Logging::write('info', 'EFORMS_SUSPECT', [
+                'form_id' => $formId,
+                'instance_id' => $metaInfo['instance_id'],
+                'spam' => [
+                    'soft_fail_count' => $softFailCount,
+                    'origin_state' => $origin['state'],
+                    'throttle_state' => $throttleState,
+                    'honeypot' => false,
+                ],
+            ]);
         }
         $this->successAndRedirect($tpl, $formId, $metaInfo['instance_id']);
     }

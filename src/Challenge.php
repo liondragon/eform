@@ -39,4 +39,17 @@ class Challenge
         $body = json_decode((string) \wp_remote_retrieve_body($res), true);
         return ['ok' => !empty($body['success'])];
     }
+
+    public static function enqueueScript(string $provider): void
+    {
+        $urls = [
+            'turnstile' => 'https://challenges.cloudflare.com/turnstile/v0/api.js',
+            'hcaptcha' => 'https://hcaptcha.com/1/api.js',
+            'recaptcha' => 'https://www.google.com/recaptcha/api.js',
+        ];
+        $url = $urls[$provider] ?? null;
+        if ($url) {
+            wp_enqueue_script('eforms-challenge-'.$provider, $url, [], null, ['in_footer' => true]);
+        }
+    }
 }

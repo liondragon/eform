@@ -4,7 +4,7 @@ require __DIR__ . '/bootstrap.php';
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_upload_test'] = 'tokU1';
+$_COOKIE['eforms_t_upload_test'] = '00000000-0000-4000-8000-00000000000c';
 $tmp = __DIR__ . '/tmp/upload.pdf';
 file_put_contents($tmp, "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
 $_FILES = [

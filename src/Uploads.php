@@ -52,6 +52,8 @@ class Uploads
         $maxRequest = (int) Config::get('uploads.total_request_bytes', 20000000);
         $maxFiles = (int) Config::get('uploads.max_files', 10);
         $allowedGlobal = Config::get('uploads.allowed_tokens', ['image','pdf']);
+        $allowedMime = array_map('strtolower', (array) Config::get('uploads.allowed_mime', []));
+        $allowedExt = array_map('strtolower', (array) Config::get('uploads.allowed_ext', []));
 
         foreach ($tpl['fields'] as $f) {
             $type = $f['type'] ?? '';
@@ -83,12 +85,26 @@ class Uploads
                     continue;
                 }
                 $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                $mime = $finfo ? (string) finfo_file($finfo, $it['tmp_name']) : '';
+                $mime = $finfo ? strtolower((string) finfo_file($finfo, $it['tmp_name'])) : '';
                 if ($finfo) finfo_close($finfo);
                 $ext = strtolower((string) pathinfo($name, PATHINFO_EXTENSION));
                 if (!self::allowedToken($accept, $mime, $ext)) {
                     $errors[$k][] = 'Invalid file type.';
                     continue;
+                }
+                if ($allowedMime && !in_array($mime, $allowedMime, true)) {
+                    $errors[$k][] = 'Invalid file type.';
+                    continue;
+                }
+                if ($allowedExt && !in_array($ext, $allowedExt, true)) {
+                    $errors[$k][] = 'Invalid file type.';
+                    continue;
+                }
+                if (str_starts_with($mime, 'image/')) {
+                    if (!@getimagesize($it['tmp_name'])) {
+                        $errors[$k][] = 'Invalid image file.';
+                        continue;
+                    }
                 }
                 $fieldBytes += $size;
                 $fieldCount++;

@@ -72,3 +72,17 @@ form input:focus, form textarea:focus {
 #main_contact_form button[type="submit"]:hover {
         background: #5c5c5d;
 }
+
+.eforms-spinner {
+        display:inline-block;
+        margin-left:.5em;
+        width:1em;
+        height:1em;
+        border:2px solid currentColor;
+        border-right-color:transparent;
+        border-radius:50%;
+        animation:eforms-spin .6s linear infinite;
+}
+@keyframes eforms-spin {
+        to { transform:rotate(360deg); }
+}

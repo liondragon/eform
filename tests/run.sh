@@ -129,8 +129,9 @@ record_result "cookie policy hard: missing cookie hard fail" $ok
 
 run_test test_cookie_policy_challenge
 ok=0
-assert_grep tmp/mail.json 'zed@example.com' || ok=1
-record_result "cookie policy challenge: allow when unconfigured" $ok
+assert_grep tmp/stdout.txt 'Security check failed\.' || ok=1
+! assert_grep tmp/mail.json 'zed@example.com' || ok=1
+record_result "cookie policy challenge: unconfigured blocks" $ok
 
 # 2c) Challenge verification
 run_test test_challenge_success

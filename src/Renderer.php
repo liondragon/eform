@@ -266,6 +266,18 @@ class Renderer
         if ($rowErr) {
             Logging::write('warn', TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, ['form_id'=>$formId,'instance_id'=>$meta['instance_id'] ?? '']);
         }
+        if (!empty($meta['challenge'])) {
+            $ch = $meta['challenge'];
+            $prov = $ch['provider'];
+            $site = $ch['site_key'] ?? '';
+            if ($prov === 'turnstile') {
+                $html .= '<div class="cf-challenge" data-sitekey="' . \esc_attr($site) . '"></div>';
+            } elseif ($prov === 'hcaptcha') {
+                $html .= '<div class="h-captcha" data-sitekey="' . \esc_attr($site) . '"></div>';
+            } elseif ($prov === 'recaptcha') {
+                $html .= '<div class="g-recaptcha" data-sitekey="' . \esc_attr($site) . '"></div>';
+            }
+        }
         $btn = $tpl['submit_button_text'] ?? 'Submit';
         $html .= '<button type="submit">' . \esc_html($btn) . '</button>';
         $html .= '</form>';

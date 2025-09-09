@@ -28,6 +28,9 @@ ini_set('error_log', $TEST_ARTIFACTS['log_file']);
 // Simulate WP env
 $GLOBALS['wp_version'] = '6.5.0';
 
+// Default user agent for soft-fail calculations
+$_SERVER['HTTP_USER_AGENT'] = $_SERVER['HTTP_USER_AGENT'] ?? 'phpunit';
+
 function add_action($hook, $callable, $priority = 10, $args = 1) {
     global $TEST_HOOKS;
     $TEST_HOOKS[$hook][$priority][] = $callable;
