@@ -92,10 +92,23 @@ class Validator
                 $errors[$k][] = 'This field is required.';
             }
             if ($v !== '') {
+                if (isset($f['max_length']) && strlen($v) > $f['max_length']) {
+                    $errors[$k][] = 'Too long.';
+                }
+                if (isset($f['pattern']) && @preg_match('#^'.$f['pattern'].'$#', $v) !== 1) {
+                    $errors[$k][] = 'Invalid format.';
+                }
                 switch ($f['type']) {
                     case 'email':
                         if (!\is_email($v)) {
                             $errors[$k][] = 'Invalid email.';
+                        }
+                        break;
+                    case 'url':
+                        $url = filter_var($v, FILTER_VALIDATE_URL);
+                        $scheme = strtolower(parse_url((string)$url, PHP_URL_SCHEME));
+                        if (!$url || !in_array($scheme, ['http','https'], true)) {
+                            $errors[$k][] = 'Invalid URL.';
                         }
                         break;
                     case 'zip_us':
@@ -107,6 +120,51 @@ class Validator
                         $digits = preg_replace('/\D+/', '', $v);
                         if (strlen($digits) < 10) {
                             $errors[$k][] = 'Invalid phone.';
+                        }
+                        break;
+                    case 'number':
+                    case 'range':
+                        if (!is_numeric($v)) {
+                            $errors[$k][] = 'Invalid number.';
+                            break;
+                        }
+                        $num = $v + 0;
+                        if (isset($f['min']) && $num < $f['min']) {
+                            $errors[$k][] = 'Number too low.';
+                        }
+                        if (isset($f['max']) && $num > $f['max']) {
+                            $errors[$k][] = 'Number too high.';
+                        }
+                        if (isset($f['step']) && $f['step'] > 0) {
+                            $base = isset($f['min']) ? $f['min'] : 0;
+                            $mod = fmod($num - $base, $f['step']);
+                            if ($mod !== 0.0 && $f['step'] !== 1 && $mod > 1e-8 && $f['step'] - $mod > 1e-8) {
+                                $errors[$k][] = 'Invalid step.';
+                            }
+                        }
+                        break;
+                    case 'date':
+                        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
+                            $errors[$k][] = 'Invalid date.';
+                            break;
+                        }
+                        $ts = strtotime($v);
+                        if ($ts === false) {
+                            $errors[$k][] = 'Invalid date.';
+                            break;
+                        }
+                        if (isset($f['min']) && $ts < strtotime((string)$f['min'])) {
+                            $errors[$k][] = 'Date too early.';
+                        }
+                        if (isset($f['max']) && $ts > strtotime((string)$f['max'])) {
+                            $errors[$k][] = 'Date too late.';
+                        }
+                        if (isset($f['step']) && $f['step'] > 0) {
+                            $base = isset($f['min']) ? strtotime((string)$f['min']) : 0;
+                            $mod = ($ts - $base) % ((int)$f['step'] * 86400);
+                            if ($mod !== 0) {
+                                $errors[$k][] = 'Invalid step.';
+                            }
                         }
                         break;
                     case 'textarea_html':

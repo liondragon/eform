@@ -385,6 +385,101 @@ class TemplateValidator
             $type = $rule['rule'] ?? '';
             if (!in_array($type, $allowedRules, true)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$rpath.'rule'];
+                continue;
+            }
+            switch ($type) {
+                case 'required_if':
+                    self::checkUnknown($rule, ['rule','field','other','equals'], $rpath, $errors);
+                    if (!isset($rule['field'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
+                    } elseif (!is_string($rule['field'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'field'];
+                    }
+                    if (!isset($rule['other'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'other'];
+                    } elseif (!is_string($rule['other'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'other'];
+                    }
+                    if (!array_key_exists('equals', $rule)) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'equals'];
+                    } elseif (!is_scalar($rule['equals'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'equals'];
+                    }
+                    break;
+                case 'required_if_any':
+                    self::checkUnknown($rule, ['rule','field','fields','equals_any'], $rpath, $errors);
+                    if (!isset($rule['field'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
+                    } elseif (!is_string($rule['field'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'field'];
+                    }
+                    if (!isset($rule['fields'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'fields'];
+                    } elseif (!is_array($rule['fields'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'fields'];
+                    }
+                    if (!isset($rule['equals_any'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'equals_any'];
+                    } elseif (!is_array($rule['equals_any'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'equals_any'];
+                    }
+                    break;
+                case 'required_unless':
+                    self::checkUnknown($rule, ['rule','field','other','equals'], $rpath, $errors);
+                    if (!isset($rule['field'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
+                    } elseif (!is_string($rule['field'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'field'];
+                    }
+                    if (!isset($rule['other'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'other'];
+                    } elseif (!is_string($rule['other'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'other'];
+                    }
+                    if (!array_key_exists('equals', $rule)) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'equals'];
+                    } elseif (!is_scalar($rule['equals'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'equals'];
+                    }
+                    break;
+                case 'matches':
+                    self::checkUnknown($rule, ['rule','field','other'], $rpath, $errors);
+                    if (!isset($rule['field'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
+                    } elseif (!is_string($rule['field'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'field'];
+                    }
+                    if (!isset($rule['other'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'other'];
+                    } elseif (!is_string($rule['other'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'other'];
+                    }
+                    break;
+                case 'one_of':
+                case 'mutually_exclusive':
+                    self::checkUnknown($rule, ['rule','fields'], $rpath, $errors);
+                    if (!isset($rule['fields'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'fields'];
+                    } elseif (!is_array($rule['fields'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'fields'];
+                    }
+                    break;
+            }
+        }
+
+        // max_input_vars estimate (excludes uploads)
+        $estimate = 5; // form_id, instance_id, eforms_hp, timestamp, js_ok
+        $maxOptsEstimate = Config::get('validation.max_options_per_group', 100);
+        foreach ($normFields as $nf) {
+            $type = $nf['type'];
+            if ($type === 'row_group' || $type === 'file' || $type === 'files') {
+                continue;
+            }
+            if ($type === 'checkbox' || ($type === 'select' && !empty($nf['multiple']))) {
+                $count = count($nf['options'] ?? []);
+                $estimate += min($count, $maxOptsEstimate);
+            } else {
+                $estimate++;
             }
         }
 
@@ -402,7 +497,7 @@ class TemplateValidator
             'success' => $success,
             'rules' => $rules,
             'fields' => $normFields,
-            'max_input_vars_estimate' => $realFieldCount * 3,
+            'max_input_vars_estimate' => $estimate,
         ];
 
         return ['ok'=>empty($errors), 'errors'=>$errors, 'context'=>$ctx];
