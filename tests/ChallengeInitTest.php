@@ -43,13 +43,22 @@ final class ChallengeInitTest extends TestCase
         $prop->setValue(null, $data);
     }
 
-    public function testInitialGetDoesNotEnqueueScript(): void
+    public function testChallengeModeAutoEnqueuesScript(): void
+    {
+        $this->setConfig('challenge.mode', 'auto');
+        $fm = new FormManager();
+        $GLOBALS['wp_enqueued_scripts'] = [];
+        $fm->render('contact_us');
+        $this->assertContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
+    }
+
+    public function testPolicyChallengeEnqueuesScript(): void
     {
         $this->setConfig('security.cookie_missing_policy', 'challenge');
         $fm = new FormManager();
         $GLOBALS['wp_enqueued_scripts'] = [];
         $fm->render('contact_us');
-        $this->assertNotContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
+        $this->assertContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
     }
 
     public function testChallengeModeAlwaysEnqueuesScript(): void

@@ -110,14 +110,21 @@ namespace {
             $ttl = (int) Config::get('security.token_ttl_seconds', 600);
             $cookie = 'eforms_t_' . $formId;
             $value = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : bin2hex(random_bytes(16));
-            $params = [
-                'expires'  => time() + $ttl,
-                'path'     => '/',
-                'secure'   => is_ssl(),
-                'httponly' => true,
-                'samesite' => 'Lax',
-            ];
-            setcookie($cookie, $value, $params);
+            $expire = time() + $ttl;
+            $cookieStr = $cookie . '=' . rawurlencode($value)
+                . '; Path=/'
+                . '; HttpOnly'
+                . '; SameSite=Lax'
+                . '; Max-Age=' . $ttl
+                . '; Expires=' . gmdate('D, d M Y H:i:s', $expire) . ' GMT';
+            if (is_ssl()) {
+                $cookieStr .= '; Secure';
+            }
+            header('Set-Cookie: ' . $cookieStr, false);
+            if (function_exists('eforms_header')) {
+                eforms_header('Set-Cookie: ' . $cookieStr);
+            }
+            $_COOKIE[$cookie] = $value;
             // No-store 204
             \nocache_headers();
             header('Cache-Control: private, no-store, max-age=0');
