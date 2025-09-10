@@ -48,6 +48,7 @@ class Renderer
     {
         $formId = $meta['form_id'];
         $instanceId = $meta['instance_id'];
+        $formClass = Helpers::sanitize_id($tpl['id'] ?? $formId);
         // Success message check
         $successHtml = '';
         if (isset($_GET['eforms_success']) && \sanitize_key((string)$_GET['eforms_success']) === $formId) {
@@ -99,7 +100,7 @@ class Renderer
         }
 
         $enctype = $meta['enctype'] ?? 'application/x-www-form-urlencoded';
-        $html .= '<form method="post"' . ($clientValidation ? '' : ' novalidate') . ' action="' . \esc_url($meta['action']) . '"';
+        $html .= '<form class="eforms-form eforms-form-' . \esc_attr($formClass) . '" method="post"' . ($clientValidation ? '' : ' novalidate') . ' action="' . \esc_url($meta['action']) . '"';
         if ($enctype === 'multipart/form-data') {
             $html .= ' enctype="multipart/form-data"';
         }

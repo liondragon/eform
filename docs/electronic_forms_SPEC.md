@@ -91,11 +91,12 @@ electronic_forms - Spec
 		- key (slug): required; must match ^[a-z0-9_:-]{1,64}$ (lowercase); [] prohibited to prevent PHP array collisions; reserved keys remain disallowed.
 		- autocomplete: exactly one token is allowed. The literal "on"/"off" are accepted as-is. All other values must match the WHATWG tokens (e.g., name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
 		- size: 1-100; ignored for non-text types.
-		- Hidden per-instance fields (renderer adds): form_id, instance_id, eforms_hp (POST name fixed; randomized id only), timestamp (used for UI/logs and as a best-effort age signal in hidden-token mode; see 7.3), js_ok; and when cacheable="false" also add <input type="hidden" name="eforms_token" value="<UUIDv4>"> (see 7.1). When cacheable="true" no hidden token is rendered (cookie-only). timestamp is set on first render of the instance and preserved across validation re-renders; when re-rendering after POST errors, reuse the posted timestamp
-		- Renderer-generated attributes:
-			- id = "{form_id}-{field_key}-{instance_id}"
-			- name = "{form_id}[{field_key}]" or "{form_id}[{field_key}][]" for multivalue
-		- Reserved field keys (templates must not use): form_id, instance_id, eforms_token, eforms_hp, timestamp, js_ok, ip, submitted_at.
+                - Hidden per-instance fields (renderer adds): form_id, instance_id, eforms_hp (POST name fixed; randomized id only), timestamp (used for UI/logs and as a best-effort age signal in hidden-token mode; see 7.3), js_ok; and when cacheable="false" also add <input type="hidden" name="eforms_token" value="<UUIDv4>"> (see 7.1). When cacheable="true" no hidden token is rendered (cookie-only). timestamp is set on first render of the instance and preserved across validation re-renders; when re-rendering after POST errors, reuse the posted timestamp
+                - Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
+                - Renderer-generated attributes:
+                        - id = "{form_id}-{field_key}-{instance_id}"
+                        - name = "{form_id}[{field_key}]" or "{form_id}[{field_key}][]" for multivalue
+                - Reserved field keys (templates must not use): form_id, instance_id, eforms_token, eforms_hp, timestamp, js_ok, ip, submitted_at.
 		- include_fields accepts template keys and meta keys:
 			- allowed meta keys: ip, submitted_at, form_id, instance_id (available for email/logs only)
 		- Template fragments (before_html / after_html):
