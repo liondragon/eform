@@ -17,6 +17,7 @@ class TemplateValidator
     public const EFORMS_ERR_SCHEMA_DUP_KEY       = 'EFORMS_ERR_SCHEMA_DUP_KEY';
     public const EFORMS_ERR_ACCEPT_EMPTY         = 'EFORMS_ERR_ACCEPT_EMPTY';
     public const EFORMS_ERR_ROW_GROUP_UNBALANCED = 'EFORMS_ERR_ROW_GROUP_UNBALANCED';
+    public const EFORMS_ERR_FRAGMENT_UNBALANCED  = 'EFORMS_ERR_FRAGMENT_UNBALANCED';
 
     private const AUTOCOMPLETE_TOKENS = [
         'name','honorific-prefix','given-name','additional-name','family-name',
@@ -49,7 +50,7 @@ class TemplateValidator
         $maxOptions = Config::get('validation.max_options_per_group', 100);
 
         // Root unknown keys
-        $rootAllowed = ['id','version','title','success','email','fields','submit_button_text','rules'];
+        $rootAllowed = ['id','version','title','success','email','fields','submit_button_text','rules','$schema'];
         self::checkUnknown($tpl, $rootAllowed, '', $errors);
 
         // Required + type
@@ -64,6 +65,10 @@ class TemplateValidator
             } elseif ($type === 'array' && !is_array($tpl[$k])) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_OBJECT,'path'=>$k];
             }
+        }
+
+        if (isset($tpl['$schema']) && !is_string($tpl['$schema'])) {
+            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>'$schema'];
         }
 
         // success
@@ -193,6 +198,14 @@ class TemplateValidator
                         $optSeen[$opt['key']] = true;
                     }
                 }
+            }
+
+            // before/after_html fragments must be balanced
+            if (isset($f['before_html']) && is_string($f['before_html']) && !self::isBalancedFragment($f['before_html'])) {
+                $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_UNBALANCED,'path'=>$path.'before_html'];
+            }
+            if (isset($f['after_html']) && is_string($f['after_html']) && !self::isBalancedFragment($f['after_html'])) {
+                $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_UNBALANCED,'path'=>$path.'after_html'];
             }
 
             // accept intersection for files
@@ -404,6 +417,25 @@ class TemplateValidator
             $out = substr($out, 0, 128);
         }
         return $out;
+    }
+
+    private static function isBalancedFragment(string $html): bool
+    {
+        if ($html === '') return true;
+        preg_match_all('/<\/?([a-z0-9]+)[^>]*?>/i', $html, $matches, PREG_SET_ORDER);
+        $stack = [];
+        foreach ($matches as $m) {
+            $tag = strtolower($m[1]);
+            $isClose = ($m[0][1] ?? '') === '/';
+            if ($tag === 'br') continue;
+            if ($isClose) {
+                $prev = array_pop($stack);
+                if ($prev !== $tag) return false;
+            } else {
+                $stack[] = $tag;
+            }
+        }
+        return empty($stack);
     }
 
     private static function buildDescriptors(array $fields): array

@@ -4,6 +4,7 @@
   "required": ["id","version","title","success","email","fields","submit_button_text"],
   "additionalProperties": false,
   "properties": {
+    "$schema": {"type": "string"},
     "id": {"type": "string"},
     "version": {"type": ["string","number"]},
     "title": {"type": "string"},
