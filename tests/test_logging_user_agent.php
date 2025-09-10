@@ -8,5 +8,5 @@ $_SERVER['HTTP_USER_AGENT'] = str_repeat('A', 300) . "\x01\x02B";
 $logfile = __DIR__ . '/tmp/uploads/eforms-private/eforms.log';
 $line = trim((string) file_get_contents($logfile));
 $data = json_decode($line, true);
-$ua = $data['headers']['user_agent'] ?? '';
+$ua = $data['meta']['headers']['user_agent'] ?? '';
 file_put_contents(__DIR__ . '/tmp/ua.txt', $ua);
