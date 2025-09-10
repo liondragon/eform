@@ -65,15 +65,21 @@ class Security
     public static function token_validate(string $formId, bool $hasHidden, ?string $postedToken): array
     {
         $required = (bool) Config::get('security.submission_token.required', true);
+        $cookie = $_COOKIE['eforms_t_' . $formId] ?? '';
+        $cookieOk = self::isUuid($cookie);
         if ($hasHidden) {
             $tokenOk = self::isUuid((string) $postedToken);
-            $hard = $required && !$tokenOk;
-            return ['mode'=>'hidden','token_ok'=>$tokenOk,'hard_fail'=>$hard,'soft_signal'=>$tokenOk?0:1,'require_challenge'=>false];
+            if ($tokenOk) {
+                return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            if ($cookieOk) {
+                return ['mode' => 'cookie', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            $hard = $required;
+            return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => $hard, 'soft_signal' => $hard ? 0 : 1, 'require_challenge' => false];
         }
-        $cookie = $_COOKIE['eforms_t_' . $formId] ?? '';
-        $tokenOk = self::isUuid($cookie);
-        if ($tokenOk) {
-            return ['mode'=>'cookie','token_ok'=>true,'hard_fail'=>false,'soft_signal'=>0,'require_challenge'=>false];
+        if ($cookieOk) {
+            return ['mode' => 'cookie', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
         }
         $policy = Config::get('security.cookie_missing_policy', 'soft');
         switch ($policy) {

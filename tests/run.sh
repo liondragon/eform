@@ -79,6 +79,13 @@ ok=0
 assert_grep tmp/stdout.txt '^OK$' || ok=1
 record_result "template schema parity" $ok
 
+# Prime endpoint cookie attributes
+run_test test_prime_cookie
+ok=0
+assert_grep tmp/headers.txt 'Set-Cookie: eforms_t_contact_us=' || ok=1
+assert_grep tmp/headers.txt 'Max-Age=' || ok=1
+record_result "prime sets max-age" $ok
+
 # 1) Submit route: 405
 run_test test_submit_405
 ok=0
