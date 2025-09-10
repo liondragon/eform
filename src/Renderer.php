@@ -108,7 +108,7 @@ class Renderer
         }
 
         $enctype = $meta['enctype'] ?? 'application/x-www-form-urlencoded';
-        $html .= '<form class="eforms-form ' . \esc_attr($formClass) . '" method="post"' . ($clientValidation ? '' : ' novalidate') . ' action="' . \esc_url($meta['action']) . '"';
+        $html .= '<form class="eforms-form eforms-form-' . \esc_attr($formClass) . '" method="post"' . ($clientValidation ? '' : ' novalidate') . ' action="' . \esc_url($meta['action']) . '"';
         if ($enctype === 'multipart/form-data') {
             $html .= ' enctype="multipart/form-data"';
         }

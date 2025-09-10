@@ -171,7 +171,14 @@ class FormManager
         // Honeypot
         $token = $hasHidden ? (string)$postedToken : $cookieToken;
         if (!empty($_POST['eforms_hp'])) {
-            Security::ledger_reserve($formId, $token);
+            $res = Security::ledger_reserve($formId, $token);
+            if (!$res['ok'] && !empty($res['io'])) {
+                Logging::write('error', 'EFORMS_LEDGER_IO', [
+                    'form_id' => $formId,
+                    'instance_id' => $_POST['instance_id'] ?? '',
+                    'path' => $res['file'] ?? '',
+                ]);
+            }
             $mode = Config::get('security.honeypot_response', 'stealth_success');
             $stealth = ($mode === 'stealth_success');
             Logging::write('warn', 'EFORMS_ERR_HONEYPOT', [
@@ -334,6 +341,13 @@ class FormManager
         $token = $hasHidden ? (string)$postedToken : $cookieToken;
         $reserve = Security::ledger_reserve($formId, $token);
         if (!$reserve['ok']) {
+            if (!empty($reserve['io'])) {
+                Logging::write('error', 'EFORMS_LEDGER_IO', [
+                    'form_id' => $formId,
+                    'instance_id' => $_POST['instance_id'] ?? '',
+                    'path' => $reserve['file'] ?? '',
+                ]);
+            }
             if ($hasUploads) {
                 Uploads::unlinkTemps($rawFiles);
             }
