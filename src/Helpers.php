@@ -125,4 +125,26 @@ class Helpers
         }
         return $ip;
     }
+
+    public static function request_uri(): string
+    {
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        if ($uri === '') return '';
+        $parts = parse_url($uri);
+        $path = $parts['path'] ?? '';
+        $queryOut = '';
+        if (!empty($parts['query'])) {
+            parse_str($parts['query'], $qs);
+            $keep = [];
+            foreach ($qs as $k => $v) {
+                if (str_starts_with((string)$k, 'eforms_')) {
+                    $keep[$k] = $v;
+                }
+            }
+            if (!empty($keep)) {
+                $queryOut = '?' . http_build_query($keep);
+            }
+        }
+        return $path . $queryOut;
+    }
 }

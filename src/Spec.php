@@ -11,17 +11,17 @@ class Spec
     private const REGISTRY = [
         'name' => [
             'is_multivalue' => false,
-            'html' => ['tag'=>'input','type'=>'text'],
+            'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'name'],
             'validate' => [],
         ],
         'first_name' => [
             'is_multivalue' => false,
-            'html' => ['tag'=>'input','type'=>'text'],
+            'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'given-name'],
             'validate' => [],
         ],
         'last_name' => [
             'is_multivalue' => false,
-            'html' => ['tag'=>'input','type'=>'text'],
+            'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'family-name'],
             'validate' => [],
         ],
         'text' => [
@@ -31,22 +31,43 @@ class Spec
         ],
         'email' => [
             'is_multivalue' => false,
-            'html' => ['tag'=>'input','type'=>'email','inputmode'=>'email','attrs_mirror'=>[]],
+            'html' => [
+                'tag'=>'input',
+                'type'=>'email',
+                'inputmode'=>'email',
+                'spellcheck'=>'false',
+                'autocapitalize'=>'off',
+                'autocomplete'=>'email',
+                'attrs_mirror'=>[],
+            ],
             'validate' => [],
         ],
         'url' => [
             'is_multivalue' => false,
-            'html' => ['tag'=>'input','type'=>'url','attrs_mirror'=>['maxlength'=>null,'minlength'=>null]],
+            'html' => [
+                'tag'=>'input',
+                'type'=>'url',
+                'spellcheck'=>'false',
+                'autocapitalize'=>'off',
+                'attrs_mirror'=>['maxlength'=>null,'minlength'=>null],
+            ],
             'validate' => [],
         ],
         'tel' => [
             'is_multivalue' => false,
-            'html' => ['tag'=>'input','type'=>'tel','inputmode'=>'tel','attrs_mirror'=>['maxlength'=>null]],
+            'html' => ['tag'=>'input','type'=>'tel','inputmode'=>'tel','autocomplete'=>'tel','attrs_mirror'=>['maxlength'=>null]],
             'validate' => [],
         ],
         'tel_us' => [
             'is_multivalue' => false,
-            'html' => ['tag'=>'input','type'=>'tel','inputmode'=>'tel','attrs_mirror'=>['maxlength'=>null]],
+            'html' => [
+                'tag'=>'input',
+                'type'=>'tel',
+                'inputmode'=>'tel',
+                'pattern'=>'\d{3}-?\d{3}-?\d{4}',
+                'autocomplete'=>'tel',
+                'attrs_mirror'=>['maxlength'=>null],
+            ],
             'validate' => [],
         ],
         'number' => [
@@ -81,7 +102,14 @@ class Spec
         ],
         'zip_us' => [
             'is_multivalue' => false,
-            'html' => ['tag'=>'input','type'=>'text','inputmode'=>'numeric','pattern'=>'\d{5}','attrs_mirror'=>['maxlength'=>5]],
+            'html' => [
+                'tag'=>'input',
+                'type'=>'text',
+                'inputmode'=>'numeric',
+                'pattern'=>'\d{5}',
+                'autocomplete'=>'postal-code',
+                'attrs_mirror'=>['maxlength'=>5],
+            ],
             'validate' => ['pattern'=>'/^\d{5}$/'],
         ],
         'select' => [

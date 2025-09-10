@@ -198,8 +198,8 @@ class Renderer
                 $html .= '</select>';
             } elseif ($tag === 'fieldset') {
                 $attrs = self::controlAttrs($desc, $f);
-                $html .= '<fieldset id="' . \esc_attr($id) . '"' . $attrs;
-                if (!empty($f['required'])) $html .= ' required';
+                $html .= '<fieldset id="' . \esc_attr($id) . '"' . $attrs . ' tabindex="-1"';
+                if (!empty($f['required'])) $html .= ' aria-required="true"';
                 if ($fieldErrors) $html .= ' aria-describedby="' . \esc_attr($errId) . '" aria-invalid="true"';
                 $html .= '><legend' . $labelAttr . '>' . $labelHtml . '</legend>';
                 $vals = $isMulti ? (array)$value : $value;
@@ -231,7 +231,7 @@ class Renderer
                 $html .= '<input id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr((string)$value) . '"' . $attrs . $errAttr . $extraHint . '>';
             }
             if ($fieldErrors) {
-                $html .= '<span id="' . \esc_attr($errId) . '" class="eforms-error">' . \esc_html($fieldErrors[0]) . '</span>';
+                $html .= '<span id="' . \esc_attr($errId) . '" class="eforms-error" role="status" aria-live="polite">' . \esc_html($fieldErrors[0]) . '</span>';
             }
             $html .= $after;
         }
@@ -269,7 +269,12 @@ class Renderer
             if ($k === 'tag' || $k === 'attrs_mirror') continue;
             if ($k === 'multiple' && $v === true) {
                 $attrs .= ' multiple';
-            } elseif ($v !== null) {
+                continue;
+            }
+            if (isset($f[$k])) {
+                continue;
+            }
+            if ($v !== null) {
                 $attrs .= ' ' . $k . '="' . \esc_attr((string)$v) . '"';
             }
         }

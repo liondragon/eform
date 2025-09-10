@@ -72,16 +72,13 @@ class FormManager
     public function handleSubmit(): void
     {
         // runtime cap
-        $configCap = (int) Config::get('security.max_post_bytes', 25000000);
-        $postMax = Helpers::bytes_from_ini(ini_get('post_max_size'));
-        $mem = Helpers::bytes_from_ini(ini_get('memory_limit'));
-        $uploadMax = Helpers::bytes_from_ini(ini_get('upload_max_filesize'));
+        $appCap = (int) Config::get('security.max_post_bytes', 25000000);
+        $iniPost = Helpers::bytes_from_ini(ini_get('post_max_size'));
+        $iniUpload = Helpers::bytes_from_ini(ini_get('upload_max_filesize'));
         $contentType = strtolower($_SERVER['CONTENT_TYPE'] ?? '');
-        $hasUpload = strpos($contentType, 'multipart/form-data') !== false && Uploads::enabled();
-        $cap = min($configCap, $postMax, $mem);
-        if ($hasUpload) {
-            $cap = min($cap, $uploadMax);
-        }
+        $uploadsEnabled = Uploads::enabled();
+        $hasUpload = $uploadsEnabled && strpos($contentType, 'multipart/form-data') !== false;
+        $cap = $hasUpload ? min($appCap, $iniPost, $iniUpload) : min($appCap, $iniPost);
         $cl = $_SERVER['CONTENT_LENGTH'] ?? null;
         if ($cl !== null && (int)$cl > $cap) {
             \status_header(413);
