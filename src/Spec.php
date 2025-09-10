@@ -149,12 +149,20 @@ class Spec
 
     /**
      * Map accept tokens for file controls.
+     * Each token maps to MIME types and allowed extensions.
      */
     public static function acceptTokenMap(): array
     {
         return [
-            'image' => 'image/jpeg,image/png,image/gif,image/webp',
-            'pdf'   => 'application/pdf',
+            'image' => [
+                'image/jpeg' => ['jpg','jpeg'],
+                'image/png'  => ['png'],
+                'image/gif'  => ['gif'],
+                'image/webp' => ['webp'],
+            ],
+            'pdf' => [
+                'application/pdf' => ['pdf'],
+            ],
         ];
     }
 }

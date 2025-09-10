@@ -185,7 +185,7 @@ class Logging
         $ip = $ctx['ip'] ?? Helpers::client_ip();
         $form = $ctx['form_id'] ?? '';
         $line = sprintf(
-            'eforms-fail2ban ts=%d code=%s ip=%s form=%s',
+            'eforms[f2b] ts=%d code=%s ip=%s form=%s',
             time(),
             $code,
             $ip,

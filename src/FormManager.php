@@ -17,7 +17,7 @@ class FormManager
             return '<div class="eforms-error">Form configuration error.</div>';
         }
         $tpl = $pre['context'];
-        if (Uploads::enabled()) {
+        if (Uploads::enabled() && Uploads::hasUploadFields($tpl)) {
             Uploads::gc();
         }
         if (Config::get('throttle.enable', false)) {
@@ -98,7 +98,7 @@ class FormManager
             $this->renderErrorAndExit($tplInfo['tpl'], $formId, 'Form configuration error.');
         }
         $tpl = $tplInfo['tpl'];
-        if (Uploads::enabled()) {
+        if (Uploads::enabled() && Uploads::hasUploadFields($tpl)) {
             Uploads::gc();
         }
         if (Config::get('throttle.enable', false)) {
@@ -268,6 +268,7 @@ class FormManager
         $val = Validator::validate($tpl, $desc, $values);
         $uploadsData = [];
         $uploadErrors = [];
+        $rawFiles = [];
         $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
         if ($hasUploads) {
             $filesRoot = $_FILES[$formId] ?? [];
@@ -277,6 +278,7 @@ class FormManager
                     $files[$k][$attr] = $v;
                 }
             }
+            $rawFiles = $files;
             $u = Uploads::normalizeAndValidate($tpl, $files);
             $uploadsData = $u['files'];
             $uploadErrors = $u['errors'];
@@ -329,16 +331,19 @@ class FormManager
             exit;
         }
         $canonical = Validator::coerce($tpl, $desc, $val['values']);
+        $token = $hasHidden ? (string)$postedToken : $cookieToken;
+        $reserve = Security::ledger_reserve($formId, $token);
+        if (!$reserve['ok']) {
+            if ($hasUploads) {
+                Uploads::unlinkTemps($rawFiles);
+            }
+            $this->renderErrorAndExit($tpl, $formId, 'Already submitted or expired.');
+        }
         if ($hasUploads) {
             $stored = Uploads::store($uploadsData);
             if (!empty($stored)) {
                 $canonical['_uploads'] = $stored;
             }
-        }
-        $token = $hasHidden ? (string)$postedToken : $cookieToken;
-        $reserve = Security::ledger_reserve($formId, $token);
-        if (!$reserve['ok']) {
-            $this->renderErrorAndExit($tpl, $formId, 'Already submitted or expired.');
         }
         $metaInfo = [
             'form_id' => $formId,

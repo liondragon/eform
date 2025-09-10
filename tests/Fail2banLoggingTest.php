@@ -49,6 +49,7 @@ final class Fail2banLoggingTest extends TestCase
         Logging::write('warn', 'EFORMS_F2B_ERR', ['ip' => '1.2.3.4']);
         $log = file_get_contents($TEST_ARTIFACTS['log_file']);
         $this->assertStringContainsString('code=EFORMS_F2B_ERR', (string) $log);
+        $this->assertStringContainsString('eforms[f2b]', (string) $log);
     }
 
     public function testSyslogTarget(): void
@@ -58,6 +59,7 @@ final class Fail2banLoggingTest extends TestCase
         Logging::write('warn', 'EFORMS_F2B_SYS', ['ip' => '5.6.7.8']);
         $this->assertNotEmpty($TEST_F2B_SYSLOG);
         $this->assertStringContainsString('code=EFORMS_F2B_SYS', $TEST_F2B_SYSLOG[0][1]);
+        $this->assertStringContainsString('eforms[f2b]', $TEST_F2B_SYSLOG[0][1]);
     }
 
     public function testFileRotationAndRetention(): void
@@ -85,6 +87,7 @@ final class Fail2banLoggingTest extends TestCase
         $this->assertNotEmpty($rotated);
         $this->assertStringContainsString('CODE1', file_get_contents($rotated[0]));
         $this->assertStringContainsString('CODE2', (string) file_get_contents($file));
+        $this->assertStringContainsString('eforms[f2b]', (string) file_get_contents($file));
         $this->assertFalse(file_exists($old));
     }
 }
