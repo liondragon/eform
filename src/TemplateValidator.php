@@ -109,6 +109,7 @@ class TemplateValidator
         $fields = is_array($tpl['fields'] ?? null) ? $tpl['fields'] : [];
         $seenKeys = [];
         $rowStack = 0;
+        $extraRowEnd = false;
         $hasUploads = false;
         $normFields = [];
         $realFieldCount = 0;
@@ -137,15 +138,25 @@ class TemplateValidator
                 }
                 if ($mode === 'start') {
                     $rowStack++;
+                    $normFields[] = [
+                        'type' => 'row_group',
+                        'mode' => $mode,
+                        'tag' => $tag,
+                        'class' => self::sanitizeClass($f['class'] ?? ''),
+                    ];
                 } elseif ($mode === 'end') {
-                    if ($rowStack > 0) $rowStack--; else $rowStack = -1; // imbalance
+                    if ($rowStack > 0) {
+                        $rowStack--;
+                        $normFields[] = [
+                            'type' => 'row_group',
+                            'mode' => $mode,
+                            'tag' => $tag,
+                            'class' => self::sanitizeClass($f['class'] ?? ''),
+                        ];
+                    } else {
+                        $extraRowEnd = true;
+                    }
                 }
-                $normFields[] = [
-                    'type' => 'row_group',
-                    'mode' => $mode,
-                    'tag' => $tag,
-                    'class' => self::sanitizeClass($f['class'] ?? ''),
-                ];
                 continue;
             }
 
@@ -327,6 +338,9 @@ class TemplateValidator
                 'step' => (is_numeric($stepVal) && $stepVal > 0) ? $stepVal + 0 : null,
             ];
             $realFieldCount++;
+        }
+        if ($extraRowEnd) {
+            Logging::write('warn', self::EFORMS_ERR_ROW_GROUP_UNBALANCED, ['form_id'=>$tpl['id'] ?? '']);
         }
         if ($rowStack !== 0) {
             $errors[] = ['code'=>self::EFORMS_ERR_ROW_GROUP_UNBALANCED,'path'=>'fields'];

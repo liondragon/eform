@@ -236,7 +236,10 @@ class Emailer
                     $overflow[] = $item['original_name_safe'];
                     continue;
                 }
-                $attachments[] = $path;
+                $attachments[] = [
+                    'path' => $path,
+                    'name' => preg_replace('/[\r\n]+/', '', (string)($item['original_name_safe'] ?? '')),
+                ];
                 $count++;
                 $total += $size;
             }
