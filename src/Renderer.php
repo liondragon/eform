@@ -116,7 +116,8 @@ class Renderer
         // hidden meta
         $html .= '<input type="hidden" name="form_id" value="' . \esc_attr($formId) . '">';
         $html .= '<input type="hidden" name="instance_id" value="' . \esc_attr($meta['instance_id']) . '">';
-        $html .= '<input type="hidden" name="eforms_hp" value="">';
+        $hpId = 'hp_' . Helpers::random_id(8);
+        $html .= '<input type="hidden" name="eforms_hp" id="' . \esc_attr($hpId) . '" value="">';
         $html .= '<input type="hidden" name="timestamp" value="' . (int)$meta['timestamp'] . '">';
         $html .= '<input type="hidden" name="js_ok" value="0">';
         if (!$meta['cacheable']) {

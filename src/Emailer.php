@@ -12,6 +12,13 @@ class Emailer
         if ($to === '') {
             return ['ok' => false, 'msg' => 'invalid_to'];
         }
+        $debugEnabled = (bool) Config::get('email.debug.enable', false) && (int) Config::get('logging.level', 0) >= 1;
+        $debugBuf = '';
+        $failReason = '';
+        $failHook = function ($wpError) use (&$failReason) {
+            $failReason = $wpError->get_error_message();
+        };
+        add_action('wp_mail_failed', $failHook);
         $meta = self::sanitizeMeta($meta);
         if (isset($meta['ip'])) {
             $ipDisp = Helpers::ip_display((string) $meta['ip']);
@@ -117,13 +124,15 @@ class Emailer
 
         $attempts = $maxRetries + 1;
         $ok = false;
-        for ($i = 0; $i < $attempts && !$ok; $i++) {
-            $hook = function ($phpmailer) use ($sender, $timeout, $dkimEnabled, $dkimDomain, $dkimSelector, $dkimKeyPath, $dkimPass) {
+        $host = '';
+        for ($attempt = 0; $attempt < $attempts; $attempt++) {
+            $hook = function ($phpmailer) use ($sender, $timeout, $dkimEnabled, $dkimDomain, $dkimSelector, $dkimKeyPath, $dkimPass, $debugEnabled, &$debugBuf, &$host) {
                 if ($sender !== '') {
                     $phpmailer->Sender = $sender;
                 }
                 $phpmailer->Timeout = $timeout;
                 $phpmailer->SMTPTimeout = $timeout;
+                $host = $phpmailer->Host;
                 if ($dkimEnabled) {
                     $phpmailer->DKIM_domain = $dkimDomain;
                     $phpmailer->DKIM_selector = $dkimSelector;
@@ -131,18 +140,49 @@ class Emailer
                     $phpmailer->DKIM_passphrase = $dkimPass;
                     $phpmailer->DKIM_identity = $phpmailer->From;
                 }
+                if ($debugEnabled) {
+                    $phpmailer->SMTPDebug = 3;
+                    $phpmailer->Debugoutput = function ($str, $level) use (&$debugBuf) {
+                        $debugBuf .= $str;
+                    };
+                }
             };
             add_action('phpmailer_init', $hook);
             $ok = \wp_mail($to, $subject, $body, $headers, $attachments);
             remove_action('phpmailer_init', $hook);
-            if (!$ok && $i < $attempts - 1 && $backoff > 0) {
+            if ($ok) {
+                break;
+            }
+            if ($attempt < $attempts - 1 && $backoff > 0) {
                 sleep($backoff);
             }
         }
-        if ($ok) {
-            return ['ok' => true];
+        remove_action('wp_mail_failed', $failHook);
+        $log = [
+            'host' => $host,
+            'retries' => $attempt,
+        ];
+        if ($failReason !== '') {
+            $log['error'] = $failReason;
         }
-        return ['ok' => false, 'msg' => 'send_fail'];
+        if ($debugEnabled && $debugBuf !== '') {
+            $buf = preg_replace('/[\r\n]+/', ' ', $debugBuf);
+            $buf = preg_replace('/password\s*:\s*\S+/i', 'password: ***', $buf);
+            $buf = preg_replace('/passphrase\s*:\s*\S+/i', 'passphrase: ***', $buf);
+            $buf = preg_replace('/authorization\s*:\s*\S+/i', 'authorization: ***', $buf);
+            if (!Config::get('logging.pii', false)) {
+                $buf = preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+/i', '***@***', $buf);
+            }
+            $maxB = (int) Config::get('email.debug.max_bytes', 8192);
+            if ($maxB > 0 && strlen($buf) > $maxB) {
+                $buf = substr($buf, -$maxB);
+            }
+            $log['debug'] = $buf;
+        }
+        if ($ok) {
+            return ['ok' => true, 'log' => $log];
+        }
+        return ['ok' => false, 'msg' => 'send_fail', 'log' => $log];
     }
 
     private static function renderBody(array $tpl, array $canonical, array $meta, bool $html): string

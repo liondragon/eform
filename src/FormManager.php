@@ -31,7 +31,7 @@ class FormManager
                 eforms_header('Cache-Control: private, no-store, max-age=0');
             }
         }
-        $instanceId = bin2hex(random_bytes(16));
+        $instanceId = Helpers::random_id(16);
         $timestamp = time();
         $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
         $meta = [
@@ -118,7 +118,7 @@ class FormManager
         $tokenInfo = Security::token_validate($formId, $hasHidden, $postedToken);
         if ($tokenInfo['mode'] === 'cookie') {
             $ttl = (int) Config::get('security.token_ttl_seconds', 600);
-            $newToken = function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : bin2hex(random_bytes(16));
+            $newToken = function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::random_id(16);
             \setcookie($cookieName, $newToken, [
                 'expires' => time() + $ttl,
                 'path' => '/',
@@ -347,11 +347,30 @@ class FormManager
             Uploads::deleteStored($canonical['_uploads']);
         }
         if (!$email['ok']) {
-            Logging::write('error', 'EFORMS_EMAIL_FAIL', ['form_id'=>$formId,'instance_id'=>$metaInfo['instance_id'],'msg'=>'send_fail']);
+            $ctx = [
+                'form_id' => $formId,
+                'instance_id' => $metaInfo['instance_id'],
+                'msg' => $email['msg'] ?? 'send_fail',
+            ];
+            if (!empty($email['log'])) {
+                $ctx['email'] = $email['log'];
+            }
+            if (!empty($canonical['_uploads'])) {
+                $files = [];
+                foreach ($canonical['_uploads'] as $list) {
+                    foreach ($list as $item) {
+                        $files[] = ['path'=>$item['path'] ?? '', 'sha256'=>$item['sha256'] ?? ''];
+                    }
+                }
+                if (!empty($files)) {
+                    $ctx['uploads'] = $files;
+                }
+            }
+            Logging::write('error', 'EFORMS_EMAIL_FAIL', $ctx);
             $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
             $meta = [
                 'form_id' => $formId,
-                'instance_id' => bin2hex(random_bytes(16)),
+                'instance_id' => Helpers::random_id(16),
                 'timestamp' => time(),
                 'cacheable' => !$hasHidden,
                 'client_validation' => (bool) Config::get('html5.client_validation', false),
@@ -414,7 +433,7 @@ class FormManager
     {
         $meta = [
             'form_id' => $formId,
-            'instance_id' => $_POST['instance_id'] ?? bin2hex(random_bytes(16)),
+            'instance_id' => $_POST['instance_id'] ?? Helpers::random_id(16),
             'timestamp' => time(),
             'cacheable' => true,
             'client_validation' => (bool) Config::get('html5.client_validation', false),

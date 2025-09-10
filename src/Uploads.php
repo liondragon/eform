@@ -157,12 +157,14 @@ class Uploads
                     @rename($item['tmp_name'], $dest);
                 }
                 @chmod($dest, 0600);
+                $fullSha = hash_file('sha256', $dest);
                 $out[$k][] = [
                     'path' => $rel,
                     'size' => $item['size'],
                     'mime' => $item['mime'],
                     'original_name' => $item['original_name'],
                     'original_name_safe' => $safeName,
+                    'sha256' => $fullSha,
                 ];
             }
         }

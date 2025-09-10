@@ -60,6 +60,11 @@ class Helpers
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 
+    public static function random_id(int $bytes = 16): string
+    {
+        return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
+    }
+
     public static function sanitize_user_agent(string $ua): string
     {
         $ua = preg_replace('/[^\x20-\x7E]/', '', $ua) ?? '';
