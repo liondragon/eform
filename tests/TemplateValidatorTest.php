@@ -123,6 +123,15 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains(TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, $codes);
     }
 
+    public function testStrayEndIgnored(): void
+    {
+        $tpl = $this->baseTpl();
+        array_unshift($tpl['fields'], ['type' => 'row_group', 'mode' => 'end', 'tag' => 'div']);
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertNotContains(TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, $codes);
+    }
+
     public function testRowGroupNotCountedForInputEstimate(): void
     {
         $tpl = $this->baseTpl();

@@ -251,26 +251,44 @@ class Uploads
 
     private static function sanitizeOriginal(string $name, string $ext): array
     {
-        $base = pathinfo($name, PATHINFO_FILENAME);
-        if (Config::get('uploads.transliterate', true)) {
-            $base = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $base) ?: $base;
-        }
-        $base = strtolower(preg_replace('/[^A-Za-z0-9_-]+/', '-', $base));
-        $base = trim($base, '-');
+        $raw = pathinfo($name, PATHINFO_FILENAME);
+        $raw = preg_replace('/[\x00-\x1F\x7F]+/', '', $raw);
+        $raw = preg_replace('/[\s.]+/', ' ', $raw);
+        $raw = trim($raw, ' .');
+
         $max = (int) Config::get('uploads.original_maxlen', 100);
-        if (strlen($base) > $max) {
-            $base = substr($base, 0, $max);
+
+        $display = $raw;
+        if (Config::get('uploads.transliterate', true)) {
+            $display = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $display) ?: $display;
         }
-        if ($base === '') {
-            $base = 'file';
+        $display = str_replace(['\\','/','<','>',':','"','|','?','*'], '-', $display);
+        $display = preg_replace('/\s+/', ' ', $display);
+        $display = trim($display, ' ');
+        if (strlen($display) > $max) {
+            $display = substr($display, 0, $max);
+        }
+        if ($display === '') {
+            $display = 'file';
         }
         $reserved = ['con','prn','aux','nul','com1','com2','com3','com4','com5','com6','com7','com8','com9','lpt1','lpt2','lpt3','lpt4','lpt5','lpt6','lpt7','lpt8','lpt9'];
-        if (in_array($base, $reserved, true)) {
-            $base .= '_';
+        if (in_array(strtolower($display), $reserved, true)) {
+            $display .= '_';
         }
+
+        $slugBase = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $display) ?: $display;
+        $slug = strtolower(preg_replace('/[^A-Za-z0-9_-]+/', '-', $slugBase));
+        $slug = trim($slug, '-');
+        if (strlen($slug) > $max) {
+            $slug = substr($slug, 0, $max);
+        }
+        if ($slug === '') {
+            $slug = 'file';
+        }
+
         $extSafe = strtolower($ext);
-        $originalSafe = $base . ($extSafe !== '' ? '.' . $extSafe : '');
-        return [$base, $extSafe, $originalSafe];
+        $originalSafe = $display . ($extSafe !== '' ? '.' . $extSafe : '');
+        return [$slug, $extSafe, $originalSafe];
     }
 
     private static function uniqueName(string $name, array &$used): string

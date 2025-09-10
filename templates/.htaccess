@@ -1,4 +1,4 @@
-# Deny direct access to JSON form templates
+# Deny direct access to form templates
 <IfModule mod_authz_core.c>
   Require all denied
 </IfModule>
