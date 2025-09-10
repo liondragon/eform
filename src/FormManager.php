@@ -351,6 +351,9 @@ class FormManager
             Uploads::deleteStored($canonical['_uploads']);
         }
         if (!$email['ok']) {
+            if (!empty($canonical['_uploads']) && (int) Config::get('uploads.retention_seconds', 86400) === 0) {
+                Uploads::deleteStored($canonical['_uploads']);
+            }
             $ctx = [
                 'form_id' => $formId,
                 'instance_id' => $metaInfo['instance_id'],
