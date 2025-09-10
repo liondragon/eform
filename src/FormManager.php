@@ -289,6 +289,23 @@ class FormManager
             }
         }
         if (!empty($errors)) {
+            $logCtx = ['form_id' => $formId, 'instance_id' => $_POST['instance_id'] ?? ''];
+            if (Config::get('logging.on_failure_canonical', false)) {
+                $canon = [];
+                foreach ($errors as $ek => $msgs) {
+                    if ($ek === '_global') continue;
+                    $valCanon = $val['values'][$ek] ?? null;
+                    if (is_array($valCanon)) {
+                        $canon[$ek] = array_values(array_map('strval', $valCanon));
+                    } elseif ($valCanon !== null) {
+                        $canon[$ek] = (string)$valCanon;
+                    }
+                }
+                if (!empty($canon)) {
+                    $logCtx['canonical'] = $canon;
+                }
+            }
+            Logging::write('info', 'EFORMS_ERR_VALIDATION', $logCtx);
             $meta = [
                 'form_id' => $formId,
                 'instance_id' => $_POST['instance_id'] ?? '',

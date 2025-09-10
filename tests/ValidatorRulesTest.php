@@ -41,8 +41,9 @@ final class ValidatorRulesTest extends TestCase
         $values = Validator::normalize($tpl, ['name' => 'a']);
         $logFile = Config::get('uploads.dir', sys_get_temp_dir()) . '/eforms.log';
         @unlink($logFile);
-        Validator::validate($tpl, $desc, $values);
+        $res = Validator::validate($tpl, $desc, $values);
         $log = file_get_contents($logFile);
         $this->assertStringContainsString(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, (string) $log);
+        $this->assertArrayHasKey('_global', $res['errors']);
     }
 }
