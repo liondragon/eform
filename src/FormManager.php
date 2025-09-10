@@ -45,14 +45,10 @@ class FormManager
             'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
         ];
         $challengeMode = Config::get('challenge.mode', 'off');
-        $cookiePolicy = Config::get('security.cookie_missing_policy', 'soft');
         if ($challengeMode === 'always') {
             $prov = Config::get('challenge.provider', 'turnstile');
             $site = Config::get('challenge.' . $prov . '.site_key', '');
             $meta['challenge'] = ['provider' => $prov, 'site_key' => $site];
-            Challenge::enqueueScript($prov);
-        } elseif ($challengeMode !== 'off' || $cookiePolicy === 'challenge') {
-            $prov = Config::get('challenge.provider', 'turnstile');
             Challenge::enqueueScript($prov);
         }
         $this->enqueueAssetsIfNeeded();
@@ -189,7 +185,7 @@ class FormManager
             \header('X-EForms-Stealth: 1');
             Uploads::unlinkTemps($_FILES);
             if ($mode === 'hard_fail') {
-                $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+                $this->renderErrorAndExit($tpl, $formId, 'Form submission failed.');
             }
             $this->successAndRedirect($tpl, $formId, $_POST['instance_id'] ?? '');
             return;
