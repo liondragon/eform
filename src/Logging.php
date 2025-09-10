@@ -86,36 +86,36 @@ class Logging
         if ($sevLevel > $level) {
             return;
         }
+        $ip = $ctx['ip'] ?? Helpers::client_ip();
+        $ipDisp = Helpers::ip_display((string) $ip);
         $data = [
-            'timestamp' => gmdate('c'),
+            'ts' => gmdate('c'),
             'severity' => $severity,
             'code' => $code,
             'form_id' => $ctx['form_id'] ?? '',
             'instance_id' => $ctx['instance_id'] ?? '',
-            'request_uri' => Helpers::request_uri(),
-            'msg' => $ctx['msg'] ?? '',
+            'uri' => Helpers::request_uri(),
+            'ip' => $ipDisp,
         ];
-        $meta = $ctx;
-        unset($meta['form_id'], $meta['instance_id'], $meta['msg']);
-        if (!empty($meta)) {
-            if (isset($meta['ip'])) {
-                $ipDisp = Helpers::ip_display((string) $meta['ip']);
-                if ($ipDisp === '') {
-                    unset($meta['ip']);
-                } else {
-                    $meta['ip'] = $ipDisp;
-                }
-            }
-            if (!Config::get('logging.pii', false)) {
-                if (isset($meta['email'])) {
-                    $parts = explode('@', (string) $meta['email']);
-                    $meta['email'] = ($parts[0] ?? '') !== '' ? substr($parts[0],0,1) . '***@' . ($parts[1] ?? '') : '';
-                }
-            }
-            if (!empty($meta)) {
-                $data['meta'] = $meta;
+        if (!empty($ctx['msg'])) {
+            $data['msg'] = $ctx['msg'];
+        }
+        $spam = [];
+        if (isset($ctx['spam']) && is_array($ctx['spam'])) {
+            $spam = $ctx['spam'];
+            if (!empty($spam)) {
+                $data['spam'] = $spam;
             }
         }
+        $email = [];
+        if (isset($ctx['email']) && is_array($ctx['email'])) {
+            $email = $ctx['email'];
+            if (!empty($email)) {
+                $data['email'] = $email;
+            }
+        }
+        $meta = $ctx;
+        unset($meta['form_id'], $meta['instance_id'], $meta['msg'], $meta['ip'], $meta['spam'], $meta['email']);
         if (Config::get('logging.headers', false)) {
             $headers = [];
             if (!empty($_SERVER['HTTP_USER_AGENT'])) {
@@ -133,36 +133,45 @@ class Logging
                 }
             }
             if (!empty($headers)) {
-                $data['headers'] = $headers;
+                $meta['headers'] = $headers;
             }
+        }
+        if (!empty($meta)) {
+            if (!Config::get('logging.pii', false) && isset($meta['email'])) {
+                $parts = explode('@', (string) $meta['email']);
+                $meta['email'] = ($parts[0] ?? '') !== '' ? substr($parts[0], 0, 1) . '***@' . ($parts[1] ?? '') : '';
+            }
+            $data['meta'] = $meta;
         }
         if ($mode === 'jsonl') {
             self::logLine($data);
         } else {
             $parts = [];
-            $parts[] = 'ts=' . $data['timestamp'];
-            $parts[] = 'sev=' . $severity;
+            $parts[] = 'severity=' . $severity;
             $parts[] = 'code=' . $code;
-            if ($data['request_uri'] !== '') {
-                $parts[] = 'uri=' . $data['request_uri'];
-            }
             if ($data['form_id'] !== '') {
                 $parts[] = 'form=' . $data['form_id'];
             }
             if ($data['instance_id'] !== '') {
                 $parts[] = 'inst=' . $data['instance_id'];
             }
-            if ($data['msg'] !== '') {
-                $parts[] = 'msg=' . preg_replace('/\s+/', ' ', (string) $data['msg']);
+            if ($data['ip'] !== '') {
+                $parts[] = 'ip=' . $data['ip'];
             }
-            if (isset($data['meta']) && is_array($data['meta'])) {
-                foreach ($data['meta'] as $k => $v) {
-                    if (is_scalar($v)) {
-                        $parts[] = $k . '=' . preg_replace('/\s+/', ' ', (string) $v);
-                    } else {
-                        $parts[] = $k . '=' . substr(json_encode($v), 0, 200);
-                    }
-                }
+            if ($data['uri'] !== '') {
+                $parts[] = 'uri="' . $data['uri'] . '"';
+            }
+            if (!empty($data['msg'])) {
+                $parts[] = 'msg="' . preg_replace('/\s+/', ' ', (string) $data['msg']) . '"';
+            }
+            if (!empty($spam)) {
+                $parts[] = 'spam=' . substr(json_encode($spam, JSON_UNESCAPED_SLASHES), 0, 200);
+            }
+            if (!empty($email)) {
+                $parts[] = 'email=' . substr(json_encode($email, JSON_UNESCAPED_SLASHES), 0, 200);
+            }
+            if (!empty($meta)) {
+                $parts[] = 'meta=' . substr(json_encode($meta, JSON_UNESCAPED_SLASHES), 0, 200);
             }
             error_log('eforms ' . implode(' ', $parts));
         }
