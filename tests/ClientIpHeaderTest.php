@@ -56,10 +56,20 @@ final class ClientIpHeaderTest extends TestCase
     public function testHeaderIgnoredWhenUntrusted(): void
     {
         $this->setConfig('privacy.client_ip_header', 'X-Forwarded-For');
-        $this->setConfig('privacy.trusted_proxies', ['10.0.0.1']);
+        $this->setConfig('privacy.trusted_proxies', ['10.0.0.0/8']);
         $_SERVER['REMOTE_ADDR'] = '198.51.100.9';
         $_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.5';
         $ip = Helpers::client_ip();
         $this->assertSame('198.51.100.9', $ip);
+    }
+
+    public function testHeaderUsedWhenTrustedProxyCidr(): void
+    {
+        $this->setConfig('privacy.client_ip_header', 'X-Forwarded-For');
+        $this->setConfig('privacy.trusted_proxies', ['10.0.0.0/8']);
+        $_SERVER['REMOTE_ADDR'] = '10.5.6.7';
+        $_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.5';
+        $ip = Helpers::client_ip();
+        $this->assertSame('203.0.113.5', $ip);
     }
 }

@@ -75,7 +75,16 @@ class Helpers
         $remote = $_SERVER['REMOTE_ADDR'] ?? '';
         $header = (string) Config::get('privacy.client_ip_header', '');
         $proxies = (array) Config::get('privacy.trusted_proxies', []);
-        if ($header !== '' && in_array($remote, $proxies, true)) {
+        $trusted = false;
+        foreach ($proxies as $p) {
+            $t = trim((string) $p);
+            if ($t === '') continue;
+            if (self::cidr_match($remote, $t)) {
+                $trusted = true;
+                break;
+            }
+        }
+        if ($header !== '' && $trusted) {
             $key = 'HTTP_' . strtoupper(str_replace('-', '_', $header));
             $val = $_SERVER[$key] ?? '';
             if ($val !== '') {
@@ -96,6 +105,27 @@ class Helpers
             }
         }
         return $remote;
+    }
+
+    private static function cidr_match(string $ip, string $cidr): bool
+    {
+        if ($ip === '') return false;
+        if (!str_contains($cidr, '/')) {
+            return $ip === $cidr;
+        }
+        [$subnet, $mask] = explode('/', $cidr, 2);
+        $ipBin = @inet_pton($ip);
+        $subnetBin = @inet_pton($subnet);
+        if ($ipBin === false || $subnetBin === false) return false;
+        $bits = (int) $mask;
+        $len = strlen($ipBin);
+        if ($bits < 0 || $bits > $len * 8) return false;
+        $bytes = intdiv($bits, 8);
+        $remainder = $bits % 8;
+        if (strncmp($ipBin, $subnetBin, $bytes) !== 0) return false;
+        if ($remainder === 0) return true;
+        $maskByte = ~(0xFF >> $remainder) & 0xFF;
+        return (ord($ipBin[$bytes]) & $maskByte) === (ord($subnetBin[$bytes]) & $maskByte);
     }
 
     public static function mask_ip(string $ip): string
