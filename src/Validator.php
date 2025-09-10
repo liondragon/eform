@@ -38,7 +38,8 @@ class Validator
                 $vals = [];
                 foreach ($raw as $rv) {
                     if (is_scalar($rv)) {
-                        $vals[] = trim((string)$rv);
+                        $sv = function_exists('\\wp_unslash') ? \wp_unslash($rv) : stripslashes((string)$rv);
+                        $vals[] = trim((string)$sv);
                     }
                 }
                 $values[$k] = $vals;
@@ -47,7 +48,8 @@ class Validator
                 if (is_array($v)) {
                     $v = '';
                 }
-                $values[$k] = trim((string)$v);
+                $sv = function_exists('\\wp_unslash') ? \wp_unslash($v) : stripslashes((string)$v);
+                $values[$k] = trim((string)$sv);
             }
         }
         return $values;

@@ -81,7 +81,7 @@ class Uploads
                     continue;
                 }
                 if ($size > $fieldMaxFile) {
-                    $errors[$k][] = 'File too large.';
+                    $errors[$k][] = 'This file exceeds the size limit.';
                     continue;
                 }
                 $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -89,20 +89,20 @@ class Uploads
                 if ($finfo) finfo_close($finfo);
                 $ext = strtolower((string) pathinfo($name, PATHINFO_EXTENSION));
                 if (!self::allowedToken($accept, $mime, $ext)) {
-                    $errors[$k][] = 'Invalid file type.';
+                    $errors[$k][] = "This file type isn't allowed.";
                     continue;
                 }
                 if ($allowedMime && !in_array($mime, $allowedMime, true)) {
-                    $errors[$k][] = 'Invalid file type.';
+                    $errors[$k][] = "This file type isn't allowed.";
                     continue;
                 }
                 if ($allowedExt && !in_array($ext, $allowedExt, true)) {
-                    $errors[$k][] = 'Invalid file type.';
+                    $errors[$k][] = "This file type isn't allowed.";
                     continue;
                 }
                 if (str_starts_with($mime, 'image/')) {
                     if (!@getimagesize($it['tmp_name'])) {
-                        $errors[$k][] = 'Invalid image file.';
+                        $errors[$k][] = 'File upload failed. Please try again.';
                         continue;
                     }
                 }
@@ -124,14 +124,14 @@ class Uploads
                 $errors[$k][] = 'This field is required.';
             }
             if ($fieldBytes > $maxFieldBytes) {
-                $errors[$k][] = 'Total upload size exceeded.';
+                $errors[$k][] = 'This file exceeds the size limit.';
             }
             if ($fieldCount > $fieldMaxFiles) {
                 $errors[$k][] = 'Too many files.';
             }
         }
         if ($totalRequest > $maxRequest) {
-            $errors['_global'][] = 'Upload limit exceeded.';
+            $errors['_global'][] = 'File upload failed. Please try again.';
         }
         return ['files' => $valid, 'errors' => $errors];
     }
@@ -232,6 +232,18 @@ class Uploads
                 $path = $base . '/' . ($item['path'] ?? '');
                 if ($path !== $base . '/') {
                     @unlink($path);
+                }
+            }
+        }
+    }
+
+    public static function unlinkTemps(array $files): void
+    {
+        foreach (self::flatten($files) as $items) {
+            foreach ($items as $it) {
+                $tmp = $it['tmp_name'] ?? '';
+                if ($tmp && is_file($tmp)) {
+                    @unlink($tmp);
                 }
             }
         }
