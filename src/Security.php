@@ -72,9 +72,6 @@ class Security
             if ($tokenOk) {
                 return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
             }
-            if ($cookieOk) {
-                return ['mode' => 'cookie', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
-            }
             $hard = $required;
             return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => $hard, 'soft_signal' => $hard ? 0 : 1, 'require_challenge' => false];
         }
@@ -116,7 +113,7 @@ class Security
             if (file_exists($file)) {
                 return ['ok'=>false,'duplicate'=>true];
             }
-            return ['ok'=>false,'io'=>true];
+            return ['ok'=>false,'io'=>true,'file'=>$file];
         }
         fclose($fh);
         @chmod($file, 0600);
