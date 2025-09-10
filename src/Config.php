@@ -48,7 +48,7 @@ class Config
         $sec['max_post_bytes'] = self::clampInt($sec['max_post_bytes'], 0, PHP_INT_MAX);
         $sec['ua_maxlen'] = self::clampInt($sec['ua_maxlen'], 0, 10000);
         $sec['honeypot_response'] = in_array($sec['honeypot_response'], ['stealth_success','hard_fail'], true) ? $sec['honeypot_response'] : $defaults['security']['honeypot_response'];
-        $sec['cookie_missing_policy'] = in_array($sec['cookie_missing_policy'], ['soft','hard','off','challenge'], true) ? $sec['cookie_missing_policy'] : $defaults['security']['cookie_missing_policy'];
+        $sec['cookie_missing_policy'] = in_array($sec['cookie_missing_policy'], ['off','soft','hard','challenge'], true) ? $sec['cookie_missing_policy'] : $defaults['security']['cookie_missing_policy'];
         $sec['token_ledger']['enable'] = (bool)($sec['token_ledger']['enable'] ?? true);
         $sec['submission_token']['required'] = (bool)($sec['submission_token']['required'] ?? true);
 

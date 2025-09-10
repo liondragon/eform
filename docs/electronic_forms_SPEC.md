@@ -202,11 +202,12 @@ electronic_forms - Spec
 						- When security.submission_token.required=true -> HARD FAIL (EFORMS_ERR_TOKEN).
 						- When security.submission_token.required=false -> set token_soft=1 and continue to §7.6.
 				- Cookie mode (cacheable="true", no hidden token present)
-					- Read eforms_t_{form_id} cookie (UUIDv4). If missing/invalid, apply security.cookie_missing_policy (overrides submission_token.required):
-						- cookie_missing_policy=hard -> HARD FAIL (EFORMS_ERR_TOKEN).
-						- cookie_missing_policy=soft -> set token_soft=1 and continue to §7.6.
-						- cookie_missing_policy=challenge -> set token_soft=1 and mark challenge required (even if challenge.mode=off).
-							- If verification later succeeds (§7.10), clear all soft signals for this request; hard failures are never overridden.
+                                        - Read eforms_t_{form_id} cookie (UUIDv4). If missing/invalid, apply security.cookie_missing_policy (overrides submission_token.required):
+                                                - cookie_missing_policy=off -> proceed with no soft signal and continue to §7.6.
+                                                - cookie_missing_policy=soft -> set token_soft=1 and continue to §7.6.
+                                                - cookie_missing_policy=hard -> HARD FAIL (EFORMS_ERR_TOKEN).
+                                                - cookie_missing_policy=challenge -> set token_soft=1 and mark challenge required (even if challenge.mode=off).
+                                                        - If verification later succeeds (§7.10), clear all soft signals for this request; hard failures are never overridden.
 				- When challenge is required but the provider is unconfigured (missing site/secret keys), do not hard-fail; retain the existing +1 soft signal, log EFORMS_CHALLENGE_UNCONFIGURED, and continue.
 				- Precedence rule: If a valid hidden token is present, ignore any cookie token entirely (prevents stale-cookie false negatives).
 				- Validation outputs: Security::token_validate() returns { mode:"hidden"|"cookie", token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool }. Downstream stages use this object; do not re-parse token state.
@@ -242,7 +243,7 @@ electronic_forms - Spec
 		- min_fill_time default 4s (soft; configurable).
 		- min_fill_time is measured from the instance's original timestamp; validation re-renders MUST NOT reset it
 		- Max form age enforcement:
-			- Cookie (cacheable="true") mode: token age is enforced by the cookie’s Max-Age; when expired/missing, treat as a missing cookie and apply security.cookie_missing_policy (i.e., policy decides hard/soft/challenge).
+                        - Cookie (cacheable="true") mode: token age is enforced by the cookie’s Max-Age; when expired/missing, treat as a missing cookie and apply security.cookie_missing_policy (i.e., policy decides off/soft/hard/challenge).
 			- Hidden-token (cacheable="false") mode: posted timestamp is a best-effort age signal; older than security.max_form_age_seconds -> +1 soft (never a hard fail on age alone).
 		- js_ok flips to "1" on DOM Ready (soft unless security.js_hard_mode=true, in which case hard fail).
 	4. Headers
@@ -620,11 +621,12 @@ security.*
 	security.max_post_bytes (int; default 25 000 000)
 	security.ua_maxlen (int; default 256)
 	security.honeypot_response (string; "hard_fail"|"stealth_success"; default "stealth_success")
-	security.cookie_missing_policy (string; default "soft") — Controls behavior in cookie mode (cacheable="true") when the cookie token is missing or invalid. Values:
-		- "hard": hard fail (EFORMS_ERR_TOKEN).
-		- "soft": add +1 soft and continue to §7.6.
-		- "challenge": add +1 soft, require a challenge regardless of challenge.mode; if the challenge succeeds, clear all soft signals for this request.
-		- Precedence: In cookie mode, cookie_missing_policy overrides submission_token.required. In hidden-token mode, submission_token.required applies.
+        security.cookie_missing_policy (string; default "soft") — Controls behavior in cookie mode (cacheable="true") when the cookie token is missing or invalid. Values:
+                - "off": treat as acceptable; no soft signal and no challenge.
+                - "soft": add +1 soft and continue to §7.6.
+                - "hard": hard fail (EFORMS_ERR_TOKEN).
+                - "challenge": add +1 soft, require a challenge regardless of challenge.mode; if the challenge succeeds, clear all soft signals for this request.
+                - Precedence: In cookie mode, cookie_missing_policy overrides submission_token.required. In hidden-token mode, submission_token.required applies.
 
 spam.*
 	spam.soft_fail_threshold (int; default 2; clamp 0-5)
