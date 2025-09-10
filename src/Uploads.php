@@ -54,6 +54,7 @@ class Uploads
         $allowedGlobal = Config::get('uploads.allowed_tokens', ['image','pdf']);
         $allowedMime = array_map('strtolower', (array) Config::get('uploads.allowed_mime', []));
         $allowedExt = array_map('strtolower', (array) Config::get('uploads.allowed_ext', []));
+        $maxImagePx = (int) Config::get('uploads.max_image_px', 50000000);
 
         foreach ($tpl['fields'] as $f) {
             $type = $f['type'] ?? '';
@@ -101,8 +102,13 @@ class Uploads
                     continue;
                 }
                 if (str_starts_with($mime, 'image/')) {
-                    if (!@getimagesize($it['tmp_name'])) {
+                    $dim = @getimagesize($it['tmp_name']);
+                    if (!$dim) {
                         $errors[$k][] = 'File upload failed. Please try again.';
+                        continue;
+                    }
+                    if ((int) $dim[0] * (int) $dim[1] > $maxImagePx) {
+                        $errors[$k][] = 'Image dimensions too large.';
                         continue;
                     }
                 }
