@@ -62,6 +62,21 @@ class Renderer
         }
 
         $clientValidation = $meta['client_validation'] ?? false;
+        $labels = [];
+        foreach ($tpl['fields'] as $lf) {
+            if (($lf['type'] ?? '') === 'row_group') continue;
+            $lk = $lf['key'];
+            if (array_key_exists('label', $lf)) {
+                if ($lf['label'] === null) {
+                    $labels[$lk] = ucwords(str_replace(['_','-'], ' ', $lk));
+                } else {
+                    $labels[$lk] = $lf['label'];
+                }
+            } else {
+                $labels[$lk] = ucwords(str_replace(['_','-'], ' ', $lk));
+            }
+        }
+
         $html = '';
         if (!empty($errors)) {
             $html .= '<div role="alert" tabindex="-1" class="eforms-error-summary"><ul>';
@@ -73,7 +88,8 @@ class Renderer
                     continue;
                 }
                 $id = self::makeId($formId, $k, $instanceId);
-                $html .= '<li><a href="#' . \esc_attr($id) . '">' . \esc_html($k) . '</a>';
+                $lab = $labels[$k] ?? $k;
+                $html .= '<li><a href="#' . \esc_attr($id) . '">' . \esc_html($lab) . '</a>';
                 if ($msgs) {
                     $html .= ': ' . \esc_html($msgs[0]);
                 }
@@ -131,16 +147,10 @@ class Renderer
             }
             $key = $f['key'];
             $id = self::makeId($formId, $key, $instanceId);
-            $labelHidden = false;
-            if (array_key_exists('label', $f)) {
-                if ($f['label'] === null) {
-                    $labelHidden = true;
-                    $label = ucwords(str_replace(['_','-'], ' ', $key));
-                } else {
-                    $label = $f['label'];
-                }
-            } else {
-                $label = ucwords(str_replace(['_','-'], ' ', $key));
+            $label = $labels[$key] ?? '';
+            $labelHidden = true;
+            if (array_key_exists('label', $f) && $f['label'] !== null) {
+                $labelHidden = false;
             }
             $labelAttr = $labelHidden ? ' class="visually-hidden"' : '';
             $labelHtml = \esc_html($label);
@@ -159,36 +169,28 @@ class Renderer
             $html .= $before;
             switch ($type) {
                 case 'textarea':
-                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
-                    $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
-                    $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '"';
-                    if (!empty($f['required'])) $html .= ' required';
-                    if (!empty($f['placeholder'])) $html .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
-                    if (!empty($f['autocomplete'])) $html .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-                    if (!empty($f['max_length'])) $html .= ' maxlength="' . (int)$f['max_length'] . '"';
-                    $html .= $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
-                    break;
                 case 'textarea_html':
-                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
+                    $desc = Spec::descriptorFor($type);
+                    $attrs = self::controlAttrs($desc, $f);
+                    if (!empty($f['required'])) $attrs .= ' required';
+                    if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
+                    if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
                     $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
-                    $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '"';
-                    if (!empty($f['required'])) $html .= ' required';
-                    if (!empty($f['placeholder'])) $html .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
-                    if (!empty($f['autocomplete'])) $html .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-                    if (!empty($f['max_length'])) $html .= ' maxlength="' . (int)$f['max_length'] . '"';
-                    $html .= $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
+                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
+                    $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '"' . $attrs . $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
                     break;
                 case 'select':
                     $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
                     $multiple = !empty($f['multiple']);
                     $nameAttr = $formId . '[' . $key . ']' . ($multiple ? '[]' : '');
                     $vals = $multiple && is_array($value) ? $value : (string)$value;
-                    $html .= '<select id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"';
-                    if ($multiple) $html .= ' multiple';
-                    if (!empty($f['required'])) $html .= ' required';
-                    if (!empty($f['autocomplete'])) $html .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-                    if (!empty($f['size'])) $html .= ' size="' . (int)$f['size'] . '"';
-                    $html .= $errAttr . '>';
+                    $desc = Spec::descriptorFor('select');
+                    $attrs = self::controlAttrs($desc, $f);
+                    if ($multiple) $attrs .= ' multiple';
+                    if (!empty($f['required'])) $attrs .= ' required';
+                    if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+                    if (!empty($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
+                    $html .= '<select id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . $errAttr . '>';
                     foreach ($f['options'] ?? [] as $opt) {
                         $disabled = !empty($opt['disabled']);
                         $html .= '<option value="' . \esc_attr($opt['key']) . '"' . ($disabled ? ' disabled' : '');
@@ -226,46 +228,31 @@ class Renderer
                 case 'file':
                 case 'files':
                     $nameAttr = $formId . '[' . $key . ']' . ($type === 'files' ? '[]' : '');
-                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
-                    $html .= '<input type="file" id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"';
-                    if ($type === 'files') $html .= ' multiple';
-                    if (!empty($f['required'])) $html .= ' required';
+                    $desc = Spec::descriptorFor($type);
+                    $attrs = self::controlAttrs($desc, $f);
+                    if (!empty($f['required'])) $attrs .= ' required';
+                    if ($type === 'files') $attrs .= ' multiple';
                     if (!empty($f['accept']) && is_array($f['accept'])) {
                         $accept = self::acceptAttr($f['accept']);
-                        if ($accept !== '') $html .= ' accept="' . \esc_attr($accept) . '"';
+                        if ($accept !== '') $attrs .= ' accept="' . \esc_attr($accept) . '"';
                     }
-                    $html .= $errAttr . '>';
+                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
+                    $html .= '<input id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . $errAttr . '>';
                     break;
                 case 'email':
                 case 'name':
                 case 'tel_us':
                 case 'zip_us':
                 default:
-                    $inputType = 'text';
-                    $extra = '';
-                    if ($type === 'email') {
-                        $inputType = 'email';
-                        $extra .= ' inputmode="email" spellcheck="false" autocapitalize="off"';
-                    } elseif ($type === 'tel_us') {
-                        $inputType = 'tel';
-                        $extra .= ' inputmode="tel"';
-                    } elseif ($type === 'zip_us') {
-                        $inputType = 'text';
-                        $extra .= ' inputmode="numeric" pattern="\d{5}" maxlength="5"';
-                    }
-                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
+                    $desc = Spec::descriptorFor($type);
+                    $attrs = self::controlAttrs($desc, $f);
                     $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
-                    $html .= '<input type="' . \esc_attr($inputType) . '" id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '" value="' . \esc_attr((string)$value) . '"';
-                    if (!empty($f['required'])) $html .= ' required';
-                    if (!empty($f['placeholder'])) $html .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
-                    if (!empty($f['autocomplete'])) $html .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-                    if (!empty($f['max_length'])) $html .= ' maxlength="' . (int)$f['max_length'] . '"';
-                    if ($f['min'] !== null) $html .= ' min="' . \esc_attr((string)$f['min']) . '"';
-                    if ($f['max'] !== null) $html .= ' max="' . \esc_attr((string)$f['max']) . '"';
-                    if (!empty($f['pattern'])) $html .= ' pattern="' . \esc_attr($f['pattern']) . '"';
-                    if (!empty($f['size'])) $html .= ' size="' . (int)$f['size'] . '"';
-                    if ($f['step'] !== null) $html .= ' step="' . \esc_attr((string)$f['step']) . '"';
-                    $html .= $extra . $errAttr . $extraHint . '>';
+                    if (!empty($f['required'])) $attrs .= ' required';
+                    if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
+                    if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+                    if (isset($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
+                    $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
+                    $html .= '<input id="' . \esc_attr($id) . '" name="' . \esc_attr($formId . '[' . $key . ']') . '" value="' . \esc_attr((string)$value) . '"' . $attrs . $errAttr . $extraHint . '>';
                     break;
             }
             if ($fieldErrors) {
@@ -297,6 +284,30 @@ class Renderer
         $html .= '<button type="submit">' . \esc_html($btn) . '</button>';
         $html .= '</form>';
         return $html;
+    }
+
+    private static function controlAttrs(array $desc, array $f): string
+    {
+        $html = $desc['html'] ?? [];
+        $attrs = '';
+        foreach ($html as $k => $v) {
+            if ($k === 'tag' || $k === 'attrs_mirror') continue;
+            if ($k === 'multiple' && $v === true) {
+                $attrs .= ' multiple';
+            } elseif ($v !== null) {
+                $attrs .= ' ' . $k . '="' . \esc_attr((string)$v) . '"';
+            }
+        }
+        $mirror = $html['attrs_mirror'] ?? [];
+        $map = ['maxlength' => 'max_length', 'minlength' => 'min_length'];
+        foreach ($mirror as $attr => $def) {
+            $key = $map[$attr] ?? $attr;
+            $val = $f[$key] ?? $def;
+            if ($val !== null) {
+                $attrs .= ' ' . $attr . '="' . \esc_attr((string)$val) . '"';
+            }
+        }
+        return $attrs;
     }
 
     private static function acceptAttr(array $tokens): string

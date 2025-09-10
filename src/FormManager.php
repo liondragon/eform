@@ -76,7 +76,12 @@ class FormManager
         $postMax = Helpers::bytes_from_ini(ini_get('post_max_size'));
         $mem = Helpers::bytes_from_ini(ini_get('memory_limit'));
         $uploadMax = Helpers::bytes_from_ini(ini_get('upload_max_filesize'));
-        $cap = min($configCap, $postMax, $mem, $uploadMax);
+        $contentType = strtolower($_SERVER['CONTENT_TYPE'] ?? '');
+        $hasUpload = strpos($contentType, 'multipart/form-data') !== false && Uploads::enabled();
+        $cap = min($configCap, $postMax, $mem);
+        if ($hasUpload) {
+            $cap = min($cap, $uploadMax);
+        }
         $cl = $_SERVER['CONTENT_LENGTH'] ?? null;
         if ($cl !== null && (int)$cl > $cap) {
             \status_header(413);
@@ -174,6 +179,7 @@ class FormManager
                 'stealth' => $stealth,
             ]);
             \header('X-EForms-Stealth: 1');
+            Uploads::unlinkTemps($_FILES);
             if ($mode === 'hard_fail') {
                 $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
             }
