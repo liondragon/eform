@@ -206,17 +206,7 @@ class Uploads
 
     private static function allowedToken(array $accept, string $mime, string $ext): bool
     {
-        $map = [
-            'image' => [
-                'image/jpeg' => ['jpg','jpeg'],
-                'image/png' => ['png'],
-                'image/gif' => ['gif'],
-                'image/webp' => ['webp'],
-            ],
-            'pdf' => [
-                'application/pdf' => ['pdf'],
-            ],
-        ];
+        $map = Spec::acceptTokenMap();
         foreach ($accept as $token) {
             if (!isset($map[$token])) continue;
             foreach ($map[$token] as $m => $exts) {

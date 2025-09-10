@@ -311,11 +311,13 @@ class Renderer
         foreach ($tokens as $t) {
             $t = trim((string)$t);
             if (isset($map[$t])) {
-                $out[] = $map[$t];
+                foreach (array_keys($map[$t]) as $mime) {
+                    $out[] = $mime;
+                }
             } elseif ($t !== '') {
                 $out[] = $t;
             }
         }
-        return implode(',', $out);
+        return implode(',', array_unique($out));
     }
 }

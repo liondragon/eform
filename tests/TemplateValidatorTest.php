@@ -338,6 +338,48 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains('fields[2].options', $paths);
     }
 
+    public function testOptionLabelAndDisabledTypes(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][] = [
+            'type' => 'select',
+            'key' => 'sel',
+            'options' => [
+                ['key' => 'a'],
+            ],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_REQUIRED, $codes);
+        $this->assertContains('fields[2].options[0].label', $paths);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][] = [
+            'type' => 'select',
+            'key' => 'sel',
+            'options' => [
+                ['key' => 'a', 'label' => 'A', 'disabled' => 'no'],
+            ],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+        $this->assertContains('fields[2].options[0].disabled', $paths);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][] = [
+            'type' => 'select',
+            'key' => 'sel',
+            'options' => [
+                ['key' => 'a', 'label' => 'A', 'disabled' => false],
+            ],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $this->assertTrue($res['ok']);
+    }
+
     public function testEmptyVersionReplacedWithMtime(): void
     {
         $tpl = $this->baseTpl();
