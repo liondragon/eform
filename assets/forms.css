@@ -33,7 +33,7 @@
         transition: background-color linear .2s;
         transition: border-color linear .2s;
 }
-form input:focus, form textarea:focus {
+form input:focus, form textarea:focus, form fieldset:focus {
   background: #f9f9f9;
   border: 1px solid #b8b8b8 !important;
   transition: background-color linear .2s;

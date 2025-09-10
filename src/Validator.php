@@ -113,11 +113,13 @@ class Validator
                         $max = (int) Config::get('validation.textarea_html_max_bytes', 32768);
                         if (strlen($v) > $max) {
                             $errors[$k][] = 'Content too long.';
+                            Logging::write('warn', 'EFORMS_ERR_HTML_TOO_LARGE', ['form_id'=>$tpl['id'] ?? '', 'field'=>$k]);
                             $v = '';
                         } else {
                             $san = \wp_kses_post($v);
                             if (strlen($san) > $max) {
                                 $errors[$k][] = 'Content too long.';
+                                Logging::write('warn', 'EFORMS_ERR_HTML_TOO_LARGE', ['form_id'=>$tpl['id'] ?? '', 'field'=>$k]);
                                 $v = '';
                             } else {
                                 $v = $san;

@@ -87,10 +87,12 @@ class Logging
             return;
         }
         $data = [
+            'timestamp' => gmdate('c'),
             'severity' => $severity,
             'code' => $code,
             'form_id' => $ctx['form_id'] ?? '',
             'instance_id' => $ctx['instance_id'] ?? '',
+            'request_uri' => Helpers::request_uri(),
             'msg' => $ctx['msg'] ?? '',
         ];
         $meta = $ctx;
@@ -138,8 +140,12 @@ class Logging
             self::logLine($data);
         } else {
             $parts = [];
+            $parts[] = 'ts=' . $data['timestamp'];
             $parts[] = 'sev=' . $severity;
             $parts[] = 'code=' . $code;
+            if ($data['request_uri'] !== '') {
+                $parts[] = 'uri=' . $data['request_uri'];
+            }
             if ($data['form_id'] !== '') {
                 $parts[] = 'form=' . $data['form_id'];
             }
