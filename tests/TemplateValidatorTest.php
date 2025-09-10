@@ -139,7 +139,7 @@ class TemplateValidatorTest extends TestCase
         $tpl['fields'][] = ['type' => 'row_group', 'mode' => 'end', 'tag' => 'div'];
         $res = TemplateValidator::preflight($tpl);
         $this->assertTrue($res['ok']);
-        $this->assertSame(6, $res['context']['max_input_vars_estimate']);
+        $this->assertSame(7, $res['context']['max_input_vars_estimate']);
         $this->assertCount(4, $res['context']['fields']);
     }
 
@@ -173,6 +173,32 @@ class TemplateValidatorTest extends TestCase
         $paths = array_column($res['errors'], 'path');
         $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
         $this->assertContains('rules[0].rule', $paths);
+    }
+
+    public function testRuleMissingRequiredKey(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'matches', 'field' => 'name'],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_REQUIRED, $codes);
+        $this->assertContains('rules[0].other', $paths);
+    }
+
+    public function testRuleUnknownKey(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'matches', 'field' => 'name', 'other' => 'email', 'bogus' => 1],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_UNKNOWN_KEY, $codes);
+        $this->assertContains('rules[0].bogus', $paths);
     }
 
     public function testMaxLengthValidation(): void

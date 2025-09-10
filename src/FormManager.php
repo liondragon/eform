@@ -57,6 +57,9 @@ class FormManager
         $this->enqueueAssetsIfNeeded();
         $html = Renderer::form($tpl, $meta, [], []);
         $estimate = (int) ($tpl['max_input_vars_estimate'] ?? 0);
+        if (!$cacheable) {
+            $estimate++;
+        }
         $max = (int) ini_get('max_input_vars');
         if ($max <= 0) $max = 1000;
         $comment = '';
