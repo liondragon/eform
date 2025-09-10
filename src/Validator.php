@@ -12,6 +12,15 @@ class Validator
         if ($type === 'select' && !empty($f['multiple'])) return true;
         return false;
     }
+
+    private static function nfc(string $v): string
+    {
+        if (class_exists('\\Normalizer')) {
+            $n = \Normalizer::normalize($v, \Normalizer::FORM_C);
+            if ($n !== false) return $n;
+        }
+        return $v;
+    }
     public static function descriptors(array $tpl): array
     {
         $desc = [];
@@ -39,7 +48,8 @@ class Validator
                 foreach ($raw as $rv) {
                     if (is_scalar($rv)) {
                         $sv = function_exists('\\wp_unslash') ? \wp_unslash($rv) : stripslashes((string)$rv);
-                        $vals[] = trim((string)$sv);
+                        $sv = self::nfc((string)$sv);
+                        $vals[] = trim($sv);
                     }
                 }
                 $values[$k] = $vals;
@@ -49,7 +59,8 @@ class Validator
                     $v = '';
                 }
                 $sv = function_exists('\\wp_unslash') ? \wp_unslash($v) : stripslashes((string)$v);
-                $values[$k] = trim((string)$sv);
+                $sv = self::nfc((string)$sv);
+                $values[$k] = trim($sv);
             }
         }
         return $values;
