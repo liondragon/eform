@@ -101,8 +101,19 @@ class Helpers
     public static function mask_ip(string $ip): string
     {
         if (str_contains($ip, ':')) {
+            $bin = @inet_pton($ip);
+            if ($bin !== false && strlen($bin) === 16) {
+                $bin = substr($bin, 0, 6) . str_repeat("\0", 10);
+                $masked = @inet_ntop($bin);
+                if ($masked !== false) {
+                    return $masked;
+                }
+            }
             $parts = explode(':', $ip);
-            $parts[count($parts) - 1] = '0';
+            $parts = array_pad($parts, 8, '0');
+            for ($i = 3; $i < 8; $i++) {
+                $parts[$i] = '0';
+            }
             return implode(':', $parts);
         }
         $parts = explode('.', $ip);

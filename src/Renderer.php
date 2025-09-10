@@ -64,6 +64,8 @@ class Renderer
 
         $clientValidation = $meta['client_validation'] ?? false;
         $labels = [];
+        $fieldTags = [];
+        $descriptors = $tpl['descriptors'] ?? [];
         foreach ($tpl['fields'] as $lf) {
             if (($lf['type'] ?? '') === 'row_group') continue;
             $lk = $lf['key'];
@@ -76,6 +78,8 @@ class Renderer
             } else {
                 $labels[$lk] = ucwords(str_replace(['_','-'], ' ', $lk));
             }
+            $desc = $descriptors[$lk] ?? Spec::descriptorFor($lf['type']);
+            $fieldTags[$lk] = $desc['html']['tag'] ?? 'input';
         }
 
         $html = '';
@@ -90,7 +94,11 @@ class Renderer
                 }
                 $id = self::makeId($formId, $k, $instanceId);
                 $lab = $labels[$k] ?? $k;
-                $html .= '<li><a href="#' . \esc_attr($id) . '">' . \esc_html($lab) . '</a>';
+                $aria = '';
+                if (($fieldTags[$k] ?? '') === 'fieldset') {
+                    $aria = ' aria-describedby="' . \esc_attr($id . '-legend') . '"';
+                }
+                $html .= '<li><a href="#' . \esc_attr($id) . '"' . $aria . '>' . \esc_html($lab) . '</a>';
                 if ($msgs) {
                     $html .= ': ' . \esc_html($msgs[0]);
                 }
@@ -100,7 +108,7 @@ class Renderer
         }
 
         $enctype = $meta['enctype'] ?? 'application/x-www-form-urlencoded';
-        $html .= '<form class="eforms-form eforms-form-' . \esc_attr($formClass) . '" method="post"' . ($clientValidation ? '' : ' novalidate') . ' action="' . \esc_url($meta['action']) . '"';
+        $html .= '<form class="eforms-form ' . \esc_attr($formClass) . '" method="post"' . ($clientValidation ? '' : ' novalidate') . ' action="' . \esc_url($meta['action']) . '"';
         if ($enctype === 'multipart/form-data') {
             $html .= ' enctype="multipart/form-data"';
         }
@@ -199,10 +207,11 @@ class Renderer
                 $html .= '</select>';
             } elseif ($tag === 'fieldset') {
                 $attrs = self::controlAttrs($desc, $f);
+                $legendId = $id . '-legend';
                 $html .= '<fieldset id="' . \esc_attr($id) . '"' . $attrs . ' tabindex="-1"';
                 if (!empty($f['required'])) $html .= ' aria-required="true"';
                 if ($fieldErrors) $html .= ' aria-describedby="' . \esc_attr($errId) . '" aria-invalid="true"';
-                $html .= '><legend' . $labelAttr . '>' . $labelHtml . '</legend>';
+                $html .= '><legend id="' . \esc_attr($legendId) . '"' . $labelAttr . '>' . $labelHtml . '</legend>';
                 $vals = $isMulti ? (array)$value : $value;
                 foreach ($f['options'] ?? [] as $opt) {
                     $idOpt = self::makeId($formId, $key . '-' . $opt['key'], $instanceId);

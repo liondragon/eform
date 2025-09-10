@@ -30,6 +30,7 @@ class Challenge
             'body' => [
                 'secret' => $secret,
                 'response' => $response,
+                'remoteip' => Helpers::client_ip(),
             ],
         ];
         $res = \wp_remote_post($url, $args);

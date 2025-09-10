@@ -64,6 +64,8 @@ class Emailer
                 $body .= "\nOmitted attachments: $note\n";
             }
         }
+        $body = preg_replace("/\r\n?/", "\n", $body);
+        $body = preg_replace("/[\x00-\x08\x0B\x0C\x0E-\x1F]/", '', $body);
         $sender = Config::get('email.envelope_sender', '');
         $sender = is_string($sender) ? self::sanitizeHeader($sender) : '';
         $disableSend = (bool) Config::get('email.disable_send', false);
