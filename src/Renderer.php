@@ -5,6 +5,45 @@ namespace EForms;
 
 class Renderer
 {
+    /**
+     * Registry mapping renderer IDs to callable handlers.
+     *
+     * Identifiers mirror those used by field descriptors in {@see Spec}.
+     */
+    private const HANDLERS = [
+        '' => [self::class, 'renderInput'],
+        'text' => [self::class, 'renderInput'],
+        'email' => [self::class, 'renderInput'],
+        'url' => [self::class, 'renderInput'],
+        'tel' => [self::class, 'renderInput'],
+        'tel_us' => [self::class, 'renderInput'],
+        'number' => [self::class, 'renderInput'],
+        'range' => [self::class, 'renderInput'],
+        'date' => [self::class, 'renderInput'],
+        'textarea' => [self::class, 'renderTextarea'],
+        'textarea_html' => [self::class, 'renderTextarea'],
+        'zip' => [self::class, 'renderInput'],
+        'zip_us' => [self::class, 'renderInput'],
+        'select' => [self::class, 'renderSelect'],
+        'radio' => [self::class, 'renderFieldset'],
+        'checkbox' => [self::class, 'renderFieldset'],
+        'file' => [self::class, 'renderInput'],
+        'files' => [self::class, 'renderInput'],
+    ];
+
+    /**
+     * Resolve a renderer handler by identifier.
+     *
+     * @throws \RuntimeException when the identifier is unknown
+     */
+    public static function resolve(string $id): callable
+    {
+        if (!isset(self::HANDLERS[$id])) {
+            throw new \RuntimeException('Unknown renderer ID: ' . $id);
+        }
+        return self::HANDLERS[$id];
+    }
+
     private static function makeId(string $formId, string $key, string $instanceId): string
     {
         $id = $formId . '-' . $key . '-' . $instanceId;
@@ -158,7 +197,6 @@ class Renderer
             }
             $key = $f['key'];
             $desc = $descriptors[$key] ?? Spec::descriptorFor($type);
-            $tag = $desc['html']['tag'] ?? 'input';
             $isMulti = !empty($desc['is_multivalue']);
             $id = self::makeId($formId, $key, $instanceId);
             $nameAttr = $formId . '[' . $key . ']' . ($isMulti ? '[]' : '');
@@ -179,68 +217,26 @@ class Renderer
             $before = isset($f['before_html']) ? self::sanitizeFragment($f['before_html']) : '';
             $after = isset($f['after_html']) ? self::sanitizeFragment($f['after_html']) : '';
             $html .= $before;
-            if ($tag === 'textarea') {
-                $attrs = self::controlAttrs($desc, $f);
-                if (!empty($f['required'])) $attrs .= ' required';
-                if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
-                if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-                $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
-                $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
-                $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
-            } elseif ($tag === 'select') {
-                $attrs = self::controlAttrs($desc, $f);
-                if (!empty($f['required'])) $attrs .= ' required';
-                if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-                if (!empty($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
-                $vals = $isMulti ? (array)$value : (string)$value;
-                $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
-                $html .= '<select id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . $errAttr . '>';
-                foreach ($f['options'] ?? [] as $opt) {
-                    $disabled = !empty($opt['disabled']);
-                    $html .= '<option value="' . \esc_attr($opt['key']) . '"' . ($disabled ? ' disabled' : '');
-                    if ($isMulti) {
-                        if (in_array($opt['key'], (array)$vals, true)) $html .= ' selected';
-                    } else {
-                        if ((string)$vals === (string)$opt['key']) $html .= ' selected';
-                    }
-                    $html .= '>' . \esc_html($opt['label']) . '</option>';
-                }
-                $html .= '</select>';
-            } elseif ($tag === 'fieldset') {
-                $attrs = self::controlAttrs($desc, $f);
-                $legendId = $id . '-legend';
-                $html .= '<fieldset id="' . \esc_attr($id) . '"' . $attrs . ' tabindex="-1"';
-                if (!empty($f['required'])) $html .= ' aria-required="true"';
-                if ($fieldErrors) $html .= ' aria-describedby="' . \esc_attr($errId) . '" aria-invalid="true"';
-                $html .= '><legend id="' . \esc_attr($legendId) . '"' . $labelAttr . '>' . $labelHtml . '</legend>';
-                $vals = $isMulti ? (array)$value : $value;
-                foreach ($f['options'] ?? [] as $opt) {
-                    $idOpt = self::makeId($formId, $key . '-' . $opt['key'], $instanceId);
-                    $html .= '<label><input type="' . ($isMulti ? 'checkbox' : 'radio') . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr($opt['key']) . '" id="' . \esc_attr($idOpt) . '"';
-                    if ($isMulti) {
-                        if (in_array($opt['key'], (array)$vals, true)) $html .= ' checked';
-                    } else {
-                        if ((string)$vals === (string)$opt['key']) $html .= ' checked';
-                    }
-                    if (!empty($opt['disabled'])) $html .= ' disabled';
-                    if (!empty($f['required'])) $html .= ' required';
-                    $html .= '> ' . \esc_html($opt['label']) . '</label>';
-                }
-                $html .= '</fieldset>';
-            } else {
-                $attrs = self::controlAttrs($desc, $f);
-                if (!empty($f['required'])) $attrs .= ' required';
-                if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
-                if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-                if (isset($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
-                if (($desc['html']['type'] ?? '') === 'file' && !empty($f['accept']) && is_array($f['accept'])) {
-                    $accept = self::acceptAttr($f['accept']);
-                    if ($accept !== '') $attrs .= ' accept="' . \esc_attr($accept) . '"';
-                }
-                $extraHint = ($key === $lastText && ($desc['html']['type'] ?? '') !== 'file') ? ' enterkeyhint="send"' : '';
-                $html .= '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
-                $html .= '<input id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr((string)$value) . '"' . $attrs . $errAttr . $extraHint . '>';
-            }
+            $rendererId = $desc['handlers']['renderer_id'] ?? '';
+            $handler = self::resolve($rendererId);
+            $ctx = [
+                'desc' => $desc,
+                'f' => $f,
+                'id' => $id,
+                'nameAttr' => $nameAttr,
+                'labelHtml' => $labelHtml,
+                'labelAttr' => $labelAttr,
+                'errAttr' => $errAttr,
+                'value' => $value,
+                'isMulti' => $isMulti,
+                'key' => $key,
+                'formId' => $formId,
+                'instanceId' => $instanceId,
+                'lastText' => $lastText,
+                'fieldErrors' => $fieldErrors,
+                'errId' => $errId,
+            ];
+            $html .= $handler($ctx);
             if ($fieldErrors) {
                 $html .= '<span id="' . \esc_attr($errId) . '" class="eforms-error" role="status" aria-live="polite">' . \esc_html($fieldErrors[0]) . '</span>';
             }
@@ -269,6 +265,125 @@ class Renderer
         $btn = $tpl['submit_button_text'] ?? 'Submit';
         $html .= '<button type="submit">' . \esc_html($btn) . '</button>';
         $html .= '</form>';
+        return $html;
+    }
+
+    private static function renderInput(array $c): string
+    {
+        $desc = $c['desc'];
+        $f = $c['f'];
+        $id = $c['id'];
+        $nameAttr = $c['nameAttr'];
+        $labelHtml = $c['labelHtml'];
+        $labelAttr = $c['labelAttr'];
+        $errAttr = $c['errAttr'];
+        $value = $c['value'];
+        $key = $c['key'];
+        $lastText = $c['lastText'];
+        $attrs = self::controlAttrs($desc, $f);
+        if (!empty($f['required'])) $attrs .= ' required';
+        if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
+        if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+        if (isset($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
+        if (($desc['html']['type'] ?? '') === 'file' && !empty($f['accept']) && is_array($f['accept'])) {
+            $accept = self::acceptAttr($f['accept']);
+            if ($accept !== '') $attrs .= ' accept="' . \esc_attr($accept) . '"';
+        }
+        $extraHint = ($key === $lastText && ($desc['html']['type'] ?? '') !== 'file') ? ' enterkeyhint="send"' : '';
+        $html = '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
+        $html .= '<input id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr((string)$value) . '"' . $attrs . $errAttr . $extraHint . '>';
+        return $html;
+    }
+
+    private static function renderTextarea(array $c): string
+    {
+        $desc = $c['desc'];
+        $f = $c['f'];
+        $id = $c['id'];
+        $nameAttr = $c['nameAttr'];
+        $labelHtml = $c['labelHtml'];
+        $labelAttr = $c['labelAttr'];
+        $errAttr = $c['errAttr'];
+        $value = $c['value'];
+        $key = $c['key'];
+        $lastText = $c['lastText'];
+        $attrs = self::controlAttrs($desc, $f);
+        if (!empty($f['required'])) $attrs .= ' required';
+        if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
+        if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+        $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
+        $html = '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
+        $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
+        return $html;
+    }
+
+    private static function renderSelect(array $c): string
+    {
+        $desc = $c['desc'];
+        $f = $c['f'];
+        $id = $c['id'];
+        $nameAttr = $c['nameAttr'];
+        $labelHtml = $c['labelHtml'];
+        $labelAttr = $c['labelAttr'];
+        $errAttr = $c['errAttr'];
+        $value = $c['value'];
+        $isMulti = $c['isMulti'];
+        $attrs = self::controlAttrs($desc, $f);
+        if (!empty($f['required'])) $attrs .= ' required';
+        if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+        if (!empty($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
+        $vals = $isMulti ? (array)$value : (string)$value;
+        $html = '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
+        $html .= '<select id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . $errAttr . '>';
+        foreach ($f['options'] ?? [] as $opt) {
+            $disabled = !empty($opt['disabled']);
+            $html .= '<option value="' . \esc_attr($opt['key']) . '"' . ($disabled ? ' disabled' : '');
+            if ($isMulti) {
+                if (in_array($opt['key'], (array)$vals, true)) $html .= ' selected';
+            } else {
+                if ((string)$vals === (string)$opt['key']) $html .= ' selected';
+            }
+            $html .= '>' . \esc_html($opt['label']) . '</option>';
+        }
+        $html .= '</select>';
+        return $html;
+    }
+
+    private static function renderFieldset(array $c): string
+    {
+        $desc = $c['desc'];
+        $f = $c['f'];
+        $id = $c['id'];
+        $nameAttr = $c['nameAttr'];
+        $labelHtml = $c['labelHtml'];
+        $labelAttr = $c['labelAttr'];
+        $fieldErrors = $c['fieldErrors'];
+        $value = $c['value'];
+        $isMulti = $c['isMulti'];
+        $key = $c['key'];
+        $formId = $c['formId'];
+        $instanceId = $c['instanceId'];
+        $errId = $c['errId'];
+        $attrs = self::controlAttrs($desc, $f);
+        $legendId = $id . '-legend';
+        $html = '<fieldset id="' . \esc_attr($id) . '"' . $attrs . ' tabindex="-1"';
+        if (!empty($f['required'])) $html .= ' aria-required="true"';
+        if ($fieldErrors) $html .= ' aria-describedby="' . \esc_attr($errId) . '" aria-invalid="true"';
+        $html .= '><legend id="' . \esc_attr($legendId) . '"' . $labelAttr . '>' . $labelHtml . '</legend>';
+        $vals = $isMulti ? (array)$value : $value;
+        foreach ($f['options'] ?? [] as $opt) {
+            $idOpt = self::makeId($formId, $key . '-' . $opt['key'], $instanceId);
+            $html .= '<label><input type="' . ($isMulti ? 'checkbox' : 'radio') . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr($opt['key']) . '" id="' . \esc_attr($idOpt) . '"';
+            if ($isMulti) {
+                if (in_array($opt['key'], (array)$vals, true)) $html .= ' checked';
+            } else {
+                if ((string)$vals === (string)$opt['key']) $html .= ' checked';
+            }
+            if (!empty($opt['disabled'])) $html .= ' disabled';
+            if (!empty($f['required'])) $html .= ' required';
+            $html .= '> ' . \esc_html($opt['label']) . '</label>';
+        }
+        $html .= '</fieldset>';
         return $html;
     }
 
