@@ -11,6 +11,7 @@ class Logging
     private static function init(): void
     {
         if (self::$init) return;
+        \EForms\Config::bootstrap();
         $dir = rtrim((string) Config::get('uploads.dir', sys_get_temp_dir()), '/');
         if (!is_dir($dir)) {
             @mkdir($dir, 0700, true);
