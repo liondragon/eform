@@ -93,7 +93,9 @@ class FormManager
         if (!$pre['ok']) {
             $this->renderErrorAndExit($tplInfo['tpl'], $formId, 'Form configuration error.');
         }
-        $tpl = $tplInfo['tpl'];
+        // Use normalized template context from preflight so that field descriptors
+        // include resolved handler identifiers and other defaults.
+        $tpl = $pre['context'];
         if (Uploads::enabled() && Uploads::hasUploadFields($tpl)) {
             Uploads::gc();
         }
