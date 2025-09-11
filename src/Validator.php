@@ -101,6 +101,9 @@ class Validator
     }
     public static function descriptors(array $tpl): array
     {
+        if (isset($tpl['descriptors']) && is_array($tpl['descriptors'])) {
+            return $tpl['descriptors'];
+        }
         $desc = [];
         foreach ($tpl['fields'] as $f) {
             if (($f['type'] ?? '') === 'row_group') {

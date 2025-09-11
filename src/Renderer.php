@@ -217,8 +217,7 @@ class Renderer
             $before = isset($f['before_html']) ? self::sanitizeFragment($f['before_html']) : '';
             $after = isset($f['after_html']) ? self::sanitizeFragment($f['after_html']) : '';
             $html .= $before;
-            $rendererId = $desc['handlers']['renderer_id'] ?? '';
-            $handler = self::resolve($rendererId);
+            $handler = $desc['handlers']['renderer'] ?? self::resolve($desc['handlers']['renderer_id'] ?? '');
             $ctx = [
                 'desc' => $desc,
                 'f' => $f,
