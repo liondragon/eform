@@ -495,7 +495,7 @@ class TemplateValidator
         }
         $ctx = [
             'has_uploads' => $hasUploads,
-            'descriptors' => self::buildDescriptors($normFields),
+            'descriptors' => self::buildDescriptors($tpl, $normFields),
             'version' => $version,
             'id' => $tpl['id'] ?? '',
             'title' => $tpl['title'] ?? '',
@@ -553,7 +553,7 @@ class TemplateValidator
         return empty($stack);
     }
 
-    private static function buildDescriptors(array $fields): array
+    private static function buildDescriptors(array $tpl, array $fields): array
     {
         $all = Spec::typeDescriptors();
         $desc = [];
@@ -592,6 +592,7 @@ class TemplateValidator
                 'renderer'   => Renderer::resolve($handlers['renderer_id'] ?? ''),
             ];
             $d['form_id'] = $tpl['id'] ?? '';
+            $d['key'] = $f['key'];
 
             $desc[$f['key']] = $d;
         }
