@@ -16,7 +16,7 @@ namespace EForms {
     const VERSION = '0.1.0';
     // Paths/URLs for assets & templates
     const PLUGIN_DIR = __DIR__;
-    const TEMPLATES_DIR = __DIR__ . '/templates';
+    const TEMPLATES_DIR = __DIR__ . '/templates/forms';
     const ASSETS_DIR = __DIR__ . '/assets';
     \define(__NAMESPACE__ . '\\PLUGIN_URL', \plugins_url('', __FILE__));
     \define(__NAMESPACE__ . '\\ASSETS_URL', PLUGIN_URL . '/assets');

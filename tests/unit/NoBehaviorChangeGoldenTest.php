@@ -10,8 +10,8 @@ final class NoBehaviorChangeGoldenTest extends TestCase
 {
     public function testContactTemplateRenderingAndValidation(): void
     {
-        $tpl = json_decode(file_get_contents(__DIR__ . '/../../templates/contact.json'), true);
-        $pre = TemplateValidator::preflight($tpl, __DIR__ . '/../../templates/contact.json');
+        $tpl = json_decode(file_get_contents(__DIR__ . '/../../templates/forms/contact.json'), true);
+        $pre = TemplateValidator::preflight($tpl, __DIR__ . '/../../templates/forms/contact.json');
         $this->assertTrue($pre['ok'], 'preflight failed');
         $context = $pre['context'];
 

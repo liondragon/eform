@@ -13,6 +13,7 @@ use EForms\Security\Throttle;
 use EForms\Uploads\Uploads;
 use EForms\Validation\TemplateValidator;
 use EForms\Validation\Validator;
+use const EForms\{TEMPLATES_DIR, PLUGIN_DIR, ASSETS_DIR, VERSION};
 
 class FormManager
 {
