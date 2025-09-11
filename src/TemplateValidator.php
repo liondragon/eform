@@ -586,10 +586,11 @@ class TemplateValidator
 
             $handlers = $d['handlers'] ?? [];
             $d['handlers'] = [
-                'validator'  => Validator::resolve($handlers['validator_id'] ?? ''),
-                'normalizer' => Validator::resolve($handlers['normalizer_id'] ?? ''),
+                'validator'  => Validator::resolve($handlers['validator_id'] ?? '', 'validator'),
+                'normalizer' => Validator::resolve($handlers['normalizer_id'] ?? '', 'normalizer'),
                 'renderer'   => Renderer::resolve($handlers['renderer_id'] ?? ''),
             ];
+            $d['form_id'] = $tpl['id'] ?? '';
 
             $desc[$f['key']] = $d;
         }

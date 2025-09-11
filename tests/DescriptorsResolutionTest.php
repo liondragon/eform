@@ -13,8 +13,8 @@ final class DescriptorsResolutionTest extends TestCase
         $all = Spec::typeDescriptors();
         foreach ($all as $type => $desc) {
             $handlers = $desc['handlers'];
-            $v = Validator::resolve($handlers['validator_id'] ?? '');
-            $n = Validator::resolve($handlers['normalizer_id'] ?? '');
+            $v = Validator::resolve($handlers['validator_id'] ?? '', 'validator');
+            $n = Validator::resolve($handlers['normalizer_id'] ?? '', 'normalizer');
             $r = Renderer::resolve($handlers['renderer_id'] ?? '');
             $this->assertTrue(is_callable($v), "$type validator");
             $this->assertTrue(is_callable($n), "$type normalizer");
@@ -25,6 +25,6 @@ final class DescriptorsResolutionTest extends TestCase
     public function testUnknownHandlerIdFails(): void
     {
         $this->expectException(\RuntimeException::class);
-        Validator::resolve('unknown');
+        Validator::resolve('unknown', 'validator');
     }
 }
