@@ -17,8 +17,8 @@ final class AliasTypesParityTest extends TestCase
             $desc = Spec::descriptorFor($t);
             $handlers = $desc['handlers'];
             $callables[] = [
-                'validator' => Validator::resolve($handlers['validator_id']),
-                'normalizer' => Validator::resolve($handlers['normalizer_id']),
+                'validator' => Validator::resolve($handlers['validator_id'], 'validator'),
+                'normalizer' => Validator::resolve($handlers['normalizer_id'], 'normalizer'),
                 'renderer' => Renderer::resolve($handlers['renderer_id']),
             ];
             $autocomplete[$t] = $desc['html']['autocomplete'] ?? '';

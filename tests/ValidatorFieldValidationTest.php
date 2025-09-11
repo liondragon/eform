@@ -30,4 +30,24 @@ final class ValidatorFieldValidationTest extends TestCase
         $errors = $this->validate(['type' => 'text', 'key' => 't', 'pattern' => '[A-Z]+'], 'abc');
         $this->assertArrayHasKey('t', $errors);
     }
+
+    public function testValidatorCallableExecutes(): void
+    {
+        $called = false;
+        $field = [
+            'type' => 'text',
+            'key' => 't',
+            'handlers' => [
+                'validator' => function ($v, $f, &$errors) use (&$called) {
+                    $called = true;
+                    return $v;
+                },
+                'normalizer' => [Validator::class, 'identity'],
+            ],
+        ];
+        $tpl = ['fields' => [$field]];
+        $desc = ['t' => $field];
+        Validator::validate($tpl, $desc, ['t' => 'foo']);
+        $this->assertTrue($called);
+    }
 }
