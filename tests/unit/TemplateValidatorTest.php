@@ -162,6 +162,21 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains('fields[0].after_html', $paths);
     }
 
+    public function testFragmentsCannotContainRowTags(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['before_html'] = '<div></div>';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_FRAGMENT_ROW_TAG, $codes);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['after_html'] = '<section></section>';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_FRAGMENT_ROW_TAG, $codes);
+    }
+
     public function testUnknownValidationRule(): void
     {
         $tpl = $this->baseTpl();

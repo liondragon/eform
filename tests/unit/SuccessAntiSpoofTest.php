@@ -18,7 +18,7 @@ final class SuccessAntiSpoofTest extends TestCase
         $_COOKIE = [];
         $fm = new \EForms\Rendering\FormManager();
         $html = $fm->render('contact_us');
-        $this->assertStringNotContainsString('Thanks! We got your message.', $html);
+        $this->assertSame('', $html);
     }
 
     public function testNoSuccessWithCookieOnly(): void
@@ -38,7 +38,7 @@ final class SuccessAntiSpoofTest extends TestCase
         $_COOKIE = ['eforms_s_contact_us' => 'other:inst'];
         $fm = new \EForms\Rendering\FormManager();
         $html = $fm->render('contact_us');
-        $this->assertStringNotContainsString('Thanks! We got your message.', $html);
+        $this->assertSame('', $html);
     }
 
     public function testSuccessWithMatchingCookieAndQuery(): void
@@ -49,6 +49,19 @@ final class SuccessAntiSpoofTest extends TestCase
         $fm = new \EForms\Rendering\FormManager();
         $html = $fm->render('contact_us');
         $this->assertStringContainsString('Thanks! We got your message.', $html);
+    }
+
+    public function testSuccessCookieConsumedOnlyOnce(): void
+    {
+        header_remove();
+        $_GET = ['eforms_success' => 'contact_us'];
+        $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
+        $fm = new \EForms\Rendering\FormManager();
+        $html1 = $fm->render('contact_us');
+        $this->assertStringContainsString('Thanks! We got your message.', $html1);
+        $fm2 = new \EForms\Rendering\FormManager();
+        $html2 = $fm2->render('contact_us');
+        $this->assertSame('', $html2);
     }
 }
 

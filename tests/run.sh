@@ -246,6 +246,12 @@ ok=0
 assert_grep tmp/stdout.txt 'Already submitted or expired\.' || ok=1
 record_result "ledger reserve: duplicate token" $ok
 
+# 5b) Ledger disabled skips file
+EFORMS_TOKEN_LEDGER_ENABLE=0 run_test test_ledger_disable
+ok=0
+assert_grep tmp/stdout.txt '^missing$' || ok=1
+record_result "ledger: disabled skips file" $ok
+
 # 6) Success inline: renderer shows message
 run_test test_success_inline
 ok=0
@@ -297,7 +303,14 @@ assert_grep tmp/uploads/eforms-private/eforms.log '"severity":"error"' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"code":"EFORMS_EMAIL_FAIL"' || ok=1
 record_result "logging: SMTP failure" $ok
 
-# 8b) Logging User-Agent sanitization
+# 8b) Logging minimal file output
+EFORMS_LOG_MODE=minimal run_test test_logging_minimal
+ok=0
+assert_grep tmp/uploads/eforms-private/eforms.log 'severity=error' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log 'code=EFORMS_EMAIL_FAIL' || ok=1
+record_result "logging: minimal file output" $ok
+
+# 8c) Logging User-Agent sanitization
 EFORMS_LOG_HEADERS=1 run_test test_logging_user_agent
 ok=0
 assert_grep tmp/ua.txt '^A{256}$' || ok=1

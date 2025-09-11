@@ -173,7 +173,7 @@ class Logging
             if (!empty($meta)) {
                 $parts[] = 'meta=' . substr(json_encode($meta, JSON_UNESCAPED_SLASHES), 0, 200);
             }
-            error_log('eforms ' . implode(' ', $parts));
+            self::logLine('eforms ' . implode(' ', $parts) . "\n");
         }
         if (Config::get('logging.fail2ban.enable', false)) {
             self::emitFail2ban($code, $ctx);
