@@ -109,106 +109,9 @@ class Validator
                 if (isset($f['pattern']) && @preg_match('#^'.$f['pattern'].'$#', $v) !== 1) {
                     $errors[$k][] = 'Invalid format.';
                 }
-                switch ($f['type']) {
-                    case 'email':
-                        if (!\is_email($v)) {
-                            $errors[$k][] = 'Invalid email.';
-                        }
-                        break;
-                    case 'url':
-                        $url = filter_var($v, FILTER_VALIDATE_URL);
-                        $scheme = strtolower(parse_url((string)$url, PHP_URL_SCHEME));
-                        if (!$url || !in_array($scheme, ['http','https'], true)) {
-                            $errors[$k][] = 'Invalid URL.';
-                        }
-                        break;
-                    case 'zip_us':
-                        if (!preg_match('/^\d{5}$/', $v)) {
-                            $errors[$k][] = 'Invalid ZIP.';
-                        }
-                        break;
-                    case 'tel_us':
-                        $digits = preg_replace('/\D+/', '', $v);
-                        if (strlen($digits) < 10) {
-                            $errors[$k][] = 'Invalid phone.';
-                        }
-                        break;
-                    case 'number':
-                    case 'range':
-                        if (!is_numeric($v)) {
-                            $errors[$k][] = 'Invalid number.';
-                            break;
-                        }
-                        $num = $v + 0;
-                        if (isset($f['min']) && $num < $f['min']) {
-                            $errors[$k][] = 'Number too low.';
-                        }
-                        if (isset($f['max']) && $num > $f['max']) {
-                            $errors[$k][] = 'Number too high.';
-                        }
-                        if (isset($f['step']) && $f['step'] > 0) {
-                            $base = isset($f['min']) ? $f['min'] : 0;
-                            $mod = fmod($num - $base, $f['step']);
-                            if ($mod !== 0.0 && $f['step'] !== 1 && $mod > 1e-8 && $f['step'] - $mod > 1e-8) {
-                                $errors[$k][] = 'Invalid step.';
-                            }
-                        }
-                        break;
-                    case 'date':
-                        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
-                            $errors[$k][] = 'Invalid date.';
-                            break;
-                        }
-                        $ts = strtotime($v);
-                        if ($ts === false) {
-                            $errors[$k][] = 'Invalid date.';
-                            break;
-                        }
-                        if (isset($f['min']) && $ts < strtotime((string)$f['min'])) {
-                            $errors[$k][] = 'Date too early.';
-                        }
-                        if (isset($f['max']) && $ts > strtotime((string)$f['max'])) {
-                            $errors[$k][] = 'Date too late.';
-                        }
-                        if (isset($f['step']) && $f['step'] > 0) {
-                            $base = isset($f['min']) ? strtotime((string)$f['min']) : 0;
-                            $mod = ($ts - $base) % ((int)$f['step'] * 86400);
-                            if ($mod !== 0) {
-                                $errors[$k][] = 'Invalid step.';
-                            }
-                        }
-                        break;
-                    case 'textarea_html':
-                        $max = (int) Config::get('validation.textarea_html_max_bytes', 32768);
-                        if (strlen($v) > $max) {
-                            $errors[$k][] = 'Content too long.';
-                            Logging::write('warn', 'EFORMS_ERR_HTML_TOO_LARGE', ['form_id'=>$tpl['id'] ?? '', 'field'=>$k]);
-                            $v = '';
-                        } else {
-                            $san = \wp_kses_post($v);
-                            if (strlen($san) > $max) {
-                                $errors[$k][] = 'Content too long.';
-                                Logging::write('warn', 'EFORMS_ERR_HTML_TOO_LARGE', ['form_id'=>$tpl['id'] ?? '', 'field'=>$k]);
-                                $v = '';
-                            } else {
-                                $v = $san;
-                            }
-                        }
-                        break;
-                    case 'select':
-                    case 'radio':
-                    case 'checkbox':
-                        $opts = array_column($f['options'] ?? [], 'key');
-                        $enabled = [];
-                        foreach ($f['options'] ?? [] as $opt) {
-                            if (empty($opt['disabled'])) {
-                                $enabled[] = $opt['key'];
-                            }
-                        }
-                        if ($v !== '' && !in_array($v, $enabled, true)) {
-                            $errors[$k][] = 'Invalid choice.';
-                        }
-                        break;
+                $cb = Registry::validator($f['type'] ?? '');
+                if ($cb) {
+                    $v = $cb($tpl, $f, $v, $k, $errors);
                 }
             }
             $canonical[$k] = $v;
@@ -218,25 +121,155 @@ class Validator
         return ['errors'=>$errors,'values'=>$canonical];
     }
 
+    /**
+     * Field type specific validators used by Registry.
+     */
+    public static function validateEmail(array $tpl, array $f, string $v, string $k, array &$errors): string
+    {
+        if (!\is_email($v)) {
+            $errors[$k][] = 'Invalid email.';
+        }
+        return $v;
+    }
+
+    public static function validateUrl(array $tpl, array $f, string $v, string $k, array &$errors): string
+    {
+        $url = filter_var($v, FILTER_VALIDATE_URL);
+        $scheme = strtolower(parse_url((string)$url, PHP_URL_SCHEME));
+        if (!$url || !in_array($scheme, ['http','https'], true)) {
+            $errors[$k][] = 'Invalid URL.';
+        }
+        return $v;
+    }
+
+    public static function validateZipUs(array $tpl, array $f, string $v, string $k, array &$errors): string
+    {
+        if (!preg_match('/^\d{5}$/', $v)) {
+            $errors[$k][] = 'Invalid ZIP.';
+        }
+        return $v;
+    }
+
+    public static function validateTelUs(array $tpl, array $f, string $v, string $k, array &$errors): string
+    {
+        $digits = preg_replace('/\D+/', '', $v);
+        if (strlen($digits) < 10) {
+            $errors[$k][] = 'Invalid phone.';
+        }
+        return $v;
+    }
+
+    public static function validateNumber(array $tpl, array $f, string $v, string $k, array &$errors): string
+    {
+        if (!is_numeric($v)) {
+            $errors[$k][] = 'Invalid number.';
+            return $v;
+        }
+        $num = $v + 0;
+        if (isset($f['min']) && $num < $f['min']) {
+            $errors[$k][] = 'Number too low.';
+        }
+        if (isset($f['max']) && $num > $f['max']) {
+            $errors[$k][] = 'Number too high.';
+        }
+        if (isset($f['step']) && $f['step'] > 0) {
+            $base = isset($f['min']) ? $f['min'] : 0;
+            $mod = fmod($num - $base, $f['step']);
+            if ($mod !== 0.0 && $f['step'] !== 1 && $mod > 1e-8 && $f['step'] - $mod > 1e-8) {
+                $errors[$k][] = 'Invalid step.';
+            }
+        }
+        return $v;
+    }
+
+    public static function validateDate(array $tpl, array $f, string $v, string $k, array &$errors): string
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
+            $errors[$k][] = 'Invalid date.';
+            return $v;
+        }
+        $ts = strtotime($v);
+        if ($ts === false) {
+            $errors[$k][] = 'Invalid date.';
+            return $v;
+        }
+        if (isset($f['min']) && $ts < strtotime((string)$f['min'])) {
+            $errors[$k][] = 'Date too early.';
+        }
+        if (isset($f['max']) && $ts > strtotime((string)$f['max'])) {
+            $errors[$k][] = 'Date too late.';
+        }
+        if (isset($f['step']) && $f['step'] > 0) {
+            $base = isset($f['min']) ? strtotime((string)$f['min']) : 0;
+            $mod = ($ts - $base) % ((int)$f['step'] * 86400);
+            if ($mod !== 0) {
+                $errors[$k][] = 'Invalid step.';
+            }
+        }
+        return $v;
+    }
+
+    public static function validateTextareaHtml(array $tpl, array $f, string $v, string $k, array &$errors): string
+    {
+        $max = (int) Config::get('validation.textarea_html_max_bytes', 32768);
+        if (strlen($v) > $max) {
+            $errors[$k][] = 'Content too long.';
+            Logging::write('warn', 'EFORMS_ERR_HTML_TOO_LARGE', ['form_id'=>$tpl['id'] ?? '', 'field'=>$k]);
+            return '';
+        }
+        $san = \wp_kses_post($v);
+        if (strlen($san) > $max) {
+            $errors[$k][] = 'Content too long.';
+            Logging::write('warn', 'EFORMS_ERR_HTML_TOO_LARGE', ['form_id'=>$tpl['id'] ?? '', 'field'=>$k]);
+            return '';
+        }
+        return $san;
+    }
+
+    public static function validateChoice(array $tpl, array $f, string $v, string $k, array &$errors): string
+    {
+        $opts = array_column($f['options'] ?? [], 'key');
+        $enabled = [];
+        foreach ($f['options'] ?? [] as $opt) {
+            if (empty($opt['disabled'])) {
+                $enabled[] = $opt['key'];
+            }
+        }
+        if ($v !== '' && !in_array($v, $enabled, true)) {
+            $errors[$k][] = 'Invalid choice.';
+        }
+        return $v;
+    }
+
+    /**
+     * Coercers used by Registry.
+     */
+    public static function coerceEmail($v)
+    {
+        if ($v !== '' && strpos($v, '@') !== false) {
+            [$local,$domain] = explode('@', $v, 2);
+            $v = $local . '@' . strtolower($domain);
+        }
+        return $v;
+    }
+
+    public static function coerceTelUs($v)
+    {
+        $digits = preg_replace('/\D+/', '', (string)$v);
+        if (strlen($digits) === 11 && str_starts_with($digits, '1')) {
+            $digits = substr($digits, 1);
+        }
+        return $digits;
+    }
+
     public static function coerce(array $tpl, array $desc, array $values): array
     {
         $out = [];
         foreach ($desc as $k => $f) {
             $v = $values[$k] ?? (self::isMultivalue($f) ? [] : '');
-            switch ($f['type']) {
-                case 'email':
-                    if ($v !== '' && strpos($v, '@') !== false) {
-                        [$local,$domain] = explode('@', $v, 2);
-                        $v = $local . '@' . strtolower($domain);
-                    }
-                    break;
-                case 'tel_us':
-                    $digits = preg_replace('/\D+/', '', $v);
-                    if (strlen($digits) === 11 && str_starts_with($digits, '1')) {
-                        $digits = substr($digits, 1);
-                    }
-                    $v = $digits;
-                    break;
+            $cb = Registry::coercer($f['type'] ?? '');
+            if ($cb) {
+                $v = $cb($v);
             }
             $out[$k] = $v;
         }
