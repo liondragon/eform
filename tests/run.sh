@@ -19,7 +19,7 @@ function run_test() {
   touch tmp/uploads/eforms-private/eforms.log
   : > tmp/headers.txt
   set +e
-  $PHP "$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
+  $PHP "integration/$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
   local code=$?
   set -e
   echo "  -> exit code: $code"
@@ -32,7 +32,7 @@ function run_test_keep() {
   touch tmp/uploads/eforms-private/eforms.log
   : > tmp/headers.txt
   set +e
-  $PHP "$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
+  $PHP "integration/$name.php" > tmp/stdout.txt 2> tmp/stderr.txt
   local code=$?
   set -e
   echo "  -> exit code: $code"
@@ -80,7 +80,7 @@ assert_grep tmp/stdout.txt '^OK$' || ok=1
 record_result "template schema parity" $ok
 
 # Spec vs schema parity
-run_test SchemaParityTest
+run_test test_schema_parity
 ok=0
 assert_grep tmp/stdout.txt '^OK$' || ok=1
 record_result "spec schema parity" $ok
