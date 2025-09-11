@@ -106,30 +106,35 @@ class Spec
     {
         return [
             'name' => [
+                'type' => 'name',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'name'],
                 'validate' => [],
                 'handlers' => self::HANDLERS_TEXT,
             ],
             'first_name' => [
+                'type' => 'first_name',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'given-name'],
                 'validate' => [],
                 'handlers' => self::HANDLERS_TEXT,
             ],
             'last_name' => [
+                'type' => 'last_name',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'family-name'],
                 'validate' => [],
                 'handlers' => self::HANDLERS_TEXT,
             ],
             'text' => [
+                'type' => 'text',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'text','attrs_mirror'=>['maxlength'=>null,'minlength'=>null]],
                 'validate' => [],
                 'handlers' => self::HANDLERS_TEXT,
             ],
             'email' => [
+                'type' => 'email',
                 'is_multivalue' => false,
                 'html' => [
                     'tag'=>'input',
@@ -144,6 +149,7 @@ class Spec
                 'handlers' => self::HANDLERS_EMAIL,
             ],
             'url' => [
+                'type' => 'url',
                 'is_multivalue' => false,
                 'html' => [
                     'tag'=>'input',
@@ -156,12 +162,14 @@ class Spec
                 'handlers' => self::HANDLERS_URL,
             ],
             'tel' => [
+                'type' => 'tel',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'tel','inputmode'=>'tel','autocomplete'=>'tel','attrs_mirror'=>['maxlength'=>null]],
                 'validate' => [],
                 'handlers' => self::HANDLERS_TEL,
             ],
             'tel_us' => [
+                'type' => 'tel_us',
                 'is_multivalue' => false,
                 'html' => [
                     'tag'=>'input',
@@ -175,42 +183,49 @@ class Spec
                 'handlers' => self::HANDLERS_TEL_US,
             ],
             'number' => [
+                'type' => 'number',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'number','inputmode'=>'decimal','attrs_mirror'=>['min'=>null,'max'=>null,'step'=>null]],
                 'validate' => [],
                 'handlers' => self::HANDLERS_NUMBER,
             ],
             'range' => [
+                'type' => 'range',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'range','inputmode'=>'decimal','attrs_mirror'=>['min'=>null,'max'=>null,'step'=>null]],
                 'validate' => [],
                 'handlers' => self::HANDLERS_RANGE,
             ],
             'date' => [
+                'type' => 'date',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'date','attrs_mirror'=>['min'=>null,'max'=>null,'step'=>null]],
                 'validate' => [],
                 'handlers' => self::HANDLERS_DATE,
             ],
             'textarea' => [
+                'type' => 'textarea',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'textarea','attrs_mirror'=>['maxlength'=>null,'minlength'=>null]],
                 'validate' => [],
                 'handlers' => self::HANDLERS_TEXTAREA,
             ],
             'textarea_html' => [
+                'type' => 'textarea_html',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'textarea','attrs_mirror'=>['maxlength'=>null,'minlength'=>null]],
                 'validate' => [],
                 'handlers' => self::HANDLERS_TEXTAREA_HTML,
             ],
             'zip' => [
+                'type' => 'zip',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'text','attrs_mirror'=>['maxlength'=>null,'minlength'=>null]],
                 'validate' => [],
                 'handlers' => self::HANDLERS_ZIP,
             ],
             'zip_us' => [
+                'type' => 'zip_us',
                 'is_multivalue' => false,
                 'html' => [
                     'tag'=>'input',
@@ -224,30 +239,35 @@ class Spec
                 'handlers' => self::HANDLERS_ZIP_US,
             ],
             'select' => [
+                'type' => 'select',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'select'],
                 'validate' => [],
                 'handlers' => self::HANDLERS_SELECT,
             ],
             'radio' => [
+                'type' => 'radio',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'fieldset'],
                 'validate' => [],
                 'handlers' => self::HANDLERS_RADIO,
             ],
             'checkbox' => [
+                'type' => 'checkbox',
                 'is_multivalue' => true,
                 'html' => ['tag'=>'fieldset'],
                 'validate' => [],
                 'handlers' => self::HANDLERS_CHECKBOX,
             ],
             'file' => [
+                'type' => 'file',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'file'],
                 'validate' => [],
                 'handlers' => self::HANDLERS_FILE,
             ],
             'files' => [
+                'type' => 'files',
                 'is_multivalue' => true,
                 'html' => ['tag'=>'input','type'=>'file','multiple'=>true],
                 'validate' => [],
@@ -263,6 +283,7 @@ class Spec
     {
         $all = self::typeDescriptors();
         return $all[$type] ?? [
+            'type' => $type,
             'is_multivalue' => false,
             'html' => ['tag'=>'input'],
             'validate' => [],
