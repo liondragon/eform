@@ -291,12 +291,12 @@ class Validator
         return $desc;
     }
 
-    public static function normalize(array $tpl, array $post): array
+    public static function normalize(array $tpl, array $post, ?array $desc = null): array
     {
+        $desc = $desc ?? self::descriptors($tpl);
         $values = [];
-        foreach ($tpl['fields'] as $f) {
-            if (($f['type'] ?? '') === 'row_group') continue;
-            $k = $f['key'];
+        foreach ($desc as $k => $f) {
+            $norm = $f['handlers']['normalizer'] ?? [self::class, 'identity'];
             if (self::isMultivalue($f)) {
                 $raw = $post[$k] ?? [];
                 if (!is_array($raw)) {
@@ -305,9 +305,10 @@ class Validator
                 $vals = [];
                 foreach ($raw as $rv) {
                     if (is_scalar($rv)) {
-                        $sv = function_exists('\\wp_unslash') ? \wp_unslash($rv) : stripslashes((string)$rv);
-                        $sv = self::nfc((string)$sv);
-                        $vals[] = trim($sv);
+                        $sv = function_exists('\\wp_unslash') ? \wp_unslash($rv) : stripslashes((string) $rv);
+                        $sv = self::nfc((string) $sv);
+                        $sv = trim($sv);
+                        $vals[] = $norm($sv);
                     }
                 }
                 $values[$k] = $vals;
@@ -316,9 +317,10 @@ class Validator
                 if (is_array($v)) {
                     $v = '';
                 }
-                $sv = function_exists('\\wp_unslash') ? \wp_unslash($v) : stripslashes((string)$v);
-                $sv = self::nfc((string)$sv);
-                $values[$k] = trim($sv);
+                $sv = function_exists('\\wp_unslash') ? \wp_unslash($v) : stripslashes((string) $v);
+                $sv = self::nfc((string) $sv);
+                $sv = trim($sv);
+                $values[$k] = $norm($sv);
             }
         }
         return $values;
@@ -382,16 +384,13 @@ class Validator
     {
         $out = [];
         foreach ($desc as $k => $f) {
+            $norm = $f['handlers']['normalizer'] ?? [self::class, 'identity'];
             $v = $values[$k] ?? (self::isMultivalue($f) ? [] : '');
-            switch ($f['type']) {
-                case 'email':
-                    $v = self::normalizeEmail($v);
-                    break;
-                case 'tel_us':
-                    $v = self::normalizeTelUs($v);
-                    break;
+            if (self::isMultivalue($f)) {
+                $out[$k] = array_map($norm, is_array($v) ? $v : []);
+            } else {
+                $out[$k] = $norm($v);
             }
-            $out[$k] = $v;
         }
         return $out;
     }

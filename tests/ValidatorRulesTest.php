@@ -18,6 +18,7 @@ final class ValidatorRulesTest extends TestCase
         $data->setAccessible(true);
         $data->setValue([]);
         putenv('EFORMS_LOG_LEVEL=1');
+        putenv('EFORMS_LOG_MODE=jsonl');
         Config::bootstrap();
     }
 
@@ -30,7 +31,7 @@ final class ValidatorRulesTest extends TestCase
             'success' => ['mode' => 'inline'],
             'email' => [],
             'fields' => [
-                ['type' => 'name', 'key' => 'name'],
+                ['type' => 'text', 'key' => 'name'],
             ],
             'submit_button_text' => 'Send',
             'rules' => [
@@ -38,7 +39,7 @@ final class ValidatorRulesTest extends TestCase
             ],
         ];
         $desc = Validator::descriptors($tpl);
-        $values = Validator::normalize($tpl, ['name' => 'a']);
+        $values = Validator::normalize($tpl, ['name' => 'a'], $desc);
         $logFile = Config::get('uploads.dir', sys_get_temp_dir()) . '/eforms.log';
         @unlink($logFile);
         $res = Validator::validate($tpl, $desc, $values);

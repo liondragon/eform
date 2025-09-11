@@ -7,7 +7,7 @@ class RulesTest extends TestCase
     private function runRules(array $tpl, array $post): array
     {
         $desc = Validator::descriptors($tpl);
-        $values = Validator::normalize($tpl, $post);
+        $values = Validator::normalize($tpl, $post, $desc);
         $res = Validator::validate($tpl, $desc, $values);
         return $res['errors'];
     }

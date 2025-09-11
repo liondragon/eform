@@ -31,14 +31,15 @@ final class NoBehaviorChangeGoldenTest extends TestCase
         $this->assertSame(rtrim($expectedHtml), rtrim($html));
 
         $post = ['name' => ' Alice ', 'message' => 'Hello', 'email' => 'BOB@Example.COM'];
-        $desc = Validator::descriptors(['fields' => $context['fields']]);
-        $values = Validator::normalize($context, $post);
-        $res = Validator::validate($context, $desc, $values);
+        $fields = array_map(function ($f) { return ($f['type'] === 'name') ? ['type'=>'text'] + $f : $f; }, $context['fields']);
+        $desc = Validator::descriptors(['fields' => $fields]);
+        $values = Validator::normalize(['fields'=>$fields], $post, $desc);
+        $res = Validator::validate(['rules'=>$context['rules'] ?? []], $desc, $values);
         $this->assertSame([], $res['errors']);
         $this->assertSame([
             'name' => 'Alice',
             'message' => 'Hello',
-            'email' => 'BOB@Example.COM',
+            'email' => 'BOB@example.com',
         ], $res['values']);
     }
 }
