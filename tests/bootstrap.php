@@ -93,7 +93,8 @@ function wp_kses($html, $allowed, $allowed_protocols = []) {
     return strip_tags((string)$html, $tags);
 }
 function wp_kses_post($html) {
-    return strip_tags((string)$html);
+    $allowed = '<a><strong><em><span><p><br><div><h1><h2><h3><h4><h5><h6><ul><ol><li>';
+    return strip_tags((string)$html, $allowed);
 }
 function sanitize_key($key) { return preg_replace('/[^a-z0-9_\-]/', '', strtolower((string)$key)); }
 function shortcode_atts($pairs, $atts, $shortcode = '') {

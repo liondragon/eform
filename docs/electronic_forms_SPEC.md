@@ -104,9 +104,7 @@ electronic_forms - Spec
     - include_fields accepts template keys and meta keys:
       - allowed meta keys: ip, submitted_at, form_id, instance_id (available for email/logs only)
     - Template fragments (before_html / after_html):
-      - Sanitized via wp_kses() allow-list: div, span, p, br, strong, em, h1–h6, ul, ol, li, a.
-      - Attributes: class for all listed elements; for <a> allow href and class only.
-      - Allowed URL schemes: http, https, mailto (pass ['http','https','mailto'] as the third wp_kses() arg).
+      - Sanitized via wp_kses_post (same as textarea_html); sanitized result is canonical.
       - No inline styles. May not cross row_group boundaries.
     - Upload field options: for type=file/files, optional accept[], max_file_bytes, max_files (files only), email_attach (bool). Per-field values override global limits.
     - Attribute emission list (summary): maxlength, min, max, step, minlength, pattern, inputmode, multiple, accept are emitted when applicable from the template/registry traits.
@@ -345,10 +343,10 @@ electronic_forms - Spec
   6. Escape at sinks only (per map in §6)
 
 9. SPECIAL CASE: HTML-BEARING FIELDS
-  - textarea_html only
-  - Size bound via validation.textarea_html_max_bytes (default 32768 bytes)
+  - textarea_html and template fragments (before_html / after_html)
+  - textarea_html: size bound via validation.textarea_html_max_bytes (default 32768 bytes)
   - Sanitize with wp_kses_post; sanitized result is canonical; escape per sink.
-  - Post-sanitize bound: after wp_kses_post, re-check canonical size; if > max, fail with EFORMS_ERR_HTML_TOO_LARGE (no auto-truncate).
+  - textarea_html: post-sanitize bound – after wp_kses_post, re-check canonical size; if > max, fail with EFORMS_ERR_HTML_TOO_LARGE (no auto-truncate).
 
 10. CROSS-FIELD RULES (BOUNDED SET)
   - Supported:
