@@ -79,6 +79,12 @@ ok=0
 assert_grep tmp/stdout.txt '^OK$' || ok=1
 record_result "template schema parity" $ok
 
+# Spec vs schema parity
+run_test SchemaParityTest
+ok=0
+assert_grep tmp/stdout.txt '^OK$' || ok=1
+record_result "spec schema parity" $ok
+
 # Prime endpoint cookie attributes
 run_test test_prime_cookie
 ok=0
