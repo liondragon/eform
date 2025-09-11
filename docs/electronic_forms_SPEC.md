@@ -164,9 +164,11 @@ electronic_forms - Spec
                                                 renderer_id: string
                                         }
                                 }
+                        - Each descriptor captures structural traits (multivalue, defaults, attribute mirrors) and per-type constants (accepted schemes, pattern hints). Alias types may reuse handler IDs while overriding traits.
                         - During preflight, handler IDs are resolved to callables via `Validator::resolve()` and `Renderer::resolve()`. These per-class registries are private and fail fast: unknown IDs trigger a `RuntimeException`.
+                        - CI asserts every handler ID in TEMPLATE_SPEC resolves in its registry; JSON Schema parity tests guard against drift.
                         - Example resolution:
-
+                                
                                 ```php
                                 $desc = Spec::typeDescriptors()['email'];
                                 $v = Validator::resolve($desc['handlers']['validator_id'], 'validator');
@@ -180,8 +182,10 @@ electronic_forms - Spec
         - Registries are instantiated on demand; upload and logging registries load only when their features are enabled (see 19.1).
         - Registries are lightweight maps; only entries referenced by the active template are consulted during render/validate; extraneous POST keys are ignored (see §8)
         - Behavior is registry-driven and parameterized by template values
-        - Registries are private to each owning class and exposed only through resolve() helpers.
-        - Resolution is fail-fast: an unknown handler ID results in a `RuntimeException` during preflight.
+        - Validator, Normalizer/Coercer, and Renderer each maintain a private registry:
+                - `private const HANDLERS = ['email' => [self::class, 'validateEmail'], ...];`
+                - a tiny `resolve($id)` helper returns the callable and throws a deterministic `RuntimeException` when missing.
+        - Registries remain private; resolution happens during preflight and is fail-fast.
 	- Uploads registry settings: token->mime/ext expansions; image sanity; caps
 	- Accept token map (canonical, conservative). For v1 parity, the only shipped tokens are image and pdf; do not add tokens unless explicitly required.
 	- Upload registry loads on demand when a template with file/files is rendered or posted.
@@ -399,7 +403,7 @@ electronic_forms - Spec
 		- accept[] intersect global allow-list must be non-empty; empty -> EFORMS_ERR_ACCEPT_EMPTY.
 		- Row-group object shape must match spec; mis-shapes -> EFORMS_ERR_SCHEMA_OBJECT.
 	1. Security gate (hard/soft signals; stop on hard failure)
-	2. Normalize (lossless; wp_unslash/trim; intl Normalizer NFC if available)
+        2. Normalize (lossless; wp_unslash/trim; Helpers::nfc for Unicode NFC)
 		- Uploads: flatten $_FILES; shape items as { tmp_name, original_name, size, error, original_name_safe }
 		- Treat UPLOAD_ERR_NO_FILE or empty original_name as "no value".
 		- An item is "present" only when error === UPLOAD_ERR_OK AND size > 0; otherwise it is "no value" (and triggers a validation error if the field is required).
@@ -413,8 +417,9 @@ electronic_forms - Spec
 			- Optional image sanity via getimagesize for images
 			- No SVG; no macro-enabled Office
 			- Arrays rejected on single-file fields
-		- finfo must not return false. When finfo is false or unknown, treat as unknown and reject. application/octet-stream is allowed only when finfo and extension agree and an accept-token permits it.
-		- Only evaluate fields declared in the template; ignore extraneous POST keys. Still reject arrays where a scalar is expected.
+                - finfo must not return false. When finfo is false or unknown, treat as unknown and reject. application/octet-stream is allowed only when finfo and extension agree and an accept-token permits it.
+                - If the `fileinfo` extension is unavailable, define `EFORMS_FINFO_UNAVAILABLE` and fail uploads deterministically.
+                - Only evaluate fields declared in the template; ignore extraneous POST keys. Still reject arrays where a scalar is expected.
 		- Client validation (when enabled) is advisory only; the full server pipeline executes for every POST regardless of client state.
 	4. Coerce (post-validate)
 		- cast/canonicalize; lowercase email domain; collapse whitespace (if enabled)
@@ -465,7 +470,7 @@ electronic_forms - Spec
 	- The field.type enum includes all types listed in this section plus the row_group pseudo-field (see 5.2).
 	- date: mirror min/max and step when provided.
 	- For each field, include the HTML attributes you'll emit (e.g., email -> inputmode=email, spellcheck=false, autocapitalize=off; files -> multiple; tel_us -> inputmode=tel; zip_us -> inputmode=numeric).
-	- Cache active descriptors per request: when loading the template, precompute a per-field descriptor (resolved max/min/step, inputmode, pattern, etc.) and reuse it in both Renderer and Validator to avoid double lookups and keep attribute mirroring perfectly in sync.
+        - Cache active descriptors per request: when loading the template, merge the type descriptor with template overrides, resolve handler IDs to callables once, and reuse the result in both Renderer and Validator. This avoids string lookups and keeps attribute mirroring perfectly in sync.
 
 12. ACCESSIBILITY (A11Y)
 	1. Labels
@@ -851,8 +856,10 @@ uploads.*
 	- No WordPress nonce usage. Submission token TTL is controlled via security.token_ttl_seconds.
 	- max_input_vars heuristic is intentionally conservative; it does not count $_FILES. Prefer warning early rather than risking dropped POST variables.
 	- Place index.html and server deny rules (.htaccess, web.config) in both uploads and logs directories. Keep perms at 0700 (dirs) / 0600 (files).
-	- Renderer & escaping: canonical values remain unescaped until sink time; Renderer never escapes twice and never mixes canonical with escaped strings.
-	- Helpers::bytes_from_ini(?string $v): int — parses K/M/G suffixes; "0"/null/"" -> PHP_INT_MAX; clamps to non-negative.
+        - Renderer & escaping: canonical values remain unescaped until sink time; Renderer never escapes twice and never mixes canonical with escaped strings.
+        - Helpers::nfc(string $v): string — normalize to Unicode NFC; no-op without intl.
+        - Helpers::cap_id(string $id, int $max=128): string — length cap with middle truncation and stable base32 suffix.
+        - Helpers::bytes_from_ini(?string $v): int — parses K/M/G suffixes; "0"/null/"" -> PHP_INT_MAX; clamps to non-negative.
 	- The cookie-policy precedence removes ambiguity and keeps UX predictable on cookie-blocked browsers without weakening your hidden-token path.
 	- When cookie_missing_policy='challenge' and verification succeeds, do not rotate the cookie again on that same response (to avoid defeating back-button resubmits).
 	- Minimal logging via error_log() is a good ops fallback on shared hosting; JSONL remains your primary, structured option.
@@ -864,7 +871,7 @@ uploads.*
 	- Cap header length at ~1-2 KB before parsing to avoid pathological inputs.
 	- Recommend `logging.mode="minimal"` in setup documentation to capture critical failures. Provide instructions for switching to `off` once the system is stable.
 	- Initialize logging only when 'logging.mode != "off"'” could be read as disabling Fail2ban. Maybe clarify: Initialize JSONL/minimal logger only when logging.mode!='off'. Fail2ban emission is independent of logging.mode.
-	- Element ID length cap: Cap generated IDs (e.g., "{form_id}-{field_key}-{instance_id}") at 128 characters. If longer, truncate the middle and append a stable 8-char base32 hash suffix to preserve uniqueness deterministically.
+        - Element ID length cap (Helpers::cap_id()): Cap generated IDs (e.g., "{form_id}-{field_key}-{instance_id}") at 128 characters. If longer, truncate the middle and append a stable 8-char base32 hash suffix to preserve uniqueness deterministically.
 	- Permissions fallback: Create logs/uploads dirs with 0700 (files 0600). If strict perms fail, fall back once to 0750/0640 and emit a single warning (when logging is enabled). Keep deny rules regardless.
 	- Cookie mode does not require JS
 	
@@ -969,13 +976,21 @@ uploads.*
 		- PHP TEMPLATE_SPEC is authoritative at runtime
 		- JSON Schema is documentation/CI lint only; enforce parity in CI
 
-27. OPEN QUESTIONS (FOR FINALIZATION)
-	- Tel formatting tokens: defined in 14; applies to tel_us email display only.
-	- JSON Schema generation: either auto-generate from TEMPLATE_SPEC or assert parity in CI only (unchanged).
-	- Default accept tokens: keep minimal ['image','pdf'] for v1 parity (unchanged).
-	- CSRF protection derives from Origin, while tokens are for idempotency/dup-submit prevention—avoid admins thinking tokens defend CSRF.
+27. NEXT STEPS (P0: wire correctness)
+        1. Implement private registries and resolve() in Validator, Normalizer/Coercer, and Renderer.
+        2. Extend TEMPLATE_SPEC descriptors to include handlers.{validator_id,normalizer_id,renderer_id}; wire alias types.
+        3. Preflight: resolve all handler IDs and swap to callables in per-request resolved descriptors (TemplateContext).
+        4. Consolidate renderInput/renderTextarea behind a shared helper.
+        5. Add Helpers::nfc, Helpers::cap_id(), Helpers::bytes_from_ini() if not already.
+        6. Add finfo check and EFORMS_FINFO_UNAVAILABLE.
 
-28. PAST DECISION NOTES
+28. OPEN QUESTIONS (FOR FINALIZATION)
+        - Tel formatting tokens: defined in 14; applies to tel_us email display only.
+        - JSON Schema generation: either auto-generate from TEMPLATE_SPEC or assert parity in CI only (unchanged).
+        - Default accept tokens: keep minimal ['image','pdf'] for v1 parity (unchanged).
+        - CSRF protection derives from Origin, while tokens are for idempotency/dup-submit prevention—avoid admins thinking tokens defend CSRF.
+
+29. PAST DECISION NOTES
 - Use Origin as the single header check because it's the modern CSRF boundary and far less likely to be stripped than Referer. Privacy tools and corporate gateways commonly mangle/strip Referer; they rarely strip Origin.
 - We can’t rely on a hidden token when pages are cached, and WordPress nonces bring their own complexity/expiry issues. hash_hmac() and is an overkill—especially if you aren’t embedding extra data (e.g., timestamps) inside the token. Can't rely on double-submit because it requires js.
 - Old/locked-down clients may omit Origin on same-origin POST; your defaults (soft + missing=false) tolerate that, but the docs should warn that setting origin_mode=hard + origin_missing_hard=true can block those users.
