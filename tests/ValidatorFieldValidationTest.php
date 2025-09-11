@@ -1,6 +1,7 @@
 <?php
 use PHPUnit\Framework\TestCase;
 use EForms\Validator;
+use EForms\Normalizer;
 
 final class ValidatorFieldValidationTest extends TestCase
 {
@@ -42,7 +43,7 @@ final class ValidatorFieldValidationTest extends TestCase
                     $called = true;
                     return $v;
                 },
-                'normalizer' => [Validator::class, 'identity'],
+                'normalizer' => [Normalizer::class, 'identity'],
             ],
         ];
         $tpl = ['fields' => [$field]];

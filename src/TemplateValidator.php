@@ -589,8 +589,8 @@ class TemplateValidator
             $d['handlers'] = [];
 
             $handlerTypes = [
-                'validator'  => ['id' => $handlers['validator_id'] ?? '', 'resolver' => fn(string $id) => Validator::resolve($id, 'validator')],
-                'normalizer' => ['id' => $handlers['normalizer_id'] ?? '', 'resolver' => fn(string $id) => Validator::resolve($id, 'normalizer')],
+                'validator'  => ['id' => $handlers['validator_id'] ?? '', 'resolver' => fn(string $id) => Validator::resolve($id)],
+                'normalizer' => ['id' => $handlers['normalizer_id'] ?? '', 'resolver' => fn(string $id) => Normalizer::resolve($id)],
                 'renderer'   => ['id' => $handlers['renderer_id'] ?? '', 'resolver' => fn(string $id) => Renderer::resolve($id)],
             ];
 

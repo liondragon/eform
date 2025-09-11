@@ -5,6 +5,7 @@ use PHPUnit\Framework\TestCase;
 use EForms\Spec;
 use EForms\Validator;
 use EForms\Renderer;
+use EForms\Normalizer;
 
 final class AliasTypesParityTest extends TestCase
 {
@@ -18,8 +19,8 @@ final class AliasTypesParityTest extends TestCase
             $this->assertSame($t, $desc['type']);
             $handlers = $desc['handlers'];
             $callables[] = [
-                'validator' => Validator::resolve($handlers['validator_id'], 'validator'),
-                'normalizer' => Validator::resolve($handlers['normalizer_id'], 'normalizer'),
+                'validator' => Validator::resolve($handlers['validator_id']),
+                'normalizer' => Normalizer::resolve($handlers['normalizer_id']),
                 'renderer' => Renderer::resolve($handlers['renderer_id']),
             ];
             $autocomplete[$t] = $desc['html']['autocomplete'] ?? '';
