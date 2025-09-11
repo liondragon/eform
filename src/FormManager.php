@@ -167,6 +167,10 @@ class FormManager
         // Honeypot
         $token = $hasHidden ? (string)$postedToken : $cookieToken;
         if (!empty($_POST['eforms_hp'])) {
+            $thr = ['state' => 'ok'];
+            if (Config::get('throttle.enable', false)) {
+                $thr = Throttle::check(Helpers::client_ip());
+            }
             $res = Security::ledger_reserve($formId, $token);
             if (!$res['ok'] && !empty($res['io'])) {
                 Logging::write('error', 'EFORMS_LEDGER_IO', [
@@ -181,6 +185,7 @@ class FormManager
                 'form_id' => $formId,
                 'instance_id' => $_POST['instance_id'] ?? '',
                 'stealth' => $stealth,
+                'throttle_state' => $thr['state'] ?? 'ok',
             ]);
             \header('X-EForms-Stealth: 1');
             Uploads::unlinkTemps($_FILES);
