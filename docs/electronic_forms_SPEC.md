@@ -148,11 +148,11 @@ electronic_forms - Spec
     - Runtime in PHP, 2 phases:
       - (0) Structural preflight by TemplateValidator
       - (1) Normalize -> Validate -> Coerce by Validator
-    - /src/schema/template.schema.json is CI/docs only; ensure parity with TEMPLATE_SPEC
+    - /schema/template.schema.json is CI/docs only; ensure parity with TEMPLATE_SPEC
     - If JSON is malformed or missing keys, fail gracefully with a clear "Form configuration error" (no white-screen).
     - Unknown rule values are rejected by the PHP validator.
     - For file/files: accept[] ∩ global allow-list must be non-empty; else EFORMS_ERR_ACCEPT_EMPTY.
-    - CI MUST validate /templates/*.json against /src/schema/template.schema.json and assert parity with the PHP TEMPLATE_SPEC.
+    - CI MUST validate /templates/*.json against /schema/template.schema.json and assert parity with the PHP TEMPLATE_SPEC.
     - Enforce email.display_format_tel enum; unknown values are dropped at runtime but flagged in preflight.
 
   7. TemplateContext (internal)

@@ -11,4 +11,4 @@ $tpl = [
     ],
     'fields' => [],
 ];
-\EForms\Emailer::send($tpl, [], []);
+\EForms\Email\Emailer::send($tpl, [], []);

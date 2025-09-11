@@ -24,7 +24,7 @@ namespace EForms {
 
 namespace {
     use EForms\Config;
-    use EForms\FormManager;
+    use EForms\Rendering\FormManager;
 
     if (version_compare(PHP_VERSION, '8.0', '<')) {
         add_action('admin_init', function () {

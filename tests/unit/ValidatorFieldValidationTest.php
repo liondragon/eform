@@ -1,7 +1,7 @@
 <?php
 use PHPUnit\Framework\TestCase;
-use EForms\Validator;
-use EForms\Normalizer;
+use EForms\Validation\Validator;
+use EForms\Validation\Normalizer;
 
 final class ValidatorFieldValidationTest extends TestCase
 {

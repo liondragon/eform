@@ -21,7 +21,7 @@ $tpl = [
     ],
     'fields' => [],
 ];
-\EForms\Emailer::send($tpl, [], []);
+\EForms\Email\Emailer::send($tpl, [], []);
 remove_action('phpmailer_init', $hook, 20);
 
 assert($captured !== null);

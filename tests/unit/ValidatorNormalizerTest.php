@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use EForms\Validator;
+use EForms\Validation\Validator;
 
 final class ValidatorNormalizerTest extends TestCase
 {

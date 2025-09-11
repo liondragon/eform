@@ -1,7 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace EForms;
+namespace EForms\Uploads;
+
+use EForms\Config;
+use EForms\Spec;
 
 class Uploads
 {

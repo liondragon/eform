@@ -1,7 +1,12 @@
 <?php
 declare(strict_types=1);
 
-namespace EForms;
+namespace EForms\Validation;
+
+use EForms\Config;
+use EForms\Logging;
+use EForms\Rendering\Renderer;
+use EForms\Spec;
 
 /**
  * Template structural validator. Performs strict preflight of template arrays

@@ -1,7 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace EForms;
+namespace EForms\Email;
+
+use EForms\Config;
+use EForms\Helpers;
+use EForms\Logging;
 
 class Emailer
 {

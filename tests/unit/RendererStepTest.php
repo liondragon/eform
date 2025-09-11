@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 use EForms\Config;
-use EForms\Renderer;
-use EForms\TemplateValidator;
+use EForms\Rendering\Renderer;
+use EForms\Validation\TemplateValidator;
 
 final class RendererStepTest extends TestCase
 {

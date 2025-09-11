@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 use EForms\Spec;
-use EForms\Renderer;
+use EForms\Rendering\Renderer;
 
 final class RendererParityTest extends TestCase
 {

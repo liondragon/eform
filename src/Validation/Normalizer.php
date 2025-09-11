@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace EForms;
+namespace EForms\Validation;
 
 class Normalizer
 {

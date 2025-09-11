@@ -14,7 +14,7 @@ $tpl = [
     ],
     'fields' => [],
 ];
-\EForms\Emailer::send($tpl, [], []);
+\EForms\Email\Emailer::send($tpl, [], []);
 
 global $TEST_ARTIFACTS;
 $mails = json_decode((string)file_get_contents($TEST_ARTIFACTS['mail_file']), true);

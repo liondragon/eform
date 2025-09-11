@@ -8,6 +8,6 @@ $dir = $base . '/20200101';
 $file = $dir . '/old.txt';
 file_put_contents($file, 'x');
 touch($file, time() - 10);
-\EForms\Uploads::gc();
+\EForms\Uploads\Uploads::gc();
 $files = glob($dir . '/*');
 file_put_contents(__DIR__ . '/../tmp/gc.txt', $files ? 'notempty' : 'empty');

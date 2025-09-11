@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 use EForms\Config;
-use EForms\TemplateValidator;
-use EForms\Validator;
+use EForms\Validation\TemplateValidator;
+use EForms\Validation\Validator;
 
 final class ValidatorRulesTest extends TestCase
 {

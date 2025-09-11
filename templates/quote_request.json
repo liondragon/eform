@@ -1,5 +1,5 @@
 {
-  "$schema": "../src/schema/template.schema.json",
+  "$schema": "../schema/template.schema.json",
   "id": "quote_request",
   "version": "1",
   "title": "Quote Request",

@@ -1,5 +1,5 @@
 {
-  "$schema": "../src/schema/template.schema.json",
+  "$schema": "../schema/template.schema.json",
   "id": "contact_us",
   "version": "1",
   "title": "Contact Us",

@@ -1,7 +1,18 @@
 <?php
 declare(strict_types=1);
 
-namespace EForms;
+namespace EForms\Rendering;
+
+use EForms\Config;
+use EForms\Email\Emailer;
+use EForms\Helpers;
+use EForms\Logging;
+use EForms\Security\Challenge;
+use EForms\Security\Security;
+use EForms\Security\Throttle;
+use EForms\Uploads\Uploads;
+use EForms\Validation\TemplateValidator;
+use EForms\Validation\Validator;
 
 class FormManager
 {
