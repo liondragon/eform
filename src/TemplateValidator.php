@@ -495,7 +495,7 @@ class TemplateValidator
         }
         $ctx = [
             'has_uploads' => $hasUploads,
-            'descriptors' => self::buildDescriptors($tpl, $normFields),
+            'descriptors' => self::buildDescriptors($tpl, $normFields, $errors),
             'version' => $version,
             'id' => $tpl['id'] ?? '',
             'title' => $tpl['title'] ?? '',
@@ -553,7 +553,7 @@ class TemplateValidator
         return empty($stack);
     }
 
-    private static function buildDescriptors(array $tpl, array $fields): array
+    private static function buildDescriptors(array $tpl, array $fields, array &$errors): array
     {
         $all = Spec::typeDescriptors();
         $desc = [];
@@ -586,11 +586,25 @@ class TemplateValidator
             }
 
             $handlers = $d['handlers'] ?? [];
-            $d['handlers'] = [
-                'validator'  => Validator::resolve($handlers['validator_id'] ?? '', 'validator'),
-                'normalizer' => Validator::resolve($handlers['normalizer_id'] ?? '', 'normalizer'),
-                'renderer'   => Renderer::resolve($handlers['renderer_id'] ?? ''),
+            $d['handlers'] = [];
+
+            $handlerTypes = [
+                'validator'  => ['id' => $handlers['validator_id'] ?? '', 'resolver' => fn(string $id) => Validator::resolve($id, 'validator')],
+                'normalizer' => ['id' => $handlers['normalizer_id'] ?? '', 'resolver' => fn(string $id) => Validator::resolve($id, 'normalizer')],
+                'renderer'   => ['id' => $handlers['renderer_id'] ?? '', 'resolver' => fn(string $id) => Renderer::resolve($id)],
             ];
+
+            foreach ($handlerTypes as $kind => $info) {
+                try {
+                    $d['handlers'][$kind] = $info['resolver']($info['id']);
+                } catch (\RuntimeException $e) {
+                    $errors[] = [
+                        'code' => self::EFORMS_ERR_SCHEMA_ENUM,
+                        'path' => 'fields.' . ($f['key'] ?? '') . '.' . $kind,
+                    ];
+                }
+            }
+
             $d['form_id'] = $tpl['id'] ?? '';
             $d['key'] = $f['key'];
 
