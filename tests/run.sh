@@ -183,7 +183,16 @@ assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_HONEYPOT' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"stealth":false' || ok=1
 record_result "honeypot: hard fail" $ok
 
-# 3c) Timing checks
+# 3c) Honeypot throttle increments
+EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 run_test test_honeypot_throttle_first
+EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 run_test_keep test_honeypot_throttle_second
+ok=0
+assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_HONEYPOT' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log '"throttle_state":"ok"' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log '"throttle_state":"over"' || ok=1
+record_result "honeypot: throttle increments logged" $ok
+
+# 3d) Timing checks
 run_test test_timing_min_fill
 ok=0
 assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_MIN_FILL' || ok=1
@@ -196,7 +205,7 @@ assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_FORM_AGE' || ok=1
 assert_grep tmp/mail.json 'zed@example.com' || ok=1
 record_result "timing: expired form soft fail" $ok
 
-# 3d) JS disabled checks
+# 3e) JS disabled checks
 run_test test_js_soft
 ok=0
 assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_JS_DISABLED' || ok=1
