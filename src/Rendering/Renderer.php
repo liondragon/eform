@@ -1,7 +1,12 @@
 <?php
 declare(strict_types=1);
 
-namespace EForms;
+namespace EForms\Rendering;
+
+use EForms\Helpers;
+use EForms\Logging;
+use EForms\Spec;
+use EForms\Validation\TemplateValidator;
 
 class Renderer
 {

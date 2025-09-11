@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use EForms\Emailer;
+use EForms\Email\Emailer;
 use EForms\Config;
 
 final class EmailAttachmentOverflowTest extends TestCase

@@ -1,7 +1,7 @@
 <?php
 use PHPUnit\Framework\TestCase;
 use EForms\Config;
-use EForms\FormManager;
+use EForms\Rendering\FormManager;
 
 final class ChallengeInitTest extends TestCase
 {

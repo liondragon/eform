@@ -21,7 +21,7 @@ register_shutdown_function(function () {
     file_put_contents(__DIR__ . '/../tmp/cookie.txt', $_COOKIE['eforms_t_contact_us'] ?? '');
 });
 
-$fm = new \EForms\FormManager();
+$fm = new \EForms\Rendering\FormManager();
 ob_start();
 $fm->handleSubmit();
 ob_end_clean();

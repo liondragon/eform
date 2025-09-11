@@ -1,7 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace EForms;
+namespace EForms\Validation;
+
+use EForms\Logging;
 
 class Validator
 {

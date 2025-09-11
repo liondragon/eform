@@ -1,6 +1,6 @@
 <?php
 use PHPUnit\Framework\TestCase;
-use EForms\Security;
+use EForms\Security\Security;
 use EForms\Config;
 
 class SecurityTokenModesTest extends TestCase

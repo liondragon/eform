@@ -16,7 +16,7 @@ final class SuccessAntiSpoofTest extends TestCase
         header_remove();
         $_GET = ['eforms_success' => 'contact_us'];
         $_COOKIE = [];
-        $fm = new \EForms\FormManager();
+        $fm = new \EForms\Rendering\FormManager();
         $html = $fm->render('contact_us');
         $this->assertStringNotContainsString('Thanks! We got your message.', $html);
     }
@@ -26,7 +26,7 @@ final class SuccessAntiSpoofTest extends TestCase
         header_remove();
         $_GET = [];
         $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
-        $fm = new \EForms\FormManager();
+        $fm = new \EForms\Rendering\FormManager();
         $html = $fm->render('contact_us');
         $this->assertStringNotContainsString('Thanks! We got your message.', $html);
     }
@@ -36,7 +36,7 @@ final class SuccessAntiSpoofTest extends TestCase
         header_remove();
         $_GET = ['eforms_success' => 'contact_us'];
         $_COOKIE = ['eforms_s_contact_us' => 'other:inst'];
-        $fm = new \EForms\FormManager();
+        $fm = new \EForms\Rendering\FormManager();
         $html = $fm->render('contact_us');
         $this->assertStringNotContainsString('Thanks! We got your message.', $html);
     }
@@ -46,7 +46,7 @@ final class SuccessAntiSpoofTest extends TestCase
         header_remove();
         $_GET = ['eforms_success' => 'contact_us'];
         $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
-        $fm = new \EForms\FormManager();
+        $fm = new \EForms\Rendering\FormManager();
         $html = $fm->render('contact_us');
         $this->assertStringContainsString('Thanks! We got your message.', $html);
     }

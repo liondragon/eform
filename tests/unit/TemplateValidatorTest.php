@@ -1,6 +1,6 @@
 <?php
 use PHPUnit\Framework\TestCase;
-use EForms\TemplateValidator;
+use EForms\Validation\TemplateValidator;
 
 class TemplateValidatorTest extends TestCase
 {

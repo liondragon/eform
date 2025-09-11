@@ -44,5 +44,5 @@ register_shutdown_function(function () use ($tmp): void {
     @unlink($tmp);
 });
 
-$fm = new \EForms\FormManager();
+$fm = new \EForms\Rendering\FormManager();
 $fm->handleSubmit();

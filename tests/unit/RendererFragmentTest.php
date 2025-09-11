@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use EForms\Renderer;
+use EForms\Rendering\Renderer;
 
 final class RendererFragmentTest extends TestCase
 {

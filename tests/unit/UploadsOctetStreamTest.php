@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use EForms\Uploads;
+use EForms\Uploads\Uploads;
 
 final class UploadsOctetStreamTest extends TestCase
 {

@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
-use EForms\TemplateValidator;
+use EForms\Validation\TemplateValidator;
 
-$schema = realpath(__DIR__ . '/../../src/schema/template.schema.json');
+$schema = realpath(__DIR__ . '/../../schema/template.schema.json');
 $templates = glob(__DIR__ . '/../../templates/*.json') ?: [];
 foreach ($templates as $tplFile) {
     $cmd = 'python3 -m jsonschema ' . escapeshellarg($schema) . ' -i ' . escapeshellarg($tplFile);

@@ -1,7 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace EForms;
+namespace EForms\Security;
+
+use EForms\Config;
+use EForms\Helpers;
 
 class Throttle
 {

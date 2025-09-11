@@ -2,9 +2,9 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use EForms\TemplateValidator;
-use EForms\Renderer;
-use EForms\Validator;
+use EForms\Validation\TemplateValidator;
+use EForms\Rendering\Renderer;
+use EForms\Validation\Validator;
 
 final class NoBehaviorChangeGoldenTest extends TestCase
 {

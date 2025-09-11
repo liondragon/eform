@@ -5,7 +5,7 @@ require __DIR__ . '/../bootstrap.php';
 use EForms\Spec;
 
 // Load JSON schema
-$schemaPath = realpath(__DIR__ . '/../../src/schema/template.schema.json');
+$schemaPath = realpath(__DIR__ . '/../../schema/template.schema.json');
 if (!is_string($schemaPath)) {
     fwrite(STDERR, "schema not found\n");
     exit(1);
