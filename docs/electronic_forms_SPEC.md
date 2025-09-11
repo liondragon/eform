@@ -152,14 +152,36 @@ electronic_forms - Spec
                 - max_input_vars_estimate: int advisory for potential PHP max_input_vars limit.
                 - The descriptors array drives attribute mirroring so Renderer and Validator stay perfectly in sync.
                 - Type Descriptors & Handler Resolution
-                        - Each descriptor bundles type, structural traits, validation traits, per-type constants, and handler IDs.
-                        - During preflight, handler IDs are resolved to callables via internal registries; unknown IDs raise deterministic errors.
+                        - Descriptor schema mirrors `Spec::typeDescriptors()`:
+                                {
+                                        type: string,
+                                        is_multivalue: bool,
+                                        html: { ... },       // per-type constants mirrored into DOM
+                                        validate: { ... },   // validation traits/defaults
+                                        handlers: {
+                                                validator_id: string,
+                                                normalizer_id: string,
+                                                renderer_id: string
+                                        }
+                                }
+                        - During preflight, handler IDs are resolved to callables via `Validator::resolve()` and `Renderer::resolve()`. These per-class registries are private and fail fast: unknown IDs trigger a `RuntimeException`.
+                        - Example resolution:
+
+                                ```php
+                                $desc = Spec::typeDescriptors()['email'];
+                                $v = Validator::resolve($desc['handlers']['validator_id'], 'validator');
+                                $r = Renderer::resolve($desc['handlers']['renderer_id']);
+                                $alias = Spec::typeDescriptors()['first_name']; // alias of text
+                                Validator::resolve($alias['handlers']['validator_id'], 'validator'); // text validator
+                                ```
 
 6. CENTRAL REGISTRIES (INTERNAL ONLY)
-	- Static registries (no public filters): field_types, validators, normalizers/coercers, renderers
-	- Registries are instantiated on demand; upload and logging registries load only when their features are enabled (see 19.1).
-	- Registries are lightweight maps; only entries referenced by the active template are consulted during render/validate; extraneous POST keys are ignored (see §8)
-	- Behavior is registry-driven and parameterized by template values
+        - Static registries (no public filters): field_types, validators, normalizers/coercers, renderers
+        - Registries are instantiated on demand; upload and logging registries load only when their features are enabled (see 19.1).
+        - Registries are lightweight maps; only entries referenced by the active template are consulted during render/validate; extraneous POST keys are ignored (see §8)
+        - Behavior is registry-driven and parameterized by template values
+        - Registries are private to each owning class and exposed only through resolve() helpers.
+        - Resolution is fail-fast: an unknown handler ID results in a `RuntimeException` during preflight.
 	- Uploads registry settings: token->mime/ext expansions; image sanity; caps
 	- Accept token map (canonical, conservative). For v1 parity, the only shipped tokens are image and pdf; do not add tokens unless explicitly required.
 	- Upload registry loads on demand when a template with file/files is rendered or posted.
