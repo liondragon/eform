@@ -66,26 +66,7 @@ class Renderer
 
     private static function sanitizeFragment(string $html): string
     {
-        $common = ['class' => []];
-        $allowed = [
-            'a' => ['href' => [], 'class' => []],
-            'strong' => $common,
-            'em' => $common,
-            'span' => $common,
-            'p' => $common,
-            'br' => $common,
-            'div' => $common,
-            'h1' => $common,
-            'h2' => $common,
-            'h3' => $common,
-            'h4' => $common,
-            'h5' => $common,
-            'h6' => $common,
-            'ul' => $common,
-            'ol' => $common,
-            'li' => $common,
-        ];
-        return \wp_kses($html, $allowed, ['http','https','mailto']);
+        return \wp_kses_post($html);
     }
 
     public static function form(array $tpl, array $meta, array $errors, array $values): string
