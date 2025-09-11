@@ -4,7 +4,7 @@ require __DIR__ . '/../bootstrap.php';
 use EForms\Validation\TemplateValidator;
 
 $schema = realpath(__DIR__ . '/../../schema/template.schema.json');
-$templates = glob(__DIR__ . '/../../templates/*.json') ?: [];
+$templates = glob(__DIR__ . '/../../templates/forms/*.json') ?: [];
 foreach ($templates as $tplFile) {
     $cmd = 'python3 -m jsonschema ' . escapeshellarg($schema) . ' -i ' . escapeshellarg($tplFile);
     exec($cmd, $out, $code);

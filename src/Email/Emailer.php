@@ -195,7 +195,7 @@ class Emailer
         if (!is_string($template) || !preg_match('/^[a-z0-9_-]+$/', $template)) {
             throw new \RuntimeException('Invalid email template');
         }
-        $file = __DIR__ . '/../templates/email/' . $template . ($html ? '.html.php' : '.txt.php');
+        $file = __DIR__ . '/../../templates/email/' . $template . ($html ? '.html.php' : '.txt.php');
         if (!is_file($file)) {
             throw new \RuntimeException('Email template not found');
         }

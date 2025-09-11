@@ -67,8 +67,9 @@ electronic_forms - Spec
     - /schema/
       - template.schema.json  // design-time only (editor/CI lint); kept in sync with PHP spec
   - /templates/
-    - default.json
-    - contact.json        // kebab-case filenames only
+    - forms/
+      - contact.json        // kebab-case filenames only
+    - email/
     - HARDENING: ship index.html and server deny rules (.htaccess, web.config) in this directory; enforce filename allow-list and prevent traversal outside /templates/.
   - /assets/
     - forms.css     // namespaced styles
@@ -124,7 +125,7 @@ electronic_forms - Spec
     - Mis-balance reporting: if the row_group stack is mis-balanced at form end, emit a single _global config error (do not duplicate per-field errors).
 
   3. Template JSON
-    - Location: /templates/
+    - Location: /templates/forms/
     - Filename allow-list: /^[a-z0-9-]+\.json$/
     - Design-time schema pointer (optional but recommended): use a stable web URL to the schema in your repo (e.g., "${SCHEMA_URL}/template.schema.json") or a local absolute path. Avoid hard-coded /wp-content/plugins/... paths.
     - Minimal shape:
@@ -152,7 +153,7 @@ electronic_forms - Spec
     - If JSON is malformed or missing keys, fail gracefully with a clear "Form configuration error" (no white-screen).
     - Unknown rule values are rejected by the PHP validator.
     - For file/files: accept[] ∩ global allow-list must be non-empty; else EFORMS_ERR_ACCEPT_EMPTY.
-    - CI MUST validate /templates/*.json against /schema/template.schema.json and assert parity with the PHP TEMPLATE_SPEC.
+    - CI MUST validate /templates/forms/*.json against /schema/template.schema.json and assert parity with the PHP TEMPLATE_SPEC.
     - Enforce email.display_format_tel enum; unknown values are dropped at runtime but flagged in preflight.
 
   7. TemplateContext (internal)
@@ -744,7 +745,7 @@ uploads.*
   - Security hardening: template PHP files include ABSPATH guard (defined('ABSPATH') || exit;).
 
 25. TEMPLATES TO INCLUDE
-  1. quote_request.json
+  1. forms/quote_request.json
     {
       "id":"quote_request",
       "version":"1",
@@ -768,7 +769,7 @@ uploads.*
       ],
       "submit_button_text":"Send"
     }
-  2. contact.json
+  2. forms/contact.json
     {
       "id":"contact_us",
       "version":"1",
