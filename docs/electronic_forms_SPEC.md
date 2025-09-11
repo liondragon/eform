@@ -151,6 +151,9 @@ electronic_forms - Spec
                 - Keys include: has_uploads (bool), descriptors[] (field descriptors from Spec), version, id, email, success, rules, fields (normalized copies).
                 - max_input_vars_estimate: int advisory for potential PHP max_input_vars limit.
                 - The descriptors array drives attribute mirroring so Renderer and Validator stay perfectly in sync.
+                - Type Descriptors & Handler Resolution
+                        - Each descriptor bundles type, structural traits, validation traits, per-type constants, and handler IDs.
+                        - During preflight, handler IDs are resolved to callables via internal registries; unknown IDs raise deterministic errors.
 
 6. CENTRAL REGISTRIES (INTERNAL ONLY)
 	- Static registries (no public filters): field_types, validators, normalizers/coercers, renderers
