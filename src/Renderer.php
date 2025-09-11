@@ -267,7 +267,7 @@ class Renderer
         return $html;
     }
 
-    private static function renderInput(array $c): string
+    private static function renderTextControl(callable $emit, array $c): string
     {
         $desc = $c['desc'];
         $f = $c['f'];
@@ -283,37 +283,38 @@ class Renderer
         if (!empty($f['required'])) $attrs .= ' required';
         if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
         if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-        if (isset($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
-        if (($desc['html']['type'] ?? '') === 'file' && !empty($f['accept']) && is_array($f['accept'])) {
-            $accept = self::acceptAttr($f['accept']);
-            if ($accept !== '') $attrs .= ' accept="' . \esc_attr($accept) . '"';
-        }
         $extraHint = ($key === $lastText && ($desc['html']['type'] ?? '') !== 'file') ? ' enterkeyhint="send"' : '';
+        $attrs .= $errAttr . $extraHint;
         $html = '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
-        $html .= '<input id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr((string)$value) . '"' . $attrs . $errAttr . $extraHint . '>';
+        $html .= $emit($c, $attrs);
         return $html;
+    }
+
+    private static function renderInput(array $c): string
+    {
+        return self::renderTextControl(function (array $ctx, string $attrs): string {
+            $desc = $ctx['desc'];
+            $f = $ctx['f'];
+            $id = $ctx['id'];
+            $nameAttr = $ctx['nameAttr'];
+            $value = $ctx['value'];
+            if (isset($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
+            if (($desc['html']['type'] ?? '') === 'file' && !empty($f['accept']) && is_array($f['accept'])) {
+                $accept = self::acceptAttr($f['accept']);
+                if ($accept !== '') $attrs .= ' accept="' . \esc_attr($accept) . '"';
+            }
+            return '<input id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr((string)$value) . '"' . $attrs . '>';
+        }, $c);
     }
 
     private static function renderTextarea(array $c): string
     {
-        $desc = $c['desc'];
-        $f = $c['f'];
-        $id = $c['id'];
-        $nameAttr = $c['nameAttr'];
-        $labelHtml = $c['labelHtml'];
-        $labelAttr = $c['labelAttr'];
-        $errAttr = $c['errAttr'];
-        $value = $c['value'];
-        $key = $c['key'];
-        $lastText = $c['lastText'];
-        $attrs = self::controlAttrs($desc, $f);
-        if (!empty($f['required'])) $attrs .= ' required';
-        if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
-        if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-        $extraHint = ($key === $lastText) ? ' enterkeyhint="send"' : '';
-        $html = '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
-        $html .= '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . $errAttr . $extraHint . '>' . \esc_textarea((string)$value) . '</textarea>';
-        return $html;
+        return self::renderTextControl(function (array $ctx, string $attrs): string {
+            $id = $ctx['id'];
+            $nameAttr = $ctx['nameAttr'];
+            $value = $ctx['value'];
+            return '<textarea id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . '>' . \esc_textarea((string)$value) . '</textarea>';
+        }, $c);
     }
 
     private static function renderSelect(array $c): string

@@ -707,7 +707,7 @@ uploads.*
     - Helpers::cap_id(string $id, int $max=128): string — length cap with middle truncation + stable 8-char base32 suffix.
     - Helpers::bytes_from_ini(?string $v): int — parses K/M/G; "0"/null/"" -> PHP_INT_MAX; clamps non-negative.
   - Renderer consolidation:
-    - Implement a shared emitter: renderControl($tag, $attrs, ?$textContent), with small per-kind wrappers: emit_input($attrs), emit_textarea($attrs,$text) (esc_textarea), emit_select(...).
+    - Shared text-control helper centralizes attribute assembly; <input> and <textarea> emitters stay small and focused.
     - Keep group controls (fieldset/legend), selects, and file(s) as dedicated renderers for a11y semantics.
   - Cookie-policy precedence eliminates ambiguity and keeps UX predictable on cookie-blocked browsers without weakening hidden-token path.
   - When cookie_missing_policy='challenge' and verification succeeds, do not rotate the cookie again on the same response (avoid breaking back-button resubmits).
