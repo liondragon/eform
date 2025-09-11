@@ -23,6 +23,7 @@ class TemplateValidator
     public const EFORMS_ERR_ACCEPT_EMPTY         = 'EFORMS_ERR_ACCEPT_EMPTY';
     public const EFORMS_ERR_ROW_GROUP_UNBALANCED = 'EFORMS_ERR_ROW_GROUP_UNBALANCED';
     public const EFORMS_ERR_FRAGMENT_UNBALANCED  = 'EFORMS_ERR_FRAGMENT_UNBALANCED';
+    public const EFORMS_ERR_FRAGMENT_ROW_TAG     = 'EFORMS_ERR_FRAGMENT_ROW_TAG';
 
     private const AUTOCOMPLETE_TOKENS = [
         'name','honorific-prefix','given-name','additional-name','family-name',
@@ -222,12 +223,20 @@ class TemplateValidator
                 }
             }
 
-            // before/after_html fragments must be balanced
-            if (isset($f['before_html']) && is_string($f['before_html']) && !self::isBalancedFragment($f['before_html'])) {
-                $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_UNBALANCED,'path'=>$path.'before_html'];
+            // before/after_html fragments must be balanced and not contain row tags
+            if (isset($f['before_html']) && is_string($f['before_html'])) {
+                if (!self::isBalancedFragment($f['before_html'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_UNBALANCED,'path'=>$path.'before_html'];
+                } elseif (self::fragmentContainsRowTag($f['before_html'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_ROW_TAG,'path'=>$path.'before_html'];
+                }
             }
-            if (isset($f['after_html']) && is_string($f['after_html']) && !self::isBalancedFragment($f['after_html'])) {
-                $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_UNBALANCED,'path'=>$path.'after_html'];
+            if (isset($f['after_html']) && is_string($f['after_html'])) {
+                if (!self::isBalancedFragment($f['after_html'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_UNBALANCED,'path'=>$path.'after_html'];
+                } elseif (self::fragmentContainsRowTag($f['after_html'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_ROW_TAG,'path'=>$path.'after_html'];
+                }
             }
 
             // accept intersection for files
@@ -556,6 +565,11 @@ class TemplateValidator
             }
         }
         return empty($stack);
+    }
+
+    private static function fragmentContainsRowTag(string $html): bool
+    {
+        return $html !== '' && preg_match('/<\/?(?:div|section)\b/i', $html) === 1;
     }
 
     private static function buildDescriptors(array $tpl, array $fields, array &$errors): array

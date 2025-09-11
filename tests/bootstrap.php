@@ -207,6 +207,10 @@ add_filter('eforms_config', function (array $defaults) {
     if (getenv('EFORMS_JS_HARD_MODE')) {
         $defaults['security']['js_hard_mode'] = (getenv('EFORMS_JS_HARD_MODE') === '1');
     }
+    $tlenv = getenv('EFORMS_TOKEN_LEDGER_ENABLE');
+    if ($tlenv !== false) {
+        $defaults['security']['token_ledger']['enable'] = ($tlenv === '1');
+    }
     if (getenv('EFORMS_LOG_LEVEL')) {
         $defaults['logging']['level'] = (int) getenv('EFORMS_LOG_LEVEL');
     }

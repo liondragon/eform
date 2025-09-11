@@ -101,6 +101,9 @@ class Security
 
     public static function ledger_reserve(string $formId, string $token): array
     {
+        if (!Config::get('security.token_ledger.enable', true)) {
+            return ['ok' => true, 'skipped' => true];
+        }
         $base = rtrim(Config::get('uploads.dir', ''), '/');
         $dir = $base . '/ledger';
         $hash = sha1($formId . ':' . $token);

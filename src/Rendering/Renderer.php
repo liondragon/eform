@@ -83,8 +83,10 @@ class Renderer
                 $msg = $tpl['success']['message'] ?? 'Success';
                 $successHtml = '<div class="eforms-success">' . \esc_html($msg) . '</div>';
                 \setcookie($cookieName, '', time() - 3600, '/');
+                unset($_COOKIE[$cookieName]);
                 return $successHtml;
             }
+            return '';
         }
 
         $clientValidation = $meta['client_validation'] ?? false;
