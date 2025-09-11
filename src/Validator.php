@@ -5,6 +5,84 @@ namespace EForms;
 
 class Validator
 {
+    /**
+     * Registry mapping validator and normalizer IDs to callable handlers.
+     *
+     * Each entry maps an identifier to a static method on this class that
+     * performs value normalization. Identifiers mirror those used by
+     * field descriptors in {@see Spec}.
+     */
+    private const HANDLERS = [
+        '' => [self::class, 'identity'],
+        'text' => [self::class, 'identity'],
+        'email' => [self::class, 'normalizeEmail'],
+        'url' => [self::class, 'identity'],
+        'tel' => [self::class, 'identity'],
+        'tel_us' => [self::class, 'normalizeTelUs'],
+        'number' => [self::class, 'identity'],
+        'range' => [self::class, 'identity'],
+        'date' => [self::class, 'identity'],
+        'textarea' => [self::class, 'identity'],
+        'textarea_html' => [self::class, 'identity'],
+        'zip' => [self::class, 'identity'],
+        'zip_us' => [self::class, 'identity'],
+        'select' => [self::class, 'identity'],
+        'radio' => [self::class, 'identity'],
+        'checkbox' => [self::class, 'identity'],
+        'file' => [self::class, 'identity'],
+        'files' => [self::class, 'identity'],
+    ];
+
+    /**
+     * Resolve a handler by identifier.
+     *
+     * @throws \RuntimeException when the identifier is unknown
+     */
+    public static function resolve(string $id): callable
+    {
+        if (!isset(self::HANDLERS[$id])) {
+            throw new \RuntimeException('Unknown validator/normalizer ID: ' . $id);
+        }
+        return self::HANDLERS[$id];
+    }
+
+    /**
+     * Default passthrough handler used for types that do not require
+     * additional normalization.
+     *
+     * @param mixed $v
+     * @return mixed
+     */
+    public static function identity($v)
+    {
+        return $v;
+    }
+
+    /**
+     * Normalize email addresses by lowercasing the domain component.
+     */
+    public static function normalizeEmail(string $v): string
+    {
+        if ($v !== '' && strpos($v, '@') !== false) {
+            [$local, $domain] = explode('@', $v, 2);
+            return $local . '@' . strtolower($domain);
+        }
+        return $v;
+    }
+
+    /**
+     * Normalize US telephone numbers by stripping non-digits and
+     * removing a leading country code of 1.
+     */
+    public static function normalizeTelUs(string $v): string
+    {
+        $digits = preg_replace('/\D+/', '', $v);
+        if (strlen($digits) === 11 && str_starts_with($digits, '1')) {
+            $digits = substr($digits, 1);
+        }
+        return $digits;
+    }
+
     private static function isMultivalue(array $f): bool
     {
         $type = $f['type'] ?? '';
@@ -225,17 +303,10 @@ class Validator
             $v = $values[$k] ?? (self::isMultivalue($f) ? [] : '');
             switch ($f['type']) {
                 case 'email':
-                    if ($v !== '' && strpos($v, '@') !== false) {
-                        [$local,$domain] = explode('@', $v, 2);
-                        $v = $local . '@' . strtolower($domain);
-                    }
+                    $v = self::normalizeEmail($v);
                     break;
                 case 'tel_us':
-                    $digits = preg_replace('/\D+/', '', $v);
-                    if (strlen($digits) === 11 && str_starts_with($digits, '1')) {
-                        $digits = substr($digits, 1);
-                    }
-                    $v = $digits;
+                    $v = self::normalizeTelUs($v);
                     break;
             }
             $out[$k] = $v;
