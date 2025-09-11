@@ -555,18 +555,42 @@ class TemplateValidator
 
     private static function buildDescriptors(array $fields): array
     {
+        $all = Spec::typeDescriptors();
         $desc = [];
         foreach ($fields as $f) {
-            if ($f['type'] === 'row_group') continue;
-            $d = Spec::descriptorFor($f['type']);
-            if ($f['type'] === 'select' && !empty($f['multiple'])) {
+            $type = $f['type'] ?? '';
+            if ($type === 'row_group') {
+                continue;
+            }
+
+            $d = $all[$type] ?? Spec::descriptorFor($type);
+
+            if ($type === 'select' && !empty($f['multiple'])) {
                 $d['is_multivalue'] = true;
                 $d['html']['multiple'] = true;
             }
-            if ($f['type'] === 'files') {
+            if ($type === 'files') {
                 $d['is_multivalue'] = true;
                 $d['html']['multiple'] = true;
             }
+
+            $overrideKeys = [
+                'required','options','multiple','accept','placeholder','autocomplete','size',
+                'max_length','min','max','pattern','max_file_bytes','max_files','step',
+            ];
+            foreach ($overrideKeys as $k) {
+                if (array_key_exists($k, $f)) {
+                    $d[$k] = $f[$k];
+                }
+            }
+
+            $handlers = $d['handlers'] ?? [];
+            $d['handlers'] = [
+                'validator'  => Validator::resolve($handlers['validator_id'] ?? ''),
+                'normalizer' => Validator::resolve($handlers['normalizer_id'] ?? ''),
+                'renderer'   => Renderer::resolve($handlers['renderer_id'] ?? ''),
+            ];
+
             $desc[$f['key']] = $d;
         }
         return $desc;
