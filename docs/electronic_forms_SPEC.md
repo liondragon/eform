@@ -165,14 +165,14 @@ electronic_forms - Spec
           html: { tag:"input|textarea|select", type?, multiple?, inputmode?, pattern?, attrs_mirror:[...] },
           validate: { required?, pattern?, range?, canonicalize? },
           handlers: {
-            validator_id: string,   // e.g., "Validator:email"
-            normalizer_id: string,  // e.g., "Normalizer:scalar"
-            renderer_id: string     // e.g., "Renderer:input"
+            validator_id: string,   // e.g., "email"
+            normalizer_id: string,  // e.g., "email"
+            renderer_id: string     // e.g., "email"
           },
           constants: { ... },       // per-type constants mirrored to DOM (e.g., spellcheck=false)
           alias_of?: string         // explicit alias target type name when applicable
         }
-      - Handler IDs use namespaced canonical form "ClassName:methodKey". IDs are resolved to callables once during preflight via per-class private registries (see §6).
+      - Handler IDs are short tokens scoped to each registry (e.g., "email", "text"). IDs are resolved to callables once during preflight via per-class private registries (see §6).
       - Resolution is fail-fast: unknown IDs throw a deterministic RuntimeException including {type, id, registry, spec_path}. CI surfaces exact descriptor failures.
       - Alias hygiene: when alias_of is present, assert the alias shares handler IDs with its target; traits may differ. CI enforces alias invariants.
 
@@ -192,9 +192,9 @@ electronic_forms - Spec
   - Static registries (no public filters): field_types, validators, normalizers/coercers, renderers.
   - Registries are private to each owning class and exposed only through resolve() helpers.
     - Example:
-      - Validator: private const HANDLERS = ['Validator:email' => [self::class,'validateEmail'], ...]
-      - Normalizer: private const HANDLERS = ['Normalizer:scalar' => [self::class,'normalizeScalar'], ...]
-      - Renderer: private const HANDLERS = ['Renderer:input' => [self::class,'emitInput'], 'Renderer:textarea' => [...], ...]
+      - Validator: private const HANDLERS = ['email' => [self::class,'validateEmail'], ...]
+      - Normalizer: private const HANDLERS = ['scalar' => [self::class,'normalizeScalar'], ...]
+      - Renderer: private const HANDLERS = ['text' => [self::class,'emitInput'], 'textarea' => [...], ...]
       - public static function resolve(string $id): callable { if (!isset(self::HANDLERS[$id])) throw RuntimeException(...); return self::HANDLERS[$id]; }
   - Uploads registry settings: token->mime/ext expansions; image sanity; caps
   - Accept token map (canonical, conservative). For v1 parity, only tokens are image and pdf; do not add unless explicitly required.
@@ -365,7 +365,7 @@ electronic_forms - Spec
     - is_multivalue: bool
     - html { tag:"input|textarea|select", type?, multiple?, inputmode?, pattern?, attrs_mirror:[ maxlength?, minlength?, min?, max?, step? ] }
     - validate { required?, pattern?, range?, canonicalize? }
-    - handlers { validator_id, normalizer_id, renderer_id }   // namespaced IDs, e.g., "Validator:email"
+    - handlers { validator_id, normalizer_id, renderer_id }   // short tokens, e.g., "email"
     - constants { ... }    // e.g., email: spellcheck=false, autocapitalize=off
     - alias_of?  // explicit alias target if applicable
   - name / first_name / last_name: aliases of text; trim internal multiples; default autocomplete accordingly.
