@@ -8,7 +8,7 @@ final class ValidatorFieldValidationTest extends TestCase
     {
         $tpl = ['fields' => [$field]];
         $desc = Validator::descriptors($tpl);
-        $values = Validator::normalize($tpl, [$field['key'] => $value]);
+        $values = Validator::normalize($tpl, [$field['key'] => $value], $desc);
         $res = Validator::validate($tpl, $desc, $values);
         return $res['errors'];
     }

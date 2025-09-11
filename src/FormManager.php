@@ -271,8 +271,8 @@ class FormManager
         }
         $suspect = $softFailCount > 0;
         $postedFields = $_POST[$formId] ?? [];
-        $values = Validator::normalize($tpl, $postedFields);
         $desc = Validator::descriptors($tpl);
+        $values = Validator::normalize($tpl, $postedFields, $desc);
         $val = Validator::validate($tpl, $desc, $values);
         $uploadsData = [];
         $uploadErrors = [];
