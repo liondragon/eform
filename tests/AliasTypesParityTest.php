@@ -15,6 +15,7 @@ final class AliasTypesParityTest extends TestCase
         $autocomplete = [];
         foreach ($types as $t) {
             $desc = Spec::descriptorFor($t);
+            $this->assertSame($t, $desc['type']);
             $handlers = $desc['handlers'];
             $callables[] = [
                 'validator' => Validator::resolve($handlers['validator_id'], 'validator'),

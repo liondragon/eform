@@ -11,7 +11,9 @@ final class DescriptorsResolutionTest extends TestCase
     public function testAllHandlerIdsResolve(): void
     {
         $all = Spec::typeDescriptors();
-        foreach ($all as $type => $desc) {
+        foreach ($all as $desc) {
+            $this->assertArrayHasKey('type', $desc);
+            $type = $desc['type'];
             $handlers = $desc['handlers'];
             $v = Validator::resolve($handlers['validator_id'] ?? '', 'validator');
             $n = Validator::resolve($handlers['normalizer_id'] ?? '', 'normalizer');
@@ -20,6 +22,15 @@ final class DescriptorsResolutionTest extends TestCase
             $this->assertTrue(is_callable($n), "$type normalizer");
             $this->assertNotNull($r, "$type renderer");
         }
+    }
+
+    public function testDescriptorForIncludesType(): void
+    {
+        $d = Spec::descriptorFor('text');
+        $this->assertSame('text', $d['type']);
+
+        $u = Spec::descriptorFor('unknown');
+        $this->assertSame('unknown', $u['type']);
     }
 
     public function testUnknownHandlerIdFails(): void

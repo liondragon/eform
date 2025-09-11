@@ -11,6 +11,8 @@ final class RendererParityTest extends TestCase
     {
         $descInput = Spec::descriptorFor('text');
         $descTextarea = Spec::descriptorFor('textarea');
+        $this->assertSame('text', $descInput['type']);
+        $this->assertSame('textarea', $descTextarea['type']);
 
         $field = [
             'type' => 'text',
