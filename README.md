@@ -34,8 +34,9 @@ Uploads are stored in `wp-content/uploads/eforms-private` with strict perms.
 
 ## Tests
 
-Run the tiny PHPUnit suite:
+Run the tiny PHPUnit suite (requires Composer dev dependencies for JSON Schema validation):
 
 ```bash
+composer install
 phpunit
 ```
