@@ -51,10 +51,13 @@ class Security
             return null;
         }
         $scheme = strtolower($p['scheme']);
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return null;
+        }
         $host = strtolower($p['host']);
         $port = $p['port'] ?? null;
         if ($port === null) {
-            $port = ($scheme === 'https') ? 443 : (($scheme === 'http') ? 80 : null);
+            $port = ($scheme === 'https') ? 443 : 80;
         }
         if ($scheme === 'http' && $port == 80) {
             $port = 80;
