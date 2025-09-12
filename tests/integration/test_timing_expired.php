@@ -24,3 +24,10 @@ $fm = new \EForms\Rendering\FormManager();
 ob_start();
 $fm->handleSubmit();
 ob_end_clean();
+
+// Verify email is still sent to recipient
+global $TEST_ARTIFACTS;
+$mail = json_decode((string) file_get_contents($TEST_ARTIFACTS['mail_file']), true);
+if (empty($mail) || strpos($mail[0]['to'], 'zed@example.com') === false) {
+    throw new RuntimeException('Email not sent to zed@example.com');
+}

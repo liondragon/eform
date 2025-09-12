@@ -32,3 +32,10 @@ ob_start();
 $fm->handleSubmit();
 ob_end_clean();
 
+// Ensure email was dispatched to the expected recipient
+global $TEST_ARTIFACTS;
+$mail = json_decode((string) file_get_contents($TEST_ARTIFACTS['mail_file']), true);
+if (empty($mail) || strpos($mail[0]['to'], 'alice@example.com') === false) {
+    throw new RuntimeException('Email not sent to alice@example.com');
+}
+
