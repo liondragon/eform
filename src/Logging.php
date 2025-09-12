@@ -7,16 +7,27 @@ class Logging
 {
     private static string $file = '';
     private static bool $init = false;
+    private static string $dir = '';
 
     private static function init(): void
     {
-        if (self::$init) return;
         \EForms\Config::bootstrap();
         $dir = rtrim((string) Config::get('uploads.dir', sys_get_temp_dir()), '/');
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0700, true);
+
+        if (self::$dir !== $dir) {
+            self::$dir = $dir;
+            self::$file = '';
+            self::$init = false;
         }
-        self::$file = $dir . '/eforms.log';
+
+        if (self::$init && self::$file !== '' && is_dir(dirname(self::$file))) {
+            return;
+        }
+
+        if (!is_dir(self::$dir)) {
+            @mkdir(self::$dir, 0700, true);
+        }
+        self::$file = self::$dir . '/eforms.log';
         self::$init = true;
     }
 
