@@ -25,6 +25,9 @@ final class RendererRowGroupTest extends TestCase
         $lfile = $lref->getProperty('file');
         $lfile->setAccessible(true);
         $lfile->setValue('');
+        $ldir = $lref->getProperty('dir');
+        $ldir->setAccessible(true);
+        $ldir->setValue('');
         putenv('EFORMS_LOG_LEVEL=1');
         Config::bootstrap();
     }
