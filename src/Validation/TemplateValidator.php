@@ -24,6 +24,7 @@ class TemplateValidator
     public const EFORMS_ERR_ROW_GROUP_UNBALANCED = 'EFORMS_ERR_ROW_GROUP_UNBALANCED';
     public const EFORMS_ERR_FRAGMENT_UNBALANCED  = 'EFORMS_ERR_FRAGMENT_UNBALANCED';
     public const EFORMS_ERR_FRAGMENT_ROW_TAG     = 'EFORMS_ERR_FRAGMENT_ROW_TAG';
+    public const EFORMS_ERR_FRAGMENT_STYLE_ATTR  = 'EFORMS_ERR_FRAGMENT_STYLE_ATTR';
 
     private const AUTOCOMPLETE_TOKENS = [
         'name','honorific-prefix','given-name','additional-name','family-name',
@@ -229,6 +230,8 @@ class TemplateValidator
                     $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_UNBALANCED,'path'=>$path.'before_html'];
                 } elseif (self::fragmentContainsRowTag($f['before_html'])) {
                     $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_ROW_TAG,'path'=>$path.'before_html'];
+                } elseif (self::fragmentContainsStyleAttr($f['before_html'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_STYLE_ATTR,'path'=>$path.'before_html'];
                 }
             }
             if (isset($f['after_html']) && is_string($f['after_html'])) {
@@ -236,6 +239,8 @@ class TemplateValidator
                     $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_UNBALANCED,'path'=>$path.'after_html'];
                 } elseif (self::fragmentContainsRowTag($f['after_html'])) {
                     $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_ROW_TAG,'path'=>$path.'after_html'];
+                } elseif (self::fragmentContainsStyleAttr($f['after_html'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_STYLE_ATTR,'path'=>$path.'after_html'];
                 }
             }
 
@@ -571,6 +576,11 @@ class TemplateValidator
     private static function fragmentContainsRowTag(string $html): bool
     {
         return $html !== '' && preg_match('/<\/?(?:div|section)\b/i', $html) === 1;
+    }
+
+    private static function fragmentContainsStyleAttr(string $html): bool
+    {
+        return $html !== '' && preg_match('/<[^>]*\\bstyle\\s*=/i', $html) === 1;
     }
 
     private static function buildDescriptors(array $tpl, array $fields, array &$errors): array

@@ -177,6 +177,25 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains(TemplateValidator::EFORMS_ERR_FRAGMENT_ROW_TAG, $codes);
     }
 
+    public function testFragmentsCannotContainStyleAttributes(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['before_html'] = '<span style="color:red"></span>';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_FRAGMENT_STYLE_ATTR, $codes);
+        $this->assertContains('fields[0].before_html', $paths);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['after_html'] = '<span style="color:blue"></span>';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_FRAGMENT_STYLE_ATTR, $codes);
+        $this->assertContains('fields[0].after_html', $paths);
+    }
+
     public function testUnknownValidationRule(): void
     {
         $tpl = $this->baseTpl();
