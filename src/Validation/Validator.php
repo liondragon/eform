@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace EForms\Validation;
 
+use EForms\Config;
 use EForms\Logging;
 
 class Validator
