@@ -5,6 +5,7 @@ namespace EForms\Uploads;
 
 use EForms\Config;
 use EForms\Spec;
+use EForms\Logging;
 
 class Uploads
 {
@@ -46,6 +47,18 @@ class Uploads
 
     public static function normalizeAndValidate(array $tpl, array $files): array
     {
+        if (defined('EFORMS_FINFO_UNAVAILABLE')) {
+            Logging::write('warn', 'EFORMS_FINFO_UNAVAILABLE', ['form_id' => $tpl['id'] ?? '']);
+            $errors = [];
+            foreach ($tpl['fields'] as $f) {
+                $type = $f['type'] ?? '';
+                if ($type === 'file' || $type === 'files') {
+                    $errors[$f['key']][] = 'File uploads are unsupported on this server.';
+                }
+            }
+            return ['files' => [], 'errors' => $errors];
+        }
+
         $flat = self::flatten($files);
         $errors = [];
         $valid = [];

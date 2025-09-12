@@ -59,6 +59,10 @@ namespace {
 
     Config::bootstrap();
 
+    if (!extension_loaded('fileinfo')) {
+        define('EFORMS_FINFO_UNAVAILABLE', true);
+    }
+
     // If the request includes any eforms_* query args, ensure responses are not cached.
     foreach (array_keys($_GET) as $key) {
         if (str_starts_with($key, 'eforms_')) {
