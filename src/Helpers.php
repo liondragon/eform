@@ -152,6 +152,14 @@ class Helpers
             return implode(':', $parts);
         }
         $parts = explode('.', $ip);
+        if (count($parts) !== 4) {
+            return '';
+        }
+        foreach ($parts as $p) {
+            if (!ctype_digit($p)) {
+                return '';
+            }
+        }
         $parts[3] = '0';
         return implode('.', $parts);
     }
