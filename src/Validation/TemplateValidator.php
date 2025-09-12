@@ -363,6 +363,7 @@ class TemplateValidator
             Logging::write('warn', self::EFORMS_ERR_ROW_GROUP_UNBALANCED, ['form_id'=>$tpl['id'] ?? '']);
         }
         if ($rowStack !== 0) {
+            Logging::write('warn', self::EFORMS_ERR_ROW_GROUP_UNBALANCED, ['form_id'=>$tpl['id'] ?? '']);
             $errors[] = ['code'=>self::EFORMS_ERR_ROW_GROUP_UNBALANCED,'path'=>'fields'];
         }
 

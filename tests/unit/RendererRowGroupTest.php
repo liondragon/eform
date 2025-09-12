@@ -5,6 +5,7 @@ use PHPUnit\Framework\TestCase;
 use EForms\Config;
 use EForms\Rendering\Renderer;
 use EForms\Validation\TemplateValidator;
+use EForms\Logging;
 
 final class RendererRowGroupTest extends TestCase
 {
@@ -17,6 +18,13 @@ final class RendererRowGroupTest extends TestCase
         $data = $ref->getProperty('data');
         $data->setAccessible(true);
         $data->setValue([]);
+        $lref = new \ReflectionClass(Logging::class);
+        $lin = $lref->getProperty('init');
+        $lin->setAccessible(true);
+        $lin->setValue(false);
+        $lfile = $lref->getProperty('file');
+        $lfile->setAccessible(true);
+        $lfile->setValue('');
         putenv('EFORMS_LOG_LEVEL=1');
         Config::bootstrap();
     }
