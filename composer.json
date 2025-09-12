@@ -1,0 +1,8 @@
+{
+    "name": "eforms/eforms",
+    "description": "Electronic Forms",
+    "type": "library",
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    }
+}

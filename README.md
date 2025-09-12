@@ -34,8 +34,10 @@ Uploads are stored in `wp-content/uploads/eforms-private` with strict perms.
 
 ## Tests
 
-Run the tiny PHPUnit suite:
+Install dependencies and run the tiny PHPUnit suite:
 
 ```bash
-phpunit
+composer install
+vendor/bin/phpunit
 ```
+
