@@ -10,7 +10,7 @@ class ChallengeVerifierTest extends TestCase
             exec('rm -rf ' . escapeshellarg($tmpDir));
         }
         mkdir($tmpDir, 0777, true);
-        $cmd = 'php-cgi ' . escapeshellarg(__DIR__ . '/' . $script);
+        $cmd = 'php-cgi ' . escapeshellarg(__DIR__ . '/../integration/' . $script);
         $out = [];
         exec($cmd, $out, $code);
         return [$code, $out, $tmpDir];
