@@ -162,6 +162,18 @@ class TemplateValidatorTest extends TestCase
         $this->assertContains('fields[0].after_html', $paths);
     }
 
+    public function testFragmentsSanitizedAndPreserved(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['before_html'] = '<p><strong>ok</strong><script>alert(1)</script></p>';
+        $tpl['fields'][0]['after_html'] = '<span><em>end</em><script></script></span>';
+        $res = TemplateValidator::preflight($tpl);
+        $this->assertTrue($res['ok']);
+        $field = $res['context']['fields'][0];
+        $this->assertSame('<p><strong>ok</strong>alert(1)</p>', $field['before_html']);
+        $this->assertSame('<span><em>end</em></span>', $field['after_html']);
+    }
+
     public function testFragmentsCannotContainRowTags(): void
     {
         $tpl = $this->baseTpl();

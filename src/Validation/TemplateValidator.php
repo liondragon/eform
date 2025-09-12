@@ -232,6 +232,8 @@ class TemplateValidator
                     $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_ROW_TAG,'path'=>$path.'before_html'];
                 } elseif (self::fragmentContainsStyleAttr($f['before_html'])) {
                     $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_STYLE_ATTR,'path'=>$path.'before_html'];
+                } else {
+                    $f['before_html'] = \wp_kses_post($f['before_html']);
                 }
             }
             if (isset($f['after_html']) && is_string($f['after_html'])) {
@@ -241,6 +243,8 @@ class TemplateValidator
                     $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_ROW_TAG,'path'=>$path.'after_html'];
                 } elseif (self::fragmentContainsStyleAttr($f['after_html'])) {
                     $errors[] = ['code'=>self::EFORMS_ERR_FRAGMENT_STYLE_ATTR,'path'=>$path.'after_html'];
+                } else {
+                    $f['after_html'] = \wp_kses_post($f['after_html']);
                 }
             }
 
