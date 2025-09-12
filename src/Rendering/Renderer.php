@@ -64,11 +64,6 @@ class Renderer
         return $id;
     }
 
-    private static function sanitizeFragment(string $html): string
-    {
-        return \wp_kses_post($html);
-    }
-
     public static function form(array $tpl, array $meta, array $errors, array $values): string
     {
         $formId = $meta['form_id'];
@@ -208,8 +203,8 @@ class Renderer
             $fieldErrors = $errors[$key] ?? [];
             $errId = 'error-' . $id;
             $errAttr = $fieldErrors ? ' aria-describedby="' . \esc_attr($errId) . '" aria-invalid="true"' : '';
-            $before = isset($f['before_html']) ? self::sanitizeFragment($f['before_html']) : '';
-            $after = isset($f['after_html']) ? self::sanitizeFragment($f['after_html']) : '';
+            $before = $f['before_html'] ?? '';
+            $after = $f['after_html'] ?? '';
             $html .= $before;
             $handler = $desc['handlers']['renderer'] ?? self::resolve($desc['handlers']['renderer_id'] ?? '');
             $ctx = [
