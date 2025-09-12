@@ -1,15 +1,23 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
+require __DIR__ . '/../../vendor/autoload.php';
 use EForms\Validation\TemplateValidator;
+use JsonSchema\Validator;
+use JsonSchema\Constraints\Constraint;
 
-$schema = realpath(__DIR__ . '/../../schema/template.schema.json');
+$schemaFile = realpath(__DIR__ . '/../../schema/template.schema.json');
+$schema = json_decode(file_get_contents($schemaFile));
 $templates = glob(__DIR__ . '/../../templates/forms/*.json') ?: [];
 foreach ($templates as $tplFile) {
-    $cmd = 'python3 -m jsonschema ' . escapeshellarg($schema) . ' -i ' . escapeshellarg($tplFile);
-    exec($cmd, $out, $code);
-    if ($code !== 0) {
+    $data = json_decode(file_get_contents($tplFile));
+    $validator = new Validator();
+    $validator->validate($data, $schema, Constraint::CHECK_MODE_APPLY_DEFAULTS);
+    if (!$validator->isValid()) {
         fwrite(STDERR, "schema fail: $tplFile\n");
+        foreach ($validator->getErrors() as $error) {
+            fwrite(STDERR, sprintf("[%s] %s\n", $error['property'], $error['message']));
+        }
         exit(1);
     }
     $tpl = json_decode(file_get_contents($tplFile), true);

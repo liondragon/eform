@@ -1,0 +1,10 @@
+{
+    "name": "eforms/eforms",
+    "description": "Electronic Forms",
+    "type": "library",
+    "license": "MIT",
+    "require-dev": {
+        "justinrainbow/json-schema": "^6.5",
+        "phpunit/phpunit": "^12.3"
+    }
+}
