@@ -277,6 +277,7 @@ class Renderer
         if (!empty($f['required'])) $attrs .= ' required';
         if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
         if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
+        if (isset($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
         $extraHint = ($key === $lastText && ($desc['html']['type'] ?? '') !== 'file') ? ' enterkeyhint="send"' : '';
         $attrs .= $errAttr . $extraHint;
         $html = '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
@@ -292,7 +293,6 @@ class Renderer
             $id = $ctx['id'];
             $nameAttr = $ctx['nameAttr'];
             $value = $ctx['value'];
-            if (isset($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
             if (($desc['html']['type'] ?? '') === 'file' && !empty($f['accept']) && is_array($f['accept'])) {
                 $accept = self::acceptAttr($f['accept']);
                 if ($accept !== '') $attrs .= ' accept="' . \esc_attr($accept) . '"';
