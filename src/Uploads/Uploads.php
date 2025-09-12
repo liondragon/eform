@@ -274,7 +274,7 @@ class Uploads
         }
         $reserved = ['con','prn','aux','nul','com1','com2','com3','com4','com5','com6','com7','com8','com9','lpt1','lpt2','lpt3','lpt4','lpt5','lpt6','lpt7','lpt8','lpt9'];
         if (in_array(strtolower($display), $reserved, true)) {
-            $display .= '_';
+            $display = strtolower($display) . '_';
         }
 
         $slugBase = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $display) ?: $display;
@@ -288,7 +288,7 @@ class Uploads
         }
 
         $extSafe = strtolower($ext);
-        $originalSafe = $display . ($extSafe !== '' ? '.' . $extSafe : '');
+        $originalSafe = strtolower($display) . ($extSafe !== '' ? '.' . $extSafe : '');
         return [$slug, $extSafe, $originalSafe];
     }
 
