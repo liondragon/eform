@@ -265,7 +265,19 @@ class Uploads
 
     private static function sanitizeOriginal(string $name, string $ext): array
     {
-        $raw = pathinfo($name, PATHINFO_FILENAME);
+        $base = basename($name);
+        if (class_exists('Normalizer')) {
+            $base = \Normalizer::normalize($base, \Normalizer::FORM_C) ?: $base;
+        }
+        if (function_exists('sanitize_file_name')) {
+            $tmp = sanitize_file_name($base . ($ext !== '' ? '.' . $ext : ''));
+            $sanitizedExt = strtolower(pathinfo($tmp, PATHINFO_EXTENSION));
+            if ($sanitizedExt !== '') {
+                $ext = $sanitizedExt;
+            }
+        }
+
+        $raw = pathinfo($base, PATHINFO_FILENAME);
         $raw = preg_replace('/[\x00-\x1F\x7F]+/', '', $raw);
         $raw = preg_replace('/[\s.]+/', ' ', $raw);
         $raw = trim($raw, ' .');
