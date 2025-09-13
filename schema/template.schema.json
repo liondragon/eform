@@ -83,6 +83,15 @@
           "else": {
             "properties": {"size": false}
           }
+        },
+        {
+          "if": {
+            "properties": {"email_attach": {}},
+            "required": ["email_attach"]
+          },
+          "then": {
+            "properties": {"type": {"enum": ["file","files"]}}
+          }
         }
       ]
     },
