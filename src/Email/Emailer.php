@@ -283,10 +283,12 @@ class Emailer
                     $overflow[] = $item['original_name_safe'];
                     continue;
                 }
-                $attachments[] = [
-                    'path' => $path,
-                    'name' => preg_replace('/[\r\n]+/', '', (string)($item['original_name_safe'] ?? '')),
-                ];
+                $name = preg_replace('/[\r\n]+/', '', (string)($item['original_name_safe'] ?? ''));
+                $att = ['path' => $path, 'name' => $name];
+                if (!Config::get('uploads.transliterate', true) && preg_match('/[^\x20-\x7E]/', $name)) {
+                    $att['encoding'] = 'utf-8';
+                }
+                $attachments[] = $att;
                 $count++;
                 $total += $size;
             }
