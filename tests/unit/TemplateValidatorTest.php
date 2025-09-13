@@ -26,6 +26,18 @@ class TemplateValidatorTest extends BaseTestCase
         $this->assertTrue($res['ok']);
     }
 
+    public function testDescriptorIncludesConstants(): void
+    {
+        $tpl = $this->baseTpl();
+        $res = TemplateValidator::preflight($tpl);
+        $this->assertTrue($res['ok']);
+        $desc = $res['context']['descriptors']['email'] ?? [];
+        $this->assertSame([
+            'spellcheck' => 'false',
+            'autocapitalize' => 'off',
+        ], $desc['constants']);
+    }
+
     public function testTitleIsRequired(): void
     {
         $tpl = $this->baseTpl();

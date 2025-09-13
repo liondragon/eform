@@ -599,6 +599,7 @@ class TemplateValidator
 
             $d = $all[$type] ?? Spec::descriptorFor($type);
             $type = $d['type'];
+            $d['constants'] = $d['constants'] ?? [];
 
             if ($type === 'select' && !empty($f['multiple'])) {
                 $d['is_multivalue'] = true;
