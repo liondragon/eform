@@ -14,4 +14,6 @@ jobs:
       - name: Install dependencies
         run: composer install --no-progress
       - name: Run PHPUnit with random order
-        run: vendor/bin/phpunit --order-by=random
+        run: >-
+          vendor/bin/phpunit -c phpunit.xml.dist --order-by=random
+          --fail-on-warning --testdox
