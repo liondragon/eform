@@ -185,116 +185,119 @@ function wp_enqueue_script($handle) { $GLOBALS['wp_enqueued_scripts'][] = $handl
 @mkdir(__DIR__ . '/tmp/uploads/eforms-private', 0777, true);
 
 // Allow tests to override plugin config using a filter shim
-add_filter('eforms_config', function (array $defaults) {
-    // Override uploads dir to our tmp path
-    $defaults['uploads']['dir'] = __DIR__ . '/tmp/uploads/eforms-private';
-    // Allow per-test env toggles
-    if (getenv('EFORMS_ORIGIN_MODE')) {
-        $defaults['security']['origin_mode'] = getenv('EFORMS_ORIGIN_MODE');
-    }
-    if (getenv('EFORMS_ORIGIN_MISSING_HARD')) {
-        $defaults['security']['origin_missing_hard'] = (getenv('EFORMS_ORIGIN_MISSING_HARD') === '1');
-    }
-    if (getenv('EFORMS_SUBMISSION_TOKEN_REQUIRED')) {
-        $defaults['security']['submission_token']['required'] = (getenv('EFORMS_SUBMISSION_TOKEN_REQUIRED') === '1');
-    }
-    if (getenv('EFORMS_COOKIE_MISSING_POLICY')) {
-        $defaults['security']['cookie_missing_policy'] = getenv('EFORMS_COOKIE_MISSING_POLICY');
-    }
-    if (getenv('EFORMS_HONEYPOT_RESPONSE')) {
-        $defaults['security']['honeypot_response'] = getenv('EFORMS_HONEYPOT_RESPONSE');
-    }
-    if (getenv('EFORMS_JS_HARD_MODE')) {
-        $defaults['security']['js_hard_mode'] = (getenv('EFORMS_JS_HARD_MODE') === '1');
-    }
-    $tlenv = getenv('EFORMS_TOKEN_LEDGER_ENABLE');
-    if ($tlenv !== false) {
-        $defaults['security']['token_ledger']['enable'] = ($tlenv === '1');
-    }
-    if (getenv('EFORMS_LOG_LEVEL')) {
-        $defaults['logging']['level'] = (int) getenv('EFORMS_LOG_LEVEL');
-    }
-    if (getenv('EFORMS_LOG_HEADERS')) {
-        $defaults['logging']['headers'] = (getenv('EFORMS_LOG_HEADERS') === '1');
-    }
-    if (getenv('EFORMS_LOG_MODE')) {
-        $defaults['logging']['mode'] = getenv('EFORMS_LOG_MODE');
-    }
-    if (getenv('EFORMS_UPLOAD_MAX_FILE_BYTES')) {
-        $defaults['uploads']['max_file_bytes'] = (int) getenv('EFORMS_UPLOAD_MAX_FILE_BYTES');
-    }
-    if (getenv('EFORMS_UPLOAD_RETENTION_SECONDS')) {
-        $defaults['uploads']['retention_seconds'] = (int) getenv('EFORMS_UPLOAD_RETENTION_SECONDS');
-    }
-    if (getenv('EFORMS_CHALLENGE_MODE')) {
-        $defaults['challenge']['mode'] = getenv('EFORMS_CHALLENGE_MODE');
-    }
-    if (getenv('EFORMS_CHALLENGE_PROVIDER')) {
-        $defaults['challenge']['provider'] = getenv('EFORMS_CHALLENGE_PROVIDER');
-    }
-    if (getenv('EFORMS_TURNSTILE_SITE_KEY')) {
-        $defaults['challenge']['turnstile']['site_key'] = getenv('EFORMS_TURNSTILE_SITE_KEY');
-    }
-    if (getenv('EFORMS_TURNSTILE_SECRET_KEY')) {
-        $defaults['challenge']['turnstile']['secret_key'] = getenv('EFORMS_TURNSTILE_SECRET_KEY');
-    }
-    if (getenv('EFORMS_HCAPTCHA_SITE_KEY')) {
-        $defaults['challenge']['hcaptcha']['site_key'] = getenv('EFORMS_HCAPTCHA_SITE_KEY');
-    }
-    if (getenv('EFORMS_HCAPTCHA_SECRET_KEY')) {
-        $defaults['challenge']['hcaptcha']['secret_key'] = getenv('EFORMS_HCAPTCHA_SECRET_KEY');
-    }
-    if (getenv('EFORMS_RECAPTCHA_SITE_KEY')) {
-        $defaults['challenge']['recaptcha']['site_key'] = getenv('EFORMS_RECAPTCHA_SITE_KEY');
-    }
-    if (getenv('EFORMS_RECAPTCHA_SECRET_KEY')) {
-        $defaults['challenge']['recaptcha']['secret_key'] = getenv('EFORMS_RECAPTCHA_SECRET_KEY');
-    }
-    if (getenv('EFORMS_THROTTLE_ENABLE')) {
-        $defaults['throttle']['enable'] = (getenv('EFORMS_THROTTLE_ENABLE') === '1');
-    }
-    if (getenv('EFORMS_THROTTLE_MAX_PER_MINUTE')) {
-        $defaults['throttle']['per_ip']['max_per_minute'] = (int) getenv('EFORMS_THROTTLE_MAX_PER_MINUTE');
-    }
-    if (getenv('EFORMS_THROTTLE_COOLDOWN_SECONDS')) {
-        $defaults['throttle']['per_ip']['cooldown_seconds'] = (int) getenv('EFORMS_THROTTLE_COOLDOWN_SECONDS');
-    }
-    if (getenv('EFORMS_THROTTLE_HARD_MULTIPLIER')) {
-        $defaults['throttle']['per_ip']['hard_multiplier'] = (float) getenv('EFORMS_THROTTLE_HARD_MULTIPLIER');
-    }
-    if (getenv('EFORMS_EMAIL_POLICY')) {
-        $defaults['email']['policy'] = getenv('EFORMS_EMAIL_POLICY');
-    }
-    if (getenv('EFORMS_EMAIL_DISABLE_SEND')) {
-        $defaults['email']['disable_send'] = (getenv('EFORMS_EMAIL_DISABLE_SEND') === '1');
-    }
-    if (getenv('EFORMS_EMAIL_STAGING_REDIRECT_TO')) {
-        $val = getenv('EFORMS_EMAIL_STAGING_REDIRECT_TO');
-        $defaults['email']['staging_redirect_to'] = str_contains($val, ',') ? array_map('trim', explode(',', $val)) : $val;
-    }
-    if (getenv('EFORMS_EMAIL_SMTP_TIMEOUT_SECONDS')) {
-        $defaults['email']['smtp']['timeout_seconds'] = (int) getenv('EFORMS_EMAIL_SMTP_TIMEOUT_SECONDS');
-    }
-    if (getenv('EFORMS_EMAIL_SMTP_MAX_RETRIES')) {
-        $defaults['email']['smtp']['max_retries'] = (int) getenv('EFORMS_EMAIL_SMTP_MAX_RETRIES');
-    }
-    if (getenv('EFORMS_EMAIL_SMTP_RETRY_BACKOFF_SECONDS')) {
-        $defaults['email']['smtp']['retry_backoff_seconds'] = (int) getenv('EFORMS_EMAIL_SMTP_RETRY_BACKOFF_SECONDS');
-    }
-    if (getenv('EFORMS_EMAIL_DKIM_DOMAIN')) {
-        $defaults['email']['dkim']['domain'] = getenv('EFORMS_EMAIL_DKIM_DOMAIN');
-    }
-    if (getenv('EFORMS_EMAIL_DKIM_SELECTOR')) {
-        $defaults['email']['dkim']['selector'] = getenv('EFORMS_EMAIL_DKIM_SELECTOR');
-    }
-    if (getenv('EFORMS_EMAIL_DKIM_PRIVATE_KEY_PATH')) {
-        $defaults['email']['dkim']['private_key_path'] = getenv('EFORMS_EMAIL_DKIM_PRIVATE_KEY_PATH');
-    }
-    if (getenv('EFORMS_EMAIL_DKIM_PASS_PHRASE')) {
-        $defaults['email']['dkim']['pass_phrase'] = getenv('EFORMS_EMAIL_DKIM_PASS_PHRASE');
-    }
-    return $defaults;
-});
+function register_test_env_filter(): void {
+    add_filter('eforms_config', function (array $defaults) {
+        // Override uploads dir to our tmp path
+        $defaults['uploads']['dir'] = __DIR__ . '/tmp/uploads/eforms-private';
+        // Allow per-test env toggles
+        if (getenv('EFORMS_ORIGIN_MODE')) {
+            $defaults['security']['origin_mode'] = getenv('EFORMS_ORIGIN_MODE');
+        }
+        if (getenv('EFORMS_ORIGIN_MISSING_HARD')) {
+            $defaults['security']['origin_missing_hard'] = (getenv('EFORMS_ORIGIN_MISSING_HARD') === '1');
+        }
+        if (getenv('EFORMS_SUBMISSION_TOKEN_REQUIRED')) {
+            $defaults['security']['submission_token']['required'] = (getenv('EFORMS_SUBMISSION_TOKEN_REQUIRED') === '1');
+        }
+        if (getenv('EFORMS_COOKIE_MISSING_POLICY')) {
+            $defaults['security']['cookie_missing_policy'] = getenv('EFORMS_COOKIE_MISSING_POLICY');
+        }
+        if (getenv('EFORMS_HONEYPOT_RESPONSE')) {
+            $defaults['security']['honeypot_response'] = getenv('EFORMS_HONEYPOT_RESPONSE');
+        }
+        if (getenv('EFORMS_JS_HARD_MODE')) {
+            $defaults['security']['js_hard_mode'] = (getenv('EFORMS_JS_HARD_MODE') === '1');
+        }
+        $tlenv = getenv('EFORMS_TOKEN_LEDGER_ENABLE');
+        if ($tlenv !== false) {
+            $defaults['security']['token_ledger']['enable'] = ($tlenv === '1');
+        }
+        if (getenv('EFORMS_LOG_LEVEL')) {
+            $defaults['logging']['level'] = (int) getenv('EFORMS_LOG_LEVEL');
+        }
+        if (getenv('EFORMS_LOG_HEADERS')) {
+            $defaults['logging']['headers'] = (getenv('EFORMS_LOG_HEADERS') === '1');
+        }
+        if (getenv('EFORMS_LOG_MODE')) {
+            $defaults['logging']['mode'] = getenv('EFORMS_LOG_MODE');
+        }
+        if (getenv('EFORMS_UPLOAD_MAX_FILE_BYTES')) {
+            $defaults['uploads']['max_file_bytes'] = (int) getenv('EFORMS_UPLOAD_MAX_FILE_BYTES');
+        }
+        if (getenv('EFORMS_UPLOAD_RETENTION_SECONDS')) {
+            $defaults['uploads']['retention_seconds'] = (int) getenv('EFORMS_UPLOAD_RETENTION_SECONDS');
+        }
+        if (getenv('EFORMS_CHALLENGE_MODE')) {
+            $defaults['challenge']['mode'] = getenv('EFORMS_CHALLENGE_MODE');
+        }
+        if (getenv('EFORMS_CHALLENGE_PROVIDER')) {
+            $defaults['challenge']['provider'] = getenv('EFORMS_CHALLENGE_PROVIDER');
+        }
+        if (getenv('EFORMS_TURNSTILE_SITE_KEY')) {
+            $defaults['challenge']['turnstile']['site_key'] = getenv('EFORMS_TURNSTILE_SITE_KEY');
+        }
+        if (getenv('EFORMS_TURNSTILE_SECRET_KEY')) {
+            $defaults['challenge']['turnstile']['secret_key'] = getenv('EFORMS_TURNSTILE_SECRET_KEY');
+        }
+        if (getenv('EFORMS_HCAPTCHA_SITE_KEY')) {
+            $defaults['challenge']['hcaptcha']['site_key'] = getenv('EFORMS_HCAPTCHA_SITE_KEY');
+        }
+        if (getenv('EFORMS_HCAPTCHA_SECRET_KEY')) {
+            $defaults['challenge']['hcaptcha']['secret_key'] = getenv('EFORMS_HCAPTCHA_SECRET_KEY');
+        }
+        if (getenv('EFORMS_RECAPTCHA_SITE_KEY')) {
+            $defaults['challenge']['recaptcha']['site_key'] = getenv('EFORMS_RECAPTCHA_SITE_KEY');
+        }
+        if (getenv('EFORMS_RECAPTCHA_SECRET_KEY')) {
+            $defaults['challenge']['recaptcha']['secret_key'] = getenv('EFORMS_RECAPTCHA_SECRET_KEY');
+        }
+        if (getenv('EFORMS_THROTTLE_ENABLE')) {
+            $defaults['throttle']['enable'] = (getenv('EFORMS_THROTTLE_ENABLE') === '1');
+        }
+        if (getenv('EFORMS_THROTTLE_MAX_PER_MINUTE')) {
+            $defaults['throttle']['per_ip']['max_per_minute'] = (int) getenv('EFORMS_THROTTLE_MAX_PER_MINUTE');
+        }
+        if (getenv('EFORMS_THROTTLE_COOLDOWN_SECONDS')) {
+            $defaults['throttle']['per_ip']['cooldown_seconds'] = (int) getenv('EFORMS_THROTTLE_COOLDOWN_SECONDS');
+        }
+        if (getenv('EFORMS_THROTTLE_HARD_MULTIPLIER')) {
+            $defaults['throttle']['per_ip']['hard_multiplier'] = (float) getenv('EFORMS_THROTTLE_HARD_MULTIPLIER');
+        }
+        if (getenv('EFORMS_EMAIL_POLICY')) {
+            $defaults['email']['policy'] = getenv('EFORMS_EMAIL_POLICY');
+        }
+        if (getenv('EFORMS_EMAIL_DISABLE_SEND')) {
+            $defaults['email']['disable_send'] = (getenv('EFORMS_EMAIL_DISABLE_SEND') === '1');
+        }
+        if (getenv('EFORMS_EMAIL_STAGING_REDIRECT_TO')) {
+            $val = getenv('EFORMS_EMAIL_STAGING_REDIRECT_TO');
+            $defaults['email']['staging_redirect_to'] = str_contains($val, ',') ? array_map('trim', explode(',', $val)) : $val;
+        }
+        if (getenv('EFORMS_EMAIL_SMTP_TIMEOUT_SECONDS')) {
+            $defaults['email']['smtp']['timeout_seconds'] = (int) getenv('EFORMS_EMAIL_SMTP_TIMEOUT_SECONDS');
+        }
+        if (getenv('EFORMS_EMAIL_SMTP_MAX_RETRIES')) {
+            $defaults['email']['smtp']['max_retries'] = (int) getenv('EFORMS_EMAIL_SMTP_MAX_RETRIES');
+        }
+        if (getenv('EFORMS_EMAIL_SMTP_RETRY_BACKOFF_SECONDS')) {
+            $defaults['email']['smtp']['retry_backoff_seconds'] = (int) getenv('EFORMS_EMAIL_SMTP_RETRY_BACKOFF_SECONDS');
+        }
+        if (getenv('EFORMS_EMAIL_DKIM_DOMAIN')) {
+            $defaults['email']['dkim']['domain'] = getenv('EFORMS_EMAIL_DKIM_DOMAIN');
+        }
+        if (getenv('EFORMS_EMAIL_DKIM_SELECTOR')) {
+            $defaults['email']['dkim']['selector'] = getenv('EFORMS_EMAIL_DKIM_SELECTOR');
+        }
+        if (getenv('EFORMS_EMAIL_DKIM_PRIVATE_KEY_PATH')) {
+            $defaults['email']['dkim']['private_key_path'] = getenv('EFORMS_EMAIL_DKIM_PRIVATE_KEY_PATH');
+        }
+        if (getenv('EFORMS_EMAIL_DKIM_PASS_PHRASE')) {
+            $defaults['email']['dkim']['pass_phrase'] = getenv('EFORMS_EMAIL_DKIM_PASS_PHRASE');
+        }
+        return $defaults;
+    });
+}
+register_test_env_filter();
 
 // Define ABSPATH to satisfy plugin guard
 if (!defined('ABSPATH')) {
