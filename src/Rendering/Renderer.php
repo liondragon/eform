@@ -409,6 +409,13 @@ class Renderer
         if (!isset($mirror['step']) && isset($f['step']) && $f['step'] !== null) {
             $attrs .= ' step="' . \esc_attr((string)$f['step']) . '"';
         }
+        foreach ($desc['constants'] ?? [] as $k => $v) {
+            if ($v === true) {
+                $attrs .= ' ' . $k;
+            } elseif ($v !== null) {
+                $attrs .= ' ' . $k . '="' . \esc_attr((string)$v) . '"';
+            }
+        }
         return $attrs;
     }
 
