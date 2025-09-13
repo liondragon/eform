@@ -1,6 +1,7 @@
 <?php
 use EForms\Validation\Validator;
 use EForms\Validation\Normalizer;
+use EForms\Rendering\Renderer;
 
 final class ValidatorFieldValidationTest extends BaseTestCase
 {
@@ -48,6 +49,36 @@ final class ValidatorFieldValidationTest extends BaseTestCase
         $tpl = ['fields' => [$field]];
         $desc = ['t' => $field];
         Validator::validate($tpl, $desc, ['t' => 'foo']);
+        $this->assertTrue($called);
+    }
+
+    public function testRendererCallableExecutes(): void
+    {
+        $called = false;
+        $field = [
+            'type' => 'text',
+            'key' => 'r',
+            'handlers' => [
+                'renderer' => function (array $ctx) use (&$called) {
+                    $called = true;
+                    return '';
+                },
+            ],
+        ];
+        $tpl = ['fields' => [$field]];
+        $desc = Validator::descriptors($tpl);
+        $tpl['descriptors'] = $desc;
+        $meta = [
+            'form_id' => 'f',
+            'instance_id' => 'i',
+            'timestamp' => 0,
+            'cacheable' => true,
+            'client_validation' => false,
+            'action' => '/',
+            'hidden_token' => '',
+            'enctype' => 'application/x-www-form-urlencoded',
+        ];
+        Renderer::form($tpl, $meta, [], []);
         $this->assertTrue($called);
     }
 }
