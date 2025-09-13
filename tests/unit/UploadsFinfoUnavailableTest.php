@@ -1,10 +1,9 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Uploads\Uploads;
 
-final class UploadsFinfoUnavailableTest extends TestCase
+final class UploadsFinfoUnavailableTest extends BaseTestCase
 {
     /**
      * @runInSeparateProcess

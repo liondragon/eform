@@ -1,8 +1,7 @@
 <?php
-use PHPUnit\Framework\TestCase;
 use EForms\Validation\Validator;
 
-class RulesTest extends TestCase
+class RulesTest extends BaseTestCase
 {
     private function runRules(array $tpl, array $post): array
     {

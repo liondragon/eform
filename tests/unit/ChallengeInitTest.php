@@ -1,14 +1,15 @@
 <?php
-use PHPUnit\Framework\TestCase;
 use EForms\Config;
 use EForms\Rendering\FormManager;
 
-final class ChallengeInitTest extends TestCase
+final class ChallengeInitTest extends BaseTestCase
 {
     private array $origConfig;
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $ref = new \ReflectionClass(Config::class);
         $prop = $ref->getProperty('data');
         $prop->setAccessible(true);
@@ -22,6 +23,7 @@ final class ChallengeInitTest extends TestCase
         $prop->setAccessible(true);
         $prop->setValue(null, $this->origConfig);
         $GLOBALS['wp_enqueued_scripts'] = [];
+        parent::tearDown();
     }
 
     private function setConfig(string $path, $value): void

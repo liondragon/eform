@@ -1,11 +1,10 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Uploads\Uploads;
 use EForms\Config;
 
-final class UploadsNameDedupTest extends TestCase
+final class UploadsNameDedupTest extends BaseTestCase
 {
     public function testDuplicateNamesAreUniquified(): void
     {

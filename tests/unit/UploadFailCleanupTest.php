@@ -1,9 +1,8 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 
-final class UploadFailCleanupTest extends TestCase
+final class UploadFailCleanupTest extends BaseTestCase
 {
     public function testFilesRemovedWhenEmailFailsAndNoRetention(): void
     {

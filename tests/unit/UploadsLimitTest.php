@@ -1,11 +1,10 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Uploads\Uploads;
 use EForms\Config;
 
-final class UploadsLimitTest extends TestCase
+final class UploadsLimitTest extends BaseTestCase
 {
     private function rebootstrap(array $overrides): void
     {
@@ -42,6 +41,7 @@ final class UploadsLimitTest extends TestCase
         $data->setAccessible(true);
         $data->setValue([]);
         Config::bootstrap();
+        parent::tearDown();
     }
 
     public function testMaxFileBytesPerField(): void

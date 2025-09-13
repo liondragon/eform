@@ -1,14 +1,15 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Email\Emailer;
 use EForms\Config;
 
-final class EmailBodySanitizeTest extends TestCase
+final class EmailBodySanitizeTest extends BaseTestCase
 {
     protected function setUp(): void
     {
+        parent::setUp();
+
         // reset mail file
         global $TEST_ARTIFACTS;
         @file_put_contents($TEST_ARTIFACTS['mail_file'], '[]');

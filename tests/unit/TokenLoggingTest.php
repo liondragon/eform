@@ -1,7 +1,6 @@
 <?php
-use PHPUnit\Framework\TestCase;
 
-class TokenLoggingTest extends TestCase
+class TokenLoggingTest extends BaseTestCase
 {
     private function runScript(string $script): array
     {

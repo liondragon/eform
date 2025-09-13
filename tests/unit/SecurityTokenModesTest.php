@@ -1,14 +1,15 @@
 <?php
-use PHPUnit\Framework\TestCase;
 use EForms\Security\Security;
 use EForms\Config;
 
-class SecurityTokenModesTest extends TestCase
+class SecurityTokenModesTest extends BaseTestCase
 {
     private array $origConfig;
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $ref = new \ReflectionClass(Config::class);
         $prop = $ref->getProperty('data');
         $prop->setAccessible(true);
@@ -21,6 +22,7 @@ class SecurityTokenModesTest extends TestCase
         $prop = $ref->getProperty('data');
         $prop->setAccessible(true);
         $prop->setValue(null, $this->origConfig);
+        parent::tearDown();
     }
 
     private function setConfig(string $path, $value): void

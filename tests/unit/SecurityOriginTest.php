@@ -1,9 +1,8 @@
 <?php
-use PHPUnit\Framework\TestCase;
 use EForms\Security\Security;
 use EForms\Config;
 
-class SecurityOriginTest extends TestCase
+class SecurityOriginTest extends BaseTestCase
 {
     private function resetConfig(): void
     {
@@ -77,5 +76,6 @@ class SecurityOriginTest extends TestCase
     {
         putenv('EFORMS_ORIGIN_MODE');
         putenv('EFORMS_ORIGIN_MISSING_HARD');
+        parent::tearDown();
     }
 }

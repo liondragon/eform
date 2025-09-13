@@ -1,15 +1,16 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Config;
 use EForms\Rendering\Renderer;
 use EForms\Validation\TemplateValidator;
 
-final class RendererLabelTest extends TestCase
+final class RendererLabelTest extends BaseTestCase
 {
     protected function setUp(): void
     {
+        parent::setUp();
+
         $ref = new \ReflectionClass(Config::class);
         $boot = $ref->getProperty('bootstrapped');
         $boot->setAccessible(true);

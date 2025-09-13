@@ -1,14 +1,15 @@
 <?php
-use PHPUnit\Framework\TestCase;
 use EForms\Config;
 use EForms\Helpers;
 
-final class ClientIpHeaderTest extends TestCase
+final class ClientIpHeaderTest extends BaseTestCase
 {
     private array $origConfig;
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $ref = new \ReflectionClass(Config::class);
         $prop = $ref->getProperty('data');
         $prop->setAccessible(true);
@@ -22,6 +23,7 @@ final class ClientIpHeaderTest extends TestCase
         $prop->setAccessible(true);
         $prop->setValue(null, $this->origConfig);
         unset($_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_X_FORWARDED_FOR']);
+        parent::tearDown();
     }
 
     private function setConfig(string $path, $value): void

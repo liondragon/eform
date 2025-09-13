@@ -1,11 +1,10 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Validation\TemplateValidator;
 use EForms\Rendering\Renderer;
 
-final class RendererFragmentTest extends TestCase
+final class RendererFragmentTest extends BaseTestCase
 {
     public function testFragmentsAreSanitizedOnce(): void
     {

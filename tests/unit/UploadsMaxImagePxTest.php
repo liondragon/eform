@@ -1,16 +1,17 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Uploads\Uploads;
 use EForms\Config;
 
-final class UploadsMaxImagePxTest extends TestCase
+final class UploadsMaxImagePxTest extends BaseTestCase
 {
     private array $origConfig;
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         Config::bootstrap();
         $ref = new \ReflectionClass(Config::class);
         $prop = $ref->getProperty('data');
@@ -27,6 +28,7 @@ final class UploadsMaxImagePxTest extends TestCase
         $prop = $ref->getProperty('data');
         $prop->setAccessible(true);
         $prop->setValue(null, $this->origConfig);
+        parent::tearDown();
     }
 
     public function testRejectsOversizedImages(): void

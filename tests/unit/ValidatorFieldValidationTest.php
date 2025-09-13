@@ -1,9 +1,8 @@
 <?php
-use PHPUnit\Framework\TestCase;
 use EForms\Validation\Validator;
 use EForms\Validation\Normalizer;
 
-final class ValidatorFieldValidationTest extends TestCase
+final class ValidatorFieldValidationTest extends BaseTestCase
 {
     private function validate(array $field, $value): array
     {

@@ -1,11 +1,10 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Spec;
 use EForms\Rendering\Renderer;
 
-final class RendererParityTest extends TestCase
+final class RendererParityTest extends BaseTestCase
 {
     public function testSharedAttributesMirrored(): void
     {

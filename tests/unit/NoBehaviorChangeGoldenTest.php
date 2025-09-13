@@ -1,12 +1,11 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Validation\TemplateValidator;
 use EForms\Rendering\Renderer;
 use EForms\Validation\Validator;
 
-final class NoBehaviorChangeGoldenTest extends TestCase
+final class NoBehaviorChangeGoldenTest extends BaseTestCase
 {
     public function testContactTemplateRenderingAndValidation(): void
     {

@@ -1,13 +1,12 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Spec;
 use EForms\Validation\Validator;
 use EForms\Rendering\Renderer;
 use EForms\Validation\Normalizer;
 
-final class DescriptorsResolutionTest extends TestCase
+final class DescriptorsResolutionTest extends BaseTestCase
 {
     public function testAllHandlerIdsResolve(): void
     {

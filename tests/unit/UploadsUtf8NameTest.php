@@ -1,11 +1,10 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Uploads\Uploads;
 use EForms\Config;
 
-final class UploadsUtf8NameTest extends TestCase
+final class UploadsUtf8NameTest extends BaseTestCase
 {
     public function testUtf8NamesPreservedWhenNotTransliterated(): void
     {

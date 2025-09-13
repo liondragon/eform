@@ -1,8 +1,7 @@
 <?php
-use PHPUnit\Framework\TestCase;
 use EForms\Validation\TemplateValidator;
 
-class TemplateValidatorTest extends TestCase
+class TemplateValidatorTest extends BaseTestCase
 {
     private function baseTpl(): array
     {
