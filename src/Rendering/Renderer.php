@@ -55,17 +55,7 @@ class Renderer
 
     private static function makeId(string $formId, string $key, string $instanceId): string
     {
-        $id = $formId . '-' . $key . '-' . $instanceId;
-        if (strlen($id) > 128) {
-            $hash = substr(md5($id), 0, 8);
-            $start = substr($id, 0, 60);
-            $end = substr($id, -60);
-            $id = $start . '-' . $hash . '-' . $end;
-            if (strlen($id) > 128) {
-                $id = substr($id, 0, 119) . '-' . $hash;
-            }
-        }
-        return $id;
+        return Helpers::cap_id($formId . '-' . $key . '-' . $instanceId);
     }
 
     public static function form(array $tpl, array $meta, array $errors, array $values): string
