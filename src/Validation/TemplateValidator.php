@@ -622,10 +622,11 @@ class TemplateValidator
             $handlers = $d['handlers'] ?? [];
             $d['handlers'] = [];
 
+            $ctxBase = 'fields.' . ($f['key'] ?? '') . '.';
             $handlerTypes = [
-                'validator'  => ['id' => $handlers['validator_id'] ?? '', 'resolver' => fn(string $id) => Validator::resolve($id)],
-                'normalizer' => ['id' => $handlers['normalizer_id'] ?? '', 'resolver' => fn(string $id) => Normalizer::resolve($id)],
-                'renderer'   => ['id' => $handlers['renderer_id'] ?? '', 'resolver' => fn(string $id) => Renderer::resolve($id)],
+                'validator'  => ['id' => $handlers['validator_id'] ?? '', 'resolver' => fn(string $id) => Validator::resolve($id, $ctxBase . 'validator')],
+                'normalizer' => ['id' => $handlers['normalizer_id'] ?? '', 'resolver' => fn(string $id) => Normalizer::resolve($id, $ctxBase . 'normalizer')],
+                'renderer'   => ['id' => $handlers['renderer_id'] ?? '', 'resolver' => fn(string $id) => Renderer::resolve($id, $ctxBase . 'renderer')],
             ];
 
             foreach ($handlerTypes as $kind => $info) {
