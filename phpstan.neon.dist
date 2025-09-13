@@ -1,0 +1,9 @@
+parameters:
+    level: 0
+    paths:
+        - src
+        - tests
+    bootstrapFiles:
+        - eforms.php
+    ignoreErrors:
+        - '#Function esc_url_raw not found#'
