@@ -40,3 +40,19 @@ Requires PHP 8.0+ and Composer. Install dependencies and run the tiny PHPUnit su
 - `vendor/bin/phpunit -c phpunit.xml.dist --testdox`
 - Optional stricter run: `vendor/bin/phpunit -c phpunit.xml.dist --fail-on-warning --testdox`
 
+## WP-CLI scripts
+
+Helper scripts under `bin/wp-cli/` exercise a couple of security scenarios. Run
+them from the WordPress root where this plugin is installed:
+
+```sh
+# Submit without an Origin header; expects "Security check failed." in response
+wp eval-file wp-content/plugins/eform/bin/wp-cli/post-no-origin.php
+
+# Send a payload above the configured limit; expects HTTP 413
+wp eval-file wp-content/plugins/eform/bin/wp-cli/post-oversized.php
+```
+
+Both scripts exit with a non-zero status when the observed behaviour deviates
+from the expected result.
+
