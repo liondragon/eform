@@ -1,4 +1,4 @@
-# Prevent directory listing of email templates
+# Prevent directory listing of form templates
 <IfModule mod_authz_core.c>
   Require all denied
 </IfModule>
