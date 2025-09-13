@@ -2,6 +2,10 @@
 declare(strict_types=1);
 
 
+/**
+ * @runInSeparateProcess
+ * @preserveGlobalState disabled
+ */
 final class UploadFailCleanupTest extends BaseTestCase
 {
     public function testFilesRemovedWhenEmailFailsAndNoRetention(): void

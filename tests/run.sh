@@ -6,6 +6,12 @@ PHP="php"
 
 export EFORMS_LOG_MODE=jsonl
 
+# Run unit tests with PHPUnit and measure runtime
+echo "[UNIT] Running PHPUnit tests"
+UNIT_START=$(date +%s)
+$PHP ../vendor/bin/phpunit -c ../phpunit.xml.dist "$@"
+echo "[UNIT] Runtime: $(( $(date +%s) - UNIT_START ))s"
+
 pass=0
 fail=0
 
@@ -72,6 +78,9 @@ function record_result() {
     fail=$((fail+1))
   fi
 }
+
+# Measure integration test runtime
+INTEGRATION_START=$(date +%s)
 
 # Schema validation for templates
 run_test template_schema_check
@@ -363,5 +372,6 @@ assert_grep tmp/headers.txt 'Cache-Control: private, no-store, max-age=0' || ok=
 record_result "render non-cacheable: cache-control set" $ok
 
 echo
+echo "Integration tests runtime: $(( $(date +%s) - INTEGRATION_START ))s"
 echo "Summary: $pass passed, $fail failed"
 exit $(( fail > 0 ))
