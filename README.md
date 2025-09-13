@@ -34,10 +34,9 @@ Uploads are stored in `wp-content/uploads/eforms-private` with strict perms.
 
 ## Tests
 
-Install dependencies and run the tiny PHPUnit suite:
+Requires PHP 8.0+ and Composer. Install dependencies and run the tiny PHPUnit suite:
 
-```bash
-composer install
-vendor/bin/phpunit
-```
+- `composer install`
+- `vendor/bin/phpunit -c phpunit.xml.dist --testdox`
+- Optional stricter run: `vendor/bin/phpunit -c phpunit.xml.dist --fail-on-warning --testdox`
 
