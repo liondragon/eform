@@ -136,7 +136,8 @@ class Emailer
                 }
                 $phpmailer->Timeout = $timeout;
                 $phpmailer->SMTPTimeout = $timeout;
-                $host = $phpmailer->Host;
+                // Some tests stub $phpmailer as stdClass without preset properties
+                $host = property_exists($phpmailer, 'Host') ? (string) $phpmailer->Host : '';
                 if ($dkimEnabled) {
                     $phpmailer->DKIM_domain = $dkimDomain;
                     $phpmailer->DKIM_selector = $dkimSelector;
