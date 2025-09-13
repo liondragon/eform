@@ -459,7 +459,7 @@ class FormManager
         $dir = rtrim(TEMPLATES_DIR, '/');
         $files = glob($dir . '/*.json');
         foreach ($files as $file) {
-            if (!preg_match('~/[a-z0-9_-]+\.json$~', $file)) {
+            if (!preg_match('~/[a-z0-9-]+\.json$~', $file)) {
                 continue;
             }
             $json = json_decode((string) file_get_contents($file), true);

@@ -743,7 +743,7 @@ uploads.*
   - Security hardening: template PHP files include ABSPATH guard (defined('ABSPATH') || exit;).
 
 25. TEMPLATES TO INCLUDE
-  1. forms/quote_request.json
+  1. forms/quote-request.json
     {
       "id":"quote_request",
       "version":"1",
