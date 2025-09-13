@@ -134,7 +134,10 @@ class Logging
             }
         }
         $meta = $ctx;
-        unset($meta['form_id'], $meta['instance_id'], $meta['msg'], $meta['ip'], $meta['spam'], $meta['email']);
+        unset($meta['form_id'], $meta['instance_id'], $meta['msg'], $meta['ip'], $meta['spam']);
+        if (isset($meta['email']) && is_array($meta['email'])) {
+            unset($meta['email']);
+        }
         if (Config::get('logging.headers', false)) {
             $headers = [];
             if (!empty($_SERVER['HTTP_USER_AGENT'])) {
