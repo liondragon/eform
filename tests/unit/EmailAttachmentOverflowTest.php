@@ -59,5 +59,13 @@ final class EmailAttachmentOverflowTest extends BaseTestCase
         $this->assertSame('a.pdf', $mail[0]['attachments'][0]['name']);
         $this->assertStringContainsString('Omitted attachments: b.pdf', $mail[0]['message']);
     }
+    protected function tearDown(): void
+    {
+        global $TEST_FILTERS;
+        $TEST_FILTERS = [];
+        register_test_env_filter();
+        parent::tearDown();
+    }
+
 }
 

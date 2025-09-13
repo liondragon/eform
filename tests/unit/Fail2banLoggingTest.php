@@ -31,18 +31,7 @@ final class Fail2banLoggingTest extends BaseTestCase
     {
         global $TEST_FILTERS;
         $TEST_FILTERS = [];
-        foreach (array_keys(getenv()) as $k) {
-            if (str_starts_with($k, 'EFORMS_')) putenv($k);
-        }
         register_test_env_filter();
-        $ref = new \ReflectionClass(Config::class);
-        $boot = $ref->getProperty('bootstrapped');
-        $boot->setAccessible(true);
-        $boot->setValue(false);
-        $data = $ref->getProperty('data');
-        $data->setAccessible(true);
-        $data->setValue([]);
-        Config::bootstrap();
         parent::tearDown();
     }
 
