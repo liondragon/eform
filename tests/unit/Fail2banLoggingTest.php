@@ -37,13 +37,7 @@ final class Fail2banLoggingTest extends BaseTestCase
 
     private function boot(array $opts): void
     {
-        $ref = new \ReflectionClass(Config::class);
-        $boot = $ref->getProperty('bootstrapped');
-        $boot->setAccessible(true);
-        $boot->setValue(false);
-        $data = $ref->getProperty('data');
-        $data->setAccessible(true);
-        $data->setValue([]);
+        Config::resetForTests();
         add_filter('eforms_config', function ($defaults) use ($opts) {
             $defaults['logging']['mode'] = 'off';
             $defaults['logging']['fail2ban'] = array_replace($defaults['logging']['fail2ban'], $opts);

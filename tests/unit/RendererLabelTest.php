@@ -1,26 +1,11 @@
 <?php
 declare(strict_types=1);
 
-use EForms\Config;
 use EForms\Rendering\Renderer;
 use EForms\Validation\TemplateValidator;
 
 final class RendererLabelTest extends BaseTestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        $ref = new \ReflectionClass(Config::class);
-        $boot = $ref->getProperty('bootstrapped');
-        $boot->setAccessible(true);
-        $boot->setValue(false);
-        $data = $ref->getProperty('data');
-        $data->setAccessible(true);
-        $data->setValue([]);
-        Config::bootstrap();
-    }
-
     public function testRequiredAndHiddenLabels(): void
     {
         $tpl = [

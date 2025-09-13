@@ -8,29 +8,7 @@ final class UploadsLimitTest extends BaseTestCase
 {
     private function rebootstrap(array $overrides): void
     {
-        global $TEST_FILTERS;
-        $TEST_FILTERS = [];
-        register_test_env_filter();
-        $ref = new \ReflectionClass(Config::class);
-        $boot = $ref->getProperty('bootstrapped');
-        $boot->setAccessible(true);
-        $boot->setValue(false);
-        $data = $ref->getProperty('data');
-        $data->setAccessible(true);
-        $data->setValue([]);
-        add_filter('eforms_config', function ($defaults) use ($overrides) {
-            $defaults['uploads'] = array_replace($defaults['uploads'], $overrides);
-            return $defaults;
-        });
-        Config::bootstrap();
-    }
-
-    protected function tearDown(): void
-    {
-        global $TEST_FILTERS;
-        $TEST_FILTERS = [];
-        register_test_env_filter();
-        parent::tearDown();
+        set_config(['uploads' => $overrides]);
     }
 
     public function testMaxFileBytesPerField(): void

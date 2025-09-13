@@ -17,13 +17,7 @@ final class EmailAttachmentNameTest extends BaseTestCase
 
     public function testAttachmentUsesRfc5987WhenNotTransliterated(): void
     {
-        Config::bootstrap();
-        $ref = new \ReflectionClass(Config::class);
-        $prop = $ref->getProperty('data');
-        $prop->setAccessible(true);
-        $cfg = $prop->getValue();
-        $cfg['uploads']['transliterate'] = false;
-        $prop->setValue($cfg);
+        set_config(['uploads' => ['transliterate' => false]]);
 
         $tpl = [
             'id' => 't1',

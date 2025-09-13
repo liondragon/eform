@@ -32,6 +32,12 @@ class Config
         return $value;
     }
 
+    public static function resetForTests(): void
+    {
+        self::$data = [];
+        self::$bootstrapped = false;
+    }
+
     private static function clampTypes(array $config, array $defaults): array
     {
         $cfg = array_replace_recursive($defaults, $config);

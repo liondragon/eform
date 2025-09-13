@@ -12,18 +12,7 @@ final class EmailAttachmentOverflowTest extends BaseTestCase
 
         global $TEST_ARTIFACTS;
         @file_put_contents($TEST_ARTIFACTS['mail_file'], '[]');
-        $ref = new \ReflectionClass(Config::class);
-        $boot = $ref->getProperty('bootstrapped');
-        $boot->setAccessible(true);
-        $boot->setValue(false);
-        $data = $ref->getProperty('data');
-        $data->setAccessible(true);
-        $data->setValue([]);
-        add_filter('eforms_config', function ($defaults) {
-            $defaults['uploads']['max_email_bytes'] = 100;
-            return $defaults;
-        });
-        Config::bootstrap();
+        set_config(['uploads' => ['max_email_bytes' => 100]]);
     }
 
     public function testOverflowAttachmentsSummarized(): void
@@ -59,13 +48,5 @@ final class EmailAttachmentOverflowTest extends BaseTestCase
         $this->assertSame('a.pdf', $mail[0]['attachments'][0]['name']);
         $this->assertStringContainsString('Omitted attachments: b.pdf', $mail[0]['message']);
     }
-    protected function tearDown(): void
-    {
-        global $TEST_FILTERS;
-        $TEST_FILTERS = [];
-        register_test_env_filter();
-        parent::tearDown();
-    }
-
 }
 

@@ -8,13 +8,7 @@ final class UploadsUtf8NameTest extends BaseTestCase
 {
     public function testUtf8NamesPreservedWhenNotTransliterated(): void
     {
-        Config::bootstrap();
-        $ref = new \ReflectionClass(Config::class);
-        $prop = $ref->getProperty('data');
-        $prop->setAccessible(true);
-        $data = $prop->getValue();
-        $data['uploads']['transliterate'] = false;
-        $prop->setValue($data);
+        set_config(['uploads' => ['transliterate' => false]]);
 
         $tpl = [
             'fields' => [
