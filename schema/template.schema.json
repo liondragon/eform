@@ -71,7 +71,20 @@
         "max_file_bytes": {"type": "integer"},
         "max_files": {"type": "integer"},
         "step": {"type": ["number","string"]}
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {"enum": ["name","text","email","url","tel","tel_us","number","date","textarea","textarea_html"]}
+            },
+            "required": ["type"]
+          },
+          "else": {
+            "properties": {"size": false}
+          }
+        }
+      ]
     },
     "option": {
       "type": "object",

@@ -300,7 +300,11 @@ class TemplateValidator
             }
 
             if (isset($f['size'])) {
-                if (!is_int($f['size'])) {
+                $allowedSizeTypes = ['name','text','email','url','tel','tel_us','number','date','textarea','textarea_html'];
+                if (!in_array($type, $allowedSizeTypes, true)) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'size'];
+                    unset($f['size']);
+                } elseif (!is_int($f['size'])) {
                     $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'size'];
                     unset($f['size']);
                 } elseif ($f['size'] < 1 || $f['size'] > 100) {
