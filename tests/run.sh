@@ -348,14 +348,14 @@ record_result "upload: retention GC" $ok
 EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 run_test test_throttle_soft_first
 EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 run_test_keep test_throttle_soft_second
 ok=0
-assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_THROTTLE' || ok=1
+assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_THROTTLED' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"state":"over"' || ok=1
 record_result "throttle: soft over-limit" $ok
 
 EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 EFORMS_THROTTLE_HARD_MULTIPLIER=1.5 run_test test_throttle_hard_first
 EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 EFORMS_THROTTLE_HARD_MULTIPLIER=1.5 run_test_keep test_throttle_hard_second
 ok=0
-assert_grep tmp/stdout.txt 'Security check failed\.' || ok=1
+assert_grep tmp/stdout.txt 'Please wait a moment and try again\.' || ok=1
 ! assert_grep tmp/mail.json 'alice@example.com.*alice@example.com' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"state":"hard"' || ok=1
 record_result "throttle: hard over-limit" $ok
