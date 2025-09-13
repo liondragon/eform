@@ -36,6 +36,7 @@ final class DescriptorsResolutionTest extends BaseTestCase
     public function testUnknownHandlerIdFails(): void
     {
         $this->expectException(\RuntimeException::class);
-        Validator::resolve('unknown');
+        $this->expectExceptionMessage('fields.foo.validator');
+        Validator::resolve('unknown', 'fields.foo.validator');
     }
 }

@@ -41,10 +41,14 @@ class Renderer
      *
      * @throws \RuntimeException when the identifier is unknown
      */
-    public static function resolve(string $id): callable
+    public static function resolve(string $id, ?string $context = null): callable
     {
         if (!isset(self::HANDLERS[$id])) {
-            throw new \RuntimeException('Unknown renderer ID: ' . $id);
+            $msg = 'Unknown renderer ID: ' . $id;
+            if ($context !== null && $context !== '') {
+                $msg .= ' (context: ' . $context . ')';
+            }
+            throw new \RuntimeException($msg);
         }
         return self::HANDLERS[$id];
     }
@@ -206,7 +210,7 @@ class Renderer
             $before = $f['before_html'] ?? '';
             $after = $f['after_html'] ?? '';
             $html .= $before;
-            $handler = $desc['handlers']['renderer'] ?? self::resolve($desc['handlers']['renderer_id'] ?? '');
+            $handler = $desc['handlers']['renderer'] ?? self::resolve($desc['handlers']['renderer_id'] ?? '', 'fields.' . $key . '.renderer');
             $ctx = [
                 'desc' => $desc,
                 'f' => $f,

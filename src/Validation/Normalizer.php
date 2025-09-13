@@ -34,10 +34,14 @@ class Normalizer
      *
      * @throws \RuntimeException when the identifier is unknown
      */
-    public static function resolve(string $id): callable
+    public static function resolve(string $id, ?string $context = null): callable
     {
         if (!isset(self::HANDLERS[$id])) {
-            throw new \RuntimeException('Unknown normalizer ID: ' . $id);
+            $msg = 'Unknown normalizer ID: ' . $id;
+            if ($context !== null && $context !== '') {
+                $msg .= ' (context: ' . $context . ')';
+            }
+            throw new \RuntimeException($msg);
         }
         return self::HANDLERS[$id];
     }

@@ -38,10 +38,14 @@ class Validator
      *
      * @throws \RuntimeException when the identifier is unknown
      */
-    public static function resolve(string $id): callable
+    public static function resolve(string $id, ?string $context = null): callable
     {
         if (!isset(self::VALIDATORS[$id])) {
-            throw new \RuntimeException('Unknown validator ID: ' . $id);
+            $msg = 'Unknown validator ID: ' . $id;
+            if ($context !== null && $context !== '') {
+                $msg .= ' (context: ' . $context . ')';
+            }
+            throw new \RuntimeException($msg);
         }
         return self::VALIDATORS[$id];
     }
@@ -225,12 +229,13 @@ class Validator
             $nid = $handlers['normalizer_id'] ?? ($f['type'] ?? '');
             $rid = $handlers['renderer_id'] ?? ($f['type'] ?? '');
             $f['form_id'] = $tpl['id'] ?? '';
+            $ctxBase = 'fields.' . ($f['key'] ?? '');
             $f['handlers'] = $handlers + [
-                'validator'  => self::resolve($hid),
-                'normalizer' => Normalizer::resolve($nid),
+                'validator'  => self::resolve($hid, $ctxBase . '.validator'),
+                'normalizer' => Normalizer::resolve($nid, $ctxBase . '.normalizer'),
             ];
             if (!array_key_exists('renderer', $handlers)) {
-                $f['handlers']['renderer'] = Renderer::resolve($rid);
+                $f['handlers']['renderer'] = Renderer::resolve($rid, $ctxBase . '.renderer');
             }
             $desc[$f['key']] = $f;
         }
