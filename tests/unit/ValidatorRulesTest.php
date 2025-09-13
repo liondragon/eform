@@ -2,7 +2,6 @@
 declare(strict_types=1);
 
 use EForms\Config;
-use EForms\Logging;
 use EForms\Validation\TemplateValidator;
 use EForms\Validation\Validator;
 
@@ -11,17 +10,6 @@ final class ValidatorRulesTest extends BaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
-
-        $lref = new \ReflectionClass(Logging::class);
-        $lin = $lref->getProperty('init');
-        $lin->setAccessible(true);
-        $lin->setValue(false);
-        $lfile = $lref->getProperty('file');
-        $lfile->setAccessible(true);
-        $lfile->setValue('');
-        $ldir = $lref->getProperty('dir');
-        $ldir->setAccessible(true);
-        $ldir->setValue('');
         set_config(['logging' => ['level' => 1, 'mode' => 'jsonl']]);
     }
 

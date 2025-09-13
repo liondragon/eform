@@ -19,10 +19,6 @@ class BaseTestCase extends TestCase
     private array $serverSnapshot = [];
     /** @var array<string,mixed> */
     private array $filtersSnapshot = [];
-    /** @var array<string,mixed> */
-    private array $configSnapshot = [];
-    /** @var array<string,mixed> */
-    private array $loggingSnapshot = [];
 
     protected function setUp(): void
     {
@@ -51,8 +47,8 @@ class BaseTestCase extends TestCase
                 }
             }
         }
-        $this->configSnapshot = $this->snapshotStatic(Config::class);
-        $this->loggingSnapshot = $this->snapshotStatic(Logging::class);
+        Config::resetForTests();
+        Logging::resetForTests();
     }
 
     protected function tearDown(): void
@@ -84,35 +80,8 @@ class BaseTestCase extends TestCase
         global $TEST_FILTERS;
         $TEST_FILTERS = $this->filtersSnapshot;
         register_test_env_filter();
-        $this->restoreStatic(Config::class, $this->configSnapshot);
-        $this->restoreStatic(Logging::class, $this->loggingSnapshot);
+        Config::resetForTests();
+        Logging::resetForTests();
         parent::tearDown();
-    }
-
-    /**
-     * @return array<string,mixed>
-     */
-    private function snapshotStatic(string $class): array
-    {
-        $rc = new ReflectionClass($class);
-        $props = [];
-        foreach ($rc->getProperties(ReflectionProperty::IS_STATIC) as $prop) {
-            $prop->setAccessible(true);
-            $props[$prop->getName()] = $prop->getValue();
-        }
-        return $props;
-    }
-
-    /**
-     * @param array<string,mixed> $snapshot
-     */
-    private function restoreStatic(string $class, array $snapshot): void
-    {
-        $rc = new ReflectionClass($class);
-        foreach ($snapshot as $name => $value) {
-            $prop = $rc->getProperty($name);
-            $prop->setAccessible(true);
-            $prop->setValue($value);
-        }
     }
 }

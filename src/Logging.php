@@ -9,6 +9,13 @@ class Logging
     private static bool $init = false;
     private static string $dir = '';
 
+    public static function resetForTests(): void
+    {
+        self::$file = '';
+        self::$init = false;
+        self::$dir = '';
+    }
+
     private static function init(): void
     {
         \EForms\Config::bootstrap();
