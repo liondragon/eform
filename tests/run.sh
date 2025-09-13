@@ -134,6 +134,12 @@ assert_equal_file tmp/status_code.txt "415" || ok=1
 assert_grep tmp/stdout.txt "Unsupported Media Type" || ok=1
 record_result "submit multipart empty boundary" $ok
 
+# 1e) Protective files created
+run_test test_dir_protect
+ok=0
+assert_equal_file tmp/protect.txt 'OK' || ok=1
+record_result "uploads dir protective files" $ok
+
 # 2) Origin soft default: allow cross origin
 run_test test_origin_soft
 ok=0
