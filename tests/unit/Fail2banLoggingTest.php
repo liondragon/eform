@@ -11,14 +11,15 @@ namespace EForms {
 namespace {
 // bootstrap handled by phpunit.xml
 
-use PHPUnit\Framework\TestCase;
 use EForms\Config;
 use EForms\Logging;
 
-final class Fail2banLoggingTest extends TestCase
+final class Fail2banLoggingTest extends BaseTestCase
 {
     protected function setUp(): void
     {
+        parent::setUp();
+
         global $TEST_FILTERS, $TEST_F2B_SYSLOG, $TEST_ARTIFACTS;
         $TEST_F2B_SYSLOG = [];
         $TEST_FILTERS = [];
@@ -42,6 +43,7 @@ final class Fail2banLoggingTest extends TestCase
         $data->setAccessible(true);
         $data->setValue([]);
         Config::bootstrap();
+        parent::tearDown();
     }
 
     private function boot(array $opts): void

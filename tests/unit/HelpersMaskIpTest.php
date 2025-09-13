@@ -1,10 +1,9 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Helpers;
 
-final class HelpersMaskIpTest extends TestCase
+final class HelpersMaskIpTest extends BaseTestCase
 {
     public function testIpv4Mask(): void
     {

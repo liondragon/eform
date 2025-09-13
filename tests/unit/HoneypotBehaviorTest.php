@@ -1,7 +1,6 @@
 <?php
-use PHPUnit\Framework\TestCase;
 
-class HoneypotBehaviorTest extends TestCase
+class HoneypotBehaviorTest extends BaseTestCase
 {
     public function testStealthHeaderAndTokenBurn(): void
     {

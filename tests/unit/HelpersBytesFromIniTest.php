@@ -1,8 +1,7 @@
 <?php
-use PHPUnit\Framework\TestCase;
 use EForms\Helpers;
 
-class HelpersBytesFromIniTest extends TestCase
+class HelpersBytesFromIniTest extends BaseTestCase
 {
     public function testConversions(): void
     {

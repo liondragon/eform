@@ -1,11 +1,10 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Uploads\Uploads;
 use EForms\Config;
 
-final class UploadsReservedNameTest extends TestCase
+final class UploadsReservedNameTest extends BaseTestCase
 {
     public function testReservedWindowsNamesAreModified(): void
     {

@@ -1,13 +1,14 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Config;
 
-final class SuccessAntiSpoofTest extends TestCase
+final class SuccessAntiSpoofTest extends BaseTestCase
 {
     protected function setUp(): void
     {
+        parent::setUp();
+
         Config::bootstrap();
     }
 

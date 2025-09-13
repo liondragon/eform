@@ -1,7 +1,6 @@
 <?php
-use PHPUnit\Framework\TestCase;
 
-class ChallengeVerifierTest extends TestCase
+class ChallengeVerifierTest extends BaseTestCase
 {
     private function runScript(string $script): array
     {

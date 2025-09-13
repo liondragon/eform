@@ -1,16 +1,17 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Config;
 use EForms\Logging;
 use EForms\Validation\TemplateValidator;
 use EForms\Validation\Validator;
 
-final class ValidatorRulesTest extends TestCase
+final class ValidatorRulesTest extends BaseTestCase
 {
     protected function setUp(): void
     {
+        parent::setUp();
+
         $ref = new \ReflectionClass(Config::class);
         $boot = $ref->getProperty('bootstrapped');
         $boot->setAccessible(true);

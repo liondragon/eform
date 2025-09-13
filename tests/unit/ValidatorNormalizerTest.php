@@ -1,10 +1,9 @@
 <?php
 declare(strict_types=1);
 
-use PHPUnit\Framework\TestCase;
 use EForms\Validation\Validator;
 
-final class ValidatorNormalizerTest extends TestCase
+final class ValidatorNormalizerTest extends BaseTestCase
 {
     public function testEmailNormalizerApplied(): void
     {

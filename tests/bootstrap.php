@@ -1,6 +1,12 @@
 <?php
 declare(strict_types=1);
 
+spl_autoload_register(function ($class) {
+    if ($class === 'BaseTestCase') {
+        require __DIR__ . '/BaseTestCase.php';
+    }
+});
+
 // Minimal WP stubs and test harness utilities for running plugin in CLI.
 
 // Globals used by harness
