@@ -39,7 +39,7 @@ if ($schemaRequired !== ['type']) {
 }
 
 // Descriptor structural shape
-$expectedKeys = ['handlers','html','is_multivalue','type','validate'];
+$expectedKeys = ['constants','handlers','html','is_multivalue','type','validate'];
 foreach ($specDescriptors as $t => $desc) {
     $keys = array_keys($desc);
     sort($keys);

@@ -333,6 +333,18 @@ class TemplateValidatorTest extends BaseTestCase
         $this->assertNull($res['context']['fields'][0]['size']);
     }
 
+    public function testSizeDisallowedOnNonTextFields(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][] = ['type' => 'range', 'key' => 'rng', 'size' => 10];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('fields[2].size', $paths);
+        $this->assertNull($res['context']['fields'][2]['size']);
+    }
+
     public function testFileLimitsAndStepAllowed(): void
     {
         $tpl = $this->baseTpl();
