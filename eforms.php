@@ -31,7 +31,7 @@ namespace {
             deactivate_plugins(plugin_basename(__FILE__));
         });
         add_action('admin_notices', function () {
-            echo '<div class="notice notice-error"><p>' . esc_html__('Electronic Forms requires PHP 8.0 or higher.', 'eforms') . '</p></div>';
+            echo '<div class="notice notice-error"><p>' . esc_html('Electronic Forms requires PHP 8.0 or higher.') . '</p></div>';
         });
         return;
     }
@@ -42,7 +42,7 @@ namespace {
             deactivate_plugins(plugin_basename(__FILE__));
         });
         add_action('admin_notices', function () {
-            echo '<div class="notice notice-error"><p>' . esc_html__('Electronic Forms requires WordPress 5.8 or higher.', 'eforms') . '</p></div>';
+            echo '<div class="notice notice-error"><p>' . esc_html('Electronic Forms requires WordPress 5.8 or higher.') . '</p></div>';
         });
         return;
     }
