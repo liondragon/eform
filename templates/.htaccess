@@ -1,2 +1,7 @@
-# Deny direct access to form templates
-Deny from all
+# Prevent directory listing of templates
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Deny from all
+</IfModule>
