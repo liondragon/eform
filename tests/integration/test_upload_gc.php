@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'uploads' => ['retention_seconds' => 1],
+]);
 
 $base = __DIR__ . '/../tmp/uploads/eforms-private';
 $dir = $base . '/20200101';

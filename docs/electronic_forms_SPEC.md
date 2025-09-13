@@ -494,7 +494,6 @@ electronic_forms - Spec
   - Immutable per-request Config snapshot:
     - Config::bootstrap() loads defaults (nested array mirroring §17), applies a single eforms_config filter once, validates/clamps types/ranges/enums, then freezes.
     - Access via Config::get('path.like.this').
-    - Legacy EFORMS_* constants seed/override defaults before filter/validation (deprecated).
   - Keys (examples, all below are config paths):
     - security.origin_mode: off | soft | hard (default soft)
 
@@ -548,7 +547,7 @@ email.*
   email.envelope_sender
   email.dkim.domain / selector / private_key_path / pass_phrase (optional; all valid to enable)
   email.disable_send (bool; default false)
-  email.staging_redirect_to (string|array; overrides all recipients; deprecated alias EFORMS_STAGING_REDIRECT_TO recognized)
+  email.staging_redirect_to (string|array; overrides all recipients)
   email.suspect_subject_tag (string; default [SUSPECT])
   email.upload_max_attachments (int; default 5)
   email.debug.enable (bool; default false)

@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'security' => ['token_ledger' => ['enable' => false]],
+]);
 
 use EForms\Security\Security;
 

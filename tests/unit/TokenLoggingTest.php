@@ -9,7 +9,7 @@ class TokenLoggingTest extends BaseTestCase
             exec('rm -rf ' . escapeshellarg($tmpDir));
         }
         mkdir($tmpDir, 0777, true);
-        $cmd = 'EFORMS_LOG_MODE=jsonl php-cgi ' . escapeshellarg(__DIR__ . '/../integration/' . $script);
+        $cmd = 'php-cgi ' . escapeshellarg(__DIR__ . '/../integration/' . $script);
         $out = [];
         exec($cmd, $out, $code);
         return [$code, $out, $tmpDir];

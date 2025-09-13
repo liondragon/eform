@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'email' => ['staging_redirect_to' => 'stage@example.com'],
+]);
 
 $tpl = [
     'email' => [
