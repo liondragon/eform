@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'logging' => ['headers' => true],
+]);
 
 $_SERVER['HTTP_USER_AGENT'] = str_repeat('A', 300) . "\x01\x02B";
 \EForms\Logging::write('error', 'EFORMS_TEST', []);

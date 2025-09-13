@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'uploads' => ['max_file_bytes' => 100],
+]);
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';

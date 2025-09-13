@@ -4,7 +4,6 @@ cd "$(dirname "$0")"
 
 PHP="php"
 
-export EFORMS_LOG_MODE=jsonl
 
 # Run unit tests with PHPUnit and measure runtime
 echo "[UNIT] Running PHPUnit tests"
@@ -205,8 +204,8 @@ assert_grep tmp/uploads/eforms-private/eforms.log '"stealth":false' || ok=1
 record_result "honeypot: hard fail" $ok
 
 # 3c) Honeypot throttle increments
-EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 run_test test_honeypot_throttle_first
-EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 run_test_keep test_honeypot_throttle_second
+run_test test_honeypot_throttle_first
+run_test_keep test_honeypot_throttle_second
 ok=0
 assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_HONEYPOT' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"throttle_state":"ok"' || ok=1
@@ -262,7 +261,7 @@ assert_grep tmp/stdout.txt 'Already submitted or expired\.' || ok=1
 record_result "ledger reserve: duplicate token" $ok
 
 # 5b) Ledger disabled skips file
-EFORMS_TOKEN_LEDGER_ENABLE=0 run_test test_ledger_disable
+run_test test_ledger_disable
 ok=0
 assert_grep tmp/stdout.txt '^missing$' || ok=1
 record_result "ledger: disabled skips file" $ok
@@ -291,19 +290,19 @@ assert_grep tmp/mail.json 'doc.pdf' || ok=1
 record_result "email attachments: file included" $ok
 
 # 7c) Email policy autocorrect
-EFORMS_EMAIL_POLICY=autocorrect run_test test_email_policy_autocorrect
+run_test test_email_policy_autocorrect
 ok=0
 assert_grep tmp/mail.json 'a@example.com' || ok=1
 record_result "email policy autocorrect" $ok
 
 # 7d) Email disable send
-EFORMS_EMAIL_DISABLE_SEND=1 run_test test_email_disable_send
+run_test test_email_disable_send
 ok=0
 assert_equal_file tmp/mail.json '[]' || ok=1
 record_result "email disable send" $ok
 
 # 7e) Email staging redirect
-EFORMS_EMAIL_STAGING_REDIRECT_TO=stage@example.com run_test test_email_staging_redirect
+run_test test_email_staging_redirect
 ok=0
 assert_grep tmp/mail.json 'stage@example.com' || ok=1
 assert_grep tmp/mail.json '\[STAGING\]' || ok=1
@@ -319,14 +318,14 @@ assert_grep tmp/uploads/eforms-private/eforms.log '"code":"EFORMS_EMAIL_FAIL"' |
 record_result "logging: SMTP failure" $ok
 
 # 8b) Logging minimal file output
-EFORMS_LOG_MODE=minimal run_test test_logging_minimal
+run_test test_logging_minimal
 ok=0
 assert_grep tmp/uploads/eforms-private/eforms.log 'severity=error' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log 'code=EFORMS_EMAIL_FAIL' || ok=1
 record_result "logging: minimal file output" $ok
 
 # 8c) Logging User-Agent sanitization
-EFORMS_LOG_HEADERS=1 run_test test_logging_user_agent
+run_test test_logging_user_agent
 ok=0
 assert_grep tmp/ua.txt '^A{256}$' || ok=1
 record_result "logging: user-agent sanitized" $ok
@@ -338,28 +337,28 @@ assert_equal_file tmp/uploaded.txt '' || ok=1
 record_result "upload: valid file handled" $ok
 
 # 9b) Upload too large
-EFORMS_UPLOAD_MAX_FILE_BYTES=100 run_test test_upload_reject
+run_test test_upload_reject
 ok=0
 assert_grep tmp/stdout.txt 'This file exceeds the size limit\.' || ok=1
 ! assert_grep tmp/uploaded.txt 'eforms-private' || ok=1
 record_result "upload: file too large rejected" $ok
 
 # 9c) Upload retention GC
-EFORMS_UPLOAD_RETENTION_SECONDS=1 run_test test_upload_gc
+run_test test_upload_gc
 ok=0
 assert_equal_file tmp/gc.txt 'empty' || ok=1
 record_result "upload: retention GC" $ok
 
 # 10) Throttle soft and hard
-EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 run_test test_throttle_soft_first
-EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 run_test_keep test_throttle_soft_second
+run_test test_throttle_soft_first
+run_test_keep test_throttle_soft_second
 ok=0
 assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_THROTTLED' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"state":"over"' || ok=1
 record_result "throttle: soft over-limit" $ok
 
-EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 EFORMS_THROTTLE_HARD_MULTIPLIER=1.5 run_test test_throttle_hard_first
-EFORMS_THROTTLE_ENABLE=1 EFORMS_THROTTLE_MAX_PER_MINUTE=1 EFORMS_THROTTLE_HARD_MULTIPLIER=1.5 run_test_keep test_throttle_hard_second
+run_test test_throttle_hard_first
+run_test_keep test_throttle_hard_second
 ok=0
 assert_grep tmp/stdout.txt 'Please wait a moment and try again\.' || ok=1
 ! assert_grep tmp/mail.json 'alice@example.com.*alice@example.com' || ok=1
