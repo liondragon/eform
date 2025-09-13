@@ -22,7 +22,26 @@ final class Fail2banLoggingTest extends TestCase
         global $TEST_FILTERS, $TEST_F2B_SYSLOG, $TEST_ARTIFACTS;
         $TEST_F2B_SYSLOG = [];
         $TEST_FILTERS = [];
+        register_test_env_filter();
         file_put_contents($TEST_ARTIFACTS['log_file'], '');
+    }
+
+    protected function tearDown(): void
+    {
+        global $TEST_FILTERS;
+        $TEST_FILTERS = [];
+        foreach (array_keys(getenv()) as $k) {
+            if (str_starts_with($k, 'EFORMS_')) putenv($k);
+        }
+        register_test_env_filter();
+        $ref = new \ReflectionClass(Config::class);
+        $boot = $ref->getProperty('bootstrapped');
+        $boot->setAccessible(true);
+        $boot->setValue(false);
+        $data = $ref->getProperty('data');
+        $data->setAccessible(true);
+        $data->setValue([]);
+        Config::bootstrap();
     }
 
     private function boot(array $opts): void

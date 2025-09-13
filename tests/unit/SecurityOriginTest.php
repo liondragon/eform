@@ -72,4 +72,10 @@ class SecurityOriginTest extends TestCase
         $this->assertEquals('missing', $res['state']);
         $this->assertTrue($res['hard_fail']);
     }
+
+    protected function tearDown(): void
+    {
+        putenv('EFORMS_ORIGIN_MODE');
+        putenv('EFORMS_ORIGIN_MISSING_HARD');
+    }
 }

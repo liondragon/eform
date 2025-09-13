@@ -11,6 +11,7 @@ final class UploadsLimitTest extends TestCase
     {
         global $TEST_FILTERS;
         $TEST_FILTERS = [];
+        register_test_env_filter();
         $ref = new \ReflectionClass(Config::class);
         $boot = $ref->getProperty('bootstrapped');
         $boot->setAccessible(true);
@@ -22,6 +23,24 @@ final class UploadsLimitTest extends TestCase
             $defaults['uploads'] = array_replace($defaults['uploads'], $overrides);
             return $defaults;
         });
+        Config::bootstrap();
+    }
+
+    protected function tearDown(): void
+    {
+        global $TEST_FILTERS;
+        $TEST_FILTERS = [];
+        foreach (array_keys(getenv()) as $k) {
+            if (str_starts_with($k, 'EFORMS_')) putenv($k);
+        }
+        register_test_env_filter();
+        $ref = new \ReflectionClass(Config::class);
+        $boot = $ref->getProperty('bootstrapped');
+        $boot->setAccessible(true);
+        $boot->setValue(false);
+        $data = $ref->getProperty('data');
+        $data->setAccessible(true);
+        $data->setValue([]);
         Config::bootstrap();
     }
 
