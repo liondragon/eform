@@ -16,6 +16,4 @@ jobs:
       - name: Run PHPStan
         run: vendor/bin/phpstan analyse --memory-limit=1G
       - name: Run PHPUnit with random order
-        run: >-
-          vendor/bin/phpunit -c phpunit.xml.dist --order-by=random
-            --fail-on-warning --testdox
+        run: vendor/bin/phpunit -c phpunit.xml.dist --order-by=random --fail-on-warning
