@@ -251,7 +251,7 @@ class FormManager
             $thr = Throttle::check($ip);
             $throttleState = $thr['state'] ?? 'ok';
             if ($throttleState !== 'ok') {
-                Logging::write('warn', 'EFORMS_THROTTLE', [
+                Logging::write('warn', 'EFORMS_ERR_THROTTLED', [
                     'form_id' => $formId,
                     'instance_id' => $_POST['instance_id'] ?? '',
                     'ip' => $ip,
@@ -264,7 +264,7 @@ class FormManager
                     }
                 }
                 if ($throttleState === 'hard') {
-                    $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+                    $this->renderErrorAndExit($tpl, $formId, 'Please wait a moment and try again.');
                 }
                 $softFailCount++;
             }
