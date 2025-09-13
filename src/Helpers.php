@@ -65,6 +65,42 @@ class Helpers
         return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
     }
 
+    public static function cap_id(string $id, int $max = 128): string
+    {
+        if ($max <= 0) return '';
+        if (strlen($id) <= $max) return $id;
+        $hash = hash('sha256', $id, true);
+        $suffix = self::base32_8(substr($hash, 0, 5));
+        if ($max <= 10) {
+            return substr($suffix, 0, $max);
+        }
+        $avail = $max - 10;
+        $start = intdiv($avail, 2);
+        $end = $avail - $start;
+        return substr($id, 0, $start) . '-' . $suffix . '-' . substr($id, -$end);
+    }
+
+    private static function base32_8(string $bytes): string
+    {
+        $alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+        $buffer = 0;
+        $bits = 0;
+        $out = '';
+        $len = strlen($bytes);
+        for ($i = 0; $i < $len; $i++) {
+            $buffer = ($buffer << 8) | ord($bytes[$i]);
+            $bits += 8;
+            while ($bits >= 5) {
+                $bits -= 5;
+                $out .= $alphabet[($buffer >> $bits) & 0x1F];
+            }
+        }
+        if ($bits > 0) {
+            $out .= $alphabet[($buffer << (5 - $bits)) & 0x1F];
+        }
+        return substr($out, 0, 8);
+    }
+
     public static function sanitize_user_agent(string $ua): string
     {
         $ua = preg_replace('/[^\x20-\x7E]/', '', $ua) ?? '';
