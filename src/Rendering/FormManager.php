@@ -411,12 +411,12 @@ class FormManager
             $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
             $meta = [
                 'form_id' => $formId,
-                'instance_id' => Helpers::random_id(16),
-                'timestamp' => time(),
+                'instance_id' => $_POST['instance_id'] ?? '',
+                'timestamp' => $timestamp > 0 ? $timestamp : time(),
                 'cacheable' => !$hasHidden,
                 'client_validation' => (bool) Config::get('html5.client_validation', false),
                 'action' => \home_url('/eforms/submit'),
-                'hidden_token' => $hasHidden ? (function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()) : null,
+                'hidden_token' => $hasHidden ? $postedToken : null,
                 'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
             ];
             if ($requireChallenge) {
