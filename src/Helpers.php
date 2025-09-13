@@ -201,4 +201,29 @@ class Helpers
         }
         return $path . $queryOut;
     }
+
+    public static function ensure_private_dir(string $dir): void
+    {
+        if ($dir === '') return;
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0700, true);
+        }
+        $index = $dir . '/index.html';
+        if (!file_exists($index)) {
+            @file_put_contents($index, '');
+            @chmod($index, 0600);
+        }
+        $ht = $dir . '/.htaccess';
+        if (!file_exists($ht)) {
+            $content = "Options -Indexes\n<IfModule mod_authz_core.c>\n  Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n  Deny from all\n</IfModule>\n";
+            @file_put_contents($ht, $content);
+            @chmod($ht, 0600);
+        }
+        $wc = $dir . '/web.config';
+        if (!file_exists($wc)) {
+            $content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<configuration>\n  <system.webServer>\n    <directoryBrowse enabled=\"false\" />\n    <authorization>\n      <deny users=\"*\" />\n    </authorization>\n  </system.webServer>\n</configuration>\n";
+            @file_put_contents($wc, $content);
+            @chmod($wc, 0600);
+        }
+    }
 }

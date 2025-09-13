@@ -31,9 +31,7 @@ class Logging
             return;
         }
 
-        if (!is_dir(self::$dir)) {
-            @mkdir(self::$dir, 0700, true);
-        }
+        Helpers::ensure_private_dir(self::$dir);
         self::$file = self::$dir . '/eforms.log';
         self::$init = true;
     }
@@ -98,6 +96,7 @@ class Logging
             }
             return;
         }
+        self::init();
         $level = (int) Config::get('logging.level', 0);
         $sevLevel = 0;
         if ($severity === 'warn') $sevLevel = 1;
@@ -229,9 +228,7 @@ class Logging
                 $file = $base . '/' . ltrim($file, '/');
             }
             $dir = dirname($file);
-            if (!is_dir($dir)) {
-                @mkdir($dir, 0700, true);
-            }
+            Helpers::ensure_private_dir($dir);
             $max = (int) Config::get(
                 'logging.fail2ban.file_max_size',
                 (int) Config::get('logging.file_max_size', 5000000)

@@ -6,6 +6,7 @@ namespace EForms\Uploads;
 use EForms\Config;
 use EForms\Spec;
 use EForms\Logging;
+use EForms\Helpers;
 
 class Uploads
 {
@@ -165,6 +166,7 @@ class Uploads
         if ($base === '') {
             return $out;
         }
+        Helpers::ensure_private_dir($base);
         $names = [];
         foreach ($files as $k => $list) {
             foreach ($list as $item) {
