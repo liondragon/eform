@@ -5,6 +5,7 @@ namespace EForms\Validation;
 
 use EForms\Config;
 use EForms\Logging;
+use EForms\Rendering\Renderer;
 
 class Validator
 {
@@ -219,13 +220,18 @@ class Validator
             if (($f['type'] ?? '') === 'row_group') {
                 continue;
             }
-            $hid = $f['handlers']['validator_id'] ?? ($f['type'] ?? '');
-            $nid = $f['handlers']['normalizer_id'] ?? ($f['type'] ?? '');
+            $handlers = $f['handlers'] ?? [];
+            $hid = $handlers['validator_id'] ?? ($f['type'] ?? '');
+            $nid = $handlers['normalizer_id'] ?? ($f['type'] ?? '');
+            $rid = $handlers['renderer_id'] ?? ($f['type'] ?? '');
             $f['form_id'] = $tpl['id'] ?? '';
-            $f['handlers'] = [
+            $f['handlers'] = $handlers + [
                 'validator'  => self::resolve($hid),
                 'normalizer' => Normalizer::resolve($nid),
             ];
+            if (!array_key_exists('renderer', $handlers)) {
+                $f['handlers']['renderer'] = Renderer::resolve($rid);
+            }
             $desc[$f['key']] = $f;
         }
         return $desc;
