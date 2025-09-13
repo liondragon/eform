@@ -1,8 +1,8 @@
 <?php
 declare(strict_types=1);
 // Hard origin mode should block cross-origin
-putenv('EFORMS_ORIGIN_MODE=hard');
 require __DIR__ . '/../bootstrap.php';
+set_config(['security' => ['origin_mode' => 'hard']]);
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_ORIGIN'] = 'http://evil.example.com';

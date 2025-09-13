@@ -1,8 +1,10 @@
 <?php
 declare(strict_types=1);
-putenv('EFORMS_LOG_LEVEL=1');
-putenv('EFORMS_JS_HARD_MODE=0');
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'logging' => ['level' => 1],
+    'security' => ['js_hard_mode' => false],
+]);
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';

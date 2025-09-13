@@ -1,8 +1,10 @@
 <?php
 declare(strict_types=1);
-putenv('EFORMS_COOKIE_MISSING_POLICY=challenge');
-putenv('EFORMS_LOG_LEVEL=1');
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'security' => ['cookie_missing_policy' => 'challenge'],
+    'logging' => ['level' => 1],
+]);
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
 $_POST = [

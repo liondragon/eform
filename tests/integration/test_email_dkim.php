@@ -3,10 +3,14 @@ declare(strict_types=1);
 $pk = __DIR__ . '/../tmp/dkim.key';
 file_put_contents($pk, 'key');
 
-putenv('EFORMS_EMAIL_DKIM_DOMAIN=example.com');
-putenv('EFORMS_EMAIL_DKIM_SELECTOR=sel');
-putenv('EFORMS_EMAIL_DKIM_PRIVATE_KEY_PATH=' . $pk);
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'email' => ['dkim' => [
+        'domain' => 'example.com',
+        'selector' => 'sel',
+        'private_key_path' => $pk,
+    ]],
+]);
 
 $captured = null;
 $hook = function($phpmailer) use (&$captured) { $captured = clone $phpmailer; };

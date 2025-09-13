@@ -1,11 +1,14 @@
 <?php
 declare(strict_types=1);
-putenv('EFORMS_COOKIE_MISSING_POLICY=challenge');
-putenv('EFORMS_CHALLENGE_MODE=auto');
-putenv('EFORMS_CHALLENGE_PROVIDER=turnstile');
-putenv('EFORMS_TURNSTILE_SITE_KEY=site');
-putenv('EFORMS_TURNSTILE_SECRET_KEY=secret');
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'security' => ['cookie_missing_policy' => 'challenge'],
+    'challenge' => [
+        'mode' => 'auto',
+        'provider' => 'turnstile',
+        'turnstile' => ['site_key' => 'site', 'secret_key' => 'secret'],
+    ],
+]);
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
 $_POST = [
