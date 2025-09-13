@@ -178,6 +178,14 @@ class TemplateValidator
                 $path,
                 $errors
             );
+            if (isset($f['email_attach'])) {
+                if (!in_array($type, ['file','files'], true)) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'email_attach'];
+                    unset($f['email_attach']);
+                } elseif (!is_bool($f['email_attach'])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'email_attach'];
+                }
+            }
             $key = $f['key'] ?? null;
             if (!is_string($key) || !preg_match('/^[a-z0-9_:-]{1,64}$/', $key)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'key'];
@@ -259,9 +267,6 @@ class TemplateValidator
                 $intersection = array_intersect($accept, $global);
                 if (empty($accept) || empty($intersection)) {
                     $errors[] = ['code'=>self::EFORMS_ERR_ACCEPT_EMPTY,'path'=>$path.'accept'];
-                }
-                if (isset($f['email_attach']) && !is_bool($f['email_attach'])) {
-                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'email_attach'];
                 }
                 if (isset($f['max_file_bytes'])) {
                     if (!is_int($f['max_file_bytes'])) {

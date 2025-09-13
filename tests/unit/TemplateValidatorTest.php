@@ -357,6 +357,17 @@ class TemplateValidatorTest extends BaseTestCase
         $this->assertTrue($res['ok']);
     }
 
+    public function testEmailAttachOnlyForFileFields(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['email_attach'] = true;
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+        $this->assertContains('fields[0].email_attach', $paths);
+    }
+
     public function testIncludeFieldsValidation(): void
     {
         $tpl = $this->baseTpl();
