@@ -12,13 +12,6 @@ final class ValidatorRulesTest extends BaseTestCase
     {
         parent::setUp();
 
-        $ref = new \ReflectionClass(Config::class);
-        $boot = $ref->getProperty('bootstrapped');
-        $boot->setAccessible(true);
-        $boot->setValue(false);
-        $data = $ref->getProperty('data');
-        $data->setAccessible(true);
-        $data->setValue([]);
         $lref = new \ReflectionClass(Logging::class);
         $lin = $lref->getProperty('init');
         $lin->setAccessible(true);
@@ -29,9 +22,7 @@ final class ValidatorRulesTest extends BaseTestCase
         $ldir = $lref->getProperty('dir');
         $ldir->setAccessible(true);
         $ldir->setValue('');
-        putenv('EFORMS_LOG_LEVEL=1');
-        putenv('EFORMS_LOG_MODE=jsonl');
-        Config::bootstrap();
+        set_config(['logging' => ['level' => 1, 'mode' => 'jsonl']]);
     }
 
     public function testUnknownRuleLogsEnum(): void

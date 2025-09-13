@@ -4,22 +4,15 @@ use EForms\Config;
 
 class SecurityOriginTest extends BaseTestCase
 {
-    private function resetConfig(): void
+    private function resetConfig(array $overrides = []): void
     {
-        $ref = new ReflectionClass(Config::class);
-        $p = $ref->getProperty('bootstrapped');
-        $p->setAccessible(true);
-        $p->setValue(false);
-        $p = $ref->getProperty('data');
-        $p->setAccessible(true);
-        $p->setValue([]);
-        Config::bootstrap();
+        set_config(array_replace_recursive([
+            'security' => ['origin_mode' => 'soft', 'origin_missing_hard' => false],
+        ], $overrides));
     }
 
     public function testSameOrigin(): void
     {
-        putenv('EFORMS_ORIGIN_MODE');
-        putenv('EFORMS_ORIGIN_MISSING_HARD');
         $this->resetConfig();
         $_SERVER['HTTP_ORIGIN'] = 'http://hub.local';
         $res = Security::origin_evaluate();
@@ -29,9 +22,9 @@ class SecurityOriginTest extends BaseTestCase
 
     public function testCrossSoft(): void
     {
-        putenv('EFORMS_ORIGIN_MODE=soft');
-        putenv('EFORMS_ORIGIN_MISSING_HARD');
-        $this->resetConfig();
+        $this->resetConfig([
+            'security' => ['origin_mode' => 'soft', 'origin_missing_hard' => false],
+        ]);
         $_SERVER['HTTP_ORIGIN'] = 'http://evil.local';
         $res = Security::origin_evaluate();
         $this->assertEquals('cross', $res['state']);
@@ -41,9 +34,9 @@ class SecurityOriginTest extends BaseTestCase
 
     public function testCrossHard(): void
     {
-        putenv('EFORMS_ORIGIN_MODE=hard');
-        putenv('EFORMS_ORIGIN_MISSING_HARD');
-        $this->resetConfig();
+        $this->resetConfig([
+            'security' => ['origin_mode' => 'hard', 'origin_missing_hard' => false],
+        ]);
         $_SERVER['HTTP_ORIGIN'] = 'http://evil.local';
         $res = Security::origin_evaluate();
         $this->assertEquals('cross', $res['state']);
@@ -52,9 +45,9 @@ class SecurityOriginTest extends BaseTestCase
 
     public function testUnknownHard(): void
     {
-        putenv('EFORMS_ORIGIN_MODE=hard');
-        putenv('EFORMS_ORIGIN_MISSING_HARD');
-        $this->resetConfig();
+        $this->resetConfig([
+            'security' => ['origin_mode' => 'hard', 'origin_missing_hard' => false],
+        ]);
         $_SERVER['HTTP_ORIGIN'] = 'file://foo';
         $res = Security::origin_evaluate();
         $this->assertEquals('unknown', $res['state']);
@@ -63,19 +56,12 @@ class SecurityOriginTest extends BaseTestCase
 
     public function testMissingHard(): void
     {
-        putenv('EFORMS_ORIGIN_MODE=soft');
-        putenv('EFORMS_ORIGIN_MISSING_HARD=1');
-        $this->resetConfig();
+        $this->resetConfig([
+            'security' => ['origin_mode' => 'soft', 'origin_missing_hard' => true],
+        ]);
         unset($_SERVER['HTTP_ORIGIN']);
         $res = Security::origin_evaluate();
         $this->assertEquals('missing', $res['state']);
         $this->assertTrue($res['hard_fail']);
-    }
-
-    protected function tearDown(): void
-    {
-        putenv('EFORMS_ORIGIN_MODE');
-        putenv('EFORMS_ORIGIN_MISSING_HARD');
-        parent::tearDown();
     }
 }

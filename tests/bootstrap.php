@@ -303,6 +303,32 @@ function register_test_env_filter(): void {
         return $defaults;
     });
 }
+function set_config(array $overrides): void {
+    global $TEST_FILTERS;
+    $TEST_FILTERS = [];
+    register_test_env_filter();
+    $ref = new \ReflectionClass(\EForms\Config::class);
+    $boot = $ref->getProperty('bootstrapped');
+    $boot->setAccessible(true);
+    $boot->setValue(null, false);
+    $data = $ref->getProperty('data');
+    $data->setAccessible(true);
+    $data->setValue(null, []);
+    $lref = new \ReflectionClass(\EForms\Logging::class);
+    $prop = $lref->getProperty('init');
+    $prop->setAccessible(true);
+    $prop->setValue(null, false);
+    $prop = $lref->getProperty('file');
+    $prop->setAccessible(true);
+    $prop->setValue(null, '');
+    $prop = $lref->getProperty('dir');
+    $prop->setAccessible(true);
+    $prop->setValue(null, '');
+    add_filter('eforms_config', function ($defaults) use ($overrides) {
+        return array_replace_recursive($defaults, $overrides);
+    });
+    \EForms\Config::bootstrap();
+}
 register_test_env_filter();
 
 // Define ABSPATH to satisfy plugin guard

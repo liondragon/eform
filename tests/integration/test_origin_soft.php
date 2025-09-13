@@ -3,7 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
 
 // Valid submit under soft origin mode with cross-origin should proceed (not blocked)
-putenv('EFORMS_ORIGIN_MODE=soft');
+set_config(['security' => ['origin_mode' => 'soft']]);
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_ORIGIN'] = 'http://evil.example.com';

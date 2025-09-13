@@ -12,13 +12,6 @@ final class RendererRowGroupTest extends BaseTestCase
     {
         parent::setUp();
 
-        $ref = new \ReflectionClass(Config::class);
-        $boot = $ref->getProperty('bootstrapped');
-        $boot->setAccessible(true);
-        $boot->setValue(false);
-        $data = $ref->getProperty('data');
-        $data->setAccessible(true);
-        $data->setValue([]);
         $lref = new \ReflectionClass(Logging::class);
         $lin = $lref->getProperty('init');
         $lin->setAccessible(true);
@@ -29,8 +22,7 @@ final class RendererRowGroupTest extends BaseTestCase
         $ldir = $lref->getProperty('dir');
         $ldir->setAccessible(true);
         $ldir->setValue('');
-        putenv('EFORMS_LOG_LEVEL=1');
-        Config::bootstrap();
+        set_config(['logging' => ['level' => 1]]);
     }
 
     public function testRowGroupAutoCloseAndLogging(): void

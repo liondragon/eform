@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
-putenv('EFORMS_LOG_LEVEL=1');
 require __DIR__ . '/../bootstrap.php';
+set_config(['logging' => ['level' => 1]]);
 
 // Honeypot: non-empty should result in PRG 303 and no email
 $_SERVER['REQUEST_METHOD'] = 'POST';

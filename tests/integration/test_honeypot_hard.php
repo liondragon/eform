@@ -1,8 +1,10 @@
 <?php
 declare(strict_types=1);
-putenv('EFORMS_HONEYPOT_RESPONSE=hard_fail');
-putenv('EFORMS_LOG_LEVEL=1');
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'security' => ['honeypot_response' => 'hard_fail'],
+    'logging' => ['level' => 1],
+]);
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';

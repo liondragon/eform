@@ -1,9 +1,13 @@
 <?php
 declare(strict_types=1);
-putenv('EFORMS_LOG_LEVEL=1');
-putenv('EFORMS_THROTTLE_ENABLE=1');
-putenv('EFORMS_THROTTLE_MAX_PER_MINUTE=1');
 require __DIR__ . '/../bootstrap.php';
+set_config([
+    'logging' => ['level' => 1],
+    'throttle' => [
+        'enable' => true,
+        'per_ip' => ['max_per_minute' => 1],
+    ],
+]);
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';

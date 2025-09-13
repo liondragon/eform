@@ -1,9 +1,8 @@
 <?php
 declare(strict_types=1);
 putenv('EFORMS_FORCE_MAIL_FAIL=1');
-putenv('EFORMS_EMAIL_SMTP_MAX_RETRIES=2');
-putenv('EFORMS_EMAIL_SMTP_RETRY_BACKOFF_SECONDS=0');
 require __DIR__ . '/../bootstrap.php';
+set_config(['email' => ['smtp' => ['max_retries' => 2, 'retry_backoff_seconds' => 0]]]);
 
 $tpl = [
     'email' => [
