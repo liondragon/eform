@@ -229,6 +229,9 @@ class Validator
             $nid = $handlers['normalizer_id'] ?? ($f['type'] ?? '');
             $rid = $handlers['renderer_id'] ?? ($f['type'] ?? '');
             $f['form_id'] = $tpl['id'] ?? '';
+            $f['is_multivalue'] = self::isMultivalue($f);
+            $f['name_tpl'] = $f['form_id'] . '[' . $f['key'] . ']' . ($f['is_multivalue'] ? '[]' : '');
+            $f['id_prefix'] = $f['form_id'] . '-' . $f['key'] . '-';
             $ctxBase = 'fields.' . ($f['key'] ?? '');
             $f['handlers'] = $handlers + [
                 'validator'  => self::resolve($hid, $ctxBase . '.validator'),
@@ -248,7 +251,7 @@ class Validator
         $values = [];
         foreach ($desc as $k => $f) {
             $norm = $f['handlers']['normalizer'] ?? [Normalizer::class, 'identity'];
-            if (self::isMultivalue($f)) {
+            if (!empty($f['is_multivalue'])) {
                 $raw = $post[$k] ?? [];
                 if (!is_array($raw)) {
                     $raw = [];
@@ -284,8 +287,8 @@ class Validator
         $errors = [];
         $canonical = [];
         foreach ($desc as $k => $f) {
-            $v = $values[$k] ?? (self::isMultivalue($f) ? [] : '');
-            if (self::isMultivalue($f)) {
+            $v = $values[$k] ?? (!empty($f['is_multivalue']) ? [] : '');
+            if (!empty($f['is_multivalue'])) {
                 if (!empty($f['required']) && count($v) === 0) {
                     $errors[$k][] = 'This field is required.';
                 }
@@ -343,8 +346,8 @@ class Validator
         $out = [];
         foreach ($desc as $k => $f) {
             $norm = $f['handlers']['normalizer'] ?? [Normalizer::class, 'identity'];
-            $v = $values[$k] ?? (self::isMultivalue($f) ? [] : '');
-            if (self::isMultivalue($f)) {
+            $v = $values[$k] ?? (!empty($f['is_multivalue']) ? [] : '');
+            if (!empty($f['is_multivalue'])) {
                 $out[$k] = array_map($norm, is_array($v) ? $v : []);
             } else {
                 $out[$k] = $norm($v);

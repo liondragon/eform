@@ -53,9 +53,9 @@ class Renderer
         return self::HANDLERS[$id];
     }
 
-    private static function makeId(string $formId, string $key, string $instanceId): string
+    private static function makeId(string $idPrefix, string $instanceId): string
     {
-        return Helpers::cap_id($formId . '-' . $key . '-' . $instanceId);
+        return Helpers::cap_id($idPrefix . $instanceId);
     }
 
     public static function form(array $tpl, array $meta, array $errors, array $values): string
@@ -114,7 +114,13 @@ class Renderer
                     }
                     continue;
                 }
-                $id = self::makeId($formId, $k, $instanceId);
+                $desc = $descriptors[$k] ?? null;
+                if ($desc) {
+                    $idPrefix = str_replace($desc['form_id'], $formId, $desc['id_prefix']);
+                } else {
+                    $idPrefix = $formId . '-' . $k . '-';
+                }
+                $id = self::makeId($idPrefix, $instanceId);
                 $lab = $labels[$k] ?? $k;
                 $aria = '';
                 if (($fieldTags[$k] ?? '') === 'fieldset') {
@@ -181,8 +187,9 @@ class Renderer
             $key = $f['key'];
             $desc = $descriptors[$key] ?? Spec::descriptorFor($type);
             $isMulti = !empty($desc['is_multivalue']);
-            $id = self::makeId($formId, $key, $instanceId);
-            $nameAttr = $formId . '[' . $key . ']' . ($isMulti ? '[]' : '');
+            $idPrefix = str_replace($desc['form_id'] ?? $formId, $formId, $desc['id_prefix'] ?? ($formId . '-' . $key . '-'));
+            $id = self::makeId($idPrefix, $instanceId);
+            $nameAttr = str_replace($desc['form_id'] ?? $formId, $formId, $desc['name_tpl'] ?? ($formId . '[' . $key . ']' . ($isMulti ? '[]' : '')));
             $label = $labels[$key] ?? '';
             $labelHidden = true;
             if (array_key_exists('label', $f) && $f['label'] !== null) {
@@ -354,8 +361,9 @@ class Renderer
         if ($fieldErrors) $html .= ' aria-describedby="' . \esc_attr($errId) . '" aria-invalid="true"';
         $html .= '><legend id="' . \esc_attr($legendId) . '"' . $labelAttr . '>' . $labelHtml . '</legend>';
         $vals = $isMulti ? (array)$value : $value;
+        $basePrefix = str_replace($desc['form_id'] ?? $formId, $formId, $desc['id_prefix'] ?? ($formId . '-' . $key . '-'));
         foreach ($f['options'] ?? [] as $opt) {
-            $idOpt = self::makeId($formId, $key . '-' . $opt['key'], $instanceId);
+            $idOpt = self::makeId($basePrefix . $opt['key'] . '-', $instanceId);
             $html .= '<label><input type="' . ($isMulti ? 'checkbox' : 'radio') . '" name="' . \esc_attr($nameAttr) . '" value="' . \esc_attr($opt['key']) . '" id="' . \esc_attr($idOpt) . '"';
             if ($isMulti) {
                 if (in_array($opt['key'], (array)$vals, true)) $html .= ' checked';
