@@ -25,5 +25,5 @@ $_POST = [
     ],
     'cf-turnstile-response' => 'fail',
 ];
-$fm = new \EForms\Rendering\FormManager();
+$fm = new \EForms\Submission\SubmitHandler();
 $fm->handleSubmit();

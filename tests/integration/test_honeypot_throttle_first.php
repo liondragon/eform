@@ -26,7 +26,7 @@ $_POST = [
     ],
 ];
 
-$fm = new \EForms\Rendering\FormManager();
+$fm = new \EForms\Submission\SubmitHandler();
 ob_start();
 $fm->handleSubmit();
 ob_end_clean();
