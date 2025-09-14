@@ -10,7 +10,7 @@ class TemplateValidatorTest extends BaseTestCase
             'version' => '1',
             'title' => 'T',
             'success' => ['mode' => 'inline'],
-            'email' => [],
+            'email' => ['to' => 'a@example.com', 'subject' => 's'],
             'fields' => [
                 ['type' => 'name', 'key' => 'name'],
                 ['type' => 'email', 'key' => 'email'],
@@ -355,6 +355,44 @@ class TemplateValidatorTest extends BaseTestCase
         $codes = array_column($res['errors'], 'code');
         $this->assertNotContains(TemplateValidator::EFORMS_ERR_SCHEMA_UNKNOWN_KEY, $codes);
         $this->assertTrue($res['ok']);
+    }
+
+    public function testEmailToAndSubjectRequired(): void
+    {
+        $tpl = $this->baseTpl();
+        unset($tpl['email']['to']);
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_REQUIRED, $codes);
+        $this->assertContains('email.to', $paths);
+
+        $tpl = $this->baseTpl();
+        unset($tpl['email']['subject']);
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_REQUIRED, $codes);
+        $this->assertContains('email.subject', $paths);
+    }
+
+    public function testEmailToAndSubjectMustBeStrings(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['email']['to'] = ['x'];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+        $this->assertContains('email.to', $paths);
+
+        $tpl = $this->baseTpl();
+        $tpl['email']['subject'] = '';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_REQUIRED, $codes);
+        $this->assertContains('email.subject', $paths);
     }
 
     public function testEmailAttachOnlyForFileFields(): void
