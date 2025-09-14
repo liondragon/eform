@@ -451,7 +451,7 @@ class SubmitHandler
         $meta = [
             'form_id' => $formId,
             'instance_id' => $_POST['instance_id'] ?? Helpers::random_id(16),
-            'timestamp' => time(),
+            'timestamp' => isset($_POST['timestamp']) ? (int) $_POST['timestamp'] : time(),
             'cacheable' => true,
             'client_validation' => (bool) Config::get('html5.client_validation', false),
             'action' => \home_url('/eforms/submit'),
