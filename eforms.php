@@ -48,15 +48,21 @@ namespace {
         return;
     }
 
-    spl_autoload_register(function (string $class): void {
-        if (strpos($class, 'EForms\\') !== 0) {
-            return;
-        }
-        $path = __DIR__ . '/src/' . str_replace('\\', '/', substr($class, 7)) . '.php';
-        if (is_file($path)) {
-            require $path;
-        }
-    });
+    require_once __DIR__ . '/src/Config.php';
+    require_once __DIR__ . '/src/Helpers.php';
+    require_once __DIR__ . '/src/Logging.php';
+    require_once __DIR__ . '/src/Spec.php';
+    require_once __DIR__ . '/src/Rendering/Renderer.php';
+    require_once __DIR__ . '/src/Validation/Normalizer.php';
+    require_once __DIR__ . '/src/Validation/Validator.php';
+    require_once __DIR__ . '/src/Validation/TemplateValidator.php';
+    require_once __DIR__ . '/src/Security/Security.php';
+    require_once __DIR__ . '/src/Security/Throttle.php';
+    require_once __DIR__ . '/src/Security/Challenge.php';
+    require_once __DIR__ . '/src/Uploads/Uploads.php';
+    require_once __DIR__ . '/src/Email/Emailer.php';
+    require_once __DIR__ . '/src/Rendering/FormRenderer.php';
+    require_once __DIR__ . '/src/Submission/SubmitHandler.php';
 
     Config::bootstrap();
 
