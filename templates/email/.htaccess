@@ -1,7 +1,2 @@
-# Prevent directory listing of email templates
-<IfModule mod_authz_core.c>
-  Require all denied
-</IfModule>
-<IfModule !mod_authz_core.c>
-  Deny from all
-</IfModule>
+# Deny direct access to email templates
+Require all denied
