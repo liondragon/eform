@@ -666,10 +666,14 @@ class TemplateValidator
                 }
             }
 
-            $d['form_id'] = $tpl['id'] ?? '';
-            $d['key'] = $f['key'];
+            $formId = $tpl['id'] ?? '';
+            $key = $f['key'];
+            $d['form_id'] = $formId;
+            $d['key'] = $key;
+            $d['name_tpl'] = $formId . '[' . $key . ']' . (!empty($d['is_multivalue']) ? '[]' : '');
+            $d['id_prefix'] = $formId . '-' . $key . '-';
 
-            $desc[$f['key']] = $d;
+            $desc[$key] = $d;
         }
         return $desc;
     }
