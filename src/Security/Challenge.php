@@ -54,7 +54,11 @@ class Challenge
         ];
         $url = $urls[$provider] ?? null;
         if ($url) {
-            wp_enqueue_script('eforms-challenge-'.$provider, $url, [], null, ['in_footer' => true]);
+            $handle = 'eforms-challenge-' . $provider;
+            wp_enqueue_script($handle, $url, [], null, ['in_footer' => true, 'strategy' => 'defer']);
+            if ($provider === 'turnstile' && function_exists('wp_script_add_data')) {
+                wp_script_add_data($handle, 'crossorigin', 'anonymous');
+            }
         }
     }
 }

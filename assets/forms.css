@@ -7,3 +7,10 @@
 .eforms-success { color:#2a7a2a; margin-bottom:1rem; }
 .eforms-spinner { display:inline-block; margin-left:.5em; width:1em; height:1em; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:eforms-spin .6s linear infinite; }
 @keyframes eforms-spin { to { transform:rotate(360deg); } }
+
+.eforms-required { color:#E6531F; margin-left:0.25em; }
+.screen-reader-text { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.eforms-row input:focus,
+.eforms-row select:focus,
+.eforms-row textarea:focus,
+.eforms-row button:focus { outline:1px solid #b8b8b8 !important; outline-offset:-1px; }

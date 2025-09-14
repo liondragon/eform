@@ -217,6 +217,10 @@ class TemplateValidator
                             $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$opath.'key'];
                             continue;
                         }
+                        if (!preg_match('/^[a-z0-9_-]{1,64}$/', $opt['key'])) {
+                            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$opath.'key'];
+                            continue;
+                        }
                         if (!isset($opt['label']) || !is_string($opt['label'])) {
                             $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$opath.'label'];
                         }

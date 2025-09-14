@@ -6,7 +6,7 @@ use EForms\Validation\TemplateValidator;
 $schema = realpath(__DIR__ . '/../../schema/template.schema.json');
 $templates = glob(__DIR__ . '/../../templates/forms/*.json') ?: [];
 foreach ($templates as $tplFile) {
-    $cmd = 'python3 -m jsonschema ' . escapeshellarg($schema) . ' -i ' . escapeshellarg($tplFile);
+    $cmd = 'python3 -W ignore::DeprecationWarning -m jsonschema ' . escapeshellarg($schema) . ' -i ' . escapeshellarg($tplFile);
     exec($cmd, $out, $code);
     if ($code !== 0) {
         fwrite(STDERR, "schema fail: $tplFile\n");

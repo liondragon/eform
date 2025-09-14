@@ -188,10 +188,10 @@ class Renderer
             if (array_key_exists('label', $f) && $f['label'] !== null) {
                 $labelHidden = false;
             }
-            $labelAttr = $labelHidden ? ' class="visually-hidden"' : '';
+            $labelAttr = $labelHidden ? ' class="screen-reader-text"' : '';
             $labelHtml = \esc_html($label);
             if (!empty($f['required'])) {
-                $labelHtml .= '<span class="required">*</span>';
+                $labelHtml .= '<span class="eforms-required">*</span>';
             }
             $value = $values[$key] ?? '';
             $fieldErrors = $errors[$key] ?? [];
