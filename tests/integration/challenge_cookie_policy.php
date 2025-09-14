@@ -18,6 +18,7 @@ $_POST = [
         'message' => 'Ping',
     ],
     'js_ok' => '1',
+    'cf-turnstile-response' => 'dummy',
 ];
 $sh = new \EForms\Submission\SubmitHandler();
 $sh->handleSubmit();

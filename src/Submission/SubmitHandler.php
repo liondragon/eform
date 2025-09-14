@@ -102,6 +102,9 @@ class SubmitHandler
         if ($requireChallenge) {
             $provider = Config::get('challenge.provider', 'turnstile');
             $resp = $_POST['cf-turnstile-response'] ?? ($_POST['h-captcha-response'] ?? ($_POST['g-recaptcha-response'] ?? ''));
+            if ($resp === '') {
+                $this->renderErrorAndExit($tpl, $formId, 'Security check failed.', true);
+            }
             $timeout = (int) Config::get('challenge.http_timeout_seconds', 2);
             $ver = Challenge::verify($provider, $resp, $timeout, $formId, $instanceId);
             if ($ver['ok'] ?? false) {
@@ -109,7 +112,7 @@ class SubmitHandler
             } elseif (!($ver['unconfigured'] ?? false)) {
                 $softFailCount++;
                 Logging::write('warn', 'EFORMS_ERR_CHALLENGE_FAILED', $logBase);
-                $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.');
+                $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.', true);
             } else {
                 $softFailCount++;
             }
@@ -379,7 +382,7 @@ class SubmitHandler
         return null;
     }
 
-    private function renderErrorAndExit(array $tpl, string $formId, string $msg): void
+    private function renderErrorAndExit(array $tpl, string $formId, string $msg, bool $includeChallenge = false): void
     {
         $meta = [
             'form_id' => $formId,
@@ -390,6 +393,12 @@ class SubmitHandler
             'action' => \home_url('/eforms/submit'),
             'hidden_token' => null,
         ];
+        if ($includeChallenge) {
+            $prov = Config::get('challenge.provider', 'turnstile');
+            $site = Config::get('challenge.' . $prov . '.site_key', '');
+            $meta['challenge'] = ['provider'=>$prov,'site_key'=>$site];
+            Challenge::enqueueScript($prov);
+        }
         $errors = ['_global' => [$msg]];
         $this->enqueueAssetsIfNeeded();
         $html = Renderer::form($tpl, $meta, $errors, []);
