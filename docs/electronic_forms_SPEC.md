@@ -55,19 +55,28 @@ electronic_forms - Spec
       If wp_upload_dir() still isn’t available, abort uninstall gracefully.
   - /src/
     - Config.php
-    - Rendering/FormRenderer.php  // handles GET rendering; enqueues CSS/JS
-    - Submission/SubmitHandler.php // handles POST submissions, PRG
-    - Rendering/Renderer.php       // pure HTML; escape only at sinks
-    - No FormManager class; responsibilities split between FormRenderer and SubmitHandler
-    - Validator.php       // normalize -> validate -> coerce (deterministic)
-    - TemplateValidator.php  // strict JSON structural preflight (unknown keys/enums/combos; accept[] intersection)
-    - Emailer.php         // build & send; safe headers; text/plain by default
-    - Security.php        // token, honeypot, min-fill-time, max-form-age
-    - Logging.php         // JSONL logger; rotation; masking
     - Helpers.php         // tiny esc/url/id-name/fs utilities
-    - Uploads.php         // normalize/validate/move uploads; enforce caps/allow-list; GC/retention; name/perms policy
-    - /schema/
-      - template.schema.json  // design-time only (editor/CI lint); kept in sync with PHP spec
+    - Logging.php         // JSONL logger; rotation; masking
+    - Email/
+      - Emailer.php         // build & send; safe headers; text/plain by default
+    - Rendering/
+      - Renderer.php       // pure HTML; escape only at sinks
+      - FormRenderer.php    // handles GET rendering; enqueues CSS/JS
+    - Submission/
+      - SubmitHandler.php   // handles POST submissions, PRG
+    - Validation/
+      - Normalizer.php      // normalization
+      - Validator.php       // normalize -> validate -> coerce (deterministic)
+      - TemplateValidator.php  // strict JSON structural preflight (unknown keys/enums/combos; accept[] intersection)
+    - Security/
+      - Security.php        // token, honeypot, min-fill-time, max-form-age
+      - Throttle.php        // request throttling
+      - Challenge.php       // optional challenge logic
+    - Uploads/
+      - Uploads.php         // normalize/validate/move uploads; enforce caps/allow-list; GC/retention; name/perms policy
+    - No FormManager class; responsibilities split between FormRenderer and SubmitHandler
+  - /schema/
+    - template.schema.json  // design-time only (editor/CI lint); kept in sync with PHP spec
   - /templates/
     - forms/
       - contact.json        // kebab-case filenames only
