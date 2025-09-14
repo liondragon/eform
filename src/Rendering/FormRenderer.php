@@ -7,6 +7,7 @@ use EForms\Config;
 use EForms\Helpers;
 use EForms\Logging;
 use EForms\Security\Challenge;
+use EForms\Security\Security;
 use EForms\Security\Throttle;
 use EForms\Uploads\Uploads;
 use EForms\Validation\TemplateValidator;
@@ -58,7 +59,16 @@ class FormRenderer
             'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
         ];
         $challengeMode = Config::get('challenge.mode', 'off');
-        if ($challengeMode === 'always') {
+        $needChallenge = false;
+        if ($challengeMode !== 'off') {
+            $needChallenge = true;
+        } elseif (Config::get('security.cookie_missing_policy', 'soft') === 'challenge') {
+            $tInfo = Security::token_validate($formId, false, null);
+            if (!$tInfo['token_ok']) {
+                $needChallenge = true;
+            }
+        }
+        if ($needChallenge) {
             $prov = Config::get('challenge.provider', 'turnstile');
             $site = Config::get('challenge.' . $prov . '.site_key', '');
             $meta['challenge'] = ['provider' => $prov, 'site_key' => $site];
