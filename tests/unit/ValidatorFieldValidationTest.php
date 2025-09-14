@@ -81,4 +81,21 @@ final class ValidatorFieldValidationTest extends BaseTestCase
         Renderer::form($tpl, $meta, [], []);
         $this->assertTrue($called);
     }
+
+    public function testArraySubmissionInvalidForScalarField(): void
+    {
+        $field = [
+            'type' => 'text',
+            'key' => 't',
+            'required' => true,
+            'pattern' => '[A-Z]+',
+        ];
+        $tpl = ['fields' => [$field]];
+        $desc = Validator::descriptors($tpl);
+        $values = Validator::normalize($tpl, ['t' => ['foo']], $desc);
+        $this->assertIsArray($values['t']);
+        $res = Validator::validate($tpl, $desc, $values);
+        $this->assertSame(['Invalid input.'], $res['errors']['t']);
+        $this->assertSame('', $res['values']['t']);
+    }
 }
