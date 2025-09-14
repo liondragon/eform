@@ -156,9 +156,23 @@ class Renderer
         }
 
         $lastText = null;
+        $textTypes = [
+            'text',
+            'name',
+            'first_name',
+            'last_name',
+            'email',
+            'tel',
+            'tel_us',
+            'url',
+            'textarea',
+            'textarea_html',
+            'zip',
+            'zip_us',
+        ];
         foreach ($tpl['fields'] as $tf) {
             $tt = $tf['type'];
-            if (in_array($tt, ['textarea','textarea_html','email','name','tel_us','zip_us'], true)) {
+            if (in_array($tt, $textTypes, true)) {
                 $lastText = $tf['key'];
             }
         }
