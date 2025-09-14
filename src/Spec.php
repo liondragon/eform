@@ -107,6 +107,7 @@ class Spec
         return [
             'name' => [
                 'type' => 'name',
+                'alias_of' => 'text',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'name'],
                 'constants' => [],
@@ -115,6 +116,7 @@ class Spec
             ],
             'first_name' => [
                 'type' => 'first_name',
+                'alias_of' => 'text',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'given-name'],
                 'constants' => [],
@@ -123,6 +125,7 @@ class Spec
             ],
             'last_name' => [
                 'type' => 'last_name',
+                'alias_of' => 'text',
                 'is_multivalue' => false,
                 'html' => ['tag'=>'input','type'=>'text','autocomplete'=>'family-name'],
                 'constants' => [],

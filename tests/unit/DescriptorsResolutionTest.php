@@ -39,4 +39,17 @@ final class DescriptorsResolutionTest extends BaseTestCase
         $this->expectExceptionMessage('fields.foo.validator');
         Validator::resolve('unknown', 'fields.foo.validator');
     }
+
+    public function testAliasHandlersMatchTargets(): void
+    {
+        $all = Spec::typeDescriptors();
+        foreach ($all as $desc) {
+            if (!isset($desc['alias_of'])) {
+                continue;
+            }
+            $target = $desc['alias_of'];
+            $this->assertArrayHasKey($target, $all);
+            $this->assertSame($all[$target]['handlers'], $desc['handlers'], $desc['type'] . ' handlers');
+        }
+    }
 }

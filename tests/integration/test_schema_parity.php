@@ -38,12 +38,26 @@ if ($schemaRequired !== ['type']) {
     exit(1);
 }
 
-// Descriptor structural shape
-$expectedKeys = ['constants','handlers','html','is_multivalue','type','validate'];
+// Descriptor structural shape & alias parity
+$baseKeys = ['constants','handlers','html','is_multivalue','type','validate'];
 foreach ($specDescriptors as $t => $desc) {
+    $expected = $baseKeys;
+    if (isset($desc['alias_of'])) {
+        $expected[] = 'alias_of';
+        $target = $desc['alias_of'];
+        if (!isset($specDescriptors[$target])) {
+            fwrite(STDERR, "alias target missing: $t\n");
+            exit(1);
+        }
+        if (($specDescriptors[$target]['handlers'] ?? []) !== ($desc['handlers'] ?? [])) {
+            fwrite(STDERR, "alias handler mismatch: $t\n");
+            exit(1);
+        }
+    }
     $keys = array_keys($desc);
     sort($keys);
-    if ($keys !== $expectedKeys) {
+    sort($expected);
+    if ($keys !== $expected) {
         fwrite(STDERR, "descriptor shape drift: $t\n");
         exit(1);
     }
