@@ -23,11 +23,12 @@
       "type": "object",
       "properties": {
         "display_format_tel": {"enum": ["xxx-xxx-xxxx","(xxx) xxx-xxxx","xxx.xxx.xxxx"]},
-        "to": {"type": "string"},
-        "subject": {"type": "string"},
+        "to": {"type": "string", "minLength": 1},
+        "subject": {"type": "string", "minLength": 1},
         "email_template": {"type": "string"},
         "include_fields": {"type": "array", "items": {"type": "string"}}
       },
+      "required": ["to","subject"],
       "additionalProperties": false
     },
     "fields": {

@@ -93,6 +93,18 @@ class TemplateValidator
         // email block
         $email = is_array($tpl['email'] ?? null) ? $tpl['email'] : [];
         self::checkUnknown($email, ['display_format_tel','to','subject','email_template','include_fields'], 'email.', $errors);
+
+        if (!array_key_exists('to', $email) || $email['to'] === '') {
+            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>'email.to'];
+        } elseif (!is_string($email['to'])) {
+            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>'email.to'];
+        }
+
+        if (!array_key_exists('subject', $email) || $email['subject'] === '') {
+            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>'email.subject'];
+        } elseif (!is_string($email['subject'])) {
+            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>'email.subject'];
+        }
         if (isset($email['display_format_tel'])) {
             $enum = ['xxx-xxx-xxxx','(xxx) xxx-xxxx','xxx.xxx.xxxx'];
             if (!in_array($email['display_format_tel'], $enum, true)) {

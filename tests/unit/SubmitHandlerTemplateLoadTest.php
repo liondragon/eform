@@ -31,7 +31,7 @@ final class SubmitHandlerTemplateLoadTest extends BaseTestCase
             'version' => '1',
             'title' => 'T',
             'success' => ['mode' => 'inline'],
-            'email' => [],
+            'email' => ['to' => 'a@example.com', 'subject' => 's'],
             'fields' => [[ 'type' => 'name', 'key' => 'name' ]],
             'submit_button_text' => 'Send',
         ];

@@ -13,7 +13,7 @@ final class RendererConstantsTest extends BaseTestCase
             'version' => '1',
             'title' => 't',
             'success' => ['mode' => 'inline'],
-            'email' => [],
+            'email' => ['to' => 'a@example.com', 'subject' => 's'],
             'fields' => [
                 ['type' => 'email', 'key' => 'email'],
             ],
