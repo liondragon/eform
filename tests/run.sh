@@ -243,6 +243,7 @@ record_result "js disabled: hard fail" $ok
 run_test test_validation_required
 ok=0
 assert_grep tmp/stdout.txt 'This field is required\.' || ok=1
+assert_grep tmp/stdout.txt 'name="timestamp" value="1234567890"' || ok=1
 record_result "validation: missing required fields" $ok
 
 # 4) Validation formats

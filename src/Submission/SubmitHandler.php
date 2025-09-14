@@ -448,10 +448,11 @@ class SubmitHandler
 
     private function renderErrorAndExit(array $tpl, string $formId, string $msg, bool $includeChallenge = false): void
     {
+        $ts = isset($_POST['timestamp']) ? (int) $_POST['timestamp'] : time();
         $meta = [
             'form_id' => $formId,
             'instance_id' => $_POST['instance_id'] ?? Helpers::random_id(16),
-            'timestamp' => isset($_POST['timestamp']) ? (int) $_POST['timestamp'] : time(),
+            'timestamp' => $ts,
             'cacheable' => true,
             'client_validation' => (bool) Config::get('html5.client_validation', false),
             'action' => \home_url('/eforms/submit'),
