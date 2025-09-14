@@ -45,30 +45,34 @@ final class ChallengeInitTest extends BaseTestCase
         $prop->setValue(null, $data);
     }
 
-    public function testChallengeModeAutoDoesNotEnqueueScript(): void
+    public function testChallengeModeAutoEnqueuesScriptAndMarkup(): void
     {
         $this->setConfig('challenge.mode', 'auto');
         $fm = new FormRenderer();
         $GLOBALS['wp_enqueued_scripts'] = [];
-        $fm->render('contact_us');
-        $this->assertNotContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
+        $html = $fm->render('contact_us');
+        $this->assertContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
+        $this->assertStringContainsString('<div class="cf-challenge"', $html);
     }
 
-    public function testPolicyChallengeDoesNotEnqueueScript(): void
+    public function testPolicyChallengeEnqueuesScriptWhenCookieMissing(): void
     {
         $this->setConfig('security.cookie_missing_policy', 'challenge');
+        unset($_COOKIE['eforms_t_contact_us']);
         $fm = new FormRenderer();
         $GLOBALS['wp_enqueued_scripts'] = [];
-        $fm->render('contact_us');
-        $this->assertNotContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
+        $html = $fm->render('contact_us');
+        $this->assertContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
+        $this->assertStringContainsString('<div class="cf-challenge"', $html);
     }
 
-    public function testChallengeModeAlwaysEnqueuesScript(): void
+    public function testChallengeModeAlwaysEnqueuesScriptAndMarkup(): void
     {
         $this->setConfig('challenge.mode', 'always');
         $fm = new FormRenderer();
         $GLOBALS['wp_enqueued_scripts'] = [];
-        $fm->render('contact_us');
+        $html = $fm->render('contact_us');
         $this->assertContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
+        $this->assertStringContainsString('<div class="cf-challenge"', $html);
     }
 }
