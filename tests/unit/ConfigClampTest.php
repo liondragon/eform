@@ -138,4 +138,25 @@ final class ConfigClampTest extends BaseTestCase
         $this->assertSame(1, Config::get('validation.max_items_per_multivalue'));
         $this->assertSame(1000000, Config::get('validation.textarea_html_max_bytes'));
     }
+
+    public function testChallengeEmailPrivacyClamp(): void
+    {
+        $this->boot([
+            'challenge' => [
+                'mode' => 'invalid',
+                'provider' => 'nope',
+            ],
+            'email' => [
+                'policy' => 'weird',
+            ],
+            'privacy' => [
+                'ip_mode' => 'bad',
+            ],
+        ]);
+
+        $this->assertSame('off', Config::get('challenge.mode'));
+        $this->assertSame('turnstile', Config::get('challenge.provider'));
+        $this->assertSame('strict', Config::get('email.policy'));
+        $this->assertSame('masked', Config::get('privacy.ip_mode'));
+    }
 }
