@@ -94,5 +94,33 @@ final class Fail2banLoggingTest extends BaseTestCase
         $this->assertStringContainsString('eforms[f2b]', (string) file_get_contents($file));
         $this->assertFalse(file_exists($old));
     }
+
+    public function testFileTargetWriteFailureFallsBack(): void
+    {
+        global $TEST_ARTIFACTS;
+
+        set_config([
+            'logging' => [
+                'mode' => 'jsonl',
+                'level' => 1,
+                'fail2ban' => [
+                    'enable' => true,
+                    'target' => 'file',
+                    'file' => '/proc/eforms-f2b.log',
+                ],
+            ],
+        ]);
+
+        file_put_contents($TEST_ARTIFACTS['log_file'], '');
+        $logFile = Config::get('uploads.dir') . '/eforms.log';
+        @unlink($logFile);
+
+        Logging::write('warn', 'EFORMS_F2B_FAIL', ['ip' => '9.9.9.9']);
+
+        $log = file_get_contents($TEST_ARTIFACTS['log_file']);
+        $this->assertStringContainsString('code=EFORMS_F2B_FAIL', (string) $log);
+        $this->assertStringContainsString('eforms[f2b]', (string) $log);
+        $this->assertStringContainsString('EFORMS_FAIL2BAN_IO', (string) file_get_contents($logFile));
+    }
 }
 }
