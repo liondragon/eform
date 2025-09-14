@@ -108,14 +108,17 @@ class Uploads
                 $ext = strtolower((string) pathinfo($name, PATHINFO_EXTENSION));
                 if (!self::allowedToken($accept, $mime, $ext)) {
                     $errors[$k][] = "This file type isn't allowed.";
+                    Logging::write('warn', 'EFORMS_ERR_UPLOAD_TYPE', ['form_id' => $tpl['id'] ?? '', 'field' => $k]);
                     continue;
                 }
                 if ($allowedMime && !in_array($mime, $allowedMime, true)) {
                     $errors[$k][] = "This file type isn't allowed.";
+                    Logging::write('warn', 'EFORMS_ERR_UPLOAD_TYPE', ['form_id' => $tpl['id'] ?? '', 'field' => $k]);
                     continue;
                 }
                 if ($allowedExt && !in_array($ext, $allowedExt, true)) {
                     $errors[$k][] = "This file type isn't allowed.";
+                    Logging::write('warn', 'EFORMS_ERR_UPLOAD_TYPE', ['form_id' => $tpl['id'] ?? '', 'field' => $k]);
                     continue;
                 }
                 if (str_starts_with($mime, 'image/')) {
