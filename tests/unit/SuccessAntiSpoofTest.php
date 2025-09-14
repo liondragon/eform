@@ -19,7 +19,7 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         try {
             $_GET = ['eforms_success' => 'contact_us'];
             $_COOKIE = [];
-            $fm = new \EForms\Rendering\FormManager();
+            $fm = new \EForms\Rendering\FormRenderer();
             $html = $fm->render('contact_us');
             $this->assertSame('', $html);
         } finally {
@@ -34,7 +34,7 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         try {
             $_GET = [];
             $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
-            $fm = new \EForms\Rendering\FormManager();
+            $fm = new \EForms\Rendering\FormRenderer();
             $html = $fm->render('contact_us');
             $this->assertStringNotContainsString('Thanks! We got your message.', $html);
         } finally {
@@ -49,7 +49,7 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         try {
             $_GET = ['eforms_success' => 'contact_us'];
             $_COOKIE = ['eforms_s_contact_us' => 'other:inst'];
-            $fm = new \EForms\Rendering\FormManager();
+            $fm = new \EForms\Rendering\FormRenderer();
             $html = $fm->render('contact_us');
             $this->assertSame('', $html);
         } finally {
@@ -64,7 +64,7 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         try {
             $_GET = ['eforms_success' => 'contact_us'];
             $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
-            $fm = new \EForms\Rendering\FormManager();
+            $fm = new \EForms\Rendering\FormRenderer();
             $html = $fm->render('contact_us');
             $this->assertStringContainsString('Thanks! We got your message.', $html);
         } finally {
@@ -79,10 +79,10 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         try {
             $_GET = ['eforms_success' => 'contact_us'];
             $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
-            $fm = new \EForms\Rendering\FormManager();
+            $fm = new \EForms\Rendering\FormRenderer();
             $html1 = $fm->render('contact_us');
             $this->assertStringContainsString('Thanks! We got your message.', $html1);
-            $fm2 = new \EForms\Rendering\FormManager();
+            $fm2 = new \EForms\Rendering\FormRenderer();
             $html2 = $fm2->render('contact_us');
             $this->assertSame('', $html2);
         } finally {

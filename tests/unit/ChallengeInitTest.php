@@ -1,6 +1,6 @@
 <?php
 use EForms\Config;
-use EForms\Rendering\FormManager;
+use EForms\Rendering\FormRenderer;
 
 final class ChallengeInitTest extends BaseTestCase
 {
@@ -48,7 +48,7 @@ final class ChallengeInitTest extends BaseTestCase
     public function testChallengeModeAutoDoesNotEnqueueScript(): void
     {
         $this->setConfig('challenge.mode', 'auto');
-        $fm = new FormManager();
+        $fm = new FormRenderer();
         $GLOBALS['wp_enqueued_scripts'] = [];
         $fm->render('contact_us');
         $this->assertNotContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
@@ -57,7 +57,7 @@ final class ChallengeInitTest extends BaseTestCase
     public function testPolicyChallengeDoesNotEnqueueScript(): void
     {
         $this->setConfig('security.cookie_missing_policy', 'challenge');
-        $fm = new FormManager();
+        $fm = new FormRenderer();
         $GLOBALS['wp_enqueued_scripts'] = [];
         $fm->render('contact_us');
         $this->assertNotContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);
@@ -66,7 +66,7 @@ final class ChallengeInitTest extends BaseTestCase
     public function testChallengeModeAlwaysEnqueuesScript(): void
     {
         $this->setConfig('challenge.mode', 'always');
-        $fm = new FormManager();
+        $fm = new FormRenderer();
         $GLOBALS['wp_enqueued_scripts'] = [];
         $fm->render('contact_us');
         $this->assertContains('eforms-challenge-turnstile', $GLOBALS['wp_enqueued_scripts']);

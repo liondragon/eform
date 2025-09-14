@@ -24,7 +24,8 @@ namespace EForms {
 
 namespace {
     use EForms\Config;
-    use EForms\Rendering\FormManager;
+    use EForms\Rendering\FormRenderer;
+    use EForms\Submission\SubmitHandler;
 
     if (version_compare(PHP_VERSION, '8.0', '<')) {
         add_action('admin_init', function () {
@@ -164,17 +165,17 @@ namespace {
                     exit;
                 }
             }
-            // Delegate to FormManager for full submit pipeline.
-            $fm = new FormManager();
-            $fm->handleSubmit();
+            // Delegate to SubmitHandler for full submit pipeline.
+            $sh = new SubmitHandler();
+            $sh->handleSubmit();
             exit;
         }
     });
 
     function eform_render(string $formId, array $opts = []): string
     {
-        $fm = new FormManager();
-        return $fm->render($formId, $opts);
+        $fr = new FormRenderer();
+        return $fr->render($formId, $opts);
     }
 
     add_shortcode('eform', function ($atts) {
@@ -184,7 +185,7 @@ namespace {
         ], $atts, 'eform');
         $formId = sanitize_key($atts['id']);
         $cacheable = filter_var($atts['cacheable'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-        $fm = new FormManager();
-        return $fm->render($formId, ['cacheable' => $cacheable !== false]);
+        $fr = new FormRenderer();
+        return $fr->render($formId, ['cacheable' => $cacheable !== false]);
     });
 }

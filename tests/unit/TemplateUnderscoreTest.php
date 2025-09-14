@@ -28,7 +28,7 @@ final class TemplateUnderscoreTest extends BaseTestCase
         ];
         file_put_contents($path, json_encode($tpl));
         try {
-            $fm = new \EForms\Rendering\FormManager();
+            $fm = new \EForms\Rendering\FormRenderer();
             $html = $fm->render('foo_bar');
             $this->assertSame('<div class="eforms-error">Form configuration error.</div>', $html);
         } finally {
