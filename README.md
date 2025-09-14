@@ -2,6 +2,15 @@
 
 Lightweight PHP form handler for WordPress.
 
+## Architecture
+
+- `eforms.php` boots the plugin, sets up rewrite rules, autoloads `src/`, and registers the `[eform]` shortcode.
+- `src/Rendering/` loads JSON form templates from `templates/forms/` and renders HTML.
+- `src/Submission/SubmitHandler.php` orchestrates security checks, validation, logging, email, and uploads.
+- `src/Security/` houses token, origin, challenge, and throttling logic.
+- `src/Logging.php` writes structured logs with rotation.
+- Configuration lives in `src/Config.php` and can be overridden via the `eforms_config` filter.
+
 ## Usage
 
 Add forms via shortcode:
