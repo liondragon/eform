@@ -145,7 +145,7 @@ class Spec
                     'type'=>'email',
                     'inputmode'=>'email',
                     'autocomplete'=>'email',
-                    'attrs_mirror'=>[],
+                    'attrs_mirror'=>['maxlength'=>null,'minlength'=>null],
                 ],
                 'constants' => [
                     'spellcheck' => 'false',
