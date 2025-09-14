@@ -18,7 +18,7 @@ $_POST = [
     ],
 ];
 
-$fm = new \EForms\Rendering\FormManager();
+$sh = new \EForms\Submission\SubmitHandler();
 ob_start();
-$fm->handleSubmit();
+$sh->handleSubmit();
 ob_end_clean();

@@ -19,5 +19,5 @@ $_POST = [
     ],
     'js_ok' => '1',
 ];
-$fm = new \EForms\Rendering\FormManager();
-$fm->handleSubmit();
+$sh = new \EForms\Submission\SubmitHandler();
+$sh->handleSubmit();
