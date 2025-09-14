@@ -12,7 +12,7 @@ class Emailer
     public static function send(array $tpl, array $canonical, array $meta, int $softFails = 0): array
     {
         $policy = (string) Config::get('email.policy', 'strict');
-        $to = self::parseEmail($tpl['email']['to'] ?? '', $policy);
+        $to = self::parseEmail($tpl['email']['to'] ?? '', $policy, 'to');
         if ($to === '') {
             return ['ok' => false, 'msg' => 'invalid_to'];
         }
@@ -60,7 +60,7 @@ class Emailer
         }
         $replyField = Config::get('email.reply_to_field', '');
         if ($replyField && isset($canonical[$replyField])) {
-            $reply = self::parseEmail((string) $canonical[$replyField], $policy);
+            $reply = self::parseEmail((string) $canonical[$replyField], $policy, $replyField);
             if ($reply !== '') {
                 $headers[] = 'Reply-To: ' . self::sanitizeHeader($reply);
             }
@@ -91,7 +91,7 @@ class Emailer
             $list = is_array($redirect) ? $redirect : [$redirect];
             $parsed = [];
             foreach ($list as $r) {
-                $addr = self::parseEmail((string) $r, $policy);
+                $addr = self::parseEmail((string) $r, $policy, 'staging_redirect');
                 if ($addr !== '') {
                     $parsed[] = $addr;
                 }
@@ -243,17 +243,26 @@ class Emailer
         }, $str);
     }
 
-    private static function parseEmail(string $email, string $policy): string
+    private static function parseEmail(string $email, string $policy, string $context = ''): string
     {
         $email = trim($email);
         if ($policy === 'autocorrect') {
             $email = preg_replace('/\s+/', '', $email);
             if (str_contains($email, '@')) {
                 [$local, $domain] = explode('@', $email, 2);
+                $orig = $domain;
                 $domain = strtolower($domain);
                 $domain = preg_replace('/\.c0m$/i', '.com', $domain);
                 $domain = preg_replace('/\.con$/i', '.com', $domain);
-                $email = $local . '@' . $domain;
+                $corrected = $local . '@' . $domain;
+                if ($domain !== $orig) {
+                    Logging::write('info', 'EFORMS_EMAIL_DOMAIN_CORRECTED', [
+                        'field' => $context,
+                        'from' => $local . '@' . $orig,
+                        'to' => $corrected,
+                    ]);
+                }
+                $email = $corrected;
             }
         }
         return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';

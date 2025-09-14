@@ -5,12 +5,12 @@ use EForms\Email\Emailer;
 
 final class EmailParseAndHeaderTest extends BaseTestCase
 {
-    private function callParseEmail(string $email, string $policy): string
+    private function callParseEmail(string $email, string $policy, string $context = ''): string
     {
         $ref = new \ReflectionClass(Emailer::class);
         $m = $ref->getMethod('parseEmail');
         $m->setAccessible(true);
-        return (string) $m->invoke(null, $email, $policy);
+        return (string) $m->invoke(null, $email, $policy, $context);
     }
 
     private function callSanitizeHeader(string $header): string
@@ -55,5 +55,27 @@ final class EmailParseAndHeaderTest extends BaseTestCase
         $out = $this->callSanitizeHeader($in);
         $this->assertSame(255, strlen($out));
         $this->assertSame(str_repeat('a', 255), $out);
+    }
+
+    public function testParseEmailLogsDomainCorrection(): void
+    {
+        $dir = sys_get_temp_dir() . '/eforms-logtest-' . uniqid('', true);
+        @mkdir($dir, 0700, true);
+        set_config([
+            'uploads' => ['dir' => $dir],
+            'logging' => ['mode' => 'jsonl', 'level' => 2, 'pii' => true],
+        ]);
+        $out = $this->callParseEmail('User@Example.c0m', 'autocorrect', 'field1');
+        $this->assertSame('User@example.com', $out);
+        $logFile = $dir . '/eforms.log';
+        $line = trim((string) file_get_contents($logFile));
+        $data = json_decode($line, true);
+        $this->assertSame('EFORMS_EMAIL_DOMAIN_CORRECTED', $data['code'] ?? '');
+        $meta = $data['meta'] ?? [];
+        $this->assertSame('field1', $meta['field'] ?? '');
+        $this->assertSame('User@Example.c0m', $meta['from'] ?? '');
+        $this->assertSame('User@example.com', $meta['to'] ?? '');
+        @unlink($logFile);
+        @rmdir($dir);
     }
 }
