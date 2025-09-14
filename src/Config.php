@@ -59,7 +59,18 @@ class Config
         $sec['submission_token']['required'] = (bool)($sec['submission_token']['required'] ?? true);
 
         // challenge
-        $cfg['challenge']['http_timeout_seconds'] = self::clampInt($cfg['challenge']['http_timeout_seconds'], 1, 5);
+        $ch =& $cfg['challenge'];
+        $ch['mode'] = in_array($ch['mode'], ['off','auto','always'], true) ? $ch['mode'] : $defaults['challenge']['mode'];
+        $ch['provider'] = in_array($ch['provider'], ['turnstile','hcaptcha','recaptcha'], true) ? $ch['provider'] : $defaults['challenge']['provider'];
+        $ch['http_timeout_seconds'] = self::clampInt($ch['http_timeout_seconds'], 1, 5);
+
+        // email
+        $em =& $cfg['email'];
+        $em['policy'] = in_array($em['policy'], ['strict','autocorrect'], true) ? $em['policy'] : $defaults['email']['policy'];
+
+        // privacy
+        $prv =& $cfg['privacy'];
+        $prv['ip_mode'] = in_array($prv['ip_mode'], ['none','masked','hash','full'], true) ? $prv['ip_mode'] : $defaults['privacy']['ip_mode'];
 
         // logging
         $cfg['logging']['mode'] = in_array($cfg['logging']['mode'], ['off','minimal','jsonl'], true) ? $cfg['logging']['mode'] : $defaults['logging']['mode'];
