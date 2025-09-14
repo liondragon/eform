@@ -55,8 +55,10 @@ electronic_forms - Spec
       If wp_upload_dir() still isn’t available, abort uninstall gracefully.
   - /src/
     - Config.php
-    - FormManager.php     // orchestrates GET/POST, PRG, CSS/JS enqueue
-    - Renderer.php        // pure HTML; escape only at sinks
+    - Rendering/FormRenderer.php  // handles GET rendering; enqueues CSS/JS
+    - Submission/SubmitHandler.php // handles POST submissions, PRG
+    - Rendering/Renderer.php       // pure HTML; escape only at sinks
+    - No FormManager class; responsibilities split between FormRenderer and SubmitHandler
     - Validator.php       // normalize -> validate -> coerce (deterministic)
     - TemplateValidator.php  // strict JSON structural preflight (unknown keys/enums/combos; accept[] intersection)
     - Emailer.php         // build & send; safe headers; text/plain by default
@@ -622,7 +624,7 @@ uploads.*
 19. REQUEST LIFECYCLE
   1. GET
     - Shortcode [eform id="slug"] or template tag eform_render('slug')
-    - FormManager loads template, generates secure instance_id, sets timestamp
+    - FormRenderer loads template, generates secure instance_id, sets timestamp
     - Registers/enqueues CSS/JS only when rendering
     - Adds hidden fields: form_id, instance_id, eforms_hp, timestamp, js_ok; and when cacheable="false" also eforms_token. No hidden token in cacheable="true".
     - Always set method="post". If any upload field present, add enctype="multipart/form-data".
@@ -635,7 +637,7 @@ uploads.*
     - Preflight resolves and freezes per-request resolved descriptors; reuse across Renderer and Validator (no re-merge on POST).
 
   2. POST
-    - Security gate -> Normalize -> Validate -> Coerce
+    - SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce
     - Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
     - On errors:
       - Before token reservation → re-render reusing instance_id, timestamp, and (if hidden) same eforms_token.
