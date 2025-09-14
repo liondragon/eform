@@ -31,7 +31,7 @@ register_shutdown_function(function () {
     });
     file_put_contents(__DIR__ . '/../tmp/uploaded.txt', $files[0] ?? '');
 });
-$fm = new \EForms\Rendering\FormManager();
+$fm = new \EForms\Submission\SubmitHandler();
 ob_start();
 $fm->handleSubmit();
 ob_end_clean();

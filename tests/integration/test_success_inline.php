@@ -8,8 +8,8 @@ $_COOKIE['eforms_s_contact_us'] = 'contact_us:instOK';
 
 require __DIR__ . '/../bootstrap.php';
 
-$fm = new \EForms\Rendering\FormManager();
-$html = $fm->render('contact_us');
+$renderer = new \EForms\Rendering\FormRenderer();
+$html = $renderer->render('contact_us', []);
 file_put_contents(__DIR__ . '/../tmp/out_success_inline.html', $html);
 
 $_GET = $getSnapshot;

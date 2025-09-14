@@ -35,5 +35,5 @@ register_shutdown_function(function () {
     });
     file_put_contents(__DIR__ . '/../tmp/uploaded.txt', $files ? implode("\n", $files) : '');
 });
-$fm = new \EForms\Rendering\FormManager();
+$fm = new \EForms\Submission\SubmitHandler();
 $fm->handleSubmit();

@@ -27,7 +27,7 @@ $_POST = [
         'message' => 'Hello',
     ],
 ];
-$fm = new \EForms\Rendering\FormManager();
+$fm = new \EForms\Submission\SubmitHandler();
 ob_start();
 $fm->handleSubmit();
 ob_end_clean();
@@ -48,7 +48,7 @@ $_POST = [
         'message' => 'Hello again',
     ],
 ];
-$fm = new \EForms\Rendering\FormManager();
+$fm = new \EForms\Submission\SubmitHandler();
 ob_start();
 $fm->handleSubmit();
 $out2 = ob_get_clean();
