@@ -29,6 +29,11 @@ class FormManager
             return '<div class="eforms-error">Form configuration error.</div>';
         }
         $tpl = $pre['context'];
+        $instanceId = Helpers::random_id(16);
+        $logBase = ['form_id' => $formId, 'instance_id' => $instanceId];
+        if ((int) Config::get('logging.level', 0) >= 2) {
+            $logBase['desc_sha1'] = sha1(json_encode($tpl['descriptors'] ?? [], JSON_UNESCAPED_SLASHES));
+        }
         if (Uploads::enabled() && Uploads::hasUploadFields($tpl)) {
             Uploads::gc();
         }
@@ -43,7 +48,6 @@ class FormManager
                 eforms_header('Cache-Control: private, no-store, max-age=0');
             }
         }
-        $instanceId = Helpers::random_id(16);
         $timestamp = time();
         $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
         $meta = [
@@ -73,7 +77,7 @@ class FormManager
         if ($max <= 0) $max = 1000;
         $comment = '';
         if ($estimate >= (int) ceil(0.9 * $max)) {
-            Logging::write('warn', 'EFORMS_MAX_INPUT_VARS_NEAR_LIMIT', ['estimate'=>$estimate,'max_input_vars'=>$max]);
+            Logging::write('warn', 'EFORMS_MAX_INPUT_VARS_NEAR_LIMIT', $logBase + ['estimate'=>$estimate,'max_input_vars'=>$max]);
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 $comment = "<!-- eforms: max_input_vars advisory — estimate=$estimate, max_input_vars=$max -->";
             }
@@ -108,6 +112,12 @@ class FormManager
         // Use normalized template context from preflight so that field descriptors
         // include resolved handler identifiers and other defaults.
         $tpl = $pre['context'];
+        $instanceId = (string) ($_POST['instance_id'] ?? '');
+        $baseMeta = ['form_id' => $formId, 'instance_id' => $instanceId];
+        $logBase = $baseMeta;
+        if ((int) Config::get('logging.level', 0) >= 2) {
+            $logBase['desc_sha1'] = sha1(json_encode($tpl['descriptors'] ?? [], JSON_UNESCAPED_SLASHES));
+        }
         if (Uploads::enabled() && Uploads::hasUploadFields($tpl)) {
             Uploads::gc();
         }
@@ -116,9 +126,7 @@ class FormManager
         }
         // security gates
         $origin = Security::origin_evaluate();
-        Logging::write('info', 'EFORMS_ORIGIN_STATE', [
-            'form_id' => $formId,
-            'instance_id' => $_POST['instance_id'] ?? '',
+        Logging::write('info', 'EFORMS_ORIGIN_STATE', $logBase + [
             'spam' => ['origin_state' => $origin['state']]
         ]);
         if ($origin['hard_fail']) {
@@ -143,9 +151,7 @@ class FormManager
             $_COOKIE[$cookieName] = $newToken;
         }
         if ($tokenInfo['hard_fail']) {
-            Logging::write('warn', 'EFORMS_ERR_TOKEN', [
-                'form_id' => $formId,
-                'instance_id' => $_POST['instance_id'] ?? '',
+            Logging::write('warn', 'EFORMS_ERR_TOKEN', $logBase + [
                 'ip' => Helpers::client_ip(),
             ]);
             $this->renderErrorAndExit($tpl, $formId, 'This form was already submitted or has expired – please reload the page.');
@@ -164,15 +170,12 @@ class FormManager
             $provider = Config::get('challenge.provider', 'turnstile');
             $resp = $_POST['cf-turnstile-response'] ?? ($_POST['h-captcha-response'] ?? ($_POST['g-recaptcha-response'] ?? ''));
             $timeout = (int) Config::get('challenge.http_timeout_seconds', 2);
-            $ver = Challenge::verify($provider, $resp, $timeout, $formId, $_POST['instance_id'] ?? '');
+            $ver = Challenge::verify($provider, $resp, $timeout, $formId, $instanceId);
             if ($ver['ok'] ?? false) {
                 $softFailCount = 0;
             } elseif (!($ver['unconfigured'] ?? false)) {
                 $softFailCount++;
-                Logging::write('warn', 'EFORMS_ERR_CHALLENGE_FAILED', [
-                    'form_id' => $formId,
-                    'instance_id' => $_POST['instance_id'] ?? '',
-                ]);
+                Logging::write('warn', 'EFORMS_ERR_CHALLENGE_FAILED', $logBase);
                 $this->renderErrorAndExit($tpl, $formId, 'Security challenge failed.');
             } else {
                 $softFailCount++;
@@ -187,17 +190,13 @@ class FormManager
             }
             $res = Security::ledger_reserve($formId, $token);
             if (!$res['ok'] && !empty($res['io'])) {
-                Logging::write('error', 'EFORMS_LEDGER_IO', [
-                    'form_id' => $formId,
-                    'instance_id' => $_POST['instance_id'] ?? '',
+                Logging::write('error', 'EFORMS_LEDGER_IO', $logBase + [
                     'path' => $res['file'] ?? '',
                 ]);
             }
             $mode = Config::get('security.honeypot_response', 'stealth_success');
             $stealth = ($mode === 'stealth_success');
-            Logging::write('warn', 'EFORMS_ERR_HONEYPOT', [
-                'form_id' => $formId,
-                'instance_id' => $_POST['instance_id'] ?? '',
+            Logging::write('warn', 'EFORMS_ERR_HONEYPOT', $logBase + [
                 'stealth' => $stealth,
                 'throttle_state' => $thr['state'] ?? 'ok',
             ]);
@@ -206,7 +205,7 @@ class FormManager
             if ($mode === 'hard_fail') {
                 $this->renderErrorAndExit($tpl, $formId, 'Form submission failed.');
             }
-            $this->successAndRedirect($tpl, $formId, $_POST['instance_id'] ?? '');
+            $this->successAndRedirect($tpl, $formId, $instanceId);
             return;
         }
         $timestamp = (int) ($_POST['timestamp'] ?? 0);
@@ -214,9 +213,7 @@ class FormManager
         $minFill = (int) Config::get('security.min_fill_seconds', 4);
         if ($timestamp > 0 && ($now - $timestamp) < $minFill) {
             $softFailCount++;
-            Logging::write('warn', 'EFORMS_ERR_MIN_FILL', [
-                'form_id' => $formId,
-                'instance_id' => $_POST['instance_id'] ?? '',
+            Logging::write('warn', 'EFORMS_ERR_MIN_FILL', $logBase + [
                 'delta' => $now - $timestamp,
             ]);
         }
@@ -224,25 +221,20 @@ class FormManager
             $maxAge = (int) Config::get('security.max_form_age_seconds', Config::get('security.token_ttl_seconds', 600));
             if ($timestamp > 0 && ($now - $timestamp) > $maxAge) {
                 $softFailCount++;
-                Logging::write('warn', 'EFORMS_ERR_FORM_AGE', [
-                    'form_id' => $formId,
-                    'instance_id' => $_POST['instance_id'] ?? '',
+                Logging::write('warn', 'EFORMS_ERR_FORM_AGE', $logBase + [
                     'age' => $now - $timestamp,
                 ]);
             }
         }
         $jsOk = $_POST['js_ok'] ?? '';
         if ($jsOk !== '1') {
-            $meta = [
-                'form_id' => $formId,
-                'instance_id' => $_POST['instance_id'] ?? '',
-            ];
+            $meta = $baseMeta;
             if (Config::get('security.js_hard_mode', false)) {
-                Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $meta);
+                Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $logBase);
                 $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
             } else {
                 $softFailCount++;
-                Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $meta);
+                Logging::write('warn', 'EFORMS_ERR_JS_DISABLED', $logBase);
             }
         }
         $throttleState = 'ok';
@@ -251,9 +243,7 @@ class FormManager
             $thr = Throttle::check($ip);
             $throttleState = $thr['state'] ?? 'ok';
             if ($throttleState !== 'ok') {
-                Logging::write('warn', 'EFORMS_ERR_THROTTLED', [
-                    'form_id' => $formId,
-                    'instance_id' => $_POST['instance_id'] ?? '',
+                Logging::write('warn', 'EFORMS_ERR_THROTTLED', $logBase + [
                     'ip' => $ip,
                     'state' => $throttleState,
                 ]);
@@ -271,9 +261,7 @@ class FormManager
         }
         $threshold = (int) Config::get('spam.soft_fail_threshold', 2);
         if ($softFailCount >= $threshold) {
-            Logging::write('warn', 'EFORMS_ERR_SPAM_THRESHOLD', [
-                'form_id' => $formId,
-                'instance_id' => $_POST['instance_id'] ?? '',
+            Logging::write('warn', 'EFORMS_ERR_SPAM_THRESHOLD', $logBase + [
                 'spam' => [
                     'soft_fail_count' => $softFailCount,
                     'origin_state' => $origin['state'],
@@ -314,7 +302,7 @@ class FormManager
             }
         }
         if (!empty($errors)) {
-            $logCtx = ['form_id' => $formId, 'instance_id' => $_POST['instance_id'] ?? ''];
+            $logCtx = $logBase;
             if (Config::get('logging.on_failure_canonical', false)) {
                 $canon = [];
                 foreach ($errors as $ek => $msgs) {
@@ -331,9 +319,7 @@ class FormManager
                 }
             }
             Logging::write('info', 'EFORMS_ERR_VALIDATION', $logCtx);
-            $meta = [
-                'form_id' => $formId,
-                'instance_id' => $_POST['instance_id'] ?? '',
+            $meta = $baseMeta + [
                 'timestamp' => $timestamp,
                 'cacheable' => !$hasHidden,
                 'client_validation' => (bool) Config::get('html5.client_validation', false),
@@ -357,9 +343,7 @@ class FormManager
         $reserve = Security::ledger_reserve($formId, $token);
         if (!$reserve['ok']) {
             if (!empty($reserve['io'])) {
-                Logging::write('error', 'EFORMS_LEDGER_IO', [
-                    'form_id' => $formId,
-                    'instance_id' => $_POST['instance_id'] ?? '',
+                Logging::write('error', 'EFORMS_LEDGER_IO', $logBase + [
                     'path' => $reserve['file'] ?? '',
                 ]);
             }
@@ -374,9 +358,7 @@ class FormManager
                 $canonical['_uploads'] = $stored;
             }
         }
-        $metaInfo = [
-            'form_id' => $formId,
-            'instance_id' => $_POST['instance_id'] ?? '',
+        $metaInfo = $baseMeta + [
             'submitted_at' => \gmdate('c'),
             'ip' => Helpers::client_ip(),
         ];
@@ -388,9 +370,7 @@ class FormManager
             if (!empty($canonical['_uploads']) && (int) Config::get('uploads.retention_seconds', 86400) === 0) {
                 Uploads::deleteStored($canonical['_uploads']);
             }
-            $ctx = [
-                'form_id' => $formId,
-                'instance_id' => $metaInfo['instance_id'],
+            $ctx = $logBase + [
                 'msg' => $email['msg'] ?? 'send_fail',
             ];
             if (!empty($email['log'])) {
@@ -409,16 +389,14 @@ class FormManager
             }
             Logging::write('error', 'EFORMS_EMAIL_FAIL', $ctx);
             $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
-            $meta = [
-                'form_id' => $formId,
-                'instance_id' => $_POST['instance_id'] ?? '',
-                'timestamp' => $timestamp > 0 ? $timestamp : time(),
-                'cacheable' => !$hasHidden,
-                'client_validation' => (bool) Config::get('html5.client_validation', false),
-                'action' => \home_url('/eforms/submit'),
-                'hidden_token' => $hasHidden ? $postedToken : null,
-                'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
-            ];
+                $meta = $baseMeta + [
+                    'timestamp' => $timestamp > 0 ? $timestamp : time(),
+                    'cacheable' => !$hasHidden,
+                    'client_validation' => (bool) Config::get('html5.client_validation', false),
+                    'action' => \home_url('/eforms/submit'),
+                    'hidden_token' => $hasHidden ? $postedToken : null,
+                    'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
+                ];
             if ($requireChallenge) {
                 $prov = Config::get('challenge.provider', 'turnstile');
                 $site = Config::get('challenge.' . $prov . '.site_key', '');
@@ -436,9 +414,7 @@ class FormManager
             \header('X-EForms-Suspect: 1');
         }
         if ($suspect) {
-            Logging::write('info', 'EFORMS_SUSPECT', [
-                'form_id' => $formId,
-                'instance_id' => $metaInfo['instance_id'],
+            Logging::write('info', 'EFORMS_SUSPECT', $logBase + [
                 'spam' => [
                     'soft_fail_count' => $softFailCount,
                     'origin_state' => $origin['state'],

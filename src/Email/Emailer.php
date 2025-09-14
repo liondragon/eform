@@ -42,6 +42,7 @@ class Emailer
             }
         }
         $site = parse_url(\home_url(), PHP_URL_HOST) ?: 'example.com';
+        $site = preg_replace('/^www\./i', '', $site);
         $fromCfg = Config::get('email.from_address', '');
         if (is_string($fromCfg) && preg_match('/@' . preg_quote($site, '/') . '$/i', $fromCfg)) {
             $from = self::sanitizeHeader($fromCfg);

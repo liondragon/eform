@@ -37,8 +37,8 @@ final class RendererLabelTest extends BaseTestCase
         $tpl = TemplateValidator::preflight($tpl)['context'];
         $html = Renderer::form($tpl, $meta, [], []);
         $this->assertStringContainsString('<form class="eforms-form eforms-form-t1" method="post"', $html);
-        $this->assertStringContainsString('<label for="f1-name-i1">Your Name<span class="required">*</span></label>', $html);
-        $this->assertStringContainsString('<label for="f1-email-i1" class="visually-hidden">Email<span class="required">*</span></label>', $html);
-        $this->assertStringContainsString('<legend id="f1-color-i1-legend">Color<span class="required">*</span></legend>', $html);
+        $this->assertStringContainsString('<label for="f1-name-i1">Your Name<span class="eforms-required">*</span></label>', $html);
+        $this->assertStringContainsString('<label for="f1-email-i1" class="screen-reader-text">Email<span class="eforms-required">*</span></label>', $html);
+        $this->assertStringContainsString('<legend id="f1-color-i1-legend">Color<span class="eforms-required">*</span></legend>', $html);
     }
 }
