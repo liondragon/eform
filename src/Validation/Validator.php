@@ -266,7 +266,9 @@ class Validator
             } else {
                 $v = $post[$k] ?? '';
                 if (is_array($v)) {
-                    $v = '';
+                    // Preserve arrays for scalar fields so validation can detect invalid input
+                    $values[$k] = $v;
+                    continue;
                 }
                 $sv = function_exists('\\wp_unslash') ? \wp_unslash($v) : stripslashes((string) $v);
                 $sv = self::nfc((string) $sv);
@@ -308,6 +310,11 @@ class Validator
                     }
                 }
                 $canonical[$k] = $clean;
+                continue;
+            }
+            if (is_array($v)) {
+                $errors[$k][] = 'Invalid input.';
+                $canonical[$k] = '';
                 continue;
             }
             if (!empty($f['required']) && $v === '') {
