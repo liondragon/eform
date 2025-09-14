@@ -330,6 +330,12 @@ ok=0
 assert_grep tmp/ua.txt '^A{256}$' || ok=1
 record_result "logging: user-agent sanitized" $ok
 
+# 8d) Operational error rerender
+run_test test_operational_rerender
+ok=0
+assert_grep tmp/stdout.txt '^OK$' || ok=1
+record_result "rerender: new token on failure" $ok
+
 # 9) Upload valid
 run_test test_upload_valid
 ok=0

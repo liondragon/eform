@@ -290,6 +290,53 @@ class SubmitHandler
         }
         if ($hasUploads) {
             $stored = Uploads::store($uploadsData);
+            $expected = 0;
+            foreach ($uploadsData as $list) {
+                $expected += count($list);
+            }
+            $storedCount = 0;
+            foreach ($stored as $list) {
+                $storedCount += count($list);
+            }
+            if ($storedCount !== $expected) {
+                Uploads::deleteStored($stored);
+                Uploads::unlinkTemps($rawFiles);
+                Logging::write('error', 'EFORMS_UPLOAD_STORE_FAIL', $logBase);
+                $newInstance = Helpers::random_id(16);
+                if ($tokenInfo['mode'] === 'cookie') {
+                    $ttl = (int) Config::get('security.token_ttl_seconds', 600);
+                    $newToken = function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::random_id(16);
+                    \setcookie($cookieName, $newToken, [
+                        'expires' => time() + $ttl,
+                        'path' => '/',
+                        'secure' => \is_ssl(),
+                        'httponly' => true,
+                        'samesite' => 'Lax',
+                    ]);
+                    $_COOKIE[$cookieName] = $newToken;
+                }
+                $meta = [
+                    'form_id' => $formId,
+                    'instance_id' => $newInstance,
+                    'timestamp' => $timestamp > 0 ? $timestamp : time(),
+                    'cacheable' => !$hasHidden,
+                    'client_validation' => (bool) Config::get('html5.client_validation', false),
+                    'action' => \home_url('/eforms/submit'),
+                    'hidden_token' => $hasHidden ? (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()) : null,
+                    'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
+                ];
+                if ($requireChallenge) {
+                    $prov = Config::get('challenge.provider', 'turnstile');
+                    $site = Config::get('challenge.' . $prov . '.site_key', '');
+                    $meta['challenge'] = ['provider'=>$prov,'site_key'=>$site];
+                    Challenge::enqueueScript($prov);
+                }
+                $errors = ['_global' => ['Operational error. Please try again later.']];
+                $this->enqueueAssetsIfNeeded();
+                $html = Renderer::form($tpl, $meta, $errors, $canonical);
+                echo $html;
+                exit;
+            }
             if (!empty($stored)) {
                 $canonical['_uploads'] = $stored;
             }
@@ -303,8 +350,9 @@ class SubmitHandler
             Uploads::deleteStored($canonical['_uploads']);
         }
         if (!$email['ok']) {
-            if (!empty($canonical['_uploads']) && (int) Config::get('uploads.retention_seconds', 86400) === 0) {
-                Uploads::deleteStored($canonical['_uploads']);
+            $storedUploads = $canonical['_uploads'] ?? [];
+            if (!empty($storedUploads) && (int) Config::get('uploads.retention_seconds', 86400) === 0) {
+                Uploads::deleteStored($storedUploads);
             }
             $ctx = $logBase + [
                 'msg' => $email['msg'] ?? 'send_fail',
@@ -312,9 +360,9 @@ class SubmitHandler
             if (!empty($email['log'])) {
                 $ctx['email'] = $email['log'];
             }
-            if (!empty($canonical['_uploads'])) {
+            if (!empty($storedUploads)) {
                 $files = [];
-                foreach ($canonical['_uploads'] as $list) {
+                foreach ($storedUploads as $list) {
                     foreach ($list as $item) {
                         $files[] = ['path'=>$item['path'] ?? '', 'sha256'=>$item['sha256'] ?? ''];
                     }
@@ -324,15 +372,31 @@ class SubmitHandler
                 }
             }
             Logging::write('error', 'EFORMS_EMAIL_FAIL', $ctx);
+            unset($canonical['_uploads']);
+            $newInstance = Helpers::random_id(16);
+            if ($tokenInfo['mode'] === 'cookie') {
+                $ttl = (int) Config::get('security.token_ttl_seconds', 600);
+                $newToken = function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::random_id(16);
+                \setcookie($cookieName, $newToken, [
+                    'expires' => time() + $ttl,
+                    'path' => '/',
+                    'secure' => \is_ssl(),
+                    'httponly' => true,
+                    'samesite' => 'Lax',
+                ]);
+                $_COOKIE[$cookieName] = $newToken;
+            }
             $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
-                $meta = $baseMeta + [
-                    'timestamp' => $timestamp > 0 ? $timestamp : time(),
-                    'cacheable' => !$hasHidden,
-                    'client_validation' => (bool) Config::get('html5.client_validation', false),
-                    'action' => \home_url('/eforms/submit'),
-                    'hidden_token' => $hasHidden ? $postedToken : null,
-                    'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
-                ];
+            $meta = [
+                'form_id' => $formId,
+                'instance_id' => $newInstance,
+                'timestamp' => $timestamp > 0 ? $timestamp : time(),
+                'cacheable' => !$hasHidden,
+                'client_validation' => (bool) Config::get('html5.client_validation', false),
+                'action' => \home_url('/eforms/submit'),
+                'hidden_token' => $hasHidden ? (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()) : null,
+                'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
+            ];
             if ($requireChallenge) {
                 $prov = Config::get('challenge.provider', 'turnstile');
                 $site = Config::get('challenge.' . $prov . '.site_key', '');
@@ -341,7 +405,7 @@ class SubmitHandler
             }
             $errors = ['_global' => ['Operational error. Please try again later.']];
             $this->enqueueAssetsIfNeeded();
-            $html = Renderer::form($tpl, $meta, $errors, $values);
+            $html = Renderer::form($tpl, $meta, $errors, $canonical);
             echo $html;
             exit;
         }
