@@ -96,7 +96,9 @@ class Logging
             }
             return;
         }
-        self::init();
+        if ($mode === 'jsonl') {
+            self::init();
+        }
         $level = (int) Config::get('logging.level', 0);
         $sevLevel = 0;
         if ($severity === 'warn') $sevLevel = 1;
@@ -194,7 +196,7 @@ class Logging
             if (!empty($meta)) {
                 $parts[] = 'meta=' . substr(json_encode($meta, JSON_UNESCAPED_SLASHES), 0, 200);
             }
-            self::logLine('eforms ' . implode(' ', $parts) . "\n");
+            error_log('eforms ' . implode(' ', $parts));
         }
         if (Config::get('logging.fail2ban.enable', false)) {
             self::emitFail2ban($code, $ctx);
@@ -242,8 +244,11 @@ class Logging
             $ok = @file_put_contents($file, $line . "\n", FILE_APPEND | LOCK_EX);
             if ($ok === false) {
                 error_log($line);
-                if (Config::get('logging.mode', 'minimal') !== 'off') {
+                $mode = (string) Config::get('logging.mode', 'minimal');
+                if ($mode === 'jsonl') {
                     self::logLine(['severity' => 'warn', 'code' => 'EFORMS_FAIL2BAN_IO']);
+                } elseif ($mode !== 'off') {
+                    error_log('eforms severity=warn code=EFORMS_FAIL2BAN_IO');
                 }
             } else {
                 if ($isNew) {

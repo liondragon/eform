@@ -318,12 +318,12 @@ assert_grep tmp/uploads/eforms-private/eforms.log '"severity":"error"' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log '"code":"EFORMS_EMAIL_FAIL"' || ok=1
 record_result "logging: SMTP failure" $ok
 
-# 8b) Logging minimal file output
+# 8b) Logging minimal error_log output
 run_test test_logging_minimal
 ok=0
-assert_grep tmp/uploads/eforms-private/eforms.log 'severity=error' || ok=1
-assert_grep tmp/uploads/eforms-private/eforms.log 'code=EFORMS_EMAIL_FAIL' || ok=1
-record_result "logging: minimal file output" $ok
+assert_grep tmp/php_error.log 'severity=error' || ok=1
+assert_grep tmp/php_error.log 'code=EFORMS_EMAIL_FAIL' || ok=1
+record_result "logging: minimal error_log output" $ok
 
 # 8c) Logging User-Agent sanitization
 run_test test_logging_user_agent
