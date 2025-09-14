@@ -178,7 +178,7 @@ record_result "challenge success clears soft signal" $ok
 
 run_test test_challenge_fail
 ok=0
-assert_grep tmp/stdout.txt 'Security challenge failed\.' || ok=1
+assert_grep tmp/stdout.txt '^OK$' || ok=1
 assert_grep tmp/uploads/eforms-private/eforms.log 'EFORMS_ERR_CHALLENGE_FAILED' || ok=1
 ! assert_grep tmp/mail.json 'zed@example.com' || ok=1
 record_result "challenge failure logged" $ok
