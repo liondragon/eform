@@ -26,6 +26,7 @@ class TemplateValidator
     public const EFORMS_ERR_FRAGMENT_UNBALANCED  = 'EFORMS_ERR_FRAGMENT_UNBALANCED';
     public const EFORMS_ERR_FRAGMENT_ROW_TAG     = 'EFORMS_ERR_FRAGMENT_ROW_TAG';
     public const EFORMS_ERR_FRAGMENT_STYLE_ATTR  = 'EFORMS_ERR_FRAGMENT_STYLE_ATTR';
+    public const EFORMS_ERR_TYPE                 = 'EFORMS_ERR_TYPE';
 
 
     /**
@@ -130,7 +131,7 @@ class TemplateValidator
             }
             $type = $f['type'] ?? null;
             if (!in_array($type, $allowedTypes, true)) {
-                $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'type'];
+                $errors[] = ['code'=>self::EFORMS_ERR_TYPE,'path'=>$path.'type'];
                 continue;
             }
             if ($type === 'row_group') {
