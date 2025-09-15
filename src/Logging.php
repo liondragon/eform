@@ -136,6 +136,9 @@ class Logging
         }
         $meta = $ctx;
         unset($meta['form_id'], $meta['instance_id'], $meta['msg'], $meta['ip'], $meta['spam']);
+        if (array_key_exists('token_mode', $ctx)) {
+            $meta['token_mode'] = $ctx['token_mode'];
+        }
         if (isset($meta['email']) && is_array($meta['email'])) {
             unset($meta['email']);
         }

@@ -475,6 +475,7 @@ electronic_forms - Spec
   - Rotation/retention for JSONL: dirs 0700, files 0600, rotate when file_max_size exceeded, prune > retention_days. flock() used; note NFS caveats.
   - What to log (all modes, subject to pii/headers):
     - Timestamp (UTC ISO-8601), severity, code, form_id, instance_id, request URI (path + only eforms_* query), privacy-processed IP, spam signals summary (honeypot, origin_state, soft_fail_count, throttle_state), SMTP failure reason when applicable.
+    - Token evaluation mode (meta.token_mode) when the submission token gate runs, to differentiate hidden-token vs cookie flows.
     - Optional on failure: canonical field names + values only for fields causing rejection when logging.on_failure_canonical=true.
     - Throttle & challenge outcomes at level >=1 (redact provider tokens).
     - At level=2, include a compact descriptor fingerprint for this request: desc_sha1 = sha1(json_encode(resolved descriptors)). Optionally include a compact spam bitset alongside the human list.
