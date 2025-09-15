@@ -543,4 +543,34 @@ class TemplateValidatorTest extends BaseTestCase
         $expected = str_repeat('a', 32) . ' ' . str_repeat('b', 32);
         $this->assertSame($expected, $field['class']);
     }
+
+    public function testClassTokenTruncateNotDropped(): void
+    {
+        $tpl = $this->baseTpl();
+        $long = str_repeat('x', 40);
+        $tpl['fields'][0]['class'] = $long;
+        $res = TemplateValidator::preflight($tpl);
+        $this->assertTrue($res['ok']);
+        $field = $res['context']['fields'][0] ?? [];
+        $this->assertSame(str_repeat('x', 32), $field['class']);
+    }
+
+    public function testClassTokenDedupAndMaxLength(): void
+    {
+        $tpl = $this->baseTpl();
+        $longA1 = str_repeat('a', 40);
+        $longA2 = str_repeat('a', 35);
+        $tokens = [$longA1, $longA2];
+        foreach (['b', 'c', 'd', 'e'] as $ch) {
+            $tokens[] = str_repeat($ch, 33);
+        }
+        $tpl['fields'][0]['class'] = implode(' ', $tokens);
+        $res = TemplateValidator::preflight($tpl);
+        $this->assertTrue($res['ok']);
+        $field = $res['context']['fields'][0] ?? [];
+        $expected = str_repeat('a', 32) . ' ' . str_repeat('b', 32) . ' ' .
+            str_repeat('c', 32) . ' ' . str_repeat('d', 29);
+        $this->assertSame($expected, $field['class']);
+        $this->assertSame(128, strlen($field['class']));
+    }
 }
