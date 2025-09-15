@@ -96,14 +96,28 @@ class SecurityTokenModesTest extends BaseTestCase
         $this->assertFalse($res['require_challenge']);
     }
 
-    public function testHiddenInvalidDoesNotUseCookie(): void
+    public function testHiddenInvalidFallsBackToCookie(): void
     {
         $_COOKIE['eforms_t_contact_us'] = '00000000-0000-4000-8000-000000000016';
         $res = Security::token_validate('contact_us', true, 'bad');
-        $this->assertSame('hidden', $res['mode']);
-        $this->assertFalse($res['token_ok']);
-        $this->assertTrue($res['hard_fail']);
+        $this->assertSame('cookie', $res['mode']);
+        $this->assertTrue($res['token_ok']);
+        $this->assertFalse($res['hard_fail']);
+        $this->assertSame(0, $res['soft_signal']);
+        $this->assertFalse($res['require_challenge']);
         unset($_COOKIE['eforms_t_contact_us']);
+    }
+
+    public function testHiddenInvalidWithoutCookieUsesPolicy(): void
+    {
+        $this->setConfig('security.cookie_missing_policy', 'challenge');
+        unset($_COOKIE['eforms_t_contact_us']);
+        $res = Security::token_validate('contact_us', true, 'bad');
+        $this->assertSame('cookie', $res['mode']);
+        $this->assertFalse($res['token_ok']);
+        $this->assertFalse($res['hard_fail']);
+        $this->assertSame(1, $res['soft_signal']);
+        $this->assertTrue($res['require_challenge']);
     }
 
     public function testCookieRotation(): void
