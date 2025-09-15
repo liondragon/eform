@@ -222,24 +222,24 @@ electronic_forms - Spec
 
 7. SECURITY
   1. Submission Protection for Public Forms (hybrid token scheme)
-    - [eform id="contact" cacheable="true"] -> cookie-based token (static HTML).
-    - [eform id="contact" cacheable="false"] -> server-side per-render hidden token (dynamic HTML).
-    - Server decides token type when generating the form. POST handler is agnostic.
-    - Precedence: If a valid hidden eforms_token is present, ignore cookie token entirely. Reject only if neither token is valid.
+    - Mode selection:
+      - cacheable="false" → hidden-mode. Renderer emits a per-render <input type="hidden" name="eforms_token" value="<UUIDv4>"> and treats the response as dynamic.
+      - cacheable="true" → cookie-mode. Renderer omits the hidden token, relies on a prime pixel to set a cookie, and keeps the HTML cache-friendly (no token in markup).
+    - TemplateContext records the chosen mode so SubmitHandler enforces it on POST; do not attempt cross-mode fallback.
     - GET:
-      - cacheable="true": include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">.
-        /eforms/prime → 204 + Set-Cookie eforms_t_{form_id}=<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default. Form HTML is static & cacheable (no token in markup).
-      - cacheable="false": omit pixel; inject hidden eforms_token (UUIDv4). Send Cache-Control: private, no-store on this page.
+      - hidden-mode: omit pixel; inject hidden eforms_token (UUIDv4). Send Cache-Control: private, no-store on this page.
+      - cookie-mode: include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">. /eforms/prime → 204 + Set-Cookie eforms_t_{form_id}=<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default.
     - POST /eforms/submit
       - CSRF Gate (Origin-only):
         - Evaluate per §7.4. hard mode: cross/unknown → HARD FAIL; missing → HARD FAIL only when security.origin_missing_hard=true.
         - soft mode: cross/unknown → +1 soft; missing → +1 soft only when security.origin_missing_soft=true.
       - Method/Type: Require POST. Accept only application/x-www-form-urlencoded (charset allowed) or multipart/form-data (boundary required). Else 405/415. Enforce POST size cap per §7.5.
       - Token validation:
-        - Hidden-token present: validate UUIDv4. If invalid/missing:
-          - security.submission_token.required=true -> HARD FAIL (EFORMS_ERR_TOKEN)
-          - else -> token_soft=1, continue §7.6
-        - Cookie mode: read eforms_t_{form_id} cookie (UUIDv4). If missing/invalid, apply security.cookie_missing_policy:
+        - Hidden-mode (cacheable="false"): validate the posted eforms_token as UUIDv4. Missing/invalid tokens are governed solely by security.submission_token.required:
+          - true → HARD FAIL (EFORMS_ERR_TOKEN)
+          - false → token_soft=1, continue §7.6
+          Hidden-mode ignores cookies entirely.
+        - Cookie-mode (cacheable="true"): read eforms_t_{form_id} cookie (UUIDv4). If missing/invalid, apply security.cookie_missing_policy (cookie-mode only):
           - "off" → proceed, no soft
           - "soft" → token_soft=1
           - "hard" → HARD FAIL (EFORMS_ERR_TOKEN)
