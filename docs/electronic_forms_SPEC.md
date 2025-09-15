@@ -361,10 +361,10 @@ electronic_forms - Spec
 
 10. CROSS-FIELD RULES (BOUNDED SET)
   - Supported:
-    - required_if: { "rule":"required_if", "field":"other", "equals":"value" }
-    - required_if_any: { "rule":"required_if_any", "fields":[...], "equals_any":[...] }
-    - required_unless: { "rule":"required_unless", "field":"other", "equals":"value" }
-    - matches: { "rule":"matches", "field":"other" }
+    - required_if: { "rule":"required_if", "target":"field", "field":"other", "equals":"value" }
+    - required_if_any: { "rule":"required_if_any", "target":"field", "fields":[...], "equals_any":[...] }
+    - required_unless: { "rule":"required_unless", "target":"field", "field":"other", "equals":"value" }
+    - matches: { "rule":"matches", "target":"field", "field":"other" }
     - one_of: { "rule":"one_of", "fields":["a","b","c"] }
     - mutually_exclusive: { "rule":"mutually_exclusive", "fields":["a","b"] }
   - Deterministic evaluation order: top-to-bottom

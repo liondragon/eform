@@ -19,7 +19,7 @@ class RulesTest extends BaseTestCase
                 ['type'=>'text','key'=>'b'],
             ],
             'rules' => [
-                ['rule'=>'required_if','field'=>'a','other'=>'b','equals'=>'x']
+                ['rule'=>'required_if','target'=>'a','field'=>'b','equals'=>'x']
             ],
         ];
         $errors = $this->runRules($tpl, ['b'=>'x']);
@@ -35,7 +35,7 @@ class RulesTest extends BaseTestCase
                 ['type'=>'text','key'=>'c'],
             ],
             'rules' => [
-                ['rule'=>'required_if_any','field'=>'a','fields'=>['b','c'],'equals_any'=>['yes','y']]
+                ['rule'=>'required_if_any','target'=>'a','fields'=>['b','c'],'equals_any'=>['yes','y']]
             ],
         ];
         $errors = $this->runRules($tpl, ['b'=>'y']);
@@ -50,7 +50,7 @@ class RulesTest extends BaseTestCase
                 ['type'=>'text','key'=>'b'],
             ],
             'rules' => [
-                ['rule'=>'required_unless','field'=>'a','other'=>'b','equals'=>'skip']
+                ['rule'=>'required_unless','target'=>'a','field'=>'b','equals'=>'skip']
             ],
         ];
         $errors = $this->runRules($tpl, ['b'=>'no']);
@@ -65,7 +65,7 @@ class RulesTest extends BaseTestCase
                 ['type'=>'text','key'=>'b'],
             ],
             'rules' => [
-                ['rule'=>'matches','field'=>'a','other'=>'b']
+                ['rule'=>'matches','target'=>'a','field'=>'b']
             ],
         ];
         $errors = $this->runRules($tpl, ['a'=>'one','b'=>'two']);

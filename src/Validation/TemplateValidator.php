@@ -431,15 +431,15 @@ class TemplateValidator
             self::checkUnknown($rule, $ruleSpec['allowed'], $rpath, $errors);
             switch ($type) {
                 case 'required_if':
+                    if (!isset($rule['target'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'target'];
+                    } elseif (!is_string($rule['target'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'target'];
+                    }
                     if (!isset($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
                     } elseif (!is_string($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'field'];
-                    }
-                    if (!isset($rule['other'])) {
-                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'other'];
-                    } elseif (!is_string($rule['other'])) {
-                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'other'];
                     }
                     if (!array_key_exists('equals', $rule)) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'equals'];
@@ -448,10 +448,10 @@ class TemplateValidator
                     }
                     break;
                 case 'required_if_any':
-                    if (!isset($rule['field'])) {
-                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
-                    } elseif (!is_string($rule['field'])) {
-                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'field'];
+                    if (!isset($rule['target'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'target'];
+                    } elseif (!is_string($rule['target'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'target'];
                     }
                     if (!isset($rule['fields'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'fields'];
@@ -465,15 +465,15 @@ class TemplateValidator
                     }
                     break;
                 case 'required_unless':
+                    if (!isset($rule['target'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'target'];
+                    } elseif (!is_string($rule['target'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'target'];
+                    }
                     if (!isset($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
                     } elseif (!is_string($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'field'];
-                    }
-                    if (!isset($rule['other'])) {
-                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'other'];
-                    } elseif (!is_string($rule['other'])) {
-                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'other'];
                     }
                     if (!array_key_exists('equals', $rule)) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'equals'];
@@ -482,15 +482,15 @@ class TemplateValidator
                     }
                     break;
                 case 'matches':
+                    if (!isset($rule['target'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'target'];
+                    } elseif (!is_string($rule['target'])) {
+                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'target'];
+                    }
                     if (!isset($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
                     } elseif (!is_string($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'field'];
-                    }
-                    if (!isset($rule['other'])) {
-                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'other'];
-                    } elseif (!is_string($rule['other'])) {
-                        $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$rpath.'other'];
                     }
                     break;
                 case 'one_of':

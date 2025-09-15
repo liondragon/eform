@@ -367,15 +367,15 @@ class Validator
             $type = $rule['rule'] ?? '';
             switch ($type) {
                 case 'required_if':
+                    $target = $rule['target'] ?? '';
                     $field = $rule['field'] ?? '';
-                    $other = $rule['other'] ?? '';
                     $equals = (string)($rule['equals'] ?? '');
-                    if ((string)($values[$other] ?? '') === $equals && self::isEmpty($values[$field] ?? null)) {
-                        $errors[$field][] = 'This field is required.';
+                    if ((string)($values[$field] ?? '') === $equals && self::isEmpty($values[$target] ?? null)) {
+                        $errors[$target][] = 'This field is required.';
                     }
                     break;
                 case 'required_if_any':
-                    $field = $rule['field'] ?? '';
+                    $target = $rule['target'] ?? '';
                     $fields = $rule['fields'] ?? [];
                     $equalsAny = $rule['equals_any'] ?? [];
                     $trigger = false;
@@ -383,23 +383,23 @@ class Validator
                         $val = (string)($values[$f] ?? '');
                         if (in_array($val, array_map('strval', $equalsAny), true)) { $trigger = true; break; }
                     }
-                    if ($trigger && self::isEmpty($values[$field] ?? null)) {
-                        $errors[$field][] = 'This field is required.';
+                    if ($trigger && self::isEmpty($values[$target] ?? null)) {
+                        $errors[$target][] = 'This field is required.';
                     }
                     break;
                 case 'required_unless':
+                    $target = $rule['target'] ?? '';
                     $field = $rule['field'] ?? '';
-                    $other = $rule['other'] ?? '';
                     $equals = (string)($rule['equals'] ?? '');
-                    if ((string)($values[$other] ?? '') !== $equals && self::isEmpty($values[$field] ?? null)) {
-                        $errors[$field][] = 'This field is required.';
+                    if ((string)($values[$field] ?? '') !== $equals && self::isEmpty($values[$target] ?? null)) {
+                        $errors[$target][] = 'This field is required.';
                     }
                     break;
                 case 'matches':
+                    $target = $rule['target'] ?? '';
                     $field = $rule['field'] ?? '';
-                    $other = $rule['other'] ?? '';
-                    if (($values[$field] ?? null) !== ($values[$other] ?? null)) {
-                        $errors[$field][] = 'Fields must match.';
+                    if (($values[$target] ?? null) !== ($values[$field] ?? null)) {
+                        $errors[$target][] = 'Fields must match.';
                     }
                     break;
                 case 'one_of':

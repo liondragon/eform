@@ -236,20 +236,20 @@ class TemplateValidatorTest extends BaseTestCase
     {
         $tpl = $this->baseTpl();
         $tpl['rules'] = [
-            ['rule' => 'matches', 'field' => 'name'],
+            ['rule' => 'matches', 'target' => 'name'],
         ];
         $res = TemplateValidator::preflight($tpl);
         $codes = array_column($res['errors'], 'code');
         $paths = array_column($res['errors'], 'path');
         $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_REQUIRED, $codes);
-        $this->assertContains('rules[0].other', $paths);
+        $this->assertContains('rules[0].field', $paths);
     }
 
     public function testRuleUnknownKey(): void
     {
         $tpl = $this->baseTpl();
         $tpl['rules'] = [
-            ['rule' => 'matches', 'field' => 'name', 'other' => 'email', 'bogus' => 1],
+            ['rule' => 'matches', 'target' => 'name', 'field' => 'email', 'bogus' => 1],
         ];
         $res = TemplateValidator::preflight($tpl);
         $codes = array_column($res['errors'], 'code');

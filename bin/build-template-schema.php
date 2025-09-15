@@ -138,9 +138,9 @@ $schema = [
             'additionalProperties' => false,
             'properties' => [
                 'rule' => ['enum' => TemplateSpec::ruleTypes()],
+                'target' => ['type' => 'string'],
                 'field' => ['type' => 'string'],
                 'fields' => ['type' => 'array', 'items' => ['type' => 'string']],
-                'other' => ['type' => 'string'],
                 'equals' => ['type' => 'string'],
                 'equals_any' => ['type' => 'array', 'items' => ['type' => 'string']],
             ],
