@@ -72,6 +72,7 @@ class SubmitHandler
         $cookieName = 'eforms_t_' . $formId;
         $cookieToken = $_COOKIE[$cookieName] ?? '';
         $tokenInfo = Security::token_validate($formId, $hasHidden, $postedToken);
+        $logBase['token_mode'] = $tokenInfo['mode'] ?? '';
         if ($tokenInfo['mode'] === 'cookie') {
             $ttl = (int) Config::get('security.token_ttl_seconds', 600);
             $newToken = function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::random_id(16);
