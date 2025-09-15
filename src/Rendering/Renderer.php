@@ -287,7 +287,7 @@ class Renderer
         if (!empty($f['required'])) $attrs .= ' required';
         if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
         if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-        $sizeTypes = ['text','search','tel','tel_us','url','email','password'];
+        $sizeTypes = ['text','tel','tel_us','url','email'];
         if (isset($f['size']) && in_array($f['type'] ?? '', $sizeTypes, true)) {
             $attrs .= ' size="' . (int)$f['size'] . '"';
         }

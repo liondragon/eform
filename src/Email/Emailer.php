@@ -173,7 +173,6 @@ class Emailer
         }
         if ($debugEnabled && $debugBuf !== '') {
             $buf = preg_replace('/[\r\n]+/', ' ', $debugBuf);
-            $buf = preg_replace('/password\s*:\s*\S+/i', 'password: ***', $buf);
             $buf = preg_replace('/passphrase\s*:\s*\S+/i', 'passphrase: ***', $buf);
             $buf = preg_replace('/authorization\s*:\s*\S+/i', 'authorization: ***', $buf);
             if (!Config::get('logging.pii', false)) {

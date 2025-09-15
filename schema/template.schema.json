@@ -273,12 +273,10 @@
                             "type": {
                                 "enum": [
                                     "text",
-                                    "search",
                                     "tel",
                                     "tel_us",
                                     "url",
-                                    "email",
-                                    "password"
+                                    "email"
                                 ]
                             }
                         },

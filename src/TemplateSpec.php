@@ -59,7 +59,7 @@ class TemplateSpec
             'placeholder','autocomplete','size','max_length','min','max','pattern','email_attach',
             'max_file_bytes','max_files','step'
         ],
-        'size_allowed_types' => ['text','search','tel','tel_us','url','email','password'],
+        'size_allowed_types' => ['text','tel','tel_us','url','email'],
         'allowed_meta' => ['ip','submitted_at','form_id','instance_id'],
     ];
 
@@ -92,18 +92,17 @@ class TemplateSpec
 
     private const AUTOCOMPLETE_TOKENS = [
         'name','honorific-prefix','given-name','additional-name','family-name',
-        'honorific-suffix','nickname','email','username','new-password',
-        'current-password','one-time-code','organization-title','organization',
-        'street-address','address-line1','address-line2','address-line3',
-        'address-level4','address-level3','address-level2','address-level1',
-        'country','country-name','postal-code','cc-name','cc-given-name',
-        'cc-additional-name','cc-family-name','cc-number','cc-exp',
-        'cc-exp-month','cc-exp-year','cc-csc','cc-type','transaction-currency',
-        'transaction-amount','language','bday','bday-day','bday-month',
-        'bday-year','sex','tel','tel-country-code','tel-national',
-        'tel-area-code','tel-local','tel-local-prefix','tel-local-suffix',
-        'tel-extension','impp','url','photo','webauthn','shipping',
-        'billing','home','work','mobile','fax','pager',
+        'honorific-suffix','nickname','email','username','one-time-code',
+        'organization-title','organization','street-address','address-line1',
+        'address-line2','address-line3','address-level4','address-level3',
+        'address-level2','address-level1','country','country-name','postal-code',
+        'cc-name','cc-given-name','cc-additional-name','cc-family-name',
+        'cc-number','cc-exp','cc-exp-month','cc-exp-year','cc-csc','cc-type',
+        'transaction-currency','transaction-amount','language','bday',
+        'bday-day','bday-month','bday-year','sex','tel','tel-country-code',
+        'tel-national','tel-area-code','tel-local','tel-local-prefix',
+        'tel-local-suffix','tel-extension','impp','url','photo','webauthn',
+        'shipping','billing','home','work','mobile','fax','pager',
     ];
 
     /** @return list<string> */

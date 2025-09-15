@@ -102,10 +102,10 @@ electronic_forms - Spec
 5. TEMPLATE MODEL
   1. Field Generation and Namespacing
     - Template field keys may include:
-      - key (slug), type, label?, placeholder?, required (bool), size (1-100; text-like only: text, search, tel, url, email, password), autocomplete?, options (for radios/checkboxes/select), class?, max_length?, min?, max?, step?, pattern?, before_html?, after_html?
+      - key (slug), type, label?, placeholder?, required (bool), size (1-100; text-like only: text, tel, url, email), autocomplete?, options (for radios/checkboxes/select), class?, max_length?, min?, max?, step?, pattern?, before_html?, after_html?
     - key (slug): required; must match ^[a-z0-9_:-]{1,64}$ (lowercase); [] prohibited to prevent PHP array collisions; reserved keys remain disallowed.
     - autocomplete: exactly one token. "on"/"off" accepted; else must match WHATWG tokens (name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
-    - size: 1-100; honored only for text-like controls (text, search, tel, url, email, password).
+    - size: 1-100; honored only for text-like controls (text, tel, url, email).
     - Hidden per-instance fields (renderer adds): form_id, instance_id, eforms_hp (POST name fixed; randomized id only), timestamp (used for UI/logs and as a best-effort age signal in hidden-token mode; see 7.3), js_ok; and when cacheable="false" also <input type="hidden" name="eforms_token" value="<UUIDv4>"> (see 7.1). When cacheable="true" no hidden token is rendered (cookie-only). timestamp is set on first render of the instance and preserved across validation re-renders; on error re-render, reuse the posted timestamp.
     - Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
     - Renderer-generated attributes:
