@@ -58,8 +58,6 @@ namespace {
     require_once __DIR__ . '/src/Validation/Validator.php';
     require_once __DIR__ . '/src/Validation/TemplateValidator.php';
     require_once __DIR__ . '/src/Security/Security.php';
-    require_once __DIR__ . '/src/Security/Throttle.php';
-    require_once __DIR__ . '/src/Security/Challenge.php';
     require_once __DIR__ . '/src/Uploads/Uploads.php';
     require_once __DIR__ . '/src/Email/Emailer.php';
     require_once __DIR__ . '/src/Rendering/FormRenderer.php';

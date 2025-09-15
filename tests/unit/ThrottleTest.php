@@ -5,6 +5,8 @@ use EForms\Config;
 use EForms\Helpers;
 use EForms\Security\Throttle;
 
+require_once __DIR__ . '/../../src/Security/Throttle.php';
+
 final class ThrottleTest extends BaseTestCase
 {
     public function testKeyFromIpModes(): void
