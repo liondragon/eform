@@ -543,4 +543,54 @@ class TemplateValidatorTest extends BaseTestCase
         $expected = str_repeat('a', 32) . ' ' . str_repeat('b', 32);
         $this->assertSame($expected, $field['class']);
     }
+
+    public function testRulesMissingTargetOrField(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'required_if', 'target' => 'bogus', 'field' => 'name', 'equals' => 'x'],
+            ['rule' => 'required_unless', 'target' => 'email', 'field' => 'bogus', 'equals' => 'x'],
+            ['rule' => 'matches', 'target' => 'bogus', 'field' => 'email'],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].target', $paths);
+        $this->assertContains('rules[1].field', $paths);
+        $this->assertContains('rules[2].target', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
+    public function testRequiredIfAnyWithMissingReferences(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'required_if_any', 'target' => 'bogus', 'fields' => ['name'], 'equals_any' => ['x']],
+            ['rule' => 'required_if_any', 'target' => 'email', 'fields' => ['bogus'], 'equals_any' => ['x']],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].target', $paths);
+        $this->assertContains('rules[1].fields[0]', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
+    public function testOneOfAndMutuallyExclusiveMissingFields(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'one_of', 'fields' => ['name', 'bogus']],
+            ['rule' => 'mutually_exclusive', 'fields' => ['bogus', 'email']],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].fields[1]', $paths);
+        $this->assertContains('rules[1].fields[0]', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
 }
