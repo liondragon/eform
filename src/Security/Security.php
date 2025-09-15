@@ -104,7 +104,9 @@ class Security
     public static function ledger_reserve(string $formId, string $token): array
     {
         if (!Config::get('security.token_ledger.enable', true)) {
-            return ['ok' => true, 'skipped' => true];
+            $result = ['ok' => true, 'skipped' => true];
+            self::logLedgerReservation($formId, $token, $result);
+            return $result;
         }
         $base = rtrim(Config::get('uploads.dir', ''), '/');
         $dir = $base . '/ledger';
@@ -118,13 +120,35 @@ class Security
         $fh = @fopen($file, 'xb');
         if ($fh === false) {
             if (file_exists($file)) {
-                return ['ok'=>false,'duplicate'=>true];
+                $result = ['ok' => false, 'duplicate' => true];
+                self::logLedgerReservation($formId, $token, $result);
+                return $result;
             }
-            return ['ok'=>false,'io'=>true,'file'=>$file];
+            $result = ['ok' => false, 'io' => true, 'file' => $file];
+            self::logLedgerReservation($formId, $token, $result);
+            return $result;
         }
         fclose($fh);
         @chmod($file, 0600);
-        return ['ok'=>true];
+        $result = ['ok' => true];
+        self::logLedgerReservation($formId, $token, $result);
+        return $result;
+    }
+
+    private static function logLedgerReservation(string $formId, string $token, array $result): void
+    {
+        $payload = [
+            'form_id' => $formId,
+            'token' => $token,
+            'ok' => (bool) ($result['ok'] ?? false),
+            'duplicate' => !empty($result['duplicate']),
+            'io' => !empty($result['io']),
+            'skipped' => !empty($result['skipped']),
+        ];
+        if (array_key_exists('file', $result)) {
+            $payload['file'] = $result['file'];
+        }
+        Logging::write('info', 'EFORMS_RESERVE', $payload);
     }
 
     public static function honeypot_check(string $formId, string $token, array $logBase = []): array
