@@ -119,49 +119,19 @@ class SubmitHandler
         }
         // Honeypot
         $token = $hasHidden ? (string)$postedToken : $cookieToken;
-        if (!empty($_POST['eforms_hp'])) {
-            $thr = ['state' => 'ok'];
-            if (Config::get('throttle.enable', false)) {
-                $thr = Throttle::check(Helpers::client_ip());
-            }
-            $res = Security::ledger_reserve($formId, $token);
-            if (!$res['ok'] && !empty($res['io'])) {
-                Logging::write('error', 'EFORMS_LEDGER_IO', $logBase + [
-                    'path' => $res['file'] ?? '',
-                ]);
-            }
-            $mode = Config::get('security.honeypot_response', 'stealth_success');
-            $stealth = ($mode === 'stealth_success');
-            Logging::write('warn', 'EFORMS_ERR_HONEYPOT', $logBase + [
-                'stealth' => $stealth,
-                'throttle_state' => $thr['state'] ?? 'ok',
-            ]);
+        $hp = Security::honeypot_check($formId, $token, $logBase);
+        if ($hp['triggered']) {
             \header('X-EForms-Stealth: 1');
             Uploads::unlinkTemps($_FILES);
-            if ($mode === 'hard_fail') {
+            if (($hp['mode'] ?? '') === 'hard_fail') {
                 $this->renderErrorAndExit($tpl, $formId, 'Form submission failed.');
             }
             $this->successAndRedirect($tpl, $formId, $instanceId);
             return;
         }
         $timestamp = (int) ($_POST['timestamp'] ?? 0);
-        $now = time();
-        $minFill = (int) Config::get('security.min_fill_seconds', 4);
-        if ($timestamp > 0 && ($now - $timestamp) < $minFill) {
-            $softFailCount++;
-            Logging::write('warn', 'EFORMS_ERR_MIN_FILL', $logBase + [
-                'delta' => $now - $timestamp,
-            ]);
-        }
-        if ($hasHidden) {
-            $maxAge = (int) Config::get('security.max_form_age_seconds', Config::get('security.token_ttl_seconds', 600));
-            if ($timestamp > 0 && ($now - $timestamp) > $maxAge) {
-                $softFailCount++;
-                Logging::write('warn', 'EFORMS_ERR_FORM_AGE', $logBase + [
-                    'age' => $now - $timestamp,
-                ]);
-            }
-        }
+        $softFailCount += Security::min_fill_check($timestamp, $logBase);
+        $softFailCount += Security::form_age_check($timestamp, $hasHidden, $logBase);
         $jsOk = $_POST['js_ok'] ?? '';
         if ($jsOk !== '1') {
             $meta = $baseMeta;

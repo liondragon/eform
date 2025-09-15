@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace EForms\Security;
 
 use EForms\Config;
+use EForms\Helpers;
+use EForms\Logging;
 
 class Security
 {
@@ -126,5 +128,58 @@ class Security
         fclose($fh);
         @chmod($file, 0600);
         return ['ok'=>true];
+    }
+
+    public static function honeypot_check(string $formId, string $token, array $logBase = []): array
+    {
+        if (empty($_POST['eforms_hp'])) {
+            return ['triggered' => false];
+        }
+        $thr = ['state' => 'ok'];
+        if (Config::get('throttle.enable', false)) {
+            $thr = Throttle::check(Helpers::client_ip());
+        }
+        $res = self::ledger_reserve($formId, $token);
+        if (!$res['ok'] && !empty($res['io'])) {
+            Logging::write('error', 'EFORMS_LEDGER_IO', $logBase + [
+                'path' => $res['file'] ?? '',
+            ]);
+        }
+        $mode = Config::get('security.honeypot_response', 'stealth_success');
+        $stealth = ($mode === 'stealth_success');
+        Logging::write('warn', 'EFORMS_ERR_HONEYPOT', $logBase + [
+            'stealth' => $stealth,
+            'throttle_state' => $thr['state'] ?? 'ok',
+        ]);
+        return ['triggered' => true, 'mode' => $mode];
+    }
+
+    public static function min_fill_check(int $timestamp, array $logBase = []): int
+    {
+        $now = time();
+        $minFill = (int) Config::get('security.min_fill_seconds', 4);
+        if ($timestamp > 0 && ($now - $timestamp) < $minFill) {
+            Logging::write('warn', 'EFORMS_ERR_MIN_FILL', $logBase + [
+                'delta' => $now - $timestamp,
+            ]);
+            return 1;
+        }
+        return 0;
+    }
+
+    public static function form_age_check(int $timestamp, bool $hasHidden, array $logBase = []): int
+    {
+        if (!$hasHidden) {
+            return 0;
+        }
+        $now = time();
+        $maxAge = (int) Config::get('security.max_form_age_seconds', Config::get('security.token_ttl_seconds', 600));
+        if ($timestamp > 0 && ($now - $timestamp) > $maxAge) {
+            Logging::write('warn', 'EFORMS_ERR_FORM_AGE', $logBase + [
+                'age' => $now - $timestamp,
+            ]);
+            return 1;
+        }
+        return 0;
     }
 }
