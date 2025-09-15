@@ -56,6 +56,15 @@ class TemplateValidatorTest extends BaseTestCase
         $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_UNKNOWN_KEY, $codes);
     }
 
+    public function testUnsupportedFieldType(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['type'] = 'bogus';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_TYPE, $codes);
+    }
+
     public function testDuplicateFieldKey(): void
     {
         $tpl = $this->baseTpl();
