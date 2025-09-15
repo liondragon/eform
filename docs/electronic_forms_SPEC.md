@@ -225,7 +225,7 @@ electronic_forms - Spec
     - Mode selection:
       - cacheable="false" → hidden-mode. Renderer emits a per-render <input type="hidden" name="eforms_token" value="<UUIDv4>"> and treats the response as dynamic.
       - cacheable="true" → cookie-mode. Renderer omits the hidden token, relies on a prime pixel to set a cookie, and keeps the HTML cache-friendly (no token in markup).
-    - TemplateContext records the chosen mode so SubmitHandler enforces it on POST; do not attempt cross-mode fallback.
+    - SubmitHandler determines token mode per request: if the POST payload includes eforms_token, treat it as hidden-mode; otherwise handle it as cookie-mode. Do not attempt cross-mode fallback.
     - GET:
       - hidden-mode: omit pixel; inject hidden eforms_token (UUIDv4). Send Cache-Control: private, no-store on this page.
       - cookie-mode: include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">. /eforms/prime → 204 + Set-Cookie eforms_t_{form_id}=<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default.
