@@ -51,6 +51,7 @@ namespace {
     require_once __DIR__ . '/src/Config.php';
     require_once __DIR__ . '/src/Helpers.php';
     require_once __DIR__ . '/src/Logging.php';
+    require_once __DIR__ . '/src/TemplateSpec.php';
     require_once __DIR__ . '/src/Spec.php';
     require_once __DIR__ . '/src/Rendering/Renderer.php';
     require_once __DIR__ . '/src/Validation/Normalizer.php';
