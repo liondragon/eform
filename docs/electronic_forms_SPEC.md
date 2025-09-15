@@ -228,18 +228,18 @@ electronic_forms - Spec
     - SubmitHandler determines token mode per request: if the POST payload includes eforms_token, treat it as hidden-mode; otherwise handle it as cookie-mode. Do not attempt cross-mode fallback.
     - GET:
       - hidden-mode: omit pixel; inject hidden eforms_token (UUIDv4). Send Cache-Control: private, no-store on this page.
-      - cookie-mode: include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">. /eforms/prime → 204 + Set-Cookie eforms_t_{form_id}=<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default.
+      - cookie-mode: include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">. /eforms/prime → 204 + Set-Cookie eforms_t_{form_id}=<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default. If the targeted form isn’t configured for cookie-mode, respond with 204 and set no cookie.
     - POST /eforms/submit
       - CSRF Gate (Origin-only):
         - Evaluate per §7.4. hard mode: cross/unknown → HARD FAIL; missing → HARD FAIL only when security.origin_missing_hard=true.
         - soft mode: cross/unknown → +1 soft; missing → +1 soft only when security.origin_missing_soft=true.
       - Method/Type: Require POST. Accept only application/x-www-form-urlencoded (charset allowed) or multipart/form-data (boundary required). Else 405/415. Enforce POST size cap per §7.5.
       - Token validation:
-        - Hidden-mode (cacheable="false"): validate the posted eforms_token as UUIDv4. Missing/invalid tokens are governed solely by security.submission_token.required:
+        - Hidden-mode (cacheable="false"; POST contains `eforms_token`): validate the posted eforms_token as UUIDv4. Missing/invalid tokens are governed solely by security.submission_token.required:
           - true → HARD FAIL (EFORMS_ERR_TOKEN)
           - false → token_soft=1, continue §7.6
           Hidden-mode ignores cookies entirely.
-        - Cookie-mode (cacheable="true"): read eforms_t_{form_id} cookie (UUIDv4). If missing/invalid, apply security.cookie_missing_policy (cookie-mode only):
+        - Cookie-mode (cacheable="true"; no hidden token in POST): read eforms_t_{form_id} cookie (UUIDv4). If missing/invalid, apply security.cookie_missing_policy (cookie-mode only):
           - "off" → proceed, no soft
           - "soft" → token_soft=1
           - "hard" → HARD FAIL (EFORMS_ERR_TOKEN)
