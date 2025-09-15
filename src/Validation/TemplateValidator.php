@@ -505,6 +505,61 @@ class TemplateValidator
             }
         }
 
+        $requiresTarget = ['required_if','required_if_any','required_unless','matches'];
+        $requiresField = ['required_if','required_unless','matches'];
+        $requiresFieldList = ['required_if_any','one_of','mutually_exclusive'];
+        $filteredRules = [];
+        foreach ($rules as $rIdx => $rule) {
+            if (!is_array($rule)) {
+                continue;
+            }
+            $type = $rule['rule'] ?? '';
+            if (!in_array($type, $allowedRules, true)) {
+                continue;
+            }
+
+            $ruleValid = true;
+            if (in_array($type, $requiresTarget, true)) {
+                if (!isset($rule['target']) || !is_string($rule['target'])) {
+                    $ruleValid = false;
+                } elseif (!isset($seenKeys[$rule['target']])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'rules['.$rIdx.'].target'];
+                    $ruleValid = false;
+                }
+            }
+
+            if (in_array($type, $requiresField, true)) {
+                if (!isset($rule['field']) || !is_string($rule['field'])) {
+                    $ruleValid = false;
+                } elseif (!isset($seenKeys[$rule['field']])) {
+                    $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'rules['.$rIdx.'].field'];
+                    $ruleValid = false;
+                }
+            }
+
+            if (in_array($type, $requiresFieldList, true)) {
+                if (!isset($rule['fields']) || !is_array($rule['fields'])) {
+                    $ruleValid = false;
+                } else {
+                    foreach ($rule['fields'] as $fIdx => $fldKey) {
+                        if (!is_string($fldKey)) {
+                            $ruleValid = false;
+                            continue;
+                        }
+                        if (!isset($seenKeys[$fldKey])) {
+                            $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'rules['.$rIdx.'].fields['.$fIdx.']'];
+                            $ruleValid = false;
+                        }
+                    }
+                }
+            }
+
+            if ($ruleValid) {
+                $filteredRules[] = $rule;
+            }
+        }
+        $rules = $filteredRules;
+
         // max_input_vars estimate (excludes uploads)
         $estimate = 5; // form_id, instance_id, eforms_hp, timestamp, js_ok
         $maxOptsEstimate = Config::get('validation.max_options_per_group', 100);
