@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace EForms\Validation;
 
 use EForms\Config;
+use EForms\Helpers;
 use EForms\Logging;
 use EForms\Rendering\Renderer;
 
@@ -206,14 +207,6 @@ class Validator
         return false;
     }
 
-    private static function nfc(string $v): string
-    {
-        if (class_exists('\\Normalizer')) {
-            $n = \Normalizer::normalize($v, \Normalizer::FORM_C);
-            if ($n !== false) return $n;
-        }
-        return $v;
-    }
     public static function descriptors(array $tpl): array
     {
         if (isset($tpl['descriptors']) && is_array($tpl['descriptors'])) {
@@ -260,7 +253,7 @@ class Validator
                 foreach ($raw as $rv) {
                     if (is_scalar($rv)) {
                         $sv = function_exists('\\wp_unslash') ? \wp_unslash($rv) : stripslashes((string) $rv);
-                        $sv = self::nfc((string) $sv);
+                        $sv = Helpers::nfc((string) $sv);
                         $sv = trim($sv);
                         $vals[] = $norm($sv);
                     }
@@ -274,7 +267,7 @@ class Validator
                     continue;
                 }
                 $sv = function_exists('\\wp_unslash') ? \wp_unslash($v) : stripslashes((string) $v);
-                $sv = self::nfc((string) $sv);
+                $sv = Helpers::nfc((string) $sv);
                 $sv = trim($sv);
                 $values[$k] = $norm($sv);
             }
