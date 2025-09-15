@@ -316,27 +316,41 @@ class TemplateValidatorTest extends BaseTestCase
     public function testSizeValidation(): void
     {
         $tpl = $this->baseTpl();
-        $tpl['fields'][0]['size'] = 'big';
+        $tpl['fields'][1]['size'] = 'big';
         $res = TemplateValidator::preflight($tpl);
         $codes = array_column($res['errors'], 'code');
         $paths = array_column($res['errors'], 'path');
         $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
-        $this->assertContains('fields[0].size', $paths);
+        $this->assertContains('fields[1].size', $paths);
 
         $tpl = $this->baseTpl();
-        $tpl['fields'][0]['size'] = 0;
+        $tpl['fields'][1]['size'] = 0;
         $res = TemplateValidator::preflight($tpl);
         $codes = array_column($res['errors'], 'code');
         $paths = array_column($res['errors'], 'path');
         $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
-        $this->assertContains('fields[0].size', $paths);
-        $this->assertNull($res['context']['fields'][0]['size']);
+        $this->assertContains('fields[1].size', $paths);
+        $this->assertNull($res['context']['fields'][1]['size']);
+
+        $tpl = $this->baseTpl();
+        $tpl['fields'][1]['size'] = 20;
+        $res = TemplateValidator::preflight($tpl);
+        $paths = array_column($res['errors'], 'path');
+        $this->assertNotContains('fields[1].size', $paths);
+        $this->assertSame(20, $res['context']['fields'][1]['size']);
     }
 
     public function testSizeDisallowedOnNonTextFields(): void
     {
         $tpl = $this->baseTpl();
-        $tpl['fields'][] = ['type' => 'range', 'key' => 'rng', 'size' => 10];
+        $tpl['fields'][] = [
+            'type' => 'select',
+            'key' => 'sel',
+            'size' => 10,
+            'options' => [
+                ['key' => 'a', 'label' => 'A'],
+            ],
+        ];
         $res = TemplateValidator::preflight($tpl);
         $codes = array_column($res['errors'], 'code');
         $paths = array_column($res['errors'], 'path');
