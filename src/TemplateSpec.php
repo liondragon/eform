@@ -65,20 +65,20 @@ class TemplateSpec
 
     private const RULES = [
         'required_if' => [
-            'allowed' => ['rule','field','other','equals'],
-            'required' => ['field','other','equals'],
+            'allowed' => ['rule','target','field','equals'],
+            'required' => ['target','field','equals'],
         ],
         'required_if_any' => [
-            'allowed' => ['rule','field','fields','equals_any'],
-            'required' => ['field','fields','equals_any'],
+            'allowed' => ['rule','target','fields','equals_any'],
+            'required' => ['target','fields','equals_any'],
         ],
         'required_unless' => [
-            'allowed' => ['rule','field','other','equals'],
-            'required' => ['field','other','equals'],
+            'allowed' => ['rule','target','field','equals'],
+            'required' => ['target','field','equals'],
         ],
         'matches' => [
-            'allowed' => ['rule','field','other'],
-            'required' => ['field','other'],
+            'allowed' => ['rule','target','field'],
+            'required' => ['target','field'],
         ],
         'one_of' => [
             'allowed' => ['rule','fields'],

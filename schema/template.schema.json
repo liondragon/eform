@@ -359,6 +359,9 @@
                         "mutually_exclusive"
                     ]
                 },
+                "target": {
+                    "type": "string"
+                },
                 "field": {
                     "type": "string"
                 },
@@ -367,9 +370,6 @@
                     "items": {
                         "type": "string"
                     }
-                },
-                "other": {
-                    "type": "string"
                 },
                 "equals": {
                     "type": "string"
