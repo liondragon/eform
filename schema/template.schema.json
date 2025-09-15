@@ -77,7 +77,7 @@
         {
           "if": {
             "properties": {
-              "type": {"enum": ["name","text","email","url","tel","tel_us","number","date","textarea","textarea_html"]}
+              "type": {"enum": ["text","email","url","tel","tel_us"]}
             },
             "required": ["type"]
           },
