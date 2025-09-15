@@ -3,6 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
 
 use EForms\Spec;
+use EForms\TemplateSpec;
 
 // Load JSON schema
 $schemaPath = realpath(__DIR__ . '/../../schema/template.schema.json');
@@ -30,11 +31,67 @@ if ($schemaTypes !== $specTypes) {
     exit(1);
 }
 
+$tplTypes = TemplateSpec::fieldAllowedTypes();
+sort($tplTypes);
+if ($tplTypes !== $specTypes) {
+    fwrite(STDERR, "TemplateSpec field types drift\n");
+    exit(1);
+}
+
 // Schema required keys for field object
 $schemaRequired = $schema['definitions']['field']['required'] ?? [];
 sort($schemaRequired);
 if ($schemaRequired !== ['type']) {
     fwrite(STDERR, "schema required keys drift\n");
+    exit(1);
+}
+
+// Root keys parity
+$schemaRoot = array_keys($schema['properties'] ?? []);
+sort($schemaRoot);
+$specRoot = TemplateSpec::rootAllowed();
+sort($specRoot);
+if ($schemaRoot !== $specRoot) {
+    fwrite(STDERR, "root keys drift\n");
+    exit(1);
+}
+
+$schemaRootReq = $schema['required'] ?? [];
+sort($schemaRootReq);
+$specRootReq = array_keys(TemplateSpec::rootRequired());
+sort($specRootReq);
+if ($schemaRootReq !== $specRootReq) {
+    fwrite(STDERR, "root required drift\n");
+    exit(1);
+}
+
+// Success mode enum
+$schemaSuccess = $schema['properties']['success']['properties']['mode']['enum'] ?? [];
+sort($schemaSuccess);
+$specSuccess = TemplateSpec::successSpec()['enums']['mode'];
+sort($specSuccess);
+if ($schemaSuccess !== $specSuccess) {
+    fwrite(STDERR, "success mode drift\n");
+    exit(1);
+}
+
+// Email display_format_tel enum
+$schemaTel = $schema['properties']['email']['properties']['display_format_tel']['enum'] ?? [];
+sort($schemaTel);
+$specTel = TemplateSpec::emailSpec()['enums']['display_format_tel'];
+sort($specTel);
+if ($schemaTel !== $specTel) {
+    fwrite(STDERR, "display_format_tel drift\n");
+    exit(1);
+}
+
+// Rule enum
+$schemaRule = $schema['definitions']['rule']['properties']['rule']['enum'] ?? [];
+sort($schemaRule);
+$specRule = TemplateSpec::ruleTypes();
+sort($specRule);
+if ($schemaRule !== $specRule) {
+    fwrite(STDERR, "rule enum drift\n");
     exit(1);
 }
 

@@ -7,6 +7,7 @@ use EForms\Config;
 use EForms\Logging;
 use EForms\Rendering\Renderer;
 use EForms\Spec;
+use EForms\TemplateSpec;
 
 /**
  * Template structural validator. Performs strict preflight of template arrays
@@ -26,21 +27,6 @@ class TemplateValidator
     public const EFORMS_ERR_FRAGMENT_ROW_TAG     = 'EFORMS_ERR_FRAGMENT_ROW_TAG';
     public const EFORMS_ERR_FRAGMENT_STYLE_ATTR  = 'EFORMS_ERR_FRAGMENT_STYLE_ATTR';
 
-    private const AUTOCOMPLETE_TOKENS = [
-        'name','honorific-prefix','given-name','additional-name','family-name',
-        'honorific-suffix','nickname','email','username','new-password',
-        'current-password','one-time-code','organization-title','organization',
-        'street-address','address-line1','address-line2','address-line3',
-        'address-level4','address-level3','address-level2','address-level1',
-        'country','country-name','postal-code','cc-name','cc-given-name',
-        'cc-additional-name','cc-family-name','cc-number','cc-exp',
-        'cc-exp-month','cc-exp-year','cc-csc','cc-type','transaction-currency',
-        'transaction-amount','language','bday','bday-day','bday-month',
-        'bday-year','sex','tel','tel-country-code','tel-national',
-        'tel-area-code','tel-local','tel-local-prefix','tel-local-suffix',
-        'tel-extension','impp','url','photo','webauthn','shipping',
-        'billing','home','work','mobile','fax','pager',
-    ];
 
     /**
      * Perform structural validation and return context.
@@ -57,11 +43,11 @@ class TemplateValidator
         $maxOptions = Config::get('validation.max_options_per_group', 100);
 
         // Root unknown keys
-        $rootAllowed = ['id','version','title','success','email','fields','submit_button_text','rules','$schema'];
+        $rootAllowed = TemplateSpec::rootAllowed();
         self::checkUnknown($tpl, $rootAllowed, '', $errors);
 
         // Required + type
-        $reqRoot = ['id'=>'string','version'=>null,'title'=>'string','success'=>'array','email'=>'array','fields'=>'array','submit_button_text'=>'string'];
+        $reqRoot = TemplateSpec::rootRequired();
         foreach ($reqRoot as $k => $type) {
             if (!array_key_exists($k, $tpl)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$k];
@@ -79,10 +65,11 @@ class TemplateValidator
         }
 
         // success
+        $successSpec = TemplateSpec::successSpec();
         $success = is_array($tpl['success'] ?? null) ? $tpl['success'] : [];
-        self::checkUnknown($success, ['mode','redirect_url','message'], 'success.', $errors);
+        self::checkUnknown($success, $successSpec['allowed'], 'success.', $errors);
         $mode = $success['mode'] ?? null;
-        if (!in_array($mode, ['inline','redirect'], true)) {
+        if (!in_array($mode, $successSpec['enums']['mode'], true)) {
             $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'success.mode'];
         } elseif ($mode === 'redirect') {
             if (empty($success['redirect_url']) || !is_string($success['redirect_url'])) {
@@ -91,8 +78,9 @@ class TemplateValidator
         }
 
         // email block
+        $emailSpec = TemplateSpec::emailSpec();
         $email = is_array($tpl['email'] ?? null) ? $tpl['email'] : [];
-        self::checkUnknown($email, ['display_format_tel','to','subject','email_template','include_fields'], 'email.', $errors);
+        self::checkUnknown($email, $emailSpec['allowed'], 'email.', $errors);
 
         if (!array_key_exists('to', $email) || $email['to'] === '') {
             $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>'email.to'];
@@ -106,7 +94,7 @@ class TemplateValidator
             $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>'email.subject'];
         }
         if (isset($email['display_format_tel'])) {
-            $enum = ['xxx-xxx-xxxx','(xxx) xxx-xxxx','xxx.xxx.xxxx'];
+            $enum = $emailSpec['enums']['display_format_tel'];
             if (!in_array($email['display_format_tel'], $enum, true)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'email.display_format_tel'];
                 unset($email['display_format_tel']);
@@ -132,8 +120,8 @@ class TemplateValidator
         $hasUploads = false;
         $normFields = [];
         $realFieldCount = 0;
-        $reserved = ['form_id','instance_id','eforms_token','eforms_hp','timestamp','js_ok','ip','submitted_at'];
-        $allowedTypes = ['name','first_name','last_name','text','email','textarea','textarea_html','url','tel','tel_us','number','range','date','zip','zip_us','select','radio','checkbox','file','files','row_group'];
+        $reserved = TemplateSpec::reservedFieldKeys();
+        $allowedTypes = TemplateSpec::fieldAllowedTypes();
         foreach ($fields as $idx => $f) {
             $path = 'fields['.$idx.'].';
             if (!is_array($f)) {
@@ -146,13 +134,14 @@ class TemplateValidator
                 continue;
             }
             if ($type === 'row_group') {
-                self::checkUnknown($f, ['type','mode','tag','class'], $path, $errors);
+                $rowSpec = TemplateSpec::rowGroupSpec();
+                self::checkUnknown($f, $rowSpec['allowed'], $path, $errors);
                 $mode = $f['mode'] ?? null;
-                if (!in_array($mode, ['start','end'], true)) {
+                if (!in_array($mode, $rowSpec['enums']['mode'], true)) {
                     $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'mode'];
                 }
                 $tag = $f['tag'] ?? 'div';
-                if (!in_array($tag, ['div','section'], true)) {
+                if (!in_array($tag, $rowSpec['enums']['tag'], true)) {
                     $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'tag'];
                 }
                 if ($mode === 'start') {
@@ -182,11 +171,7 @@ class TemplateValidator
             // Non row_group field
             self::checkUnknown(
                 $f,
-                [
-                    'type','key','label','required','options','multiple','accept','before_html','after_html','class',
-                    'placeholder','autocomplete','size','max_length','min','max','pattern','email_attach',
-                    'max_file_bytes','max_files','step'
-                ],
+                TemplateSpec::fieldAttributes(),
                 $path,
                 $errors
             );
@@ -311,7 +296,7 @@ class TemplateValidator
                     if ($token === '' || preg_match('/\s/', $token)) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'autocomplete'];
                         unset($f['autocomplete']);
-                    } elseif ($token !== 'on' && $token !== 'off' && !in_array($token, self::AUTOCOMPLETE_TOKENS, true)) {
+                    } elseif ($token !== 'on' && $token !== 'off' && !in_array($token, TemplateSpec::autocompleteTokens(), true)) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'autocomplete'];
                         unset($f['autocomplete']);
                     } else {
@@ -321,7 +306,7 @@ class TemplateValidator
             }
 
             if (isset($f['size'])) {
-                $allowedSizeTypes = ['text','search','tel','tel_us','url','email','password'];
+                $allowedSizeTypes = TemplateSpec::sizeAllowedTypes();
                 if (!in_array($type, $allowedSizeTypes, true)) {
                     $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'size'];
                     unset($f['size']);
@@ -405,7 +390,7 @@ class TemplateValidator
             $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>'fields'];
         }
 
-        $allowedMeta = ['ip','submitted_at','form_id','instance_id'];
+        $allowedMeta = TemplateSpec::allowedMeta();
         if (isset($email['include_fields'])) {
             if (!is_array($email['include_fields'])) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>'email.include_fields'];
@@ -430,7 +415,7 @@ class TemplateValidator
         }
 
         $rules = is_array($tpl['rules'] ?? null) ? $tpl['rules'] : [];
-        $allowedRules = ['required_if','required_if_any','required_unless','matches','one_of','mutually_exclusive'];
+        $allowedRules = TemplateSpec::ruleTypes();
         foreach ($rules as $rIdx => $rule) {
             $rpath = 'rules['.$rIdx.'].';
             if (!is_array($rule)) {
@@ -442,9 +427,10 @@ class TemplateValidator
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$rpath.'rule'];
                 continue;
             }
+            $ruleSpec = TemplateSpec::ruleSpec($type);
+            self::checkUnknown($rule, $ruleSpec['allowed'], $rpath, $errors);
             switch ($type) {
                 case 'required_if':
-                    self::checkUnknown($rule, ['rule','field','other','equals'], $rpath, $errors);
                     if (!isset($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
                     } elseif (!is_string($rule['field'])) {
@@ -462,7 +448,6 @@ class TemplateValidator
                     }
                     break;
                 case 'required_if_any':
-                    self::checkUnknown($rule, ['rule','field','fields','equals_any'], $rpath, $errors);
                     if (!isset($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
                     } elseif (!is_string($rule['field'])) {
@@ -480,7 +465,6 @@ class TemplateValidator
                     }
                     break;
                 case 'required_unless':
-                    self::checkUnknown($rule, ['rule','field','other','equals'], $rpath, $errors);
                     if (!isset($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
                     } elseif (!is_string($rule['field'])) {
@@ -498,7 +482,6 @@ class TemplateValidator
                     }
                     break;
                 case 'matches':
-                    self::checkUnknown($rule, ['rule','field','other'], $rpath, $errors);
                     if (!isset($rule['field'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'field'];
                     } elseif (!is_string($rule['field'])) {
@@ -512,7 +495,6 @@ class TemplateValidator
                     break;
                 case 'one_of':
                 case 'mutually_exclusive':
-                    self::checkUnknown($rule, ['rule','fields'], $rpath, $errors);
                     if (!isset($rule['fields'])) {
                         $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_REQUIRED,'path'=>$rpath.'fields'];
                     } elseif (!is_array($rule['fields'])) {
