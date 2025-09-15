@@ -555,6 +555,9 @@ class TemplateValidator
         $keep = [];
         foreach ($tokens as $t) {
             if ($t === '') continue;
+            if (strlen($t) > 32) {
+                $t = substr($t, 0, 32);
+            }
             if (!preg_match('/^[A-Za-z0-9_-]{1,32}$/', $t)) continue;
             if (!in_array($t, $keep, true)) $keep[] = $t;
         }

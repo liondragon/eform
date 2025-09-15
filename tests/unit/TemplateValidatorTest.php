@@ -520,4 +520,18 @@ class TemplateValidatorTest extends BaseTestCase
         $this->assertSame('123', $res['context']['version']);
         unlink($tmp);
     }
+
+    public function testClassTokenTruncateAndDedup(): void
+    {
+        $tpl = $this->baseTpl();
+        $longA1 = str_repeat('a', 40);
+        $longA2 = str_repeat('a', 35);
+        $longB = str_repeat('b', 33);
+        $tpl['fields'][0]['class'] = $longA1 . ' ' . $longA2 . ' ' . $longB;
+        $res = TemplateValidator::preflight($tpl);
+        $this->assertTrue($res['ok']);
+        $field = $res['context']['fields'][0] ?? [];
+        $expected = str_repeat('a', 32) . ' ' . str_repeat('b', 32);
+        $this->assertSame($expected, $field['class']);
+    }
 }
