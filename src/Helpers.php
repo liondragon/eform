@@ -30,6 +30,15 @@ class Helpers
         return \sanitize_key($v);
     }
 
+    public static function nfc(string $v): string
+    {
+        if (class_exists('\\Normalizer')) {
+            $n = \Normalizer::normalize($v, \Normalizer::FORM_C);
+            if ($n !== false) return $n;
+        }
+        return $v;
+    }
+
     public static function bytes_from_ini(?string $v): int
     {
         // "0"/null/"" -> PHP_INT_MAX (per spec)
