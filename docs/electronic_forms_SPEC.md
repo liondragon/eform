@@ -359,15 +359,16 @@ electronic_forms - Spec
   - Sanitize with wp_kses_post; sanitized result is canonical; escape per sink.
   - textarea_html: post-sanitize bound – after wp_kses_post, re-check canonical size; if > max, fail with EFORMS_ERR_HTML_TOO_LARGE (no auto-truncate).
 
-10. CROSS-FIELD RULES (BOUNDED SET)
-  - Supported:
-    - required_if: { "rule":"required_if", "target":"field", "field":"other", "equals":"value" }
-    - required_if_any: { "rule":"required_if_any", "target":"field", "fields":[...], "equals_any":[...] }
-    - required_unless: { "rule":"required_unless", "target":"field", "field":"other", "equals":"value" }
-    - matches: { "rule":"matches", "target":"field", "field":"other" }
-    - one_of: { "rule":"one_of", "fields":["a","b","c"] }
-    - mutually_exclusive: { "rule":"mutually_exclusive", "fields":["a","b"] }
-  - Deterministic evaluation order: top-to-bottom
+  10. CROSS-FIELD RULES (BOUNDED SET)
+    - Supported:
+      `target` identifies the field that will receive an error when the rule triggers. The `field` or `fields` entries list the field(s) inspected to determine whether the rule triggers.
+      - required_if: { "rule":"required_if", "target":"state", "field":"country", "equals":"US" } (state required when country is US)
+      - required_if_any: { "rule":"required_if_any", "target":"discount_code", "fields":["customer_type","membership"], "equals_any":["partner","gold"] } (discount_code required if any field matches)
+      - required_unless: { "rule":"required_unless", "target":"email", "field":"phone", "equals":"provided" } (email required unless phone is provided)
+      - matches: { "rule":"matches", "target":"confirm_password", "field":"password" } (confirm_password must match password)
+      - one_of: { "rule":"one_of", "fields":["email","phone","fax"] } (at least one contact method is required)
+      - mutually_exclusive: { "rule":"mutually_exclusive", "fields":["credit_card","paypal"] } (cannot provide both payment methods)
+    - Deterministic evaluation order: top-to-bottom
   - additionalProperties:false per rule object
   - Multiple violations reported together
 
