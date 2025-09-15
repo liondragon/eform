@@ -228,8 +228,9 @@ electronic_forms - Spec
     - SubmitHandler determines token mode per request: if the POST payload includes eforms_token, treat it as hidden-mode; otherwise handle it as cookie-mode. Do not attempt cross-mode fallback.
     - GET:
       - hidden-mode: omit pixel; inject hidden eforms_token (UUIDv4). Send Cache-Control: private, no-store on this page.
-      - cookie-mode: include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">. /eforms/prime → 204 + Set-Cookie eforms_t_{form_id}=<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default. If the targeted form isn’t configured for cookie-mode, respond with 204 and set no cookie.
-      - Validate that the form_id exists and is cookie-mode enabled at runtime; otherwise return 204 without Set-Cookie
+      - cookie-mode: include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">.
+        /eforms/prime → 204 + Set-Cookie eforms_t_{form_id}=<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default.
+        If the form_id is unknown **or** the form isn’t configured for cookie-mode, respond 204 **without** Set-Cookie.
     - POST /eforms/submit
       - CSRF Gate (Origin-only):
         - Evaluate per §7.4. hard mode: cross/unknown → HARD FAIL; missing → HARD FAIL only when security.origin_missing_hard=true.
@@ -246,9 +247,9 @@ electronic_forms - Spec
           - "hard" → HARD FAIL (EFORMS_ERR_TOKEN)
           - "challenge" → token_soft=1 + require challenge; if verification later succeeds (§7.10), clear all soft signals for this request (hard failures never overridden)
         - Unconfigured challenge when required: retain +1 soft, log EFORMS_CHALLENGE_UNCONFIGURED, continue.
-        - Cookie rotation in cookie mode on every POST; never rotate in hidden-token mode. Implementations MUST set `cookie_consulted=false` in hidden-mode and `cookie_consulted=true` in cookie-mode to support testing observability.
+        - Cookie rotation in cookie mode on every POST; never rotate in hidden-token mode.
         - Validation output: { mode:"hidden"|"cookie", token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool, cookie_consulted:bool }.
-        - Cookie consultation flag: set `cookie_consulted=false` in hidden-mode; set `cookie_consulted=true` in cookie-mode (regardless of whether the cookie was present/valid).
+          Set `cookie_consulted=false` in hidden-mode and `cookie_consulted=true` in cookie-mode (regardless of whether a cookie was present/valid).
         - User message for hard failures: EFORMS_ERR_TOKEN (“This form was already submitted or has expired - please reload the page.”).
         - Test matrix: as previously specified (hidden+required missing → HARD; cookie+policy=... etc.).
 
