@@ -287,7 +287,10 @@ class Renderer
         if (!empty($f['required'])) $attrs .= ' required';
         if (!empty($f['placeholder'])) $attrs .= ' placeholder="' . \esc_attr($f['placeholder']) . '"';
         if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-        if (isset($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
+        $sizeTypes = ['text','email','url','tel','tel_us','number','range','date'];
+        if (isset($f['size']) && in_array($f['type'] ?? '', $sizeTypes, true)) {
+            $attrs .= ' size="' . (int)$f['size'] . '"';
+        }
         $extraHint = ($key === $lastText && ($desc['html']['type'] ?? '') !== 'file') ? ' enterkeyhint="send"' : '';
         $attrs .= $errAttr . $extraHint;
         $html = '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
@@ -335,7 +338,6 @@ class Renderer
         $attrs = self::controlAttrs($desc, $f);
         if (!empty($f['required'])) $attrs .= ' required';
         if (!empty($f['autocomplete'])) $attrs .= ' autocomplete="' . \esc_attr($f['autocomplete']) . '"';
-        if (!empty($f['size'])) $attrs .= ' size="' . (int)$f['size'] . '"';
         $vals = $isMulti ? (array)$value : (string)$value;
         $html = '<label for="' . \esc_attr($id) . '"' . $labelAttr . '>' . $labelHtml . '</label>';
         $html .= '<select id="' . \esc_attr($id) . '" name="' . \esc_attr($nameAttr) . '"' . $attrs . $errAttr . '>';
