@@ -267,6 +267,104 @@ class TemplateValidatorTest extends BaseTestCase
         $this->assertContains('rules[0].bogus', $paths);
     }
 
+    public function testRequiredIfRuleWithUnknownTargetIsOmitted(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'required_if', 'target' => 'missing', 'field' => 'name', 'equals' => 'yes'],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].target', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
+    public function testRequiredUnlessRuleWithUnknownFieldIsOmitted(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'required_unless', 'target' => 'name', 'field' => 'missing', 'equals' => 'no'],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].field', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
+    public function testMatchesRuleWithUnknownFieldIsOmitted(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'matches', 'target' => 'name', 'field' => 'missing'],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].field', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
+    public function testRequiredIfAnyRuleWithUnknownTargetIsOmitted(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'required_if_any', 'target' => 'missing', 'fields' => ['name'], 'equals_any' => ['yes']],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].target', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
+    public function testRequiredIfAnyRuleWithInvalidFieldEntryIsOmitted(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'required_if_any', 'target' => 'name', 'fields' => ['email', 'missing'], 'equals_any' => ['yes']],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].fields[1]', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
+    public function testOneOfRuleWithInvalidFieldEntryIsOmitted(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'one_of', 'fields' => ['name', 'missing']],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].fields[1]', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
+    public function testMutuallyExclusiveRuleWithInvalidFieldEntryIsOmitted(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['rules'] = [
+            ['rule' => 'mutually_exclusive', 'fields' => ['email', 'missing']],
+        ];
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $paths = array_column($res['errors'], 'path');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_ENUM, $codes);
+        $this->assertContains('rules[0].fields[1]', $paths);
+        $this->assertEmpty($res['context']['rules']);
+    }
+
     public function testMaxLengthValidation(): void
     {
         $tpl = $this->baseTpl();
