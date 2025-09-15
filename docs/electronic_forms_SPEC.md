@@ -655,6 +655,7 @@ uploads.*
 
   2. POST
     - SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce
+    - The hidden-token vs cookie mode chosen during the initial GET render is fixed for that instance; POST re-renders reuse the same mode and never switch mid-flow.
     - Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
     - On errors:
       - Before token reservation → re-render reusing instance_id, timestamp, and (if hidden) same eforms_token.
