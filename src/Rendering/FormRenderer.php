@@ -36,6 +36,7 @@ class FormRenderer
             Uploads::gc();
         }
         if (Config::get('throttle.enable', false)) {
+            require_once __DIR__ . '/../Security/Throttle.php';
             Throttle::gc();
         }
         $cacheable = (bool) ($opts['cacheable'] ?? true);
@@ -69,6 +70,7 @@ class FormRenderer
             }
         }
         if ($needChallenge) {
+            require_once __DIR__ . '/../Security/Challenge.php';
             $prov = Config::get('challenge.provider', 'turnstile');
             $site = Config::get('challenge.' . $prov . '.site_key', '');
             $meta['challenge'] = ['provider' => $prov, 'site_key' => $site];

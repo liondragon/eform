@@ -55,6 +55,7 @@ class SubmitHandler
             Uploads::gc();
         }
         if (Config::get('throttle.enable', false)) {
+            require_once __DIR__ . '/../Security/Throttle.php';
             Throttle::gc();
         }
         // security gates
@@ -100,6 +101,7 @@ class SubmitHandler
             $requireChallenge = true;
         }
         if ($requireChallenge) {
+            require_once __DIR__ . '/../Security/Challenge.php';
             $provider = Config::get('challenge.provider', 'turnstile');
             $resp = $_POST['cf-turnstile-response'] ?? ($_POST['h-captcha-response'] ?? ($_POST['g-recaptcha-response'] ?? ''));
             if ($resp === '') {
