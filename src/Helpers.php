@@ -241,25 +241,56 @@ class Helpers
     public static function ensure_private_dir(string $dir): void
     {
         if ($dir === '') return;
+        $fallbacks = [];
         if (!is_dir($dir)) {
             @mkdir($dir, 0700, true);
+            $perm = @fileperms($dir);
+            if ($perm === false || ($perm & 0777) !== 0700) {
+                $fallbacks[] = $dir;
+                @chmod($dir, 0750);
+            }
         }
         $index = $dir . '/index.html';
         if (!file_exists($index)) {
             @file_put_contents($index, '');
             @chmod($index, 0600);
+            $perm = @fileperms($index);
+            if ($perm === false || ($perm & 0777) !== 0600) {
+                $fallbacks[] = $index;
+                @chmod($index, 0640);
+            }
         }
         $ht = $dir . '/.htaccess';
         if (!file_exists($ht)) {
             $content = "Options -Indexes\n<IfModule mod_authz_core.c>\n  Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n  Deny from all\n</IfModule>\n";
             @file_put_contents($ht, $content);
             @chmod($ht, 0600);
+            $perm = @fileperms($ht);
+            if ($perm === false || ($perm & 0777) !== 0600) {
+                $fallbacks[] = $ht;
+                @chmod($ht, 0640);
+            }
         }
         $wc = $dir . '/web.config';
         if (!file_exists($wc)) {
             $content = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<configuration>\n  <system.webServer>\n    <directoryBrowse enabled=\"false\" />\n    <authorization>\n      <deny users=\"*\" />\n    </authorization>\n  </system.webServer>\n</configuration>\n";
             @file_put_contents($wc, $content);
             @chmod($wc, 0600);
+            $perm = @fileperms($wc);
+            if ($perm === false || ($perm & 0777) !== 0600) {
+                $fallbacks[] = $wc;
+                @chmod($wc, 0640);
+            }
+        }
+        if (!empty($fallbacks)) {
+            $mode = (string) Config::get('logging.mode', 'minimal');
+            $level = (int) Config::get('logging.level', 0);
+            static $guard = false;
+            if (!$guard && $mode !== 'off' && $level >= 1) {
+                $guard = true;
+                Logging::write('warn', 'EFORMS_PERM_FALLBACK', ['path' => implode(',', $fallbacks)]);
+                $guard = false;
+            }
         }
     }
 }
