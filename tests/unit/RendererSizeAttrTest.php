@@ -80,4 +80,27 @@ final class RendererSizeAttrTest extends BaseTestCase
         $html = $method->invoke(null, $ctx);
         $this->assertStringNotContainsString('size=', $html);
     }
+
+    public function testNumberInputIgnoresSize(): void
+    {
+        $desc = Spec::descriptorFor('number');
+        $field = ['type' => 'number', 'key' => 'foo', 'size' => 12];
+        $ctx = [
+            'desc' => $desc,
+            'f' => $field,
+            'id' => 'nid',
+            'nameAttr' => 'form[foo]',
+            'labelHtml' => 'Label',
+            'labelAttr' => '',
+            'errAttr' => '',
+            'value' => '',
+            'key' => 'foo',
+            'lastText' => 'foo',
+        ];
+        $ref = new \ReflectionClass(Renderer::class);
+        $method = $ref->getMethod('renderInput');
+        $method->setAccessible(true);
+        $html = $method->invoke(null, $ctx);
+        $this->assertStringNotContainsString('size=', $html);
+    }
 }

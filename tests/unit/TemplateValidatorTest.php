@@ -344,12 +344,9 @@ class TemplateValidatorTest extends BaseTestCase
     {
         $tpl = $this->baseTpl();
         $tpl['fields'][] = [
-            'type' => 'select',
-            'key' => 'sel',
+            'type' => 'number',
+            'key' => 'qty',
             'size' => 10,
-            'options' => [
-                ['key' => 'a', 'label' => 'A'],
-            ],
         ];
         $res = TemplateValidator::preflight($tpl);
         $codes = array_column($res['errors'], 'code');

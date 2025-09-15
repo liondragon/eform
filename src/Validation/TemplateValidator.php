@@ -321,7 +321,7 @@ class TemplateValidator
             }
 
             if (isset($f['size'])) {
-                $allowedSizeTypes = ['text','email','url','tel','tel_us','number','range','date'];
+                $allowedSizeTypes = ['text','search','tel','tel_us','url','email','password'];
                 if (!in_array($type, $allowedSizeTypes, true)) {
                     $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_ENUM,'path'=>$path.'size'];
                     unset($f['size']);
