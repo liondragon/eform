@@ -241,7 +241,7 @@ electronic_forms - Spec
         - Mode authority is resolved deterministically:
           - If a token is present, load the token record and use its stored mode; no per-instance metadata lookup is required.
           - If a token is missing, consult the saved form metadata (e.g., cacheable flag) to determine which missing-token policy to apply.
-        - For any presented token (hidden field or cookie), compute sha256(token) and load the persisted record. Missing records, tokens whose prefix does not match the persisted mode (`h-` for hidden, `c-` for cookie), or mode mismatches immediately HARD FAIL (EFORMS_ERR_TOKEN). The persisted record never changes modes; form_id must also match.
+        - For any presented token (hidden field or cookie), compute sha256(token) and load the persisted record. The validator compares the declared mode to the persisted record’s stored mode and expects the token prefix to reflect that mode (`h-` for hidden, `c-` for cookie); any discrepancy in mode or prefix immediately HARD FAILs (EFORMS_ERR_TOKEN). The persisted record never changes modes; form_id must also match.
         - When no token value is presented, skip the lookup and apply the missing-token policy chosen from the saved metadata: hidden → security.submission_token.required; cookie → security.cookie_missing_policy.
         - Hidden-mode (declared/persisted instance): expect the posted `eforms_token` to match the minted token (prefix `h-`). Missing/invalid tokens are governed solely by security.submission_token.required:
           - true → HARD FAIL (EFORMS_ERR_TOKEN)
