@@ -237,13 +237,13 @@ electronic_forms - Spec
         - soft mode: cross/unknown → +1 soft; missing → +1 soft only when security.origin_missing_soft=true.
       - Method/Type: Require POST. Accept only application/x-www-form-urlencoded (charset allowed) or multipart/form-data (boundary required). Else 405/415. Enforce POST size cap per §7.5.
       - Token validation (Security::token_validate(declared_mode, post_token, cookie_token)):
-        - Inputs include the declared token mode from the renderer metadata (`RenderContext.token_mode`). The validator never deduces the mode from the presence or absence of `eforms_token` or cookies.
+        - Inputs include the declared mode from the renderer metadata (`RenderContext.token_mode`). The validator never deduces the mode from the presence or absence of `eforms_token` or cookies.
         - Mode authority is resolved deterministically:
-          - If a token is present, load the token record and use its stored mode; no per-instance metadata lookup is required.
-          - If a token is missing, consult the saved form metadata (e.g., cacheable flag) to determine which missing-token policy to apply.
+          - If a token is presented, rely solely on the persisted record’s stored mode; no metadata lookup is performed.
+          - If neither a hidden token nor a cookie token is presented, consult the saved form metadata (e.g., cacheable flag) to determine which missing-token policy to apply for the declared mode.
         - For any presented token (hidden field or cookie), compute sha256(token) and load the persisted record. The validator compares the declared mode to the persisted record’s stored mode and expects the token prefix to reflect that mode (`h-` for hidden, `c-` for cookie); any discrepancy in mode or prefix immediately HARD FAILs (EFORMS_ERR_TOKEN). The persisted record never changes modes; form_id must also match.
         - When no token value is presented, skip the lookup and apply the missing-token policy chosen from the saved metadata: hidden → security.submission_token.required; cookie → security.cookie_missing_policy.
-        - Hidden-mode (declared/persisted instance): expect the posted `eforms_token` to match the minted token (prefix `h-`). Missing/invalid tokens are governed solely by security.submission_token.required:
+        - Hidden-mode (declared mode and persisted instance): expect the posted `eforms_token` to match the minted token (prefix `h-`). Missing/invalid tokens are governed solely by security.submission_token.required:
           - true → HARD FAIL (EFORMS_ERR_TOKEN)
           - false → token_soft=1, continue §7.6
           Hidden-mode ignores cookies entirely; the hidden token is the sole authority for that instance. Cookies (even with valid cookie tokens) are ignored in hidden-mode.
