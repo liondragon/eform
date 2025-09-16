@@ -646,7 +646,9 @@ uploads.*
 
 19. REQUEST LIFECYCLE
   1. GET
-    - Shortcode [eform id="slug"] or template tag eform_render('slug')
+    - Shortcode `[eform id="slug" cacheable="true|false"]` (cacheable defaults to `true`)
+    - Template tag `eform_render('slug', ['cacheable' => true|false])` (cacheable defaults to `true`)
+    - `cacheable=false` forces hidden-token mode; `cacheable=true` uses cookie mode.
     - FormRenderer loads template, generates secure instance_id, sets timestamp
     - Registers/enqueues CSS/JS only when rendering
     - Adds hidden fields: form_id, instance_id, eforms_hp, timestamp, js_ok; and when cacheable="false" also eforms_token. No hidden token in cacheable="true".
