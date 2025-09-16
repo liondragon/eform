@@ -245,13 +245,13 @@ electronic_forms - Spec
         - When no token value is presented, skip the lookup and apply the missing-token policy chosen from the saved metadata: hidden → security.submission_token.required; cookie → security.cookie_missing_policy.
         - Hidden-mode (declared mode and persisted instance): expect the posted `eforms_token` to match the minted token (prefix `h-`). Missing/invalid tokens are governed solely by security.submission_token.required:
           - true → HARD FAIL (EFORMS_ERR_TOKEN)
-          - false → token_soft=1, continue §7.6
+          - false → soft_signal=1 (records a soft validation signal), continue §7.6
           Hidden-mode ignores cookies entirely; the hidden token is the sole authority for that instance. Cookies (even with valid cookie tokens) are ignored in hidden-mode.
         - Cookie-mode (persisted instance): POST payloads MUST NOT include `eforms_token`. Hidden tokens in the payload are treated as tampering → HARD FAIL (EFORMS_ERR_TOKEN). Otherwise read eforms_t_{form_id} cookie (prefix `c-`). If missing/invalid, apply security.cookie_missing_policy (cookie-mode only):
           - "off" → proceed, no soft
-          - "soft" → token_soft=1
+          - "soft" → soft_signal=1
           - "hard" → HARD FAIL (EFORMS_ERR_TOKEN)
-          - "challenge" → token_soft=1 + require challenge; if verification later succeeds (§7.10), clear all soft signals for this request (hard failures never overridden)
+          - "challenge" → soft_signal=1 + require challenge; if verification later succeeds (§7.10), clear all soft signals for this request (hard failures never overridden)
           The cookie path is the sole authority for cookie-mode instances.
         - Unconfigured challenge when required: retain +1 soft, log EFORMS_CHALLENGE_UNCONFIGURED, continue.
         - Cookie rotation in cookie mode on every POST; never rotate in hidden-token mode.
