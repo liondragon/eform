@@ -71,29 +71,138 @@ class Security
 
     public static function token_validate(string $formId, bool $hasHidden, ?string $postedToken): array
     {
-        $cookie = $_COOKIE['eforms_t_' . $formId] ?? '';
-        $cookieOk = self::isUuid($cookie);
+        $cookieName = 'eforms_t_' . $formId;
+        $cookieToken = $_COOKIE[$cookieName] ?? '';
 
-        if ($hasHidden && self::isUuid((string) $postedToken)) {
-            return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+        if ($hasHidden) {
+            $token = (string) $postedToken;
+            $parsed = self::parseToken($token);
+            $record = self::loadTokenRecord($token);
+
+            if ($record !== null) {
+                if (($record['form_id'] ?? '') !== $formId) {
+                    return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+                }
+                if (($record['mode'] ?? '') !== 'hidden') {
+                    return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+                }
+                if (!$parsed['valid'] || $parsed['prefix'] === 'cookie') {
+                    return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+                }
+                return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+
+            if ($parsed['prefix'] === 'cookie') {
+                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+
+            if ($parsed['valid']) {
+                return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+
+            $required = (bool) Config::get('security.submission_token.required', true);
+            if ($required) {
+                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => false, 'soft_signal' => 1, 'require_challenge' => false];
         }
 
-        if ($cookieOk) {
+        if ($postedToken !== null && $postedToken !== '') {
+            return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+        }
+
+        $parsedCookie = self::parseToken($cookieToken);
+        $record = self::loadTokenRecord($cookieToken);
+        if ($record !== null) {
+            if (($record['form_id'] ?? '') !== $formId) {
+                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            if (($record['mode'] ?? '') !== 'cookie') {
+                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            if (!$parsedCookie['valid'] || $parsedCookie['prefix'] === 'hidden') {
+                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            return ['mode' => 'cookie', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+        }
+
+        if ($parsedCookie['valid'] && $parsedCookie['prefix'] !== 'hidden') {
             return ['mode' => 'cookie', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
         }
 
         $policy = Config::get('security.cookie_missing_policy', 'soft');
         switch ($policy) {
             case 'hard':
-                return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>true,'soft_signal'=>0,'require_challenge'=>false];
+                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
             case 'challenge':
-                return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>false,'soft_signal'=>1,'require_challenge'=>true];
+                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => false, 'soft_signal' => 1, 'require_challenge' => true];
             case 'off':
-                return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>false,'soft_signal'=>0,'require_challenge'=>false];
+                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
             case 'soft':
             default:
-                return ['mode'=>'cookie','token_ok'=>false,'hard_fail'=>false,'soft_signal'=>1,'require_challenge'=>false];
+                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => false, 'soft_signal' => 1, 'require_challenge' => false];
         }
+    }
+
+    private static function parseToken(string $token): array
+    {
+        $prefix = '';
+        $value = trim($token);
+        if ($value === '') {
+            return ['valid' => false, 'prefix' => '', 'uuid' => null];
+        }
+        if (str_starts_with($value, 'h-')) {
+            $prefix = 'hidden';
+            $value = substr($value, 2);
+        } elseif (str_starts_with($value, 'c-')) {
+            $prefix = 'cookie';
+            $value = substr($value, 2);
+        }
+        if (!self::isUuid($value)) {
+            return ['valid' => false, 'prefix' => $prefix, 'uuid' => null];
+        }
+        return ['valid' => true, 'prefix' => $prefix, 'uuid' => $value];
+    }
+
+    private static function loadTokenRecord(string $token): ?array
+    {
+        $base = rtrim((string) Config::get('uploads.dir', ''), '/');
+        if ($base === '') {
+            return null;
+        }
+        $hashes = [hash('sha256', $token)];
+        if (str_starts_with($token, 'h-') || str_starts_with($token, 'c-')) {
+            $hashes[] = hash('sha256', substr($token, 2));
+        }
+        foreach ($hashes as $hash) {
+            $dir = $base . '/tokens/' . substr($hash, 0, 2);
+            $file = $dir . '/' . $hash . '.json';
+            if (!is_file($file)) {
+                continue;
+            }
+            $raw = @file_get_contents($file);
+            if ($raw === false) {
+                continue;
+            }
+            $data = json_decode($raw, true);
+            if (!is_array($data)) {
+                continue;
+            }
+            $mode = $data['mode'] ?? null;
+            $form = $data['form_id'] ?? null;
+            if (!is_string($form) || $form === '') {
+                continue;
+            }
+            if (!is_string($mode) || !in_array($mode, ['hidden', 'cookie'], true)) {
+                continue;
+            }
+            $expires = isset($data['expires']) ? (int) $data['expires'] : 0;
+            if ($expires > 0 && $expires < time()) {
+                return null;
+            }
+            return ['form_id' => $form, 'mode' => $mode, 'expires' => $expires];
+        }
+        return null;
     }
 
     private static function isUuid(string $v): bool
