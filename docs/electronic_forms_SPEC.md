@@ -106,7 +106,7 @@ electronic_forms - Spec
     - key (slug): required; must match ^[a-z0-9_:-]{1,64}$ (lowercase); [] prohibited to prevent PHP array collisions; reserved keys remain disallowed.
     - autocomplete: exactly one token. "on"/"off" accepted; else must match WHATWG tokens (name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
     - size: 1-100; honored only for text-like controls (text, tel, url, email).
-    - Hidden per-instance fields (renderer adds): form_id, instance_id, eforms_hp (POST name fixed; randomized id only), timestamp (used for UI/logs and as a best-effort age signal in hidden-token mode; see 7.3), js_ok; and when cacheable="false" also <input type="hidden" name="eforms_token" value="h-<UUIDv4>"> (see 7.1). Mode selection (hidden vs cookie) happens at render time; the renderer encodes that choice into the token it mints (`h-<UUIDv4>` vs. `c-<UUIDv4>`) and only emits the artifacts required for that mode. Hidden-mode responses never include the cookie pixel, and cookie-mode responses never emit the hidden token. timestamp is set on first render of the instance and preserved across validation re-renders; on error re-render, reuse the posted timestamp.
+    - Hidden per-instance fields (renderer adds): form_id, instance_id, eforms_hp (POST name fixed; randomized id only), timestamp (used for UI/logs and as a best-effort age signal in hidden-token mode; see 7.3), js_ok; and when cacheable="false" also <input type="hidden" name="eforms_token" value="h-<UUIDv4>"> (see 7.1). Mode selection (hidden vs cookie) happens at render time; the renderer encodes that choice into the token it mints (`h-<UUIDv4>` vs. `c-<UUIDv4>`) and only emits the artifacts required for that mode. Hidden-mode responses never include the cookie pixel, and cookie-mode responses never emit the hidden token. timestamp is set on first render of the instance and preserved across validation re-renders; on error re-render, reuse the posted timestamp. The renderer MUST generate `instance_id` from 16–24 bytes of CSPRNG output encoded as base64url without padding, yielding `^[A-Za-z0-9_-]{22,32}$`.
     - Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
     - Renderer-generated attributes:
       - id = "{form_id}-{field_key}-{instance_id}"
@@ -241,6 +241,7 @@ electronic_forms - Spec
         - Mode authority is resolved deterministically:
           - If a token is presented, rely solely on the persisted record’s stored mode; no metadata lookup is performed.
           - If neither a hidden token nor a cookie token is presented, consult the saved form metadata (e.g., cacheable flag) to determine which missing-token policy to apply for the declared mode.
+        - Guard the instance id before any token lookups. SubmitHandler must require a non-empty `instance_id` hidden field, trim it to a scalar string, and enforce the canonical base64url pattern from §5.1 (`^[A-Za-z0-9_-]{22,32}$`). Missing or malformed values are treated as tampering → HARD FAIL (EFORMS_ERR_TOKEN) without attempting token validation. Only the sanitized value participates in ledger lookups or logging.
         - Load the persisted record via `{form_id}:{instance_id}`; a missing or expired record is treated as a token failure (EFORMS_ERR_TOKEN).
         - For any presented token (hidden field or cookie), compute sha256(token) and compare it to the stored token_sha256. The validator compares the declared mode to the persisted record’s stored mode and expects the token prefix to reflect that mode (`h-` for hidden, `c-` for cookie); any discrepancy in mode or prefix, or a hash mismatch, immediately HARD FAILs (EFORMS_ERR_TOKEN). The persisted record never changes modes.
         - When no token value is presented, rely on the persisted record’s stored mode (or the saved form metadata when bootstrapping policy) to choose the missing-token policy: hidden → security.submission_token.required; cookie → security.cookie_missing_policy.
@@ -714,7 +715,7 @@ uploads.*
   - Keep novalidate logic unchanged.
 
 23. NOTES FOR IMPLEMENTATION
-  - instance_id: cryptographically secure random (e.g., 16-24 bytes base64url)
+  - instance_id: cryptographically secure random (16–24 bytes) encoded per §5.1 (base64url without padding; matches `^[A-Za-z0-9_-]{22,32}$`)
   - timestamp: server epoch seconds at render time
   - Use esc_textarea for <textarea> output
   - Enqueue assets only when a form exists on the page
