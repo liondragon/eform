@@ -106,7 +106,7 @@ electronic_forms - Spec
     - key (slug): required; must match ^[a-z0-9_:-]{1,64}$ (lowercase); [] prohibited to prevent PHP array collisions; reserved keys remain disallowed.
     - autocomplete: exactly one token. "on"/"off" accepted; else must match WHATWG tokens (name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
     - size: 1-100; honored only for text-like controls (text, tel, url, email).
-    - Hidden per-instance fields (renderer adds): form_id, instance_id, eforms_hp (POST name fixed; randomized id only), timestamp (used for UI/logs and as a best-effort age signal in hidden-token mode; see 7.3), js_ok; and when cacheable="false" also <input type="hidden" name="eforms_token" value="h-<UUIDv4>"> (see 7.1). Mode selection (hidden vs cookie) happens at render time; the renderer encodes that choice into the token it mints (`h-<UUIDv4>` vs. `c-<UUIDv4>`) and only emits the artifacts required for that mode. Hidden-mode responses never include the cookie pixel, and cookie-mode responses never emit the hidden token. timestamp is set on first render of the instance and preserved across validation re-renders; on error re-render, reuse the posted timestamp. The renderer MUST generate `instance_id` from 16–24 bytes of CSPRNG output encoded as base64url without padding, yielding `^[A-Za-z0-9_-]{22,32}$`.
+    - Hidden metadata (renderer adds): `form_id` is always emitted. Hidden-mode responses also include per-instance hidden fields—`instance_id`, `eforms_hp` (POST name fixed; randomized id only), `timestamp` (used for UI/logs and as a best-effort age signal in hidden-token mode; see 7.3), and `js_ok`—plus `<input type="hidden" name="eforms_token" value="<UUIDv4>">` (see 7.1). Cookie-mode GET responses omit the per-instance fields so cacheable pages stay identical across viewers; POST re-renders (both modes) repopulate the current instance metadata so validation errors preserve values. Mode selection (hidden vs cookie) happens at render time; the renderer only emits the artifacts required for that mode. Hidden-mode responses never include the cookie pixel, and cookie-mode responses never emit the hidden token. timestamp is set on first render of the instance and preserved across validation re-renders; on error re-render, reuse the posted timestamp. The renderer MUST generate `instance_id` from 16–24 bytes of CSPRNG output encoded as base64url without padding, yielding `^[A-Za-z0-9_-]{22,32}$`.
     - Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
     - Renderer-generated attributes:
       - id = "{form_id}-{field_key}-{instance_id}"
@@ -223,51 +223,47 @@ electronic_forms - Spec
 7. SECURITY
   1. Submission Protection for Public Forms (hybrid token scheme)
     - Mode selection:
-      - cacheable="false" → hidden-mode. Renderer emits a per-render <input type="hidden" name="eforms_token" value="h-<UUIDv4>"> and treats the response as dynamic.
-      - cacheable="true" → cookie-mode. Renderer omits the hidden token, relies on a prime pixel to set a cookie value `c-<UUIDv4>`, and keeps the HTML cache-friendly (no token in markup).
-      - Every minted instance persists a ledger record keyed by `{form_id}:{instance_id}` storing {mode, token_sha256, expires}, where token_sha256 is the sha256 of the hidden or cookie token minted for that instance. Hidden-mode responses still emit an `h-…` token for POST gating, but ledger reservation/burn uses the `instance_id` idempotency key. The renderer records the chosen mode with the minted token/cookie so the persisted instance knows which path to use. It also declares the mode in the per-instance metadata it returns (e.g., RenderContext.token_mode="hidden"|"cookie"). SubmitHandler/validator enforce that stored mode on every submission; POST payloads cannot switch modes, and token validation never falls back to the other path. SubmitHandler passes the declared mode to Security::token_validate() on POST instead of inferring it from the submitted fields.
+      - cacheable="false" → hidden-mode. Renderer emits a per-render `<input type="hidden" name="eforms_token" value="<UUIDv4>">` and treats the response as dynamic.
+      - cacheable="true" → cookie-mode. Renderer omits the hidden token, relies on a prime pixel to set a cookie value `<UUIDv4>`, and keeps the HTML cache-friendly (no per-instance hidden fields on the initial GET).
+      - SubmitHandler infers the active mode on POST by checking whether `eforms_token` was submitted (`$hasHidden`), so re-renders stay in the original mode even when validation fails.
+    - Instance records (optional, token-indexed):
+      - Stored at `${uploads.dir}/tokens/{h2}/{sha256(token)}.json` with payload `{form_id, mode, expires[, token_sha256]}`.
+      - Hidden-mode writers include `token_sha256` (sha256 of the emitted hidden token) so validation can detect mismatches without storing the raw token. Cookie-mode writers omit it; cookie-mode validation only needs the persisted `mode`/`expires` metadata when present.
+      - `Security::token_validate()` only consults these files when a hidden token is posted; cookie-mode takes the cookie path directly.
     - GET:
-      - hidden-mode: omit pixel; inject hidden eforms_token (`h-<UUIDv4>`). Send Cache-Control: private, no-store on this page.
-      - cookie-mode: include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">.
-        /eforms/prime → 204 + Set-Cookie eforms_t_{form_id}=`c-<UUIDv4>`; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default.
+      - hidden-mode: omit pixel; inject hidden eforms_token (UUIDv4, parser tolerates optional `h-` prefix). Send Cache-Control: private, no-store on this page.
+      - cookie-mode: include `<img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">`.
+        `/eforms/prime` → 204 + `Set-Cookie: eforms_t_{form_id}=<UUIDv4>`; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; Cache-Control: no-store; add Secure when is_ssl(). Do not set Domain by default.
         If the form_id is unknown **or** the form isn’t configured for cookie-mode, respond 204 **without** Set-Cookie.
     - POST /eforms/submit
       - CSRF Gate (Origin-only):
         - Evaluate per §7.4. hard mode: cross/unknown → HARD FAIL; missing → HARD FAIL only when security.origin_missing_hard=true.
         - soft mode: cross/unknown → +1 soft; missing → +1 soft only when security.origin_missing_soft=true.
       - Method/Type: Require POST. Accept only application/x-www-form-urlencoded (charset allowed) or multipart/form-data (boundary required). Else 405/415. Enforce POST size cap per §7.5.
-      - Token validation (Security::token_validate(declared_mode, post_token, cookie_token)):
-        - Inputs include the declared mode from the renderer metadata (`RenderContext.token_mode`). The validator never deduces the mode from the presence or absence of `eforms_token` or cookies.
-        - Mode authority is resolved deterministically:
-          - If a token is presented, rely solely on the persisted record’s stored mode; no metadata lookup is performed.
-          - If neither a hidden token nor a cookie token is presented, consult the saved form metadata (e.g., cacheable flag) to determine which missing-token policy to apply for the declared mode.
-        - Guard the instance id before any token lookups. SubmitHandler must require a non-empty `instance_id` hidden field, trim it to a scalar string, and enforce the canonical base64url pattern from §5.1 (`^[A-Za-z0-9_-]{22,32}$`). Missing or malformed values are treated as tampering → HARD FAIL (EFORMS_ERR_TOKEN) without attempting token validation. Only the sanitized value participates in ledger lookups or logging.
-        - Load the persisted record via `{form_id}:{instance_id}`; a missing or expired record is treated as a token failure (EFORMS_ERR_TOKEN).
-        - For any presented token (hidden field or cookie), compute sha256(token) and compare it to the stored token_sha256. The validator compares the declared mode to the persisted record’s stored mode and expects the token prefix to reflect that mode (`h-` for hidden, `c-` for cookie); any discrepancy in mode or prefix, or a hash mismatch, immediately HARD FAILs (EFORMS_ERR_TOKEN). The persisted record never changes modes.
-        - When no token value is presented, rely on the persisted record’s stored mode (or the saved form metadata when bootstrapping policy) to choose the missing-token policy: hidden → security.submission_token.required; cookie → security.cookie_missing_policy.
-        - Hidden-mode (declared mode and persisted instance): expect the posted `eforms_token` to match the minted token (prefix `h-`). Missing/invalid tokens are governed solely by security.submission_token.required:
-          - true → HARD FAIL (EFORMS_ERR_TOKEN)
-          - false → soft_signal=1 (records a soft validation signal), continue §7.6
-          Hidden-mode ignores cookies entirely; the hidden token is the sole authority for that instance. Cookies (even with valid cookie tokens) are ignored in hidden-mode.
-        - Cookie-mode (persisted instance): POST payloads MUST NOT include `eforms_token`. Hidden tokens in the payload are treated as tampering → HARD FAIL (EFORMS_ERR_TOKEN). Otherwise read eforms_t_{form_id} cookie (prefix `c-`). If missing/invalid, apply security.cookie_missing_policy (cookie-mode only):
-          - "off" → proceed, no soft
-          - "soft" → soft_signal=1
-          - "hard" → HARD FAIL (EFORMS_ERR_TOKEN)
-          - "challenge" → soft_signal=1 + require challenge; if verification later succeeds (§7.10), clear all soft signals for this request (hard failures never overridden)
-          The cookie path is the sole authority for cookie-mode instances.
-        - Unconfigured challenge when required: retain +1 soft, log EFORMS_CHALLENGE_UNCONFIGURED, continue.
-        - Cookie rotation runs in cookie mode after validation on every POST; never rotate in hidden-token mode. Ledger idempotency is anchored solely to `{instance_id}`, so cookie rotation cannot create duplicate ledger keys.
-        - Validation output: { mode:"hidden"|"cookie", token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool, cookie_consulted:bool }.
-          Set `cookie_consulted=false` in hidden-mode and `cookie_consulted=true` in cookie-mode (regardless of whether a cookie was present/valid).
+      - Token validation (`Security::token_validate($formId, $hasHidden, $postedToken)`):
+        - SubmitHandler passes the sanitized `$formId`, `$hasHidden = isset($_POST['eforms_token']) && $_POST['eforms_token'] !== ''`, and the raw posted token (or `null`). `Security::token_validate()` reads the current cookie state itself.
+        - Hidden-mode branch:
+          - Parse the posted token; accept bare UUIDv4 strings and an optional `h-` prefix. A `c-` prefix or non-UUID content is a hard failure.
+          - If a persisted record exists, require `mode === 'hidden'`; when `token_sha256` is present, compare it to `sha256($postedToken)`. Expired records hard-fail.
+          - When no record exists, rely on shape validation: a valid UUIDv4 satisfies the check. Missing/invalid tokens obey `security.submission_token.required` (`true` → HARD FAIL; `false` → soft_signal=1).
+          - Hidden-mode ignores cookies entirely; the hidden token is the sole authority for that submission.
+        - Cookie-mode branch:
+          - Any posted `eforms_token` is treated as tampering → HARD FAIL (EFORMS_ERR_TOKEN).
+          - Read `eforms_t_{form_id}` from `$_COOKIE`. Accept bare UUIDv4 strings and the optional `c-` prefix. No persisted record is consulted.
+          - If the cookie is missing/invalid, apply `security.cookie_missing_policy` ("off" → no soft; "soft" → soft_signal=1; "hard" → HARD FAIL; "challenge" → soft_signal=1 + require_challenge). Cookie Max-Age/Expires governs expiry.
+          - Unconfigured challenge when required: retain +1 soft, log EFORMS_CHALLENGE_UNCONFIGURED, continue.
+        - Validation output: `{ mode:"hidden"|"cookie", token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`.
         - User message for hard failures: EFORMS_ERR_TOKEN (“This form was already submitted or has expired - please reload the page.”).
-        - Test matrix: as previously specified (hidden+required missing → HARD; cookie+policy=... etc.).
+        - Cookie rotation runs in cookie mode after validation on every POST. SubmitHandler writes a fresh UUIDv4 with the configured TTL and updates `$_COOKIE` so subsequent logic sees the rotated value.
+        - Ledger idempotency burns `{form_id}:{token}` using the token observed before rotation, so replaying the old cookie fails while a new cookie represents a new attempt.
+      - Test matrix: as previously specified (hidden+required missing → HARD; cookie+policy=... etc.).
 
   2. Honeypot
     - Runs after CSRF gate; never overrides a CSRF hard fail.
     - Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
     - Field: eforms_hp (fixed POST name; randomized id). Must be empty. Submitted value discarded and never logged.
     - Config: security.honeypot_response: "hard_fail" | "stealth_success" (default stealth_success).
-    - Common behavior: treat as spam-certain; short-circuit before validation/coercion/email; delete temp uploads; record throttle signal; attempt ledger reservation to burn the `{instance_id}` key; rotate cookie in cookie mode.
+    - Common behavior: treat as spam-certain; short-circuit before validation/coercion/email; delete temp uploads; record throttle signal; attempt ledger reservation to burn the `{form_id}:{token}` key (token = posted hidden token or the cookie value observed before rotation); rotate cookie in cookie mode.
     - "stealth_success": mimic success UX (inline PRG cookie + 303, or redirect); do not count as real successes (log stealth:true).
     - "hard_fail": re-render with generic global error (HTTP 200); no field-level hints.
 
@@ -670,7 +666,7 @@ uploads.*
     - On errors:
       - Before token reservation → re-render reusing instance_id, timestamp, and (if hidden) same eforms_token.
       - After reservation (e.g., SMTP/storage) → re-render with new instance_id and (if hidden) new eforms_token; preserve canonical field values; show global operational error.
-    - Commit reservation (moved from §7.1): immediately before side effects (email send, file finalize), reserve the instance by creating sentinel ${ledger_base}/{h2}/{key}.used via fopen('xb') (0700/0600 perms), where key="{form_id}:{instance_id}".
+    - Commit reservation (moved from §7.1): immediately before side effects (email send, file finalize), reserve the submission by creating sentinel ${ledger_base}/{h2}/{key}.used via fopen('xb') (0700/0600 perms), where key="{form_id}:{token}" and `token` is the hidden token or pre-rotation cookie captured earlier in the request.
       - EEXIST → treat as duplicate: stop side effects; show EFORMS_ERR_TOKEN.
       - Other I/O errors → treat as duplicate; log {code:"EFORMS_LEDGER_IO"}; do not crash.
       - Honeypot hits reserve/burn earlier by design (§7.2).
