@@ -225,7 +225,7 @@ electronic_forms - Spec
     - Mode selection:
       - cacheable="false" → hidden-mode. Renderer emits a per-render <input type="hidden" name="eforms_token" value="h-<UUIDv4>"> and treats the response as dynamic.
       - cacheable="true" → cookie-mode. Renderer omits the hidden token, relies on a prime pixel to set a cookie value `c-<UUIDv4>`, and keeps the HTML cache-friendly (no token in markup).
-      - Every minted token is persisted server-side as a record keyed by sha256(token) storing {form_id, mode, expires}. The renderer records the chosen mode with the minted token/cookie so the persisted instance knows which path to use. SubmitHandler/validator enforce that stored mode on every submission; POST payloads cannot switch modes, and token validation never falls back to the other path.
+      - Every minted token is persisted server-side as a record keyed by sha256(token) storing {form_id, mode, expires}. The renderer records the chosen mode with the minted token/cookie so the persisted instance knows which path to use. It also declares the mode in the per-instance metadata it returns (e.g., RenderContext.token_mode="hidden"|"cookie"). SubmitHandler/validator enforce that stored mode on every submission; POST payloads cannot switch modes, and token validation never falls back to the other path. SubmitHandler passes the declared mode to Security::token_validate() on POST instead of inferring it from the submitted fields.
     - GET:
       - hidden-mode: omit pixel; inject hidden eforms_token (`h-<UUIDv4>`). Send Cache-Control: private, no-store on this page.
       - cookie-mode: include <img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">.
@@ -236,9 +236,11 @@ electronic_forms - Spec
         - Evaluate per §7.4. hard mode: cross/unknown → HARD FAIL; missing → HARD FAIL only when security.origin_missing_hard=true.
         - soft mode: cross/unknown → +1 soft; missing → +1 soft only when security.origin_missing_soft=true.
       - Method/Type: Require POST. Accept only application/x-www-form-urlencoded (charset allowed) or multipart/form-data (boundary required). Else 405/415. Enforce POST size cap per §7.5.
-      - Token validation:
-        - For any presented token (hidden field or cookie), compute sha256(token) and load the persisted record. Missing records, tokens whose prefix does not match the persisted mode (`h-` for hidden, `c-` for cookie), or mode mismatches immediately HARD FAIL (EFORMS_ERR_TOKEN). The persisted record never changes modes; form_id must also match. When no token value is presented, skip the lookup and follow the mode-specific missing-token policy below.
-        - Hidden-mode (persisted instance): expect the posted `eforms_token` to match the minted token (prefix `h-`). Missing/invalid tokens are governed solely by security.submission_token.required:
+      - Token validation (Security::token_validate(declared_mode, post_token, cookie_token)):
+        - Inputs include the declared mode from the renderer metadata. The validator never deduces the mode from the presence or absence of `eforms_token` or cookies.
+        - For any presented token (hidden field or cookie), compute sha256(token) and load the persisted record. Missing records, tokens whose prefix does not match the persisted mode (`h-` for hidden, `c-` for cookie), or mode mismatches immediately HARD FAIL (EFORMS_ERR_TOKEN). The persisted record never changes modes; form_id must also match.
+        - When no token value is presented, skip the lookup and apply the declared mode’s missing-token policy: hidden → security.submission_token.required; cookie → security.cookie_missing_policy.
+        - Hidden-mode (declared/persisted instance): expect the posted `eforms_token` to match the minted token (prefix `h-`). Missing/invalid tokens are governed solely by security.submission_token.required:
           - true → HARD FAIL (EFORMS_ERR_TOKEN)
           - false → token_soft=1, continue §7.6
           Hidden-mode ignores cookies entirely; the hidden token is the sole authority for that instance. Cookies (even with valid cookie tokens) are ignored in hidden-mode.
