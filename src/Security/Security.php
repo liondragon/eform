@@ -77,69 +77,30 @@ class Security
         $cookieToken = (string) ($_COOKIE[$cookieName] ?? '');
 
         if ($hasHidden) {
-            $token = (string) $postedToken;
+            $token = (string) ($postedToken ?? '');
+            $tokenRequired = (bool) Config::get('security.submission_token.required', true);
             $parsed = self::parseToken($token);
-            if (!$parsed['valid'] || ($parsed['prefix'] !== '' && $parsed['prefix'] !== 'hidden')) {
-                return [
-                    'mode' => 'hidden',
-                    'submission_id' => $token,
-                    'token_ok' => false,
-                    'hard_fail' => true,
-                    'soft_signal' => 0,
-                    'require_challenge' => false,
-                    'issued_at' => 0,
-                    'expires' => 0,
-                ];
+            if ($token === '' || !$parsed['valid'] || ($parsed['prefix'] !== '' && $parsed['prefix'] !== 'hidden')) {
+                return self::hiddenTokenFailureResult($token, $tokenRequired);
             }
             $record = self::hiddenTokenRecord($token);
             if ($record === null) {
-                return [
-                    'mode' => 'hidden',
-                    'submission_id' => $token,
-                    'token_ok' => false,
-                    'hard_fail' => true,
-                    'soft_signal' => 0,
-                    'require_challenge' => false,
-                    'issued_at' => 0,
-                    'expires' => 0,
-                ];
+                return self::hiddenTokenFailureResult($token, $tokenRequired);
             }
             if (($record['form_id'] ?? '') !== $formId) {
-                return [
-                    'mode' => 'hidden',
-                    'submission_id' => $token,
-                    'token_ok' => false,
-                    'hard_fail' => true,
-                    'soft_signal' => 0,
-                    'require_challenge' => false,
-                    'issued_at' => 0,
-                    'expires' => 0,
-                ];
+                return self::hiddenTokenFailureResult($token, $tokenRequired);
             }
             if (($record['mode'] ?? '') !== 'hidden') {
-                return [
-                    'mode' => 'hidden',
-                    'submission_id' => $token,
-                    'token_ok' => false,
-                    'hard_fail' => true,
-                    'soft_signal' => 0,
-                    'require_challenge' => false,
-                    'issued_at' => 0,
-                    'expires' => 0,
-                ];
+                return self::hiddenTokenFailureResult($token, $tokenRequired);
             }
             $expires = isset($record['expires']) ? (int) $record['expires'] : 0;
             if ($expires > 0 && $expires < time()) {
-                return [
-                    'mode' => 'hidden',
-                    'submission_id' => $token,
-                    'token_ok' => false,
-                    'hard_fail' => true,
-                    'soft_signal' => 0,
-                    'require_challenge' => false,
-                    'issued_at' => (int) ($record['issued_at'] ?? 0),
-                    'expires' => $expires,
-                ];
+                return self::hiddenTokenFailureResult(
+                    $token,
+                    $tokenRequired,
+                    (int) ($record['issued_at'] ?? 0),
+                    $expires
+                );
             }
             return [
                 'mode' => 'hidden',
@@ -154,11 +115,11 @@ class Security
         }
 
         if ($postedToken !== null && $postedToken !== '') {
-            return [
-                'mode' => 'cookie',
-                'submission_id' => $cookieToken,
-                'token_ok' => false,
-                'hard_fail' => true,
+        return [
+            'mode' => 'cookie',
+            'submission_id' => $cookieToken,
+            'token_ok' => false,
+            'hard_fail' => true,
                 'soft_signal' => 0,
                 'require_challenge' => false,
                 'issued_at' => 0,
@@ -279,6 +240,20 @@ class Security
         }
         self::$hiddenTokenCache[$token] = $record;
         return $record;
+    }
+
+    private static function hiddenTokenFailureResult(string $token, bool $required, int $issuedAt = 0, int $expires = 0): array
+    {
+        return [
+            'mode' => 'hidden',
+            'submission_id' => $token,
+            'token_ok' => false,
+            'hard_fail' => $required,
+            'soft_signal' => $required ? 0 : 1,
+            'require_challenge' => false,
+            'issued_at' => $issuedAt,
+            'expires' => $expires,
+        ];
     }
 
     private static function cookieMissingPolicyResult(string $submissionId = '', int $issuedAt = 0, int $expires = 0): array

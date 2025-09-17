@@ -122,16 +122,29 @@ class SecurityTokenModesTest extends BaseTestCase
         unset($_COOKIE['eforms_eid_contact_us']);
     }
 
-    public function testHiddenInvalidHonorsSubmissionRequirement(): void
+    public function testHiddenInvalidSoftWhenSubmissionRequirementDisabled(): void
     {
         $this->setConfig('security.submission_token.required', false);
         unset($_COOKIE['eforms_eid_contact_us']);
         $res = Security::token_validate('contact_us', true, 'bad');
         $this->assertSame('hidden', $res['mode']);
         $this->assertFalse($res['token_ok']);
-        $this->assertTrue($res['hard_fail']);
-        $this->assertSame(0, $res['soft_signal']);
+        $this->assertFalse($res['hard_fail']);
+        $this->assertSame(1, $res['soft_signal']);
         $this->assertFalse($res['require_challenge']);
+    }
+
+    public function testHiddenMissingTokenSoftSignalWhenOptional(): void
+    {
+        $this->setConfig('security.submission_token.required', false);
+        unset($_COOKIE['eforms_eid_contact_us']);
+        $res = Security::token_validate('contact_us', true, null);
+        $this->assertSame('hidden', $res['mode']);
+        $this->assertFalse($res['token_ok']);
+        $this->assertFalse($res['hard_fail']);
+        $this->assertSame(1, $res['soft_signal']);
+        $this->assertFalse($res['require_challenge']);
+        $this->assertSame('', $res['submission_id']);
     }
 
     public function testHiddenTokenModeMismatchHardFails(): void
@@ -179,6 +192,32 @@ class SecurityTokenModesTest extends BaseTestCase
         $this->assertSame(0, $code);
         $cookie = trim((string)file_get_contents($tmpDir . '/cookie.txt'));
         $this->assertSame('i-00000000-0000-4000-8000-0000000c0fee', $cookie);
+    }
+
+    public function testHiddenSubmissionOptionalTokenFlow(): void
+    {
+        $tmpDir = __DIR__ . '/../tmp';
+        if (is_dir($tmpDir)) {
+            exec('rm -rf ' . escapeshellarg($tmpDir));
+        }
+        mkdir($tmpDir, 0777, true);
+        $script = __DIR__ . '/../integration/test_hidden_optional_token.php';
+        $cmd = 'php ' . escapeshellarg($script);
+        exec($cmd, $out, $code);
+        $this->assertSame(0, $code);
+
+        $mail = json_decode((string) file_get_contents($tmpDir . '/mail.json'), true);
+        $this->assertIsArray($mail);
+        $this->assertNotEmpty($mail);
+        $entry = $mail[0];
+        $this->assertStringStartsWith('[SUSPECT] ', (string) ($entry['subject'] ?? ''));
+        $headers = $entry['headers'] ?? [];
+        $this->assertIsArray($headers);
+        $this->assertContains('X-EForms-Suspect: 1', $headers);
+
+        $redirect = json_decode((string) file_get_contents($tmpDir . '/redirect.txt'), true);
+        $this->assertSame('http://hub.local/form-test/?eforms_success=contact_us', $redirect['location'] ?? '');
+        $this->assertSame(303, $redirect['status'] ?? 0);
     }
 
     private function clearTokenDir(): void
