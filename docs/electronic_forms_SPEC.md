@@ -230,7 +230,7 @@ electronic_forms - Spec
          - Cookie-mode renders remain deterministic: they omit `instance_id`, timestamps, and hidden tokens. Multi-instance pages MAY emit a deterministic integer `eforms_slot` (default `1`; slots require a configured allow-list). Every cookie render embeds a 1×1 `<img src=\"/eforms/prime?f={form_id}\">` probe that returns `204` with `Cache-Control: no-store` and `Set-Cookie: eforms_eid_{form_id}=i-<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; [Secure on HTTPS]`. Cookie values must match `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Hidden renders (and unknown IDs) still return 204 but without `Set-Cookie`.
       2. **Persisted records (sole authority for mode + freshness)**
          - Hidden-mode GETs create `${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json` with `{ mode:\"hidden\", form_id:\"…\", issued_at:<ts>, expires:<ts> }`. The filename already contains the SHA-256; no duplicate value is stored in the JSON.
-         - Cookie-mode minting via `/eforms/prime` writes `${uploads.dir}/eforms-private/eid_minted/{form_id}/{h2}/{eid}.json` (no colons) holding `{ mode:\"cookie\", form_id:\"…\", eid:\"i-<UUIDv4>\", issued_at:<ts>, expires:<ts>, slots_allowed:[...], slot:null|int }`. A zero-byte touch file variant is acceptable when the slot binding is captured deterministically alongside it. CI enforces `expires - issued_at == cookie.Max-Age` for either storage flavor.
+         - Cookie-mode minting via `/eforms/prime` writes `${uploads.dir}/eforms-private/eid_minted/{form_id}/{h2}/{eid}.json` (no colons) holding `{ mode:\"cookie\", form_id:\"…\", eid:\"i-<UUIDv4>\", issued_at:<ts>, expires:<ts>, slots_allowed:[...], slot:null|int }`. CI enforces `expires - issued_at == security.token_ttl_seconds` for the minted JSON payload.
          - Sanity regexes (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` for hidden tokens, `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` for cookie EIDs) run before disk access to weed out obvious forgeries but never determine the mode. SubmitHandler always loads the persisted record before any ledger I/O; missing/expired/mismatched records trigger `EFORMS_ERR_TOKEN`.
       3. **POST `/eforms/submit`**
          - Requests MUST use HTTP POST with `Content-Type: application/x-www-form-urlencoded` (any charset) or `multipart/form-data` only. Other methods receive 405 and other media types receive 415; payload caps remain governed by §7.5.
@@ -325,8 +325,8 @@ electronic_forms - Spec
       - Hidden-mode rerender after validation errors reuses the original `instance_id`, `timestamp`, and hidden token (diff → hard fail).
       - Cookie-mode rerender emits identical markup and reuses the minted `eid` and slot (diff → hard fail).
     - TTL-alignment checks:
-      - Minted record `expires - issued_at` matches the cookie `Max-Age`; drift → hard fail in CI.
-      - Hidden record expiry aligns with `security.token_ttl_seconds`; drift → hard fail in CI.
+      - Minted record JSON stores `expires - issued_at == security.token_ttl_seconds`; drift → hard fail in CI.
+      - Hidden record JSON stores `expires - issued_at == security.token_ttl_seconds`; drift → hard fail in CI.
       - Success ticket expiry respects `security.success_ticket_ttl_seconds` and cleans up on expiry; drift → hard fail in CI.
 
   7. Spam Decision
@@ -780,7 +780,7 @@ uploads.*
     - Descriptor resolution test: iterate Spec::typeDescriptors(), resolve all handler IDs; assert callable.
     - Schema parity test: generate JSON Schema from TEMPLATE_SPEC (or vice versa) and diff; fail on enum/required/shape drift.
     - Determinism tests: fixed template + inputs → assert identical error ordering, canonical values, rendered attribute set.
-    - TTL alignment test: assert cookie Max-Age matches `(minted_record.expires - minted_record.issued_at)` and success tickets honor `security.success_ticket_ttl_seconds`.
+    - TTL alignment test: assert `minted_record.expires - minted_record.issued_at == security.token_ttl_seconds` and success tickets honor `security.success_ticket_ttl_seconds`.
   - WP-CLI smoke tests:
     - Command to POST without Origin to confirm hard/missing policy behavior.
     - Command to POST oversized payload to verify RuntimeCap handling.
