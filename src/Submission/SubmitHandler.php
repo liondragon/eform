@@ -83,10 +83,16 @@ class SubmitHandler
         }
         $postedToken = $_POST['eforms_token'] ?? null;
         $hasHidden = ($mode === 'hidden');
+        $tokenRequired = (bool) Config::get('security.submission_token.required', true);
+        $missingHiddenTokenSoft = false;
         if ($hasHidden) {
             if ($postedToken === null || $postedToken === '') {
                 Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $logBase + ['msg' => 'missing_hidden_token']);
-                $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+                if ($tokenRequired) {
+                    $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+                } else {
+                    $missingHiddenTokenSoft = true;
+                }
             }
         } elseif ($postedToken !== null && $postedToken !== '') {
             Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $logBase + ['msg' => 'unexpected_hidden_token']);
@@ -138,6 +144,9 @@ class SubmitHandler
             $this->renderErrorAndExit($tpl, $formId, 'This form was already submitted or has expired – please reload the page.');
         }
         $softFailCount += $tokenInfo['soft_signal'];
+        if ($missingHiddenTokenSoft && ($tokenInfo['soft_signal'] ?? 0) === 0) {
+            $softFailCount++;
+        }
         $ua = Helpers::sanitize_user_agent($_SERVER['HTTP_USER_AGENT'] ?? '');
         if ($ua === '') {
             $softFailCount++;
