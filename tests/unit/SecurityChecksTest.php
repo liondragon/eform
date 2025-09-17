@@ -61,5 +61,24 @@ final class SecurityChecksTest extends BaseTestCase
         $log = (string) file_get_contents($this->logFile);
         $this->assertStringContainsString('EFORMS_ERR_FORM_AGE', $log);
     }
+
+    public function testSuccessTicketRoundTrip(): void
+    {
+        set_config([]);
+        $formId = 'contact_us';
+        $submissionId = 'i-123e4567-e89b-12d3-a456-426614174000:s2';
+        $stored = Security::successTicketStore($formId, $submissionId);
+        $this->assertTrue($stored);
+        $base = __DIR__ . '/../tmp/uploads/eforms-private/success/' . $formId;
+        $hash = hash('sha256', $submissionId);
+        $expectedDir = $base . '/' . substr($hash, 0, 2) . '/i-123e4567-e89b-12d3-a456-426614174000';
+        $expectedFile = $expectedDir . '/s2.json';
+        $this->assertFileExists($expectedFile);
+        $result = Security::successTicketConsume($formId, $submissionId);
+        $this->assertTrue($result['ok']);
+        $this->assertFileDoesNotExist($expectedFile);
+        $result2 = Security::successTicketConsume($formId, $submissionId);
+        $this->assertFalse($result2['ok']);
+    }
 }
 

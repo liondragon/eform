@@ -80,6 +80,9 @@ class BaseTestCase extends TestCase
         global $TEST_FILTERS;
         $TEST_FILTERS = $this->filtersSnapshot;
         register_test_env_filter();
+        if (class_exists('EForms\\Rendering\\Renderer')) {
+            \EForms\Rendering\Renderer::resetSuccessState();
+        }
         Config::resetForTests();
         Logging::resetForTests();
         parent::tearDown();

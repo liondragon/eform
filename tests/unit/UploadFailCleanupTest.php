@@ -8,6 +8,24 @@ declare(strict_types=1);
  */
 final class UploadFailCleanupTest extends BaseTestCase
 {
+    private function deleteTree(string $path): void
+    {
+        if ($path === '') {
+            return;
+        }
+        if (is_file($path) || is_link($path)) {
+            @unlink($path);
+            return;
+        }
+        if (!is_dir($path)) {
+            return;
+        }
+        foreach (glob(rtrim($path, '/') . '/*') ?: [] as $item) {
+            $this->deleteTree($item);
+        }
+        @rmdir($path);
+    }
+
     public function testFilesRemovedWhenEmailFailsAndNoRetention(): void
     {
         $php = escapeshellcmd(PHP_BINARY);
@@ -15,12 +33,7 @@ final class UploadFailCleanupTest extends BaseTestCase
         @unlink(__DIR__ . '/../tmp/upload_fail_cleanup.txt');
         foreach (glob(__DIR__ . '/../tmp/uploads/eforms-private/*/*') ?: [] as $f) {
             if (!str_contains($f, '/ledger/') && !str_contains($f, '/throttle/')) {
-                if (is_dir($f)) {
-                    @array_map('unlink', glob($f . '/*') ?: []);
-                    @rmdir($f);
-                } else {
-                    @unlink($f);
-                }
+                $this->deleteTree($f);
             }
         }
         $ledgerDir = __DIR__ . '/../tmp/uploads/eforms-private/ledger';
