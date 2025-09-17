@@ -106,7 +106,7 @@ electronic_forms - Spec
     - key (slug): required; must match ^[a-z0-9_:-]{1,64}$ (lowercase); [] prohibited to prevent PHP array collisions; reserved keys remain disallowed.
     - autocomplete: exactly one token. "on"/"off" accepted; else must match WHATWG tokens (name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
     - size: 1-100; honored only for text-like controls (text, tel, url, email).
-    - Hidden per-instance fields (renderer adds) are dictated by the authoritative mode chosen at render time (see §7). All markup includes `form_id`, `eforms_mode` (`hidden` or `cookie`), a fixed-name honeypot input `eforms_hp`, and a static hidden `js_ok`. Hidden-mode renders additionally emit `instance_id` (DOM-only uniqueness), `timestamp` (best-effort fill-age signal), and `<input type="hidden" name="eforms_token" value="h-<UUIDv4>">`. Cookie-mode renders omit all per-request randomness: no `instance_id`, no per-instance timestamps, and no hidden tokens. Multi-instance cookie pages MAY set a deterministic `eforms_slot` (integer; default `1`). The renderer MUST generate `instance_id` from 16–24 bytes of CSPRNG output encoded as base64url without padding, yielding `^[A-Za-z0-9_-]{22,32}$`, and must reuse the posted `instance_id`/`timestamp` when re-rendering hidden-mode errors.
+    - Hidden per-instance fields (renderer adds) are dictated by the authoritative mode chosen at render time (see §7). All markup includes `form_id`, `eforms_mode` (`hidden` or `cookie`), a fixed-name honeypot input `eforms_hp`, and a static hidden `js_ok`. Hidden-mode renders additionally emit `instance_id` (DOM-only uniqueness), `timestamp` (best-effort fill-age signal), and `<input type="hidden" name="eforms_token" value="<UUIDv4>">`. The renderer MUST persist that raw UUID token server-side and reuse the exact value on hidden-mode re-renders until a new token is minted. Cookie-mode renders omit all per-request randomness: no `instance_id`, no per-instance timestamps, and no hidden tokens. Multi-instance cookie pages MAY set a deterministic `eforms_slot` (integer; default `1`). The renderer MUST generate `instance_id` from 16–24 bytes of CSPRNG output encoded as base64url without padding, yielding `^[A-Za-z0-9_-]{22,32}$`, and must reuse the posted `instance_id`/`timestamp` when re-rendering hidden-mode errors.
     - Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
     - Renderer-generated attributes:
       - id = "{form_id}-{field_key}-{instance_id}" in hidden-mode and "{form_id}-{field_key}-s{slot}" in cookie-mode (slot defaults to 1).
@@ -227,11 +227,11 @@ electronic_forms - Spec
       - `cacheable="true"` → cookie-mode. Renderer omits per-request randomness so the HTML is deterministic and CDN-cacheable.
       - All markup carries `eforms_mode` so POST handlers can reject client-forged mode switches. The renderer never exposes a toggle that lets the client pick its own mode.
     - Server-owned records (persisted at render/mint time) are the only authority for mode and freshness:
-      - **Hidden record**: created on GET in hidden-mode. Filename `${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json`. Payload `{ mode:"hidden", form_id:"...", issued_at:<ts>, expires:<ts> }`. The filename encodes the SHA-256 of the hidden token; omit redundant `token_sha256` inside the JSON.
+      - **Hidden record**: created on GET in hidden-mode. Filename `${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json`. Payload `{ mode:"hidden", form_id:"...", issued_at:<ts>, expires:<ts> }`. The filename encodes the SHA-256 of the hidden token; omit redundant `token_sha256` inside the JSON. The raw UUID token itself is stored server-side for reuse and never gains a prefix.
       - **Minted-EID record**: created by `/eforms/prime` in cookie-mode. Filename `${uploads.dir}/eforms-private/eid_minted/{form_id}/{h2}/{eid}.json` (hex shard; no colons for Windows compatibility). Payload `{ mode:"cookie", form_id:"...", eid:"i-<UUIDv4>", issued_at:<ts>, expires:<ts> }`. CI enforces `expires - issued_at == cookie.Max-Age`.
       - SubmitHandler loads these records before any ledger I/O. Missing/expired/mismatched records are treated as tampering (EFORMS_ERR_TOKEN). Mode is never inferred from POST fields.
     - GET:
-      - Hidden-mode: emit `eforms_token` (`h-<UUIDv4>`), `instance_id`, `timestamp`. Do **not** include the prime pixel. Responses are `Cache-Control: private, no-store`.
+      - Hidden-mode: emit `eforms_token` (`UUIDv4`), `instance_id`, `timestamp`. The raw UUID is what the POST later submits; do **not** include the prime pixel. Responses are `Cache-Control: private, no-store`.
       - Cookie-mode: emit deterministic markup with no per-request randomness. Include `<img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">`. The prime endpoint returns `204` with `Cache-Control: no-store` and `Set-Cookie: eforms_eid_{form_id}=i-<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; [Secure if HTTPS]`. Unknown forms or hidden-mode renders still return 204 but without `Set-Cookie`.
       - Cookie-mode MAY include a deterministic `eforms_slot` for multi-instance pages. Slots default to `1`; authors must declare an allow-list in config when enabling slots.
     - POST `/eforms/submit`
@@ -249,7 +249,7 @@ electronic_forms - Spec
         - Cookie → key `{form_id}:{eid}` (or `{form_id}:{eid}:{slot}` when slots are enabled).
         - Reserve/burn immediately before side effects (email/logging/uploads). Honeypot short-circuit burns the same key.
       - Do not rotate `eid` values during POST handling; `/eforms/prime` is the sole minting path. Reuse the minted record until success or expiry.
-      - Validation output: `{ mode:"hidden"|"cookie", submission_id:"...", slot?:int, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden-mode sets `submission_id` to the hidden token; cookie-mode uses the `eid` (with optional `:{slot}`). Downstream logging/email/throttling/success all reference `{form_id, mode, submission_id[, slot]}`.
+      - Validation output: `{ mode:"hidden"|"cookie", submission_id:"...", slot?:int, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden-mode sets `submission_id` to the raw hidden token; cookie-mode uses the `eid` (with optional `:{slot}`). Downstream logging/email/throttling/success all reference `{form_id, mode, submission_id[, slot]}`.
       - User message for hard failures: `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”).
 
   2. Honeypot
@@ -649,7 +649,7 @@ uploads.*
     - FormRenderer loads the template. Hidden-mode renders generate a secure `instance_id` and timestamp; cookie-mode renders skip per-request randomness.
     - Registers/enqueues CSS/JS only when rendering
     - Adds hidden fields according to mode:
-      - Hidden: `form_id`, `eforms_mode=hidden`, `instance_id`, `timestamp`, `eforms_hp` (id suffix includes `instance_id`), `js_ok`, and `eforms_token` (`h-<UUIDv4>`).
+      - Hidden: `form_id`, `eforms_mode=hidden`, `instance_id`, `timestamp`, `eforms_hp` (id suffix includes `instance_id`), `js_ok`, and `eforms_token` (`UUIDv4`). Re-rendering hidden-mode errors must reuse the exact UUID that was originally minted.
       - Cookie: `form_id`, `eforms_mode=cookie`, `eforms_hp` (id `"{form_id}-hp-s{slot}"`), `js_ok`, and optionally `eforms_slot` (integer; default 1). No `instance_id`, `timestamp`, or hidden token.
     - Always set method="post". If any upload field present, add enctype="multipart/form-data".
     - Opportunistic GC may run (no WP-Cron).
