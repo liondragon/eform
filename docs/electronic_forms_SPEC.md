@@ -242,12 +242,13 @@ electronic_forms - Spec
       - Load authoritative record:
         - Hidden-mode POSTs provide `eforms_token`. Compute `sha256(token)` and load the hidden record. Verify `record.mode === "hidden"`, matching `form_id`, and not expired. Missing/invalid tokens obey `security.submission_token.required` (true → HARD FAIL; false → +1 soft and continue).
         - Cookie-mode POSTs MUST omit `eforms_token`. Read `eforms_eid_{form_id}` and validate shape (`i-UUIDv4`). Load the minted-EID record and require `record.mode === "cookie"`, matching `form_id`, matching `eid`, not expired. Missing/invalid cookies apply `security.cookie_missing_policy` (`off`/`soft`/`hard`/`challenge`). A POST that supplies a hidden token while the record says `cookie` is treated as tampering (HARD FAIL).
-        - Slot handling (cookie-mode only): when `eforms_slot` is posted, enforce integer parsing, default `1`, and require the slot to appear in `cookie_mode_slots_allowed`. Prefer hidden-mode for multi-instance pages; enable slots only when truly necessary. Slot-aware ledger keys append `:{slot}`.
+        - Slot handling (cookie-mode only): when `eforms_slot` is posted, enforce integer parsing, default `1`, and require the slot to appear in `cookie_mode_slots_allowed`. Prefer hidden-mode for multi-instance pages; enable slots only when truly necessary. Slot-aware submission_id values append `:{slot}` (colon appears only when slots are enabled).
       - Proof-of-mint: if no minted record exists for the posted `eid`, reject with HARD FAIL. Saved static pages lacking a mint record therefore cannot submit.
-      - Duplicate suppression (ledger):
-        - Hidden → key `{form_id}:{hidden_token}`.
-        - Cookie → key `{form_id}:{eid}` (or `{form_id}:{eid}:{slot}` when slots are enabled).
-        - Reserve/burn immediately before side effects (email/logging/uploads). Honeypot short-circuit burns the same key.
+        - Duplicate suppression (ledger):
+          - Hidden → `submission_id` is the hidden token.
+          - Cookie → `submission_id` is the `eid` (append `:{slot}` when slots are enabled).
+          - Ledger path: `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used`, where `{h2}` is the first two hex chars of `sha256(submission_id)`.
+          - Reserve/burn immediately before side effects (email/logging/uploads). Honeypot short-circuit burns the same `submission_id` entry.
       - Do not rotate `eid` values during POST handling; `/eforms/prime` is the sole minting path. Reuse the minted record until success or expiry.
       - Validation output: `{ mode:"hidden"|"cookie", submission_id:"...", slot?:int, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden-mode sets `submission_id` to the raw hidden token; cookie-mode uses the `eid` (with optional `:{slot}`). Downstream logging/email/throttling/success all reference `{form_id, mode, submission_id[, slot]}`.
       - User message for hard failures: `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”).
@@ -257,7 +258,7 @@ electronic_forms - Spec
     - Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
     - Field: eforms_hp (fixed POST name). Hidden-mode ids incorporate the per-instance suffix; cookie-mode ids are deterministic `"{form_id}-hp-s{slot}"`. Must be empty. Submitted value discarded and never logged.
     - Config: security.honeypot_response: "hard_fail" | "stealth_success" (default stealth_success).
-    - Common behavior: treat as spam-certain; short-circuit before validation/coercion/email; delete temp uploads; record throttle signal; attempt ledger reservation to burn the `{form_id}:{submission_id}` key; no cookie rotation occurs.
+    - Common behavior: treat as spam-certain; short-circuit before validation/coercion/email; delete temp uploads; record throttle signal; attempt ledger reservation to burn the ledger entry for that `submission_id`; no cookie rotation occurs.
     - "stealth_success": mimic success UX (inline PRG cookie + 303, or redirect); do not count as real successes (log stealth:true).
     - "hard_fail": re-render with generic global error (HTTP 200); no field-level hints.
 
@@ -668,7 +669,7 @@ uploads.*
       - Hidden-mode before ledger reservation → re-render reusing `instance_id`, `timestamp`, and the same hidden token.
       - Cookie-mode → deterministic markup already matches; rerenders reuse the minted `eid` (and slot) without regenerating anything.
       - After a successful ledger reservation (e.g., SMTP/storage failure) → hidden-mode emits a new token/instance for the next attempt; cookie-mode keeps the same `eid` unless the handler explicitly clears the mint.
-    - Commit reservation (moved from §7.1): immediately before side effects (email send, file finalize), reserve by creating sentinel `${ledger_base}/{h2}/{key}.used` via `fopen('xb')` (0700/0600 perms), where `key` is `{form_id}:{submission_id}` (append `:{slot}` for cookie-mode slots).
+    - Commit reservation (moved from §7.1): immediately before side effects (email send, file finalize), reserve by creating sentinel `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (0700/0600 perms), where `submission_id` is the hidden token in hidden-mode and the `eid` (with optional `:{slot}`) in cookie-mode.
       - EEXIST → treat as duplicate: stop side effects; show EFORMS_ERR_TOKEN.
       - Other I/O errors → treat as duplicate; log {code:"EFORMS_LEDGER_IO"}; do not crash.
       - Honeypot hits reserve/burn earlier by design (§7.2).
