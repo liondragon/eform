@@ -32,13 +32,7 @@ electronic_forms - Spec
     - Multisite support
   3. Deployment profiles (defaults vs. opt-ins)
     - Baseline defaults (minimal ops):
-      - security.origin_mode="soft"; security.js_hard_mode=false
-      - Honeypot always enabled; security.honeypot_response="stealth_success"
-      - throttle.enable=false
-      - challenge.mode="off"
-      - logging.mode="minimal"
-      - logging.fail2ban.enable=false
-      - security.cookie_missing_policy="soft"
+      - ships with conservative security defaults and minimal operational overhead; see §17 for the authoritative configuration table and exact default values.
     - Opt-ins (enable only if needed):
       - Throttling, adaptive/always challenge
       - Fail2ban emission
@@ -549,6 +543,7 @@ electronic_forms - Spec
     - CI tests: forged XFF from untrusted source → use REMOTE_ADDR; trusted proxy + XFF(client,proxy) → pick client; header with only private IPs → fall back to REMOTE_ADDR.
 
 17. CONFIGURATION (SUMMARY)
+  - Authoritative defaults: the table below defines the canonical config paths and their default values; other sections should reference this summary instead of re-listing values.
   - Immutable per-request Config snapshot:
     - Config::bootstrap() loads defaults (nested array mirroring §17), applies a single eforms_config filter once, validates/clamps types/ranges/enums, then freezes.
     - Access via Config::get('path.like.this').
