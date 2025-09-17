@@ -290,7 +290,33 @@ electronic_forms - Spec
       - If CONTENT_LENGTH present and > RuntimeCap → early abort with generic message (before reading body).
       - When CONTENT_LENGTH missing/inaccurate, rely on PHP INI limits and post-facto aggregate checks.
       - uploads.enable=false → never factor any uploads.* values into RuntimeCap.
-    - Test matrix: as previously specified.
+    - Hidden-mode checks:
+      - Valid hidden token + matching record → PASS; ledger reservation burns token on first success.
+      - Wrong form_id in hidden record or POST payload → HARD FAIL (tampering path).
+      - Missing/expired hidden record → HARD FAIL when `security.submission_token.required=true`; SOFT signal when false.
+      - Reused hidden token after ledger sentinel exists → HARD FAIL with `EFORMS_ERR_TOKEN`.
+    - Cookie-mode checks:
+      - Valid minted record + cookie → PASS; ledger burns `eid` (+slot when enabled).
+      - Missing minted record for posted `eid` (stale cache) → HARD FAIL.
+      - Cookie present but form_id mismatch in record → HARD FAIL.
+      - Hidden token posted while minted record says cookie → HARD FAIL (tampering).
+      - Slot posted outside allow-list → HARD FAIL on `EFORMS_ERR_TOKEN`.
+    - Honeypot checks:
+      - Empty honeypot + valid submission → PASS.
+      - Honeypot filled with `security.honeypot_response="stealth_success"` → mimic success UX, log stealth=true, burn ledger.
+      - Honeypot filled with `security.honeypot_response="hard_fail"` → HARD FAIL with generic error, no success log.
+    - Success handshake checks:
+      - Valid success ticket + matching cookie → PASS; banner renders once and clears cookie/query.
+      - Missing success ticket (cookie only) → suppress banner; log soft signal.
+      - Success ticket re-use after verifier burn → HARD FAIL / no banner.
+    - Determinism checks:
+      - Hidden-mode error rerender reuses original `instance_id`, `timestamp`, and hidden token.
+      - Cookie-mode rerender emits identical markup (no new randomness) and reuses minted `eid`.
+      - Renderer id/name attributes stable per descriptor; attr mirror parity holds.
+    - TTL alignment checks:
+      - Minted record `expires - issued_at` equals cookie `Max-Age` (CI assertion).
+      - Hidden record expiry matches `security.token_ttl_seconds` window.
+      - Success ticket TTL respects `security.success_ticket_ttl_seconds` and cleans up after expiry.
 
   6. Spam Decision
     - Hard checks first: honeypot_empty and token/Origin hard fails (and hard throttle). Any hard fail stops processing.
