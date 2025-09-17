@@ -6,6 +6,7 @@ class SecurityTokenModesTest extends BaseTestCase
 {
     private array $origConfig;
     private string $tokenDir = '';
+    private string $eidDir = '';
 
     protected function setUp(): void
     {
@@ -18,12 +19,15 @@ class SecurityTokenModesTest extends BaseTestCase
         $this->origConfig = $prop->getValue();
         $base = rtrim((string) Config::get('uploads.dir', ''), '/');
         $this->tokenDir = $base === '' ? '' : $base . '/tokens';
+        $this->eidDir = $base === '' ? '' : $base . '/eid_minted';
         $this->clearTokenDir();
+        $this->clearEidDir();
     }
 
     protected function tearDown(): void
     {
         $this->clearTokenDir();
+        $this->clearEidDir();
         $ref = new \ReflectionClass(Config::class);
         $prop = $ref->getProperty('data');
         $prop->setAccessible(true);
@@ -63,7 +67,7 @@ class SecurityTokenModesTest extends BaseTestCase
     public function testCookieModeSoftMissing(): void
     {
         $this->setConfig('security.cookie_missing_policy', 'soft');
-        unset($_COOKIE['eforms_t_contact_us']);
+        unset($_COOKIE['eforms_eid_contact_us']);
         $res = Security::token_validate('contact_us', false, null);
         $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['token_ok']);
@@ -75,7 +79,7 @@ class SecurityTokenModesTest extends BaseTestCase
     public function testCookieModeHardMissing(): void
     {
         $this->setConfig('security.cookie_missing_policy', 'hard');
-        unset($_COOKIE['eforms_t_contact_us']);
+        unset($_COOKIE['eforms_eid_contact_us']);
         $res = Security::token_validate('contact_us', false, null);
         $this->assertSame('cookie', $res['mode']);
         $this->assertTrue($res['hard_fail']);
@@ -85,7 +89,7 @@ class SecurityTokenModesTest extends BaseTestCase
     public function testCookieModeChallenge(): void
     {
         $this->setConfig('security.cookie_missing_policy', 'challenge');
-        unset($_COOKIE['eforms_t_contact_us']);
+        unset($_COOKIE['eforms_eid_contact_us']);
         $res = Security::token_validate('contact_us', false, null);
         $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['hard_fail']);
@@ -96,7 +100,7 @@ class SecurityTokenModesTest extends BaseTestCase
     public function testCookieModeOffPolicy(): void
     {
         $this->setConfig('security.cookie_missing_policy', 'off');
-        unset($_COOKIE['eforms_t_contact_us']);
+        unset($_COOKIE['eforms_eid_contact_us']);
         $res = Security::token_validate('contact_us', false, null);
         $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['hard_fail']);
@@ -106,8 +110,8 @@ class SecurityTokenModesTest extends BaseTestCase
 
     public function testHiddenInvalidDoesNotFallbackToCookie(): void
     {
-        $cookieToken = 'c-00000000-0000-4000-8000-000000000016';
-        $_COOKIE['eforms_t_contact_us'] = $cookieToken;
+        $cookieToken = 'i-00000000-0000-4000-8000-000000000016';
+        set_eid_cookie('contact_us', $cookieToken);
         $this->persistToken($cookieToken, 'contact_us', 'cookie');
         $res = Security::token_validate('contact_us', true, 'bad');
         $this->assertSame('hidden', $res['mode']);
@@ -115,13 +119,13 @@ class SecurityTokenModesTest extends BaseTestCase
         $this->assertTrue($res['hard_fail']);
         $this->assertSame(0, $res['soft_signal']);
         $this->assertFalse($res['require_challenge']);
-        unset($_COOKIE['eforms_t_contact_us']);
+        unset($_COOKIE['eforms_eid_contact_us']);
     }
 
     public function testHiddenInvalidHonorsSubmissionRequirement(): void
     {
         $this->setConfig('security.submission_token.required', false);
-        unset($_COOKIE['eforms_t_contact_us']);
+        unset($_COOKIE['eforms_eid_contact_us']);
         $res = Security::token_validate('contact_us', true, 'bad');
         $this->assertSame('hidden', $res['mode']);
         $this->assertFalse($res['token_ok']);
@@ -142,7 +146,7 @@ class SecurityTokenModesTest extends BaseTestCase
 
     public function testHiddenTokenPrefixMismatchHardFails(): void
     {
-        $token = 'c-00000000-0000-4000-8000-000000000018';
+        $token = 'i-00000000-0000-4000-8000-000000000018';
         $this->persistToken($token, 'contact_us', 'hidden');
         $res = Security::token_validate('contact_us', true, $token);
         $this->assertSame('hidden', $res['mode']);
@@ -153,13 +157,13 @@ class SecurityTokenModesTest extends BaseTestCase
     public function testCookieTokenPrefixMismatchHardFails(): void
     {
         $token = 'h-00000000-0000-4000-8000-000000000019';
-        $_COOKIE['eforms_t_contact_us'] = $token;
+        set_eid_cookie('contact_us', $token);
         $this->persistToken($token, 'contact_us', 'cookie');
         $res = Security::token_validate('contact_us', false, null);
         $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['token_ok']);
         $this->assertTrue($res['hard_fail']);
-        unset($_COOKIE['eforms_t_contact_us']);
+        unset($_COOKIE['eforms_eid_contact_us']);
     }
 
     public function testCookieRotation(): void
@@ -174,17 +178,26 @@ class SecurityTokenModesTest extends BaseTestCase
         exec($cmd, $out, $code);
         $this->assertSame(0, $code);
         $cookie = trim((string)file_get_contents($tmpDir . '/cookie.txt'));
-        $this->assertNotSame('oldCookie', $cookie);
-        $this->assertNotSame('', $cookie);
+        $this->assertSame('i-00000000-0000-4000-8000-0000000c0fee', $cookie);
     }
 
     private function clearTokenDir(): void
     {
-        if ($this->tokenDir === '' || !is_dir($this->tokenDir)) {
+        $this->clearDir($this->tokenDir);
+    }
+
+    private function clearEidDir(): void
+    {
+        $this->clearDir($this->eidDir);
+    }
+
+    private function clearDir(string $dir): void
+    {
+        if ($dir === '' || !is_dir($dir)) {
             return;
         }
         $it = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($this->tokenDir, \FilesystemIterator::SKIP_DOTS),
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::CHILD_FIRST
         );
         foreach ($it as $fs) {
@@ -195,11 +208,15 @@ class SecurityTokenModesTest extends BaseTestCase
                 @unlink($path);
             }
         }
-        @rmdir($this->tokenDir);
+        @rmdir($dir);
     }
 
     private function persistToken(string $token, string $formId, string $mode): void
     {
+        if ($mode === 'cookie') {
+            mint_eid_record($formId, $token, time(), 600);
+            return;
+        }
         if ($this->tokenDir === '') {
             return;
         }

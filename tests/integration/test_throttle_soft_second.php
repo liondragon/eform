@@ -12,7 +12,7 @@ set_config([
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
 $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
-$_COOKIE['eforms_t_contact_us'] = '00000000-0000-4000-8000-00000000000e';
+set_eid_cookie('contact_us', 'i-00000000-0000-4000-8000-00000000000e');
 
 $_POST = [
     'form_id' => 'contact_us',

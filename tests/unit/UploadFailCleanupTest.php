@@ -15,7 +15,12 @@ final class UploadFailCleanupTest extends BaseTestCase
         @unlink(__DIR__ . '/../tmp/upload_fail_cleanup.txt');
         foreach (glob(__DIR__ . '/../tmp/uploads/eforms-private/*/*') ?: [] as $f) {
             if (!str_contains($f, '/ledger/') && !str_contains($f, '/throttle/')) {
-                @unlink($f);
+                if (is_dir($f)) {
+                    @array_map('unlink', glob($f . '/*') ?: []);
+                    @rmdir($f);
+                } else {
+                    @unlink($f);
+                }
             }
         }
         $ledgerDir = __DIR__ . '/../tmp/uploads/eforms-private/ledger';

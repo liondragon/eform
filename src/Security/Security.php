@@ -73,67 +73,172 @@ class Security
 
     public static function token_validate(string $formId, bool $hasHidden, ?string $postedToken): array
     {
-        $cookieName = 'eforms_t_' . $formId;
-        $cookieToken = $_COOKIE[$cookieName] ?? '';
+        $cookieName = 'eforms_eid_' . $formId;
+        $cookieToken = (string) ($_COOKIE[$cookieName] ?? '');
 
         if ($hasHidden) {
             $token = (string) $postedToken;
             $parsed = self::parseToken($token);
-            if (!$parsed['valid'] || $parsed['prefix'] === 'cookie') {
-                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            if (!$parsed['valid'] || ($parsed['prefix'] !== '' && $parsed['prefix'] !== 'hidden')) {
+                return [
+                    'mode' => 'hidden',
+                    'submission_id' => $token,
+                    'token_ok' => false,
+                    'hard_fail' => true,
+                    'soft_signal' => 0,
+                    'require_challenge' => false,
+                    'issued_at' => 0,
+                    'expires' => 0,
+                ];
             }
             $record = self::hiddenTokenRecord($token);
             if ($record === null) {
-                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+                return [
+                    'mode' => 'hidden',
+                    'submission_id' => $token,
+                    'token_ok' => false,
+                    'hard_fail' => true,
+                    'soft_signal' => 0,
+                    'require_challenge' => false,
+                    'issued_at' => 0,
+                    'expires' => 0,
+                ];
             }
             if (($record['form_id'] ?? '') !== $formId) {
-                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+                return [
+                    'mode' => 'hidden',
+                    'submission_id' => $token,
+                    'token_ok' => false,
+                    'hard_fail' => true,
+                    'soft_signal' => 0,
+                    'require_challenge' => false,
+                    'issued_at' => 0,
+                    'expires' => 0,
+                ];
             }
             if (($record['mode'] ?? '') !== 'hidden') {
-                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+                return [
+                    'mode' => 'hidden',
+                    'submission_id' => $token,
+                    'token_ok' => false,
+                    'hard_fail' => true,
+                    'soft_signal' => 0,
+                    'require_challenge' => false,
+                    'issued_at' => 0,
+                    'expires' => 0,
+                ];
             }
             $expires = isset($record['expires']) ? (int) $record['expires'] : 0;
             if ($expires > 0 && $expires < time()) {
-                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+                return [
+                    'mode' => 'hidden',
+                    'submission_id' => $token,
+                    'token_ok' => false,
+                    'hard_fail' => true,
+                    'soft_signal' => 0,
+                    'require_challenge' => false,
+                    'issued_at' => (int) ($record['issued_at'] ?? 0),
+                    'expires' => $expires,
+                ];
             }
-            return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+            return [
+                'mode' => 'hidden',
+                'submission_id' => $token,
+                'token_ok' => true,
+                'hard_fail' => false,
+                'soft_signal' => 0,
+                'require_challenge' => false,
+                'issued_at' => (int) ($record['issued_at'] ?? 0),
+                'expires' => $expires,
+            ];
         }
 
         if ($postedToken !== null && $postedToken !== '') {
-            return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            return [
+                'mode' => 'cookie',
+                'submission_id' => $cookieToken,
+                'token_ok' => false,
+                'hard_fail' => true,
+                'soft_signal' => 0,
+                'require_challenge' => false,
+                'issued_at' => 0,
+                'expires' => 0,
+            ];
         }
 
         $parsedCookie = self::parseToken($cookieToken);
-        $record = self::loadTokenRecord($cookieToken);
-        if ($record !== null) {
-            if (($record['form_id'] ?? '') !== $formId) {
-                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
-            }
-            if (($record['mode'] ?? '') !== 'cookie') {
-                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
-            }
-            if (!$parsedCookie['valid'] || $parsedCookie['prefix'] === 'hidden') {
-                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
-            }
-            return ['mode' => 'cookie', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+        if ($cookieToken === '') {
+            return self::cookieMissingPolicyResult();
         }
 
-        if ($parsedCookie['valid'] && $parsedCookie['prefix'] !== 'hidden') {
-            return ['mode' => 'cookie', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
+        if (!$parsedCookie['valid'] || !in_array($parsedCookie['prefix'], ['eid', 'cookie'], true)) {
+            return [
+                'mode' => 'cookie',
+                'submission_id' => $cookieToken,
+                'token_ok' => false,
+                'hard_fail' => true,
+                'soft_signal' => 0,
+                'require_challenge' => false,
+                'issued_at' => 0,
+                'expires' => 0,
+            ];
         }
 
-        $policy = Config::get('security.cookie_missing_policy', 'soft');
-        switch ($policy) {
-            case 'hard':
-                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
-            case 'challenge':
-                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => false, 'soft_signal' => 1, 'require_challenge' => true];
-            case 'off':
-                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
-            case 'soft':
-            default:
-                return ['mode' => 'cookie', 'token_ok' => false, 'hard_fail' => false, 'soft_signal' => 1, 'require_challenge' => false];
+        $record = self::loadMintedRecord($formId, $cookieToken);
+        if ($record === null) {
+            return self::cookieMissingPolicyResult($cookieToken);
         }
+        if (($record['form_id'] ?? '') !== $formId) {
+            return [
+                'mode' => 'cookie',
+                'submission_id' => $cookieToken,
+                'token_ok' => false,
+                'hard_fail' => true,
+                'soft_signal' => 0,
+                'require_challenge' => false,
+                'issued_at' => 0,
+                'expires' => 0,
+            ];
+        }
+        if (($record['mode'] ?? '') !== 'cookie') {
+            return [
+                'mode' => 'cookie',
+                'submission_id' => $cookieToken,
+                'token_ok' => false,
+                'hard_fail' => true,
+                'soft_signal' => 0,
+                'require_challenge' => false,
+                'issued_at' => 0,
+                'expires' => 0,
+            ];
+        }
+        if (($record['eid'] ?? '') !== $cookieToken) {
+            return [
+                'mode' => 'cookie',
+                'submission_id' => $cookieToken,
+                'token_ok' => false,
+                'hard_fail' => true,
+                'soft_signal' => 0,
+                'require_challenge' => false,
+                'issued_at' => 0,
+                'expires' => 0,
+            ];
+        }
+        $expires = isset($record['expires']) ? (int) $record['expires'] : 0;
+        if ($expires > 0 && $expires < time()) {
+            return self::cookieMissingPolicyResult($cookieToken, (int) ($record['issued_at'] ?? 0), $expires);
+        }
+
+        return [
+            'mode' => 'cookie',
+            'submission_id' => $cookieToken,
+            'token_ok' => true,
+            'hard_fail' => false,
+            'soft_signal' => 0,
+            'require_challenge' => false,
+            'issued_at' => (int) ($record['issued_at'] ?? 0),
+            'expires' => $expires,
+        ];
     }
 
     private static function parseToken(string $token): array
@@ -148,6 +253,9 @@ class Security
             $value = substr($value, 2);
         } elseif (str_starts_with($value, 'c-')) {
             $prefix = 'cookie';
+            $value = substr($value, 2);
+        } elseif (str_starts_with($value, 'i-')) {
+            $prefix = 'eid';
             $value = substr($value, 2);
         }
         if (!self::isUuid($value)) {
@@ -171,6 +279,58 @@ class Security
         }
         self::$hiddenTokenCache[$token] = $record;
         return $record;
+    }
+
+    private static function cookieMissingPolicyResult(string $submissionId = '', int $issuedAt = 0, int $expires = 0): array
+    {
+        $policy = Config::get('security.cookie_missing_policy', 'soft');
+        switch ($policy) {
+            case 'hard':
+                return [
+                    'mode' => 'cookie',
+                    'submission_id' => $submissionId,
+                    'token_ok' => false,
+                    'hard_fail' => true,
+                    'soft_signal' => 0,
+                    'require_challenge' => false,
+                    'issued_at' => $issuedAt,
+                    'expires' => $expires,
+                ];
+            case 'challenge':
+                return [
+                    'mode' => 'cookie',
+                    'submission_id' => $submissionId,
+                    'token_ok' => false,
+                    'hard_fail' => false,
+                    'soft_signal' => 1,
+                    'require_challenge' => true,
+                    'issued_at' => $issuedAt,
+                    'expires' => $expires,
+                ];
+            case 'off':
+                return [
+                    'mode' => 'cookie',
+                    'submission_id' => $submissionId,
+                    'token_ok' => false,
+                    'hard_fail' => false,
+                    'soft_signal' => 0,
+                    'require_challenge' => false,
+                    'issued_at' => $issuedAt,
+                    'expires' => $expires,
+                ];
+            case 'soft':
+            default:
+                return [
+                    'mode' => 'cookie',
+                    'submission_id' => $submissionId,
+                    'token_ok' => false,
+                    'hard_fail' => false,
+                    'soft_signal' => 1,
+                    'require_challenge' => false,
+                    'issued_at' => $issuedAt,
+                    'expires' => $expires,
+                ];
+        }
     }
 
     private static function loadTokenRecord(string $token): ?array
@@ -213,6 +373,46 @@ class Security
             return ['form_id' => $form, 'mode' => $mode, 'expires' => $expires, 'issued_at' => $issuedAt];
         }
         return null;
+    }
+
+    private static function loadMintedRecord(string $formId, string $eid): ?array
+    {
+        $base = rtrim((string) Config::get('uploads.dir', ''), '/');
+        if ($base === '' || $eid === '' || $formId === '') {
+            return null;
+        }
+        $hash = sha1($eid);
+        $dir = $base . '/eid_minted/' . $formId . '/' . substr($hash, 0, 2);
+        $file = $dir . '/' . $eid . '.json';
+        if (!is_file($file)) {
+            return null;
+        }
+        $raw = @file_get_contents($file);
+        if ($raw === false) {
+            return null;
+        }
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            return null;
+        }
+        $mode = $data['mode'] ?? null;
+        $form = $data['form_id'] ?? null;
+        if (!is_string($form) || $form === '') {
+            return null;
+        }
+        if (!is_string($mode) || $mode === '') {
+            return null;
+        }
+        $issuedAt = isset($data['issued_at']) ? (int) $data['issued_at'] : 0;
+        $expires = isset($data['expires']) ? (int) $data['expires'] : 0;
+        $eidValue = isset($data['eid']) ? (string) $data['eid'] : '';
+        return [
+            'form_id' => $form,
+            'mode' => $mode,
+            'eid' => $eidValue,
+            'issued_at' => $issuedAt,
+            'expires' => $expires,
+        ];
     }
 
     private static function isUuid(string $v): bool

@@ -5,6 +5,7 @@ set_config(['logging' => ['level' => 1]]);
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
+mint_hidden_token_record('contact_us', '00000000-0000-4000-8000-000000000000', time() - 1000, 3600);
 
 $_POST = [
     'form_id' => 'contact_us',

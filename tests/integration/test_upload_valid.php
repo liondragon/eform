@@ -4,7 +4,7 @@ require __DIR__ . '/../bootstrap.php';
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_upload_test'] = '00000000-0000-4000-8000-00000000000c';
+set_eid_cookie('upload_test', 'i-00000000-0000-4000-8000-00000000000c');
 $tmp = __DIR__ . '/../tmp/upload.pdf';
 file_put_contents($tmp, "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
 $_FILES = [
@@ -27,7 +27,7 @@ $_POST = [
 ];
 register_shutdown_function(function () {
     $files = array_filter(glob(__DIR__ . '/../tmp/uploads/eforms-private/*/*') ?: [], function ($f) {
-        return !str_contains($f, '/ledger/') && !str_contains($f, '/throttle/');
+        return !str_contains($f, '/ledger/') && !str_contains($f, '/throttle/') && !str_contains($f, '/eid_minted/');
     });
     file_put_contents(__DIR__ . '/../tmp/uploaded.txt', $files[0] ?? '');
 });

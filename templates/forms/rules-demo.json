@@ -7,7 +7,7 @@
   "email": { "to": "test@example.com", "subject": "Rules Demo" },
   "fields": [
     { "key": "user_email", "type": "email", "label": "Your Email" },
-    { "key": "confirm_email_checkbox", "type": "checkbox", "label": "Confirm Email", "choices": [{ "text": "Yes", "value": "yes" }] }
+    { "key": "confirm_email_checkbox", "type": "checkbox", "label": "Confirm Email", "options": [{ "key": "yes", "label": "Yes" }] }
   ],
   "rules": [
     { "rule": "required_if", "target": "confirm_email_checkbox", "field": "user_email", "equals": "yes" }

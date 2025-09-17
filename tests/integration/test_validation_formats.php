@@ -5,7 +5,7 @@ require __DIR__ . '/../bootstrap.php';
 // Invalid email/zip/tel should produce format errors
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_quote_request'] = '00000000-0000-4000-8000-00000000000a';
+set_eid_cookie('quote_request', 'i-00000000-0000-4000-8000-00000000000a');
 
 $_POST = [
     'form_id' => 'quote_request',

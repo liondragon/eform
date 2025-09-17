@@ -118,9 +118,11 @@ namespace {
                 exit;
             }
             $ttl = (int) Config::get('security.token_ttl_seconds', 600);
-            $cookie = 'eforms_t_' . $formId;
-            $value = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : bin2hex(random_bytes(16));
-            $expire = time() + $ttl;
+            $cookie = 'eforms_eid_' . $formId;
+            $uuid = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : bin2hex(random_bytes(16));
+            $issuedAt = time();
+            $value = 'i-' . $uuid;
+            $expire = $issuedAt + $ttl;
             $cookieStr = $cookie . '=' . rawurlencode($value)
                 . '; Path=/'
                 . '; HttpOnly'
@@ -135,6 +137,29 @@ namespace {
                 eforms_header('Set-Cookie: ' . $cookieStr);
             }
             $_COOKIE[$cookie] = $value;
+            $uploadsDir = rtrim((string) Config::get('uploads.dir', ''), '/');
+            if ($uploadsDir !== '') {
+                $hash = sha1($value);
+                $shard = substr($hash, 0, 2);
+                $dir = $uploadsDir . '/eid_minted/' . $formId . '/' . $shard;
+                if (!is_dir($dir)) {
+                    @mkdir($dir, 0700, true);
+                }
+                if (is_dir($dir)) {
+                    $payload = json_encode([
+                        'mode' => 'cookie',
+                        'form_id' => $formId,
+                        'eid' => $value,
+                        'issued_at' => $issuedAt,
+                        'expires' => $expire,
+                    ], JSON_UNESCAPED_SLASHES);
+                    if ($payload !== false) {
+                        $file = $dir . '/' . $value . '.json';
+                        @file_put_contents($file, $payload);
+                        @chmod($file, 0600);
+                    }
+                }
+            }
             // No-store 204
             \nocache_headers();
             header('Cache-Control: private, no-store, max-age=0');

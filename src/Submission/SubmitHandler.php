@@ -69,21 +69,16 @@ class SubmitHandler
         $softFailCount = $origin['soft_signal'];
         $hasHidden = isset($_POST['eforms_token']) && $_POST['eforms_token'] !== '';
         $postedToken = $_POST['eforms_token'] ?? null;
-        $cookieName = 'eforms_t_' . $formId;
+        $cookieName = 'eforms_eid_' . $formId;
         $cookieToken = $_COOKIE[$cookieName] ?? '';
         $tokenInfo = Security::token_validate($formId, $hasHidden, $postedToken);
         $logBase['token_mode'] = $tokenInfo['mode'] ?? '';
+        $submissionId = (string) ($tokenInfo['submission_id'] ?? ($hasHidden ? (string)$postedToken : (string)$cookieToken));
+        if ($submissionId !== '') {
+            $logBase['submission_id'] = $submissionId;
+        }
         if ($tokenInfo['mode'] === 'cookie') {
-            $ttl = (int) Config::get('security.token_ttl_seconds', 600);
-            $newToken = function_exists('\wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::random_id(16);
-            \setcookie($cookieName, $newToken, [
-                'expires' => time() + $ttl,
-                'path' => '/',
-                'secure' => \is_ssl(),
-                'httponly' => true,
-                'samesite' => 'Lax',
-            ]);
-            $_COOKIE[$cookieName] = $newToken;
+            $cookieToken = $submissionId;
         }
         if ($tokenInfo['hard_fail']) {
             Logging::write('warn', 'EFORMS_ERR_TOKEN', $logBase + [
@@ -121,8 +116,7 @@ class SubmitHandler
             }
         }
         // Honeypot
-        $token = $hasHidden ? (string)$postedToken : $cookieToken;
-        $hp = Security::honeypot_check($formId, $token, $logBase);
+        $hp = Security::honeypot_check($formId, $submissionId, $logBase);
         if ($hp['triggered']) {
             \header('X-EForms-Stealth: 1');
             Uploads::unlinkTemps($_FILES);
@@ -132,7 +126,8 @@ class SubmitHandler
             $this->successAndRedirect($tpl, $formId, $instanceId);
             return;
         }
-        $timestamp = (int) ($_POST['timestamp'] ?? 0);
+        $issuedAt = (int) ($tokenInfo['issued_at'] ?? 0);
+        $timestamp = $issuedAt > 0 ? $issuedAt : (int) ($_POST['timestamp'] ?? 0);
         $softFailCount += Security::min_fill_check($timestamp, $logBase);
         $softFailCount += Security::form_age_check($timestamp, $hasHidden, $logBase);
         $jsOk = $_POST['js_ok'] ?? '';
@@ -248,8 +243,7 @@ class SubmitHandler
             exit;
         }
         $canonical = Validator::coerce($tpl, $desc, $val['values']);
-        $token = $hasHidden ? (string)$postedToken : $cookieToken;
-        $reserve = Security::ledger_reserve($formId, $token);
+        $reserve = Security::ledger_reserve($formId, $submissionId);
         if (!$reserve['ok']) {
             if (!empty($reserve['io'])) {
                 Logging::write('error', 'EFORMS_LEDGER_IO', $logBase + [
@@ -276,18 +270,6 @@ class SubmitHandler
                 Uploads::unlinkTemps($rawFiles);
                 Logging::write('error', 'EFORMS_UPLOAD_STORE_FAIL', $logBase);
                 $newInstance = Helpers::random_id(16);
-                if ($tokenInfo['mode'] === 'cookie') {
-                    $ttl = (int) Config::get('security.token_ttl_seconds', 600);
-                    $newToken = function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::random_id(16);
-                    \setcookie($cookieName, $newToken, [
-                        'expires' => time() + $ttl,
-                        'path' => '/',
-                        'secure' => \is_ssl(),
-                        'httponly' => true,
-                        'samesite' => 'Lax',
-                    ]);
-                    $_COOKIE[$cookieName] = $newToken;
-                }
                 $meta = [
                     'form_id' => $formId,
                     'instance_id' => $newInstance,
@@ -347,18 +329,6 @@ class SubmitHandler
             Logging::write('error', 'EFORMS_EMAIL_FAIL', $ctx);
             unset($canonical['_uploads']);
             $newInstance = Helpers::random_id(16);
-            if ($tokenInfo['mode'] === 'cookie') {
-                $ttl = (int) Config::get('security.token_ttl_seconds', 600);
-                $newToken = function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::random_id(16);
-                \setcookie($cookieName, $newToken, [
-                    'expires' => time() + $ttl,
-                    'path' => '/',
-                    'secure' => \is_ssl(),
-                    'httponly' => true,
-                    'samesite' => 'Lax',
-                ]);
-                $_COOKIE[$cookieName] = $newToken;
-            }
             $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
             $meta = [
                 'form_id' => $formId,
