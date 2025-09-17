@@ -59,6 +59,34 @@ class FormRenderer
             'hidden_token' => $cacheable ? null : (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()),
             'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
         ];
+        if (!$cacheable && ($meta['hidden_token'] ?? '') !== '') {
+            $record = Security::hiddenTokenRecord((string) $meta['hidden_token']);
+            if ($record === null) {
+                $base = rtrim((string) Config::get('uploads.dir', ''), '/');
+                if ($base !== '') {
+                    $hash = hash('sha256', (string) $meta['hidden_token']);
+                    $dir = $base . '/tokens/' . substr($hash, 0, 2);
+                    if (!is_dir($dir)) {
+                        @mkdir($dir, 0700, true);
+                    }
+                    if (is_dir($dir)) {
+                        $ttl = (int) Config::get('security.token_ttl_seconds', 600);
+                        $expires = $ttl > 0 ? $timestamp + $ttl : 0;
+                        $payload = json_encode([
+                            'mode' => 'hidden',
+                            'form_id' => $formId,
+                            'issued_at' => $timestamp,
+                            'expires' => $expires,
+                        ], JSON_UNESCAPED_SLASHES);
+                        if ($payload !== false) {
+                            $path = $dir . '/' . $hash . '.json';
+                            @file_put_contents($path, $payload);
+                            Security::hiddenTokenRecord((string) $meta['hidden_token']);
+                        }
+                    }
+                }
+            }
+        }
         $challengeMode = Config::get('challenge.mode', 'off');
         $needChallenge = false;
         if ($challengeMode !== 'off') {

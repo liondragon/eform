@@ -9,6 +9,8 @@ use EForms\Logging;
 
 class Security
 {
+    /** @var array<string, array{form_id:string,mode:string,expires:int,issued_at:int}> */
+    private static array $hiddenTokenCache = [];
     public static function origin_evaluate(): array
     {
         $origin = $_SERVER['HTTP_ORIGIN'] ?? null;
@@ -77,34 +79,24 @@ class Security
         if ($hasHidden) {
             $token = (string) $postedToken;
             $parsed = self::parseToken($token);
-            $record = self::loadTokenRecord($token);
-
-            if ($record !== null) {
-                if (($record['form_id'] ?? '') !== $formId) {
-                    return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
-                }
-                if (($record['mode'] ?? '') !== 'hidden') {
-                    return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
-                }
-                if (!$parsed['valid'] || $parsed['prefix'] === 'cookie') {
-                    return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
-                }
-                return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
-            }
-
-            if ($parsed['prefix'] === 'cookie') {
+            if (!$parsed['valid'] || $parsed['prefix'] === 'cookie') {
                 return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
             }
-
-            if ($parsed['valid']) {
-                return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
-            }
-
-            $required = (bool) Config::get('security.submission_token.required', true);
-            if ($required) {
+            $record = self::hiddenTokenRecord($token);
+            if ($record === null) {
                 return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
             }
-            return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => false, 'soft_signal' => 1, 'require_challenge' => false];
+            if (($record['form_id'] ?? '') !== $formId) {
+                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            if (($record['mode'] ?? '') !== 'hidden') {
+                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            $expires = isset($record['expires']) ? (int) $record['expires'] : 0;
+            if ($expires > 0 && $expires < time()) {
+                return ['mode' => 'hidden', 'token_ok' => false, 'hard_fail' => true, 'soft_signal' => 0, 'require_challenge' => false];
+            }
+            return ['mode' => 'hidden', 'token_ok' => true, 'hard_fail' => false, 'soft_signal' => 0, 'require_challenge' => false];
         }
 
         if ($postedToken !== null && $postedToken !== '') {
@@ -164,6 +156,23 @@ class Security
         return ['valid' => true, 'prefix' => $prefix, 'uuid' => $value];
     }
 
+    public static function hiddenTokenRecord(string $token): ?array
+    {
+        $token = (string) $token;
+        if ($token === '') {
+            return null;
+        }
+        if (array_key_exists($token, self::$hiddenTokenCache)) {
+            return self::$hiddenTokenCache[$token];
+        }
+        $record = self::loadTokenRecord($token);
+        if ($record === null || ($record['mode'] ?? '') !== 'hidden') {
+            return null;
+        }
+        self::$hiddenTokenCache[$token] = $record;
+        return $record;
+    }
+
     private static function loadTokenRecord(string $token): ?array
     {
         $base = rtrim((string) Config::get('uploads.dir', ''), '/');
@@ -200,7 +209,8 @@ class Security
             if ($expires > 0 && $expires < time()) {
                 return null;
             }
-            return ['form_id' => $form, 'mode' => $mode, 'expires' => $expires];
+            $issuedAt = isset($data['issued_at']) ? (int) $data['issued_at'] : 0;
+            return ['form_id' => $form, 'mode' => $mode, 'expires' => $expires, 'issued_at' => $issuedAt];
         }
         return null;
     }
