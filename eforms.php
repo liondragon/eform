@@ -87,6 +87,7 @@ namespace {
     \register_activation_hook(__FILE__, function () {
         add_rewrite_rule('^eforms/prime$', 'index.php?eforms_prime=1', 'top');
         add_rewrite_rule('^eforms/submit$', 'index.php?eforms_submit=1', 'top');
+        add_rewrite_rule('^eforms/success-verify$', 'index.php?eforms_success_verify=1', 'top');
         \flush_rewrite_rules();
     });
     \register_deactivation_hook(__FILE__, function () {
@@ -95,10 +96,12 @@ namespace {
     \add_action('init', function () {
         add_rewrite_rule('^eforms/prime$', 'index.php?eforms_prime=1', 'top');
         add_rewrite_rule('^eforms/submit$', 'index.php?eforms_submit=1', 'top');
+        add_rewrite_rule('^eforms/success-verify$', 'index.php?eforms_success_verify=1', 'top');
     });
     \add_filter('query_vars', function ($vars) {
         $vars[] = 'eforms_prime';
         $vars[] = 'eforms_submit';
+        $vars[] = 'eforms_success_verify';
         return $vars;
     });
 
@@ -108,6 +111,7 @@ namespace {
     \add_action('template_redirect', function () {
         $isPrime = get_query_var('eforms_prime');
         $isSubmit = get_query_var('eforms_submit');
+        $isSuccessVerify = get_query_var('eforms_success_verify');
         if ($isPrime) {
             // /eforms/prime?f={form_id}
             $formId = isset($_GET['f']) ? sanitize_key((string)$_GET['f']) : '';
@@ -177,6 +181,29 @@ namespace {
                 eforms_header('Cache-Control: private, no-store, max-age=0');
             }
             status_header(204);
+            exit;
+        }
+        if ($isSuccessVerify) {
+            if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+                header('Allow: GET');
+                status_header(405);
+                exit;
+            }
+            $formId = isset($_GET['f']) ? sanitize_key((string) $_GET['f']) : '';
+            $submissionId = isset($_GET['s']) ? trim((string) $_GET['s']) : '';
+            \nocache_headers();
+            header('Cache-Control: private, no-store, max-age=0');
+            header('Content-Type: application/json; charset=utf-8');
+            if (function_exists('eforms_header')) {
+                eforms_header('Cache-Control: private, no-store, max-age=0');
+                eforms_header('Content-Type: application/json; charset=utf-8');
+            }
+            $ok = false;
+            if ($formId !== '' && $submissionId !== '') {
+                $res = \EForms\Security\Security::successTicketConsume($formId, $submissionId);
+                $ok = !empty($res['ok']);
+            }
+            echo json_encode(['ok' => $ok], JSON_UNESCAPED_SLASHES);
             exit;
         }
         if ($isSubmit) {

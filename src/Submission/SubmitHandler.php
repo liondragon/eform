@@ -521,7 +521,8 @@ class SubmitHandler
         if (function_exists('eforms_header')) {
             eforms_header('Cache-Control: private, no-store, max-age=0');
         }
-        if (($tpl['success']['mode'] ?? '') === 'redirect') {
+        $successMode = $tpl['success']['mode'] ?? '';
+        if ($successMode === 'redirect') {
             $url = $tpl['success']['redirect_url'] ?? \home_url('/');
             \wp_safe_redirect($url, 303);
             exit;
@@ -534,13 +535,22 @@ class SubmitHandler
         if ($submissionId === '') {
             $submissionId = Helpers::random_id(16);
         }
+        $ticketOk = Security::successTicketStore($formId, $submissionId);
+        if (!$ticketOk) {
+            Logging::write('error', 'EFORMS_SUCCESS_TICKET_FAIL', [
+                'form_id' => $formId,
+                'submission_id' => $submissionId,
+            ]);
+        }
         $cookie = 'eforms_s_' . $formId;
-        $value = $formId . ':' . $submissionId;
+        $ttl = (int) Config::get('security.success_ticket_ttl_seconds', 300);
+        $expire = time() + $ttl;
+        $value = $submissionId;
         \setcookie($cookie, $value, [
-            'expires' => time() + 300,
+            'expires' => $expire,
             'path' => $path,
             'secure' => \is_ssl(),
-            'httponly' => true,
+            'httponly' => false,
             'samesite' => 'Lax',
         ]);
         $ref = \add_query_arg('eforms_success', $formId, $ref);

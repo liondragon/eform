@@ -56,6 +56,7 @@ class Config
         $sec['honeypot_response'] = in_array($sec['honeypot_response'], ['stealth_success','hard_fail'], true) ? $sec['honeypot_response'] : $defaults['security']['honeypot_response'];
         $sec['cookie_missing_policy'] = in_array($sec['cookie_missing_policy'], ['off','soft','hard','challenge'], true) ? $sec['cookie_missing_policy'] : $defaults['security']['cookie_missing_policy'];
         $sec['cookie_mode_slots_enabled'] = (bool)($sec['cookie_mode_slots_enabled'] ?? false);
+        $sec['success_ticket_ttl_seconds'] = self::clampInt($sec['success_ticket_ttl_seconds'] ?? $defaults['security']['success_ticket_ttl_seconds'], 30, 3600);
         $slotsAllowed = $sec['cookie_mode_slots_allowed'] ?? [];
         if (!is_array($slotsAllowed)) {
             $slotsAllowed = [];
@@ -144,6 +145,7 @@ class Config
                 'token_ledger' => ['enable' => true],
                 'token_ttl_seconds' => 600,
                 'submission_token' => ['required' => true],
+                'success_ticket_ttl_seconds' => 300,
                 'origin_mode' => 'soft',
                 'origin_missing_soft' => false,
                 'origin_missing_hard' => false,

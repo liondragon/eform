@@ -6,6 +6,7 @@ namespace EForms\Rendering;
 use EForms\Helpers;
 use EForms\Logging;
 use EForms\Spec;
+use EForms\Security\Security;
 use EForms\Validation\TemplateValidator;
 
 class Renderer
@@ -36,6 +37,8 @@ class Renderer
         'files' => [self::class, 'renderInput'],
     ];
 
+    private static bool $successDisplayed = false;
+
     /**
      * Resolve a renderer handler by identifier.
      *
@@ -56,6 +59,11 @@ class Renderer
     private static function makeId(string $idPrefix, string $instanceId): string
     {
         return Helpers::cap_id($idPrefix . $instanceId);
+    }
+
+    public static function resetSuccessState(): void
+    {
+        self::$successDisplayed = false;
     }
 
     public static function form(array $tpl, array $meta, array $errors, array $values): string
@@ -80,34 +88,27 @@ class Renderer
         }
         $formClass = Helpers::sanitize_id($tpl['id'] ?? $formId);
         // Success message check
-        $successHtml = '';
-        if (isset($_GET['eforms_success']) && \sanitize_key((string)$_GET['eforms_success']) === $formId) {
+        $successQuery = isset($_GET['eforms_success']) ? \sanitize_key((string) $_GET['eforms_success']) : '';
+        if (self::$successDisplayed && $successQuery === $formId) {
+            return '';
+        }
+        if (!self::$successDisplayed && $successQuery === $formId) {
             $cookieName = 'eforms_s_' . $formId;
-            $cookieVal = $_COOKIE[$cookieName] ?? '';
-            if ($cookieVal && str_starts_with($cookieVal, $formId . ':')) {
-                $sub = substr($cookieVal, strlen($formId) + 1);
-                if ($sub === '') {
-                    \setcookie($cookieName, '', [
-                        'expires' => time() - 3600,
-                        'path' => '/',
-                        'secure' => \is_ssl(),
-                        'httponly' => true,
-                        'samesite' => 'Lax',
-                    ]);
-                    unset($_COOKIE[$cookieName]);
-                    return '';
-                }
+            $submissionId = isset($_COOKIE[$cookieName]) ? trim((string) $_COOKIE[$cookieName]) : '';
+            if ($submissionId !== '' && Security::successTicketExists($formId, $submissionId)) {
+                self::$successDisplayed = true;
                 $msg = $tpl['success']['message'] ?? 'Success';
-                $successHtml = '<div class="eforms-success">' . \esc_html($msg) . '</div>';
-                \setcookie($cookieName, '', [
-                    'expires' => time() - 3600,
-                    'path' => '/',
-                    'secure' => \is_ssl(),
-                    'httponly' => true,
-                    'samesite' => 'Lax',
-                ]);
-                unset($_COOKIE[$cookieName]);
-                return $successHtml;
+                $verifyUrl = \home_url('/eforms/success-verify');
+                $currentPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+                $placeholder = '<div class="eforms-success eforms-success-pending"'
+                    . ' data-form-id="' . \esc_attr($formId) . '"'
+                    . ' data-submission-id="' . \esc_attr($submissionId) . '"'
+                    . ' data-message="' . \esc_attr($msg) . '"'
+                    . ' data-verify-url="' . \esc_url($verifyUrl) . '"'
+                    . ' data-cookie-name="' . \esc_attr($cookieName) . '"'
+                    . ' data-cookie-path="' . \esc_attr($currentPath) . '"></div>';
+                $placeholder .= '<noscript><div class="eforms-success">' . \esc_html($msg) . '</div></noscript>';
+                return $placeholder;
             }
             return '';
         }

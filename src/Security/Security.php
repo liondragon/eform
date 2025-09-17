@@ -536,36 +536,7 @@ class Security
         }
         $base = rtrim(Config::get('uploads.dir', ''), '/');
         $root = $base . '/ledger/' . $formId;
-        $hash = hash('sha256', $submissionId);
-        $h2 = substr($hash, 0, 2);
-        $pathDir = $root . '/' . $h2;
-        if (!is_dir($pathDir)) {
-            @mkdir($pathDir, 0700, true);
-            @chmod($pathDir, 0700);
-        }
-        $targetDir = $pathDir;
-        $fileName = '';
-        if (str_contains($submissionId, ':')) {
-            [$baseId, $slotPart] = explode(':', $submissionId, 2);
-            $baseId = self::sanitizeLedgerSegment($baseId);
-            $slotPart = self::sanitizeLedgerSegment($slotPart);
-            if ($baseId === '') {
-                $baseId = '_';
-            }
-            $targetDir = $pathDir . '/' . $baseId;
-            if (!is_dir($targetDir)) {
-                @mkdir($targetDir, 0700, true);
-                @chmod($targetDir, 0700);
-            }
-            $fileName = ($slotPart === '' ? '_' : $slotPart) . '.used';
-        } else {
-            $segment = self::sanitizeLedgerSegment($submissionId);
-            if ($segment === '') {
-                $segment = '_';
-            }
-            $fileName = $segment . '.used';
-        }
-        $file = $targetDir . '/' . $fileName;
+        $file = self::submissionFilePath($root, $submissionId, '.used');
         $fh = @fopen($file, 'xb');
         if ($fh === false) {
             if (file_exists($file)) {
@@ -641,6 +612,136 @@ class Security
     {
         $clean = preg_replace('/[^A-Za-z0-9_-]/', '_', $segment) ?? '';
         return trim($clean, '/');
+    }
+
+    private static function submissionFilePath(string $root, string $submissionId, string $extension): string
+    {
+        $hash = hash('sha256', $submissionId);
+        $h2 = substr($hash, 0, 2);
+        $dir = $root . '/' . $h2;
+        self::ensureDir($dir);
+        $segments = self::submissionIdSegments($submissionId);
+        foreach ($segments['dirs'] as $segment) {
+            $dir .= '/' . $segment;
+            self::ensureDir($dir);
+        }
+        $file = $segments['file'] === '' ? substr($hash, 2, 20) : $segments['file'];
+        return $dir . '/' . $file . $extension;
+    }
+
+    /**
+     * @return array{dirs: array<int, string>, file: string}
+     */
+    private static function submissionIdSegments(string $submissionId): array
+    {
+        if (str_contains($submissionId, ':')) {
+            [$base, $slot] = explode(':', $submissionId, 2);
+            $baseClean = self::sanitizeLedgerSegment($base);
+            $slotClean = self::sanitizeLedgerSegment($slot);
+            if ($baseClean === '') {
+                $baseClean = '_';
+            }
+            return [
+                'dirs' => [$baseClean],
+                'file' => $slotClean === '' ? '_' : $slotClean,
+            ];
+        }
+        $file = self::sanitizeLedgerSegment($submissionId);
+        if ($file === '') {
+            $file = '_';
+        }
+        return ['dirs' => [], 'file' => $file];
+    }
+
+    private static function ensureDir(string $dir): void
+    {
+        if (is_dir($dir)) {
+            return;
+        }
+        @mkdir($dir, 0700, true);
+        @chmod($dir, 0700);
+    }
+
+    public static function successTicketStore(string $formId, string $submissionId): bool
+    {
+        $base = rtrim((string) Config::get('uploads.dir', ''), '/');
+        if ($base === '' || $formId === '' || $submissionId === '') {
+            return false;
+        }
+        $root = $base . '/success/' . $formId;
+        $path = self::submissionFilePath($root, $submissionId, '.json');
+        $now = time();
+        $ttl = (int) Config::get('security.success_ticket_ttl_seconds', 300);
+        $expires = $ttl > 0 ? $now + $ttl : $now + 300;
+        $payload = json_encode([
+            'form_id' => $formId,
+            'submission_id' => $submissionId,
+            'issued_at' => $now,
+            'expires' => $expires,
+        ], JSON_UNESCAPED_SLASHES);
+        if ($payload === false) {
+            return false;
+        }
+        if (@file_put_contents($path, $payload, LOCK_EX) === false) {
+            return false;
+        }
+        @chmod($path, 0600);
+        return true;
+    }
+
+    public static function successTicketExists(string $formId, string $submissionId): bool
+    {
+        $base = rtrim((string) Config::get('uploads.dir', ''), '/');
+        if ($base === '' || $formId === '' || $submissionId === '') {
+            return false;
+        }
+        $root = $base . '/success/' . $formId;
+        $path = self::submissionFilePath($root, $submissionId, '.json');
+        if (!is_file($path)) {
+            return false;
+        }
+        $raw = @file_get_contents($path);
+        if ($raw === false) {
+            return false;
+        }
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            return false;
+        }
+        $expires = isset($data['expires']) ? (int) $data['expires'] : 0;
+        if ($expires > 0 && $expires < time()) {
+            return false;
+        }
+        return true;
+    }
+
+    public static function successTicketConsume(string $formId, string $submissionId): array
+    {
+        $base = rtrim((string) Config::get('uploads.dir', ''), '/');
+        if ($base === '' || $formId === '' || $submissionId === '') {
+            return ['ok' => false, 'reason' => 'unconfigured'];
+        }
+        $root = $base . '/success/' . $formId;
+        $path = self::submissionFilePath($root, $submissionId, '.json');
+        if (!is_file($path)) {
+            return ['ok' => false, 'reason' => 'missing'];
+        }
+        $raw = @file_get_contents($path);
+        if ($raw === false) {
+            return ['ok' => false, 'reason' => 'io'];
+        }
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            @unlink($path);
+            return ['ok' => false, 'reason' => 'corrupt'];
+        }
+        $expires = isset($data['expires']) ? (int) $data['expires'] : 0;
+        if ($expires > 0 && $expires < time()) {
+            @unlink($path);
+            return ['ok' => false, 'reason' => 'expired'];
+        }
+        @unlink($path);
+        return ['ok' => true, 'data' => $data];
     }
 
     public static function form_age_check(int $timestamp, bool $hasHidden, array $logBase = []): int

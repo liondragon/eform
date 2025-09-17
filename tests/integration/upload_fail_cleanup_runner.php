@@ -39,7 +39,7 @@ $_POST = [
 
 register_shutdown_function(function () use ($tmp): void {
     $files = array_filter(glob(__DIR__ . '/../tmp/uploads/eforms-private/*/*') ?: [], function ($f) {
-        return !str_contains($f, '/ledger/') && !str_contains($f, '/throttle/') && !str_contains($f, '/eid_minted/');
+        return !str_contains($f, '/ledger/') && !str_contains($f, '/throttle/') && !str_contains($f, '/eid_minted/') && !str_contains($f, '/success/');
     });
     file_put_contents(__DIR__ . '/../tmp/upload_fail_cleanup.txt', $files ? implode("\n", $files) : '');
     @unlink($tmp);
