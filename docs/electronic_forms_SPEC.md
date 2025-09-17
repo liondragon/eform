@@ -243,15 +243,15 @@ electronic_forms - Spec
       - Load authoritative record:
         - Hidden-mode POSTs provide `eforms_token`. Compute `sha256(token)` and load the hidden record. Verify `record.mode === "hidden"`, matching `form_id`, and not expired. Missing/invalid tokens obey `security.submission_token.required` (true → HARD FAIL; false → +1 soft and continue). NOTE: The handler MUST ignore any cookies and trust only the server-minted hidden token record when in hidden mode.
         - Cookie-mode POSTs MUST omit `eforms_token`. Read `eforms_eid_{form_id}` and validate shape (`i-UUIDv4`). Load the minted-EID record and require `record.mode === "cookie"`, matching `form_id`, matching `eid`, not expired. Missing/invalid cookies apply `security.cookie_missing_policy` (`off`/`soft`/`hard`/`challenge`). A POST that supplies a hidden token while the record says `cookie` is treated as tampering (HARD FAIL).
-        - Slot handling (cookie-mode only): when `eforms_slot` is posted, enforce integer parsing, default `1`, and require the slot to appear in `cookie_mode_slots_allowed`; a posted slot missing from the allow-list is treated as tampering and triggers the `EFORMS_ERR_TOKEN` hard-fail path. Prefer hidden-mode for multi-instance pages; enable slots only when truly necessary. Slot-aware submission_id values append `:{slot}` (colon appears only when slots are enabled).
+        - Slot handling (cookie-mode only): when `eforms_slot` is posted, enforce integer parsing, default `1`, and require the slot to appear in `cookie_mode_slots_allowed`; a posted slot missing from the allow-list is treated as tampering and triggers the `EFORMS_ERR_TOKEN` hard-fail path. Prefer hidden-mode for multi-instance pages; enable slots only when truly necessary. Slot-aware `submission_id` values append `__slot{slot}` (double underscore separator keeps identifiers Windows-safe and colon-free).
       - Proof-of-mint: if no minted record exists for the posted `eid`, reject with HARD FAIL. Saved static pages lacking a mint record therefore cannot submit.
         - Duplicate suppression (ledger):
           - Hidden → `submission_id` is the hidden token.
-          - Cookie → `submission_id` is the `eid` (append `:{slot}` when slots are enabled).
-          - Ledger path: `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used`, where `{h2}` is the first two hex chars of `sha256(submission_id)`.
+          - Cookie → `submission_id` is the `eid` (append `__slot{slot}` when slots are enabled).
+          - Ledger path: `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used`, where `{h2}` is the first two hex chars of `sha256(submission_id)`. `submission_id` strings MUST remain colon-free (e.g., `eid__slot2`) so the sentinel filenames stay Windows-compatible.
           - Reserve/burn immediately before side effects (email/logging/uploads). Honeypot short-circuit burns the same `submission_id` entry.
       - Do not rotate `eid` values during POST handling; `/eforms/prime` is the sole minting path. Reuse the minted record until success or expiry.
-      - Validation output: `{ mode:"hidden"|"cookie", submission_id:"...", slot?:int, token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden-mode sets `submission_id` to the raw hidden token; cookie-mode uses the `eid` (with optional `:{slot}`). `token_ok` reports whether the authoritative record validated. The renderer consumes `token_ok` when deciding to enqueue challenges so downstream consumers must treat the flag as part of the contract. Downstream logging/email/throttling/success all reference `{form_id, mode, submission_id[, slot]}`.
+      - Validation output: `{ mode:"hidden"|"cookie", submission_id:"...", slot?:int, token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden-mode sets `submission_id` to the raw hidden token; cookie-mode uses the `eid` (with optional `__slot{slot}`). `token_ok` reports whether the authoritative record validated. The renderer consumes `token_ok` when deciding to enqueue challenges so downstream consumers must treat the flag as part of the contract. Downstream logging/email/throttling/success all reference `{form_id, mode, submission_id[, slot]}` and must not assume colon separators.
       - User message for hard failures: `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”).
 
   2. Honeypot
@@ -486,10 +486,10 @@ electronic_forms - Spec
   - Namespace internal query args with `eforms_*`.
   - `success.message` is treated as plain text and escaped.
   - Anti-spoofing (inline mode only):
-    1. On successful POST, create a one-time success ticket `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` (short TTL, e.g., 5 minutes) containing `{ form_id, submission_id, issued_at }`. Set `eforms_s_{form_id}={submission_id}` (`SameSite=Lax`, HttpOnly=false, `Secure` on HTTPS, `Path`=current request path, `Max-Age≈300`).
+    1. On successful POST, create a one-time success ticket `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` (short TTL, e.g., 5 minutes) containing `{ form_id, submission_id, issued_at }`. `submission_id` matches the ledger naming scheme (e.g., `eid__slot2` when slots are enabled) so the ticket filenames remain colon-free and Windows-compatible. Set `eforms_s_{form_id}={submission_id}` (`SameSite=Lax`, HttpOnly=false, `Secure` on HTTPS, `Path`=current request path, `Max-Age≈300`).
     2. Redirect with `?eforms_success={form_id}`.
     3. Cached page loads a lightweight verifier that calls `/eforms/success-verify?f={form_id}&s={submission_id}` (`Cache-Control: no-store`). Render the success banner only when both the query flag and verifier response succeed. A successful verifier response MUST immediately invalidate the ticket so any subsequent verify call for the same `{form_id, submission_id}` pair returns false. Then clear the cookie and strip the query parameter. This prevents replaying old cookie/query combinations on cached pages.
-  - Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}=1` cookie; always pair it with the ticket verifier to prevent spoofing.
+  - Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}=1` cookie; always pair it with the ticket verifier to prevent spoofing. Logs and downstream consumers MUST treat `submission_id` values as colon-free strings and rely on the separate `slot` metadata when disambiguating multi-instance submissions.
 
 14. EMAIL DELIVERY
   - DMARC alignment: From: no-reply@{site_domain}
@@ -717,7 +717,7 @@ uploads.*
       - Hidden-mode before ledger reservation → re-render reusing `instance_id`, `timestamp`, and the same hidden token.
       - Cookie-mode → deterministic markup already matches; rerenders reuse the minted `eid` (and slot) without regenerating anything.
       - After a successful ledger reservation (e.g., SMTP/storage failure) → hidden-mode emits a new token/instance for the next attempt; cookie-mode keeps the same `eid` unless the handler explicitly clears the mint.
-    - Commit reservation (moved from §7.1): immediately before side effects (email send, file finalize), reserve by creating sentinel `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (0700/0600 perms), where `submission_id` is the hidden token in hidden-mode and the `eid` (with optional `:{slot}`) in cookie-mode.
+    - Commit reservation (moved from §7.1): immediately before side effects (email send, file finalize), reserve by creating sentinel `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (0700/0600 perms), where `submission_id` is the hidden token in hidden-mode and the `eid` (with optional `__slot{slot}`) in cookie-mode. All ledger filenames remain colon-free for Windows compatibility.
       - EEXIST → treat as duplicate: stop side effects; show EFORMS_ERR_TOKEN.
       - Other I/O errors → treat as duplicate; log {code:"EFORMS_LEDGER_IO"}; do not crash.
       - Honeypot hits reserve/burn earlier by design (§7.2).
