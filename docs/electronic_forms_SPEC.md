@@ -106,7 +106,7 @@ electronic_forms - Spec
     - key (slug): required; must match ^[a-z0-9_:-]{1,64}$ (lowercase); [] prohibited to prevent PHP array collisions; reserved keys remain disallowed.
     - autocomplete: exactly one token. "on"/"off" accepted; else must match WHATWG tokens (name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
     - size: 1-100; honored only for text-like controls (text, tel, url, email).
-    - Hidden per-instance fields (renderer adds) are dictated by the authoritative mode chosen at render time (see §7). All markup includes `form_id`, `eforms_mode` (`hidden` or `cookie`), a fixed-name honeypot input `eforms_hp`, and a static hidden `js_ok`. Hidden-mode renders additionally emit `instance_id` (DOM-only uniqueness), `timestamp` (best-effort fill-age signal), and `<input type="hidden" name="eforms_token" value="…">` where the value matches the hidden-token sanity regex `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` (see §7.1). The renderer MUST persist that raw UUID token server-side and reuse the exact value on hidden-mode re-renders until a new token is minted. Cookie-mode renders omit all per-request randomness: no `instance_id`, no per-instance timestamps, and no hidden tokens. Multi-instance cookie pages MAY set a deterministic `eforms_slot` (integer; default `1`). The renderer MUST generate `instance_id` from 16–24 bytes of CSPRNG output encoded as base64url without padding, yielding `^[A-Za-z0-9_-]{22,32}$`, and must reuse the posted `instance_id`/`timestamp` when re-rendering hidden-mode errors.
+    - Renderer injects security metadata per the active submission mode. See §7.1 for the canonical hidden-token and cookie-mode contract (required hidden fields, cookie/EID minting, rerender reuse rules, and POST expectations).
     - Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
     - Renderer-generated attributes:
       - id = "{form_id}-{field_key}-{instance_id}" in hidden-mode and "{form_id}-{field_key}-s{slot}" in cookie-mode (slot defaults to 1).
@@ -222,38 +222,26 @@ electronic_forms - Spec
 
 7. SECURITY
   1. Submission Protection for Public Forms (hidden vs cookie)
-    - Authoritative mode selection:
-      - `[eform id="slug" cacheable="false"]` (default) → hidden-mode. Renderer emits per-instance hidden fields and treats the response as dynamic.
-      - `cacheable="true"` → cookie-mode. Renderer omits per-request randomness so the HTML is deterministic and CDN-cacheable.
-      - All markup carries `eforms_mode` so POST handlers can reject client-forged mode switches. The renderer never exposes a toggle that lets the client pick its own mode.
-    - Server-owned records (persisted at render/mint time) are the only authority for mode and freshness:
-      - Sanity regexes: hidden tokens MUST match `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`; cookie EIDs (`eforms_eid_{form_id}`) MUST match `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. These checks run before any authoritative record is loaded and exist solely to weed out obviously forged values. They never participate in mode selection, which remains governed by the persisted record.
-      - **Hidden record**: created on GET in hidden-mode. Filename `${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json`. Payload `{ mode:"hidden", form_id:"...", issued_at:<ts>, expires:<ts> }`. The filename encodes the SHA-256 of the hidden token; omit redundant `token_sha256` inside the JSON. The raw UUID token itself is stored server-side for reuse and never gains a prefix.
-      - **Minted-EID record**: created by `/eforms/prime` in cookie-mode. Filename `${uploads.dir}/eforms-private/eid_minted/{form_id}/{h2}/{eid}.json` (hex shard; no colons for Windows compatibility). Payload `{ mode:"cookie", form_id:"...", eid:"i-<UUIDv4>", issued_at:<ts>, expires:<ts>, slots_allowed:[...], slot:null|int }` where `eid` always matches the cookie sanity regex `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` (see §7.1) and `slot` records the bound slot number when slots are enabled (and remains `null` when slots are disabled/default). Implementers MAY persist either that JSON payload or a zero-byte touch file whose filesystem mtime stands in for `issued_at`; when using the touch-file flavor, the slot binding MUST still be recorded deterministically (e.g., sibling metadata JSON). CI enforces `expires - issued_at == cookie.Max-Age` regardless of storage flavor, deriving `issued_at` from the JSON or file mtime as appropriate.
-      - **Validator parity**: Irrespective of JSON vs. touch-file storage, the validator MUST enforce the same TTL window and `mode`/`form_id`/`eid` checks so the persisted record remains the sole authority.
-      - SubmitHandler loads these records before any ledger I/O. Missing/expired/mismatched records are treated as tampering (EFORMS_ERR_TOKEN). Mode is never inferred from POST fields.
-    - GET:
-      - Hidden-mode: emit `eforms_token` (matching `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`), `instance_id`, `timestamp`. The raw UUID is what the POST later submits; do **not** include the prime pixel. Responses are `Cache-Control: private, no-store`.
-      - Cookie-mode: emit deterministic markup with no per-request randomness. Include `<img src="/eforms/prime?f={form_id}" aria-hidden="true" alt="" width="1" height="1">`. The prime endpoint returns `204` with `Cache-Control: no-store` and `Set-Cookie: eforms_eid_{form_id}=i-<UUIDv4>; HttpOnly; SameSite=Lax; Path=/ (MUST); Max-Age MUST equal `security.token_ttl_seconds`; [Secure if HTTPS]`, where the cookie value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Unknown forms or hidden-mode renders still return 204 but without `Set-Cookie`.
-      - Cookie-mode MAY include a deterministic `eforms_slot` for multi-instance pages. Slots default to `1`; authors must declare an allow-list in config when enabling slots.
-    - POST `/eforms/submit`
-      - CSRF Gate (Origin-only):
-        - Evaluate per §7.4. Hard mode: cross/unknown → HARD FAIL; missing → HARD FAIL only when `security.origin_missing_hard=true`.
-        - Soft mode: cross/unknown → +1 soft; missing → +1 soft only when `security.origin_missing_soft=true`.
-      - Method/Type: Require POST. Accept only `application/x-www-form-urlencoded` (charset allowed) or `multipart/form-data` (boundary required). Else 405/415. Enforce POST size cap per §7.5.
-      - Load authoritative record:
-        - Hidden-mode POSTs provide `eforms_token`. Before any filesystem lookup, sanity-check the raw value against `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Shape failures are treated as immediate tampering (HARD FAIL) and prevent record access. When the regex passes, compute `sha256(token)` and load the hidden record. Verify `record.mode === "hidden"`, matching `form_id`, and not expired. Missing/invalid tokens obey `security.submission_token.required` (true → HARD FAIL; false → +1 soft and continue). These regex checks are gatekeepers only; the persisted record remains the sole authority for mode and freshness. NOTE: The handler MUST ignore any cookies and trust only the server-minted hidden token record when in hidden mode.
-        - Cookie-mode POSTs MUST omit `eforms_token`. Read `eforms_eid_{form_id}` and sanity-check the cookie value against `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` before consulting disk. Failing the regex is a tampering hard fail. Passing the regex does not select cookie mode; it merely protects the lookup. Load the minted-EID record and require `record.mode === "cookie"`, matching `form_id`, matching `eid`, not expired. Missing/invalid cookies apply `security.cookie_missing_policy` (`off`/`soft`/`hard`/`challenge`). A POST that supplies a hidden token while the record says `cookie` is treated as tampering (HARD FAIL).
-        - Slot handling (cookie-mode only): when `eforms_slot` is posted, enforce integer parsing and default to `1`. Require the slot to appear in `cookie_mode_slots_allowed` (when configured) **and** to match the slot stored in the minted record. A mismatch between the POSTed slot and the minted record (including "slotless" records receiving a slot or vice versa) is treated as tampering and triggers the `EFORMS_ERR_TOKEN` hard-fail path. Prefer hidden-mode for multi-instance pages; enable slots only when truly necessary. Slot-aware `submission_id` values append `__slot{slot}` (double underscore separator keeps identifiers Windows-safe and colon-free).
-      - Proof-of-mint: if no minted record exists for the posted `eid`, reject with HARD FAIL. Saved static pages lacking a mint record therefore cannot submit.
-        - Duplicate suppression (ledger):
-          - Hidden → `submission_id` is the hidden token.
-          - Cookie → `submission_id` is the `eid` (append `__slot{slot}` using the slot stored in the minted record when slots are enabled).
-          - Ledger path: `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used`, where `{h2}` is the first two hex chars of `sha256(submission_id)`. `submission_id` strings MUST remain colon-free (e.g., `eid__slot2`) so the sentinel filenames stay Windows-compatible.
-          - Reserve/burn immediately before side effects (email/logging/uploads). Honeypot short-circuit burns the same `submission_id` entry.
-      - Do not rotate `eid` values during POST handling; `/eforms/prime` is the sole minting path. Reuse the minted record (including its slot binding) until success or expiry so rerenders continue to reference the same `{eid, slot}` pair.
-      - Validation output: `{ mode:"hidden"|"cookie", submission_id:"...", slot?:int, token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden-mode sets `submission_id` to the raw hidden token (regex `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`), while cookie-mode uses the `eid` (regex `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`) with optional `__slot{slot}`. `token_ok` reports whether the authoritative record validated. The renderer consumes `token_ok` when deciding to enqueue challenges so downstream consumers must treat the flag as part of the contract. Downstream logging/email/throttling/success all reference `{form_id, mode, submission_id[, slot]}` and must not assume colon separators.
-      - User message for hard failures: `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”).
+    - Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
+    - Canonical pipeline (render → persist → POST → rerender) shared by renderer, submit handler, and QA:
+      1. **Render (GET)**
+         - Both modes inject `form_id`, `eforms_mode`, the fixed honeypot `eforms_hp`, and the static hidden `js_ok`. Responses include CSS/JS enqueueing decisions and caching headers per §19.
+         - Hidden-mode additionally emits a CSPRNG `instance_id` (16–24 bytes → base64url → `^[A-Za-z0-9_-]{22,32}$`), a `timestamp` snapshot, and `<input type=\"hidden\" name=\"eforms_token\" value=\"…\">` where the raw UUID matches `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. The renderer persists that raw token server-side and must reuse the exact `{token, instance_id, timestamp}` trio on every error rerender until a new token is minted. Hidden responses send `Cache-Control: private, no-store`.
+         - Cookie-mode renders remain deterministic: they omit `instance_id`, timestamps, and hidden tokens. Multi-instance pages MAY emit a deterministic integer `eforms_slot` (default `1`; slots require a configured allow-list). Every cookie render embeds a 1×1 `<img src=\"/eforms/prime?f={form_id}\">` probe that returns `204` with `Cache-Control: no-store` and `Set-Cookie: eforms_eid_{form_id}=i-<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; [Secure on HTTPS]`. Cookie values must match `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Hidden renders (and unknown IDs) still return 204 but without `Set-Cookie`.
+      2. **Persisted records (sole authority for mode + freshness)**
+         - Hidden-mode GETs create `${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json` with `{ mode:\"hidden\", form_id:\"…\", issued_at:<ts>, expires:<ts> }`. The filename already contains the SHA-256; no duplicate value is stored in the JSON.
+         - Cookie-mode minting via `/eforms/prime` writes `${uploads.dir}/eforms-private/eid_minted/{form_id}/{h2}/{eid}.json` (no colons) holding `{ mode:\"cookie\", form_id:\"…\", eid:\"i-<UUIDv4>\", issued_at:<ts>, expires:<ts>, slots_allowed:[...], slot:null|int }`. A zero-byte touch file variant is acceptable when the slot binding is captured deterministically alongside it. CI enforces `expires - issued_at == cookie.Max-Age` for either storage flavor.
+         - Sanity regexes (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` for hidden tokens, `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` for cookie EIDs) run before disk access to weed out obvious forgeries but never determine the mode. SubmitHandler always loads the persisted record before any ledger I/O; missing/expired/mismatched records trigger `EFORMS_ERR_TOKEN`.
+      3. **POST `/eforms/submit`**
+         - After the CSRF/origin gate (§7.4) and method/type checks (§7.5), hidden-mode POSTs must supply `eforms_token` matching the hidden regex. The handler hashes it, loads the hidden record, enforces `{mode:\"hidden\", form_id}` parity, and applies the TTL. Missing/invalid tokens obey `security.submission_token.required` (true → hard fail; false → soft signal) and cookies are ignored.
+         - Cookie-mode POSTs omit `eforms_token` and instead read `eforms_eid_{form_id}`. The cookie must match the EID regex before the minted record is consulted. The record must still say `{mode:\"cookie\"}` with the same `{form_id, eid}` and be unexpired; absent cookies route through `security.cookie_missing_policy` (`off`/`soft`/`hard`/`challenge`). Posting a hidden token when the record says cookie (or vice versa) is treated as tampering.
+         - Slot enforcement (cookie mode only): parse `eforms_slot` as an integer (default `1`); require it to appear in `security.cookie_mode_slots_allowed` when configured and to equal the slot stored in the minted record. A mismatch—including sending a slot to a slotless record—hard-fails with `EFORMS_ERR_TOKEN`. The resulting `submission_id` becomes `${eid}` or `${eid}__slot{slot}` (double underscore keeps filenames Windows-safe).
+         - Duplicate suppression uses `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used`. The sentinel is reserved immediately before side effects (email send, file finalize); `EEXIST` is treated as a duplicate submission. Honeypot short-circuits burn the same ledger entry.
+         - Validation exposes `{ mode:\"hidden\"|\"cookie\", submission_id:\"…\", slot?:int, token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden mode reports the raw token; cookie mode reports the EID (plus slot suffix). Renderer and downstream components (logging, throttling, success tickets) consume this structure.
+      4. **Rerender and rotation rules**
+         - The mode chosen on the initial render never changes mid-flow. Hidden-mode errors must reuse the original `{token, instance_id, timestamp}`; a new token is minted only after a successful ledger reservation (or when explicitly cleared following fatal errors). Cookie-mode rerenders reuse the minted `{eid, slot}` pair until expiry or success; `/eforms/prime` is the only minting path and no mid-flow rotation occurs.
+         - Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”). Soft paths retain the same authoritative records so repeated attempts stay deterministic.
+
 
   2. Honeypot
     - Runs after CSRF gate; never overrides a CSRF hard fail.
@@ -696,11 +684,8 @@ uploads.*
     - Shortcode `[eform id="slug" cacheable="true|false"]` (`cacheable` defaults to `false`).
     - Template tag `eform_render('slug', ['cacheable' => true|false])` (`cacheable` defaults to `false`).
     - `cacheable=false` forces hidden-mode; `cacheable=true` uses cookie-mode.
-    - FormRenderer loads the template. Hidden-mode renders generate a secure `instance_id` and timestamp; cookie-mode renders skip per-request randomness.
+    - FormRenderer loads the template and injects the appropriate hidden-token or cookie metadata per §7.1.
     - Registers/enqueues CSS/JS only when rendering
-    - Adds hidden fields according to mode:
-      - Hidden: `form_id`, `eforms_mode=hidden`, `instance_id`, `timestamp`, `eforms_hp` (id suffix includes `instance_id`), `js_ok`, and `eforms_token` (`UUIDv4`). Re-rendering hidden-mode errors must reuse the exact UUID that was originally minted.
-      - Cookie: `form_id`, `eforms_mode=cookie`, `eforms_hp` (id `"{form_id}-hp-s{slot}"`), `js_ok`, and optionally `eforms_slot` (integer; default 1). No `instance_id`, `timestamp`, or hidden token.
     - Always set method="post". If any upload field present, add enctype="multipart/form-data".
     - Opportunistic GC may run (no WP-Cron).
     - Max-input-vars heuristic: log advisory and (when WP_DEBUG) emit an HTML comment near the form.
@@ -712,16 +697,9 @@ uploads.*
 
   2. POST
     - SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce
-    - The hidden-token vs cookie mode chosen during the initial GET render is fixed for that instance; POST re-renders reuse the same mode and never switch mid-flow. Cookie-mode rerenders continue to reference the original minted `{eid, slot}` pair (no slot rebinding).
+    - Mode, hidden-field reuse, and rerender behavior follow the canonical contract in §7.1; lifecycle logic never swaps modes mid-flow.
     - Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
-    - On errors:
-      - Hidden-mode before ledger reservation → re-render reusing `instance_id`, `timestamp`, and the same hidden token.
-      - Cookie-mode → deterministic markup already matches; rerenders reuse the minted `eid` (and slot) without regenerating anything.
-      - After a successful ledger reservation (e.g., SMTP/storage failure) → hidden-mode emits a new token/instance for the next attempt; cookie-mode keeps the same `eid` unless the handler explicitly clears the mint.
-    - Commit reservation (moved from §7.1): immediately before side effects (email send, file finalize), reserve by creating sentinel `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (0700/0600 perms), where `submission_id` is the hidden token in hidden-mode and the `eid` (with optional `__slot{slot}`) in cookie-mode. All ledger filenames remain colon-free for Windows compatibility.
-      - EEXIST → treat as duplicate: stop side effects; show EFORMS_ERR_TOKEN.
-      - Other I/O errors → treat as duplicate; log {code:"EFORMS_LEDGER_IO"}; do not crash.
-      - Honeypot hits reserve/burn earlier by design (§7.2).
+    - Error rerenders, ledger reservation timing, and duplicate handling are governed by §7.1; POST lifecycle code simply orchestrates normalization/validation/email/logging around that contract.
     - On success: move stored uploads; send email; log; PRG/redirect; cleanup per retention.
     - Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
     - throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
@@ -735,7 +713,7 @@ uploads.*
     - "Too many files."
     - "This file type isn't allowed."
     - "File upload failed. Please try again."
-  - Re-render after errors passes original meta (hidden-mode: `instance_id`, `timestamp`, hidden token; cookie-mode: `eid`, slot) back to Renderer (no new helpers).
+  - Re-render after errors passes the mode-specific security metadata defined in §7.1 back to Renderer (hidden: token/instance/timestamp; cookie: `{eid, slot}`).
   - Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_HTML_TOO_LARGE).
   - Large form advisory via logs and optional HTML comment (WP_DEBUG only).
   - "This content is too long." maps to EFORMS_ERR_HTML_TOO_LARGE.
