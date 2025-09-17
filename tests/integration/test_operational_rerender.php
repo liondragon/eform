@@ -34,8 +34,8 @@ register_shutdown_function(function () use ($origInstance, $origToken) {
     if (strpos($html, '>Ping<') === false) $ok = false;
     if (!preg_match('/name="instance_id" value="([^"]+)"/', $html, $m) || $m[1] === $origInstance) $ok = false;
     if (!preg_match('/name="eforms_token" value="([^"]+)"/', $html, $t) || $t[1] === $origToken) $ok = false;
-    $hash = sha1('contact_us:' . $origToken);
-    $ledger = __DIR__ . '/../tmp/uploads/eforms-private/ledger/' . substr($hash,0,2) . '/' . $hash . '.used';
+    $hash = hash('sha256', $origToken);
+    $ledger = __DIR__ . '/../tmp/uploads/eforms-private/ledger/contact_us/' . substr($hash,0,2) . '/' . $origToken . '.used';
     if (!is_file($ledger)) $ok = false;
     echo $ok ? 'OK' : 'FAIL';
 });

@@ -56,9 +56,14 @@ class SecurityTokenModesTest extends BaseTestCase
 
     public function testHiddenTokenMode(): void
     {
-        $token = 'h-00000000-0000-4000-8000-000000000015';
+        $token = '00000000-0000-4000-8000-000000000015';
         $this->persistToken($token, 'contact_us', 'hidden');
-        $res = Security::token_validate('contact_us', true, $token);
+        $res = $this->validateToken([
+            'mode_claim' => 'hidden',
+            'token_field_present' => true,
+            'posted_token' => $token,
+            'cookie_token' => '',
+        ]);
         $this->assertSame('hidden', $res['mode']);
         $this->assertTrue($res['token_ok']);
         $this->assertFalse($res['hard_fail']);
@@ -68,7 +73,7 @@ class SecurityTokenModesTest extends BaseTestCase
     {
         $this->setConfig('security.cookie_missing_policy', 'soft');
         unset($_COOKIE['eforms_eid_contact_us']);
-        $res = Security::token_validate('contact_us', false, null);
+        $res = $this->validateToken();
         $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['token_ok']);
         $this->assertFalse($res['hard_fail']);
@@ -80,7 +85,7 @@ class SecurityTokenModesTest extends BaseTestCase
     {
         $this->setConfig('security.cookie_missing_policy', 'hard');
         unset($_COOKIE['eforms_eid_contact_us']);
-        $res = Security::token_validate('contact_us', false, null);
+        $res = $this->validateToken();
         $this->assertSame('cookie', $res['mode']);
         $this->assertTrue($res['hard_fail']);
         $this->assertFalse($res['require_challenge']);
@@ -90,7 +95,7 @@ class SecurityTokenModesTest extends BaseTestCase
     {
         $this->setConfig('security.cookie_missing_policy', 'challenge');
         unset($_COOKIE['eforms_eid_contact_us']);
-        $res = Security::token_validate('contact_us', false, null);
+        $res = $this->validateToken();
         $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['hard_fail']);
         $this->assertSame(1, $res['soft_signal']);
@@ -101,7 +106,7 @@ class SecurityTokenModesTest extends BaseTestCase
     {
         $this->setConfig('security.cookie_missing_policy', 'off');
         unset($_COOKIE['eforms_eid_contact_us']);
-        $res = Security::token_validate('contact_us', false, null);
+        $res = $this->validateToken();
         $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['hard_fail']);
         $this->assertSame(0, $res['soft_signal']);
@@ -113,12 +118,18 @@ class SecurityTokenModesTest extends BaseTestCase
         $cookieToken = 'i-00000000-0000-4000-8000-000000000016';
         set_eid_cookie('contact_us', $cookieToken);
         $this->persistToken($cookieToken, 'contact_us', 'cookie');
-        $res = Security::token_validate('contact_us', true, 'bad');
-        $this->assertSame('hidden', $res['mode']);
+        $res = $this->validateToken([
+            'mode_claim' => 'hidden',
+            'token_field_present' => true,
+            'posted_token' => 'bad',
+            'cookie_token' => $cookieToken,
+        ]);
+        $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['token_ok']);
         $this->assertTrue($res['hard_fail']);
         $this->assertSame(0, $res['soft_signal']);
         $this->assertFalse($res['require_challenge']);
+        $this->assertSame('hidden_token_posted', $res['reason'] ?? '');
         unset($_COOKIE['eforms_eid_contact_us']);
     }
 
@@ -126,7 +137,11 @@ class SecurityTokenModesTest extends BaseTestCase
     {
         $this->setConfig('security.submission_token.required', false);
         unset($_COOKIE['eforms_eid_contact_us']);
-        $res = Security::token_validate('contact_us', true, 'bad');
+        $res = $this->validateToken([
+            'mode_claim' => 'hidden',
+            'token_field_present' => true,
+            'posted_token' => 'bad',
+        ]);
         $this->assertSame('hidden', $res['mode']);
         $this->assertFalse($res['token_ok']);
         $this->assertFalse($res['hard_fail']);
@@ -138,7 +153,11 @@ class SecurityTokenModesTest extends BaseTestCase
     {
         $this->setConfig('security.submission_token.required', false);
         unset($_COOKIE['eforms_eid_contact_us']);
-        $res = Security::token_validate('contact_us', true, null);
+        $res = $this->validateToken([
+            'mode_claim' => 'hidden',
+            'token_field_present' => false,
+            'posted_token' => '',
+        ]);
         $this->assertSame('hidden', $res['mode']);
         $this->assertFalse($res['token_ok']);
         $this->assertFalse($res['hard_fail']);
@@ -149,9 +168,13 @@ class SecurityTokenModesTest extends BaseTestCase
 
     public function testHiddenTokenModeMismatchHardFails(): void
     {
-        $token = 'h-00000000-0000-4000-8000-000000000017';
+        $token = '00000000-0000-4000-8000-000000000017';
         $this->persistToken($token, 'contact_us', 'cookie');
-        $res = Security::token_validate('contact_us', true, $token);
+        $res = $this->validateToken([
+            'mode_claim' => 'hidden',
+            'token_field_present' => true,
+            'posted_token' => $token,
+        ]);
         $this->assertSame('hidden', $res['mode']);
         $this->assertFalse($res['token_ok']);
         $this->assertTrue($res['hard_fail']);
@@ -161,7 +184,11 @@ class SecurityTokenModesTest extends BaseTestCase
     {
         $token = 'i-00000000-0000-4000-8000-000000000018';
         $this->persistToken($token, 'contact_us', 'hidden');
-        $res = Security::token_validate('contact_us', true, $token);
+        $res = $this->validateToken([
+            'mode_claim' => 'hidden',
+            'token_field_present' => true,
+            'posted_token' => $token,
+        ]);
         $this->assertSame('hidden', $res['mode']);
         $this->assertFalse($res['token_ok']);
         $this->assertTrue($res['hard_fail']);
@@ -172,10 +199,34 @@ class SecurityTokenModesTest extends BaseTestCase
         $token = 'h-00000000-0000-4000-8000-000000000019';
         set_eid_cookie('contact_us', $token);
         $this->persistToken($token, 'contact_us', 'cookie');
-        $res = Security::token_validate('contact_us', false, null);
+        $res = $this->validateToken();
         $this->assertSame('cookie', $res['mode']);
         $this->assertFalse($res['token_ok']);
         $this->assertTrue($res['hard_fail']);
+        unset($_COOKIE['eforms_eid_contact_us']);
+    }
+
+    public function testCookieSlotBinding(): void
+    {
+        $eid = 'i-00000000-0000-4000-8000-0000000000aa';
+        $this->setConfig('security.cookie_mode_slots_enabled', true);
+        $this->setConfig('security.cookie_mode_slots_allowed', [1, 2]);
+        set_eid_cookie('contact_us', $eid);
+        mint_eid_record('contact_us', $eid, time(), 600, [1, 2]);
+
+        $valid = $this->validateToken([
+            'slot' => 2,
+        ]);
+        $this->assertTrue($valid['token_ok']);
+        $this->assertSame('cookie', $valid['mode']);
+
+        $invalid = $this->validateToken([
+            'slot' => 3,
+        ]);
+        $this->assertFalse($invalid['token_ok']);
+        $this->assertTrue($invalid['hard_fail']);
+        $this->assertSame('slot_not_allowed', $invalid['reason'] ?? '');
+
         unset($_COOKIE['eforms_eid_contact_us']);
     }
 
@@ -248,6 +299,18 @@ class SecurityTokenModesTest extends BaseTestCase
             }
         }
         @rmdir($dir);
+    }
+
+    private function validateToken(array $context = []): array
+    {
+        $defaults = [
+            'mode_claim' => 'cookie',
+            'token_field_present' => false,
+            'posted_token' => '',
+            'cookie_token' => (string) ($_COOKIE['eforms_eid_contact_us'] ?? ''),
+            'slot' => 1,
+        ];
+        return Security::token_validate('contact_us', array_merge($defaults, $context));
     }
 
     private function persistToken(string $token, string $formId, string $mode): void

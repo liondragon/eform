@@ -106,7 +106,14 @@ class FormRenderer
         if ($challengeMode !== 'off') {
             $needChallenge = true;
         } elseif (Config::get('security.cookie_missing_policy', 'soft') === 'challenge') {
-            $tInfo = Security::token_validate($formId, false, null);
+            $cookieName = 'eforms_eid_' . $formId;
+            $tInfo = Security::token_validate($formId, [
+                'mode_claim' => 'cookie',
+                'token_field_present' => false,
+                'posted_token' => '',
+                'cookie_token' => (string) ($_COOKIE[$cookieName] ?? ''),
+                'slot' => 1,
+            ]);
             if (!$tInfo['token_ok']) {
                 $needChallenge = true;
             }
