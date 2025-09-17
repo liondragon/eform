@@ -9,6 +9,7 @@ set_eid_cookie('quote_request', 'i-00000000-0000-4000-8000-00000000000a');
 
 $_POST = [
     'form_id' => 'quote_request',
+    'eforms_mode' => 'cookie',
     'instance_id' => 'instVAL2',
     'timestamp' => time(),
     'eforms_hp' => '',

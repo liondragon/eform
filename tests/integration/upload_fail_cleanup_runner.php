@@ -29,6 +29,7 @@ $_FILES = [
 
 $_POST = [
     'form_id' => 'upload_test',
+    'eforms_mode' => 'cookie',
     'instance_id' => 'instU2',
     'timestamp' => time(),
     'eforms_hp' => '',

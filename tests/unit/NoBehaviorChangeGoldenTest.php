@@ -18,11 +18,12 @@ final class NoBehaviorChangeGoldenTest extends BaseTestCase
             'form_id' => 'contact_us',
             'instance_id' => 'INSTANCE',
             'timestamp' => 1234567890,
-            'cacheable' => true,
+            'cacheable' => false,
             'client_validation' => false,
             'action' => 'http://example.com/submit',
             'hidden_token' => 'TOKEN',
             'enctype' => 'application/x-www-form-urlencoded',
+            'mode' => 'hidden',
         ];
         $html = Renderer::form($context, $meta, [], []);
         $html = preg_replace('/hp_[A-Za-z0-9_-]+/', 'hp_ID', $html);

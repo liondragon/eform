@@ -211,11 +211,11 @@ namespace {
     add_shortcode('eform', function ($atts) {
         $atts = shortcode_atts([
             'id' => '',
-            'cacheable' => 'true',
+            'cacheable' => 'false',
         ], $atts, 'eform');
         $formId = sanitize_key($atts['id']);
         $cacheable = filter_var($atts['cacheable'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
         $fr = new FormRenderer();
-        return $fr->render($formId, ['cacheable' => $cacheable !== false]);
+        return $fr->render($formId, ['cacheable' => $cacheable === true]);
     });
 }

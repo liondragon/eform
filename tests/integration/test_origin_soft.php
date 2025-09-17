@@ -13,6 +13,7 @@ set_eid_cookie('contact_us', 'i-00000000-0000-4000-8000-000000000001');
 
 $_POST = [
     'form_id' => 'contact_us',
+    'eforms_mode' => 'cookie',
     'instance_id' => 'inst1',
     'timestamp' => time() - 10,
     // honeypot empty
