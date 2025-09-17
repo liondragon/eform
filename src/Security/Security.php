@@ -420,16 +420,16 @@ class Security
         return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $v);
     }
 
-    public static function ledger_reserve(string $formId, string $token): array
+    public static function ledger_reserve(string $formId, string $submissionId): array
     {
         if (!Config::get('security.token_ledger.enable', true)) {
             $result = ['ok' => true, 'skipped' => true];
-            self::logLedgerReservation($formId, $token, $result);
+            self::logLedgerReservation($formId, $submissionId, $result);
             return $result;
         }
         $base = rtrim(Config::get('uploads.dir', ''), '/');
         $dir = $base . '/ledger';
-        $hash = sha1($formId . ':' . $token);
+        $hash = sha1($formId . ':' . $submissionId);
         $h2 = substr($hash, 0, 2);
         $pathDir = $dir . '/' . $h2;
         if (!is_dir($pathDir)) {
@@ -440,25 +440,25 @@ class Security
         if ($fh === false) {
             if (file_exists($file)) {
                 $result = ['ok' => false, 'duplicate' => true];
-                self::logLedgerReservation($formId, $token, $result);
+                self::logLedgerReservation($formId, $submissionId, $result);
                 return $result;
             }
             $result = ['ok' => false, 'io' => true, 'file' => $file];
-            self::logLedgerReservation($formId, $token, $result);
+            self::logLedgerReservation($formId, $submissionId, $result);
             return $result;
         }
         fclose($fh);
         @chmod($file, 0600);
         $result = ['ok' => true];
-        self::logLedgerReservation($formId, $token, $result);
+        self::logLedgerReservation($formId, $submissionId, $result);
         return $result;
     }
 
-    private static function logLedgerReservation(string $formId, string $token, array $result): void
+    private static function logLedgerReservation(string $formId, string $submissionId, array $result): void
     {
         $payload = [
             'form_id' => $formId,
-            'token' => $token,
+            'submission_id' => $submissionId,
             'ok' => (bool) ($result['ok'] ?? false),
             'duplicate' => !empty($result['duplicate']),
             'io' => !empty($result['io']),
@@ -470,7 +470,7 @@ class Security
         Logging::write('info', 'EFORMS_RESERVE', $payload);
     }
 
-    public static function honeypot_check(string $formId, string $token, array $logBase = []): array
+    public static function honeypot_check(string $formId, string $submissionId, array $logBase = []): array
     {
         if (empty($_POST['eforms_hp'])) {
             return ['triggered' => false];
@@ -479,7 +479,7 @@ class Security
         if (Config::get('throttle.enable', false)) {
             $thr = Throttle::check(Helpers::client_ip());
         }
-        $res = self::ledger_reserve($formId, $token);
+        $res = self::ledger_reserve($formId, $submissionId);
         if (!$res['ok'] && !empty($res['io'])) {
             Logging::write('error', 'EFORMS_LEDGER_IO', $logBase + [
                 'path' => $res['file'] ?? '',

@@ -5,7 +5,8 @@ defined('ABSPATH') || exit;
 ?>
 <p>
 Form: <?= htmlspecialchars($meta['form_id'] ?? '', ENT_QUOTES) ?><br>
-Instance: <?= htmlspecialchars($meta['instance_id'] ?? '', ENT_QUOTES) ?><br>
+Submission: <?= htmlspecialchars($meta['submission_id'] ?? '', ENT_QUOTES) ?><br>
+<?php if (!empty($meta['slot'] ?? null)): ?>Slot: <?= htmlspecialchars((string) ($meta['slot'] ?? ''), ENT_QUOTES) ?><br><?php endif; ?>
 Submitted: <?= htmlspecialchars($meta['submitted_at'] ?? '', ENT_QUOTES) ?>
 </p>
 <table>

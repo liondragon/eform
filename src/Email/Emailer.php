@@ -200,7 +200,7 @@ class Emailer
         if (!is_file($file)) {
             throw new \RuntimeException('Email template not found');
         }
-        $allowedMeta = ['submitted_at','ip','form_id','instance_id'];
+        $allowedMeta = ['submitted_at','ip','form_id','instance_id','submission_id','slot'];
         $include_fields = $tpl['email']['include_fields'] ?? [];
         $include_fields = array_values(array_filter($include_fields, function ($k) use ($canonical, $meta, $allowedMeta) {
             if (isset($canonical[$k]) || isset($canonical['_uploads'][$k])) {
@@ -216,7 +216,7 @@ class Emailer
 
     private static function sanitizeMeta(array $meta): array
     {
-        $allowed = ['submitted_at','ip','form_id','instance_id'];
+        $allowed = ['submitted_at','ip','form_id','instance_id','submission_id','slot'];
         return array_intersect_key($meta, array_flip($allowed));
     }
 
@@ -228,7 +228,7 @@ class Emailer
 
     private static function expandTokens(string $str, array $canonical, array $meta): string
     {
-        return preg_replace_callback('/\{\{\s*(field\.[a-z0-9_-]+|submitted_at|ip|form_id)\s*\}\}/i', function ($m) use ($canonical, $meta) {
+        return preg_replace_callback('/\{\{\s*(field\.[a-z0-9_-]+|submitted_at|ip|form_id|submission_id|slot)\s*\}\}/i', function ($m) use ($canonical, $meta) {
             $token = strtolower($m[1]);
             if (str_starts_with($token, 'field.')) {
                 $key = substr($token, 6);

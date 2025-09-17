@@ -41,7 +41,7 @@ class TemplateSpec
 
     private const FIELDS = [
         'reserved_keys' => [
-            'form_id','instance_id','eforms_token','eforms_hp','timestamp','js_ok','ip','submitted_at'
+            'form_id','instance_id','submission_id','eforms_token','eforms_hp','timestamp','js_ok','ip','submitted_at'
         ],
         'allowed_types' => [
             'name','first_name','last_name','text','email','textarea','textarea_html','url','tel','tel_us','number',
@@ -60,7 +60,7 @@ class TemplateSpec
             'max_file_bytes','max_files','step'
         ],
         'size_allowed_types' => ['text','tel','tel_us','url','email'],
-        'allowed_meta' => ['ip','submitted_at','form_id','instance_id'],
+        'allowed_meta' => ['ip','submitted_at','form_id','instance_id','submission_id','slot'],
     ];
 
     private const RULES = [

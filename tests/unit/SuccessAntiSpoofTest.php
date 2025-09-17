@@ -33,7 +33,7 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         $getSnapshot = $_GET;
         try {
             $_GET = [];
-            $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
+            $_COOKIE = ['eforms_s_contact_us' => 'contact_us:subm'];
             $fm = new \EForms\Rendering\FormRenderer();
             $html = $fm->render('contact_us');
             $this->assertStringNotContainsString('Thanks! We got your message.', $html);
@@ -48,7 +48,7 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         $getSnapshot = $_GET;
         try {
             $_GET = ['eforms_success' => 'contact_us'];
-            $_COOKIE = ['eforms_s_contact_us' => 'other:inst'];
+            $_COOKIE = ['eforms_s_contact_us' => 'other:subm'];
             $fm = new \EForms\Rendering\FormRenderer();
             $html = $fm->render('contact_us');
             $this->assertSame('', $html);
@@ -63,7 +63,7 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         $getSnapshot = $_GET;
         try {
             $_GET = ['eforms_success' => 'contact_us'];
-            $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
+            $_COOKIE = ['eforms_s_contact_us' => 'contact_us:subm'];
             $fm = new \EForms\Rendering\FormRenderer();
             $html = $fm->render('contact_us');
             $this->assertStringContainsString('Thanks! We got your message.', $html);
@@ -78,7 +78,7 @@ final class SuccessAntiSpoofTest extends BaseTestCase
         $getSnapshot = $_GET;
         try {
             $_GET = ['eforms_success' => 'contact_us'];
-            $_COOKIE = ['eforms_s_contact_us' => 'contact_us:inst'];
+            $_COOKIE = ['eforms_s_contact_us' => 'contact_us:subm'];
             $fm = new \EForms\Rendering\FormRenderer();
             $html1 = $fm->render('contact_us');
             $this->assertStringContainsString('Thanks! We got your message.', $html1);

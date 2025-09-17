@@ -40,7 +40,7 @@ final class EmailAttachmentOverflowTest extends BaseTestCase
                 ],
             ],
         ];
-        $meta = ['form_id' => 't1', 'instance_id' => 'i1'];
+        $meta = ['form_id' => 't1', 'submission_id' => 'sub1'];
         Emailer::send($tpl, $canonical, $meta);
         global $TEST_ARTIFACTS;
         $mail = json_decode((string) file_get_contents($TEST_ARTIFACTS['mail_file']), true);

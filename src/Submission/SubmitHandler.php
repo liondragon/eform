@@ -66,7 +66,11 @@ class SubmitHandler
         $instanceIdPost = (string) ($_POST['instance_id'] ?? '');
         $instanceId = $mode === 'hidden' ? $instanceIdPost : 's' . $slot;
         if ($mode === 'hidden' && $instanceId === '') {
-            Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', ['form_id' => $formId, 'instance_id' => $instanceId]);
+            $ctx = ['form_id' => $formId, 'instance_id' => $instanceId];
+            if (isset($_POST['eforms_token'])) {
+                $ctx['submission_id'] = (string) $_POST['eforms_token'];
+            }
+            Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $ctx);
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
         $baseMeta = ['form_id' => $formId, 'instance_id' => $instanceId, 'mode' => $mode];
@@ -106,14 +110,26 @@ class SubmitHandler
         $softFailCount = $origin['soft_signal'];
         $cookieName = 'eforms_eid_' . $formId;
         $cookieToken = $_COOKIE[$cookieName] ?? '';
+        $submissionId = $hasHidden ? (string) $postedToken : (string) $cookieToken;
+        if ($mode === 'cookie' && $slot > 1 && $submissionId !== '') {
+            $submissionId .= ':s' . $slot;
+        }
+        $baseMeta['submission_id'] = $submissionId;
+        $logBase = array_merge($logBase, ['submission_id' => $submissionId]);
         $tokenInfo = Security::token_validate($formId, $hasHidden, $postedToken);
         $logBase['token_mode'] = $tokenInfo['mode'] ?? '';
-        $submissionId = (string) ($tokenInfo['submission_id'] ?? ($hasHidden ? (string)$postedToken : (string)$cookieToken));
-        if ($submissionId !== '') {
-            $logBase['submission_id'] = $submissionId;
+        $tokenSubmission = (string) ($tokenInfo['submission_id'] ?? $submissionId);
+        if ($mode === 'cookie') {
+            $cookieToken = $tokenSubmission;
         }
+        $submissionId = $tokenSubmission;
+        if ($mode === 'cookie' && $slot > 1 && $submissionId !== '') {
+            $submissionId .= ':s' . $slot;
+        }
+        $baseMeta['submission_id'] = $submissionId;
+        $logBase['submission_id'] = $submissionId;
         if ($tokenInfo['mode'] === 'cookie') {
-            $cookieToken = $submissionId;
+            $cookieToken = $tokenSubmission;
         }
         if ($tokenInfo['hard_fail']) {
             Logging::write('warn', 'EFORMS_ERR_TOKEN', $logBase + [
@@ -158,7 +174,7 @@ class SubmitHandler
             if (($hp['mode'] ?? '') === 'hard_fail') {
                 $this->renderErrorAndExit($tpl, $formId, 'Form submission failed.');
             }
-            $this->successAndRedirect($tpl, $formId, $instanceId);
+            $this->successAndRedirect($tpl, $formId, $submissionId);
             return;
         }
         $issuedAt = (int) ($tokenInfo['issued_at'] ?? 0);
@@ -309,6 +325,7 @@ class SubmitHandler
                 $meta = [
                     'form_id' => $formId,
                     'instance_id' => $newInstance,
+                    'submission_id' => $submissionId,
                     'mode' => $mode,
                     'cacheable' => !$hasHidden,
                     'client_validation' => (bool) Config::get('html5.client_validation', false),
@@ -321,6 +338,9 @@ class SubmitHandler
                 }
                 if ($hasHidden) {
                     $meta['timestamp'] = $timestamp > 0 ? $timestamp : time();
+                    if (!empty($meta['hidden_token'])) {
+                        $meta['submission_id'] = (string) $meta['hidden_token'];
+                    }
                 }
                 if ($requireChallenge) {
                     $prov = Config::get('challenge.provider', 'turnstile');
@@ -375,6 +395,7 @@ class SubmitHandler
             $meta = [
                 'form_id' => $formId,
                 'instance_id' => $newInstance,
+                'submission_id' => $submissionId,
                 'mode' => $mode,
                 'cacheable' => !$hasHidden,
                 'client_validation' => (bool) Config::get('html5.client_validation', false),
@@ -387,6 +408,9 @@ class SubmitHandler
             }
             if ($hasHidden) {
                 $meta['timestamp'] = $timestamp > 0 ? $timestamp : time();
+                if (!empty($meta['hidden_token'])) {
+                    $meta['submission_id'] = (string) $meta['hidden_token'];
+                }
             }
             if ($requireChallenge) {
                 $prov = Config::get('challenge.provider', 'turnstile');
@@ -414,7 +438,7 @@ class SubmitHandler
                 ],
             ]);
         }
-        $this->successAndRedirect($tpl, $formId, $metaInfo['instance_id']);
+        $this->successAndRedirect($tpl, $formId, $metaInfo['submission_id']);
     }
 
     /**
@@ -453,9 +477,19 @@ class SubmitHandler
             }
         }
         $instance = $mode === 'hidden' ? ($_POST['instance_id'] ?? Helpers::random_id(16)) : 's' . $slot;
+        $submissionId = '';
+        if ($mode === 'hidden') {
+            $submissionId = (string) ($_POST['eforms_token'] ?? '');
+        } else {
+            $submissionId = (string) ($_COOKIE['eforms_eid_' . $formId] ?? '');
+            if ($slot > 1 && $submissionId !== '') {
+                $submissionId .= ':s' . $slot;
+            }
+        }
         $meta = [
             'form_id' => $formId,
             'instance_id' => $instance,
+            'submission_id' => $submissionId,
             'mode' => $mode,
             'cacheable' => ($mode === 'cookie'),
             'client_validation' => (bool) Config::get('html5.client_validation', false),
@@ -480,7 +514,7 @@ class SubmitHandler
         exit;
     }
 
-    private function successAndRedirect(array $tpl, string $formId, string $instanceId): void
+    private function successAndRedirect(array $tpl, string $formId, string $submissionId): void
     {
         \nocache_headers();
         \header('Cache-Control: private, no-store, max-age=0');
@@ -497,8 +531,11 @@ class SubmitHandler
             $ref = \home_url('/');
         }
         $path = parse_url($ref, PHP_URL_PATH) ?: '/';
+        if ($submissionId === '') {
+            $submissionId = Helpers::random_id(16);
+        }
         $cookie = 'eforms_s_' . $formId;
-        $value = $formId . ':' . $instanceId;
+        $value = $formId . ':' . $submissionId;
         \setcookie($cookie, $value, [
             'expires' => time() + 300,
             'path' => $path,
