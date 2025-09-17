@@ -251,7 +251,7 @@ electronic_forms - Spec
           - Ledger path: `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used`, where `{h2}` is the first two hex chars of `sha256(submission_id)`.
           - Reserve/burn immediately before side effects (email/logging/uploads). Honeypot short-circuit burns the same `submission_id` entry.
       - Do not rotate `eid` values during POST handling; `/eforms/prime` is the sole minting path. Reuse the minted record until success or expiry.
-      - Validation output: `{ mode:"hidden"|"cookie", submission_id:"...", slot?:int, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden-mode sets `submission_id` to the raw hidden token; cookie-mode uses the `eid` (with optional `:{slot}`). Downstream logging/email/throttling/success all reference `{form_id, mode, submission_id[, slot]}`.
+      - Validation output: `{ mode:"hidden"|"cookie", submission_id:"...", slot?:int, token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool }`. Hidden-mode sets `submission_id` to the raw hidden token; cookie-mode uses the `eid` (with optional `:{slot}`). `token_ok` reports whether the authoritative record validated. The renderer consumes `token_ok` when deciding to enqueue challenges so downstream consumers must treat the flag as part of the contract. Downstream logging/email/throttling/success all reference `{form_id, mode, submission_id[, slot]}`.
       - User message for hard failures: `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”).
 
   2. Honeypot
