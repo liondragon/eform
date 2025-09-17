@@ -108,15 +108,20 @@ class Logging
         }
         $ip = $ctx['ip'] ?? Helpers::client_ip();
         $ipDisp = Helpers::ip_display((string) $ip);
+        $slot = array_key_exists('slot', $ctx) ? (int) $ctx['slot'] : null;
         $data = [
             'ts' => gmdate('c'),
             'severity' => $severity,
             'code' => $code,
             'form_id' => $ctx['form_id'] ?? '',
             'instance_id' => $ctx['instance_id'] ?? '',
+            'submission_id' => $ctx['submission_id'] ?? '',
             'uri' => Helpers::request_uri(),
             'ip' => $ipDisp,
         ];
+        if ($slot !== null) {
+            $data['slot'] = $slot;
+        }
         if (!empty($ctx['msg'])) {
             $data['msg'] = $ctx['msg'];
         }
@@ -135,7 +140,7 @@ class Logging
             }
         }
         $meta = $ctx;
-        unset($meta['form_id'], $meta['instance_id'], $meta['msg'], $meta['ip'], $meta['spam']);
+        unset($meta['form_id'], $meta['instance_id'], $meta['submission_id'], $meta['slot'], $meta['msg'], $meta['ip'], $meta['spam']);
         if (array_key_exists('token_mode', $ctx)) {
             $meta['token_mode'] = $ctx['token_mode'];
         }
@@ -178,8 +183,14 @@ class Logging
             if ($data['form_id'] !== '') {
                 $parts[] = 'form=' . $data['form_id'];
             }
+            if ($data['submission_id'] !== '') {
+                $parts[] = 'subm=' . $data['submission_id'];
+            }
             if ($data['instance_id'] !== '') {
                 $parts[] = 'inst=' . $data['instance_id'];
+            }
+            if ($slot !== null) {
+                $parts[] = 'slot=' . $slot;
             }
             if ($data['ip'] !== '') {
                 $parts[] = 'ip=' . $data['ip'];

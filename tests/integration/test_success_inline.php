@@ -4,7 +4,7 @@ declare(strict_types=1);
 $getSnapshot = $_GET;
 $cookieSnapshot = $_COOKIE;
 $_GET['eforms_success'] = 'contact_us';
-$_COOKIE['eforms_s_contact_us'] = 'contact_us:instOK';
+$_COOKIE['eforms_s_contact_us'] = 'contact_us:submOK';
 
 require __DIR__ . '/../bootstrap.php';
 

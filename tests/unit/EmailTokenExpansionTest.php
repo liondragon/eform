@@ -48,12 +48,14 @@ final class EmailTokenExpansionTest extends BaseTestCase
             'submitted_at' => '2024-01-01T00:00:00Z',
             'ip' => '1.2.3.4',
             'form_id' => 't1',
+            'submission_id' => 'sub-123',
+            'slot' => 3,
         ];
 
-        $input = 'F={{field.foo}} U={{field.up}} S={{submitted_at}} I={{ip}} ID={{form_id}} X={{unknown}}';
+        $input = 'F={{field.foo}} U={{field.up}} S={{submitted_at}} I={{ip}} ID={{form_id}} SUB={{submission_id}} SL={{slot}} X={{unknown}}';
         $out = $this->expand($input, $canonical, $meta);
         $this->assertSame(
-            'F=bar U=a.pdf, b.pdf S=2024-01-01T00:00:00Z I=1.2.3.4 ID=t1 X={{unknown}}',
+            'F=bar U=a.pdf, b.pdf S=2024-01-01T00:00:00Z I=1.2.3.4 ID=t1 SUB=sub-123 SL=3 X={{unknown}}',
             $out
         );
     }

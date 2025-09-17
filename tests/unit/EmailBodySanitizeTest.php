@@ -39,7 +39,7 @@ final class EmailBodySanitizeTest extends BaseTestCase
         ];
         $rawBody = "Hello\rWorld\nAgain\x00\x1F";
         $canonical = ['body' => $rawBody];
-        $meta = ['form_id' => 't1', 'instance_id' => 'i1'];
+        $meta = ['form_id' => 't1', 'submission_id' => 'sub1'];
         Emailer::send($tpl, $canonical, $meta);
         remove_action('phpmailer_init', $prep);
         global $TEST_ARTIFACTS;

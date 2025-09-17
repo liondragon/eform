@@ -85,6 +85,18 @@ class Renderer
             $cookieName = 'eforms_s_' . $formId;
             $cookieVal = $_COOKIE[$cookieName] ?? '';
             if ($cookieVal && str_starts_with($cookieVal, $formId . ':')) {
+                $sub = substr($cookieVal, strlen($formId) + 1);
+                if ($sub === '') {
+                    \setcookie($cookieName, '', [
+                        'expires' => time() - 3600,
+                        'path' => '/',
+                        'secure' => \is_ssl(),
+                        'httponly' => true,
+                        'samesite' => 'Lax',
+                    ]);
+                    unset($_COOKIE[$cookieName]);
+                    return '';
+                }
                 $msg = $tpl['success']['message'] ?? 'Success';
                 $successHtml = '<div class="eforms-success">' . \esc_html($msg) . '</div>';
                 \setcookie($cookieName, '', [
