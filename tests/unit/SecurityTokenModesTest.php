@@ -125,8 +125,8 @@ class SecurityTokenModesTest extends BaseTestCase
         $res = Security::token_validate('contact_us', true, 'bad');
         $this->assertSame('hidden', $res['mode']);
         $this->assertFalse($res['token_ok']);
-        $this->assertFalse($res['hard_fail']);
-        $this->assertSame(1, $res['soft_signal']);
+        $this->assertTrue($res['hard_fail']);
+        $this->assertSame(0, $res['soft_signal']);
         $this->assertFalse($res['require_challenge']);
     }
 
@@ -211,6 +211,7 @@ class SecurityTokenModesTest extends BaseTestCase
         $data = [
             'form_id' => $formId,
             'mode' => $mode,
+            'issued_at' => time(),
             'expires' => time() + 600,
         ];
         @file_put_contents($dir . '/' . $hash . '.json', json_encode($data));
