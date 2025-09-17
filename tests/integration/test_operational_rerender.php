@@ -12,6 +12,7 @@ $origToken = '00000000-0000-4000-8000-00000000abcd';
 mint_hidden_token_record('contact_us', $origToken, time() - 60);
 $_POST = [
     'form_id' => 'contact_us',
+    'eforms_mode' => 'cookie',
     'instance_id' => $origInstance,
     'timestamp' => time(),
     'eforms_hp' => '',

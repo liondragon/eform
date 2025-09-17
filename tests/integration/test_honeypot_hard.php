@@ -12,6 +12,7 @@ set_eid_cookie('contact_us', 'i-00000000-0000-4000-8000-000000000011');
 
 $_POST = [
     'form_id' => 'contact_us',
+    'eforms_mode' => 'cookie',
     'instance_id' => 'instHPH',
     'timestamp' => time(),
     'eforms_hp' => 'bot-hard',

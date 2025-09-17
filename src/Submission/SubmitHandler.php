@@ -45,11 +45,48 @@ class SubmitHandler
         // Use normalized template context from preflight so that field descriptors
         // include resolved handler identifiers and other defaults.
         $tpl = $pre['context'];
-        $instanceId = (string) ($_POST['instance_id'] ?? '');
-        $baseMeta = ['form_id' => $formId, 'instance_id' => $instanceId];
+        $modeInput = $_POST['eforms_mode'] ?? '';
+        if ($modeInput === 'cookie') {
+            $mode = 'cookie';
+        } elseif ($modeInput === 'hidden') {
+            $mode = 'hidden';
+        } else {
+            $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+        }
+        $slot = 1;
+        if ($mode === 'cookie') {
+            $slotRaw = $_POST['eforms_slot'] ?? '';
+            if ($slotRaw !== '') {
+                $slotVal = filter_var($slotRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($slotVal !== false) {
+                    $slot = (int) $slotVal;
+                }
+            }
+        }
+        $instanceIdPost = (string) ($_POST['instance_id'] ?? '');
+        $instanceId = $mode === 'hidden' ? $instanceIdPost : 's' . $slot;
+        if ($mode === 'hidden' && $instanceId === '') {
+            Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', ['form_id' => $formId, 'instance_id' => $instanceId]);
+            $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+        }
+        $baseMeta = ['form_id' => $formId, 'instance_id' => $instanceId, 'mode' => $mode];
+        if ($mode === 'cookie') {
+            $baseMeta['slot'] = $slot;
+        }
         $logBase = $baseMeta;
         if ((int) Config::get('logging.level', 0) >= 2) {
             $logBase['desc_sha1'] = sha1(json_encode($tpl['descriptors'] ?? [], JSON_UNESCAPED_SLASHES));
+        }
+        $postedToken = $_POST['eforms_token'] ?? null;
+        $hasHidden = ($mode === 'hidden');
+        if ($hasHidden) {
+            if ($postedToken === null || $postedToken === '') {
+                Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $logBase + ['msg' => 'missing_hidden_token']);
+                $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+            }
+        } elseif ($postedToken !== null && $postedToken !== '') {
+            Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $logBase + ['msg' => 'unexpected_hidden_token']);
+            $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
         if (Uploads::enabled() && Uploads::hasUploadFields($tpl)) {
             Uploads::gc();
@@ -67,8 +104,6 @@ class SubmitHandler
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
         $softFailCount = $origin['soft_signal'];
-        $hasHidden = isset($_POST['eforms_token']) && $_POST['eforms_token'] !== '';
-        $postedToken = $_POST['eforms_token'] ?? null;
         $cookieName = 'eforms_eid_' . $formId;
         $cookieToken = $_COOKIE[$cookieName] ?? '';
         $tokenInfo = Security::token_validate($formId, $hasHidden, $postedToken);
@@ -223,14 +258,15 @@ class SubmitHandler
                 }
             }
             Logging::write('info', 'EFORMS_ERR_VALIDATION', $logCtx);
-            $meta = $baseMeta + [
-                'timestamp' => $timestamp,
-                'cacheable' => !$hasHidden,
-                'client_validation' => (bool) Config::get('html5.client_validation', false),
-                'action' => \home_url('/eforms/submit'),
-                'hidden_token' => $hasHidden ? $postedToken : null,
-                'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
-            ];
+            $meta = $baseMeta;
+            if ($hasHidden) {
+                $meta['timestamp'] = $timestamp;
+            }
+            $meta['cacheable'] = !$hasHidden;
+            $meta['client_validation'] = (bool) Config::get('html5.client_validation', false);
+            $meta['action'] = \home_url('/eforms/submit');
+            $meta['hidden_token'] = $hasHidden ? $postedToken : null;
+            $meta['enctype'] = $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded';
             if ($requireChallenge) {
                 $prov = Config::get('challenge.provider', 'turnstile');
                 $site = Config::get('challenge.' . $prov . '.site_key', '');
@@ -269,17 +305,23 @@ class SubmitHandler
                 Uploads::deleteStored($stored);
                 Uploads::unlinkTemps($rawFiles);
                 Logging::write('error', 'EFORMS_UPLOAD_STORE_FAIL', $logBase);
-                $newInstance = Helpers::random_id(16);
+                $newInstance = $hasHidden ? Helpers::random_id(16) : 's' . $slot;
                 $meta = [
                     'form_id' => $formId,
                     'instance_id' => $newInstance,
-                    'timestamp' => $timestamp > 0 ? $timestamp : time(),
+                    'mode' => $mode,
                     'cacheable' => !$hasHidden,
                     'client_validation' => (bool) Config::get('html5.client_validation', false),
                     'action' => \home_url('/eforms/submit'),
                     'hidden_token' => $hasHidden ? (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()) : null,
                     'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
                 ];
+                if ($mode === 'cookie') {
+                    $meta['slot'] = $slot;
+                }
+                if ($hasHidden) {
+                    $meta['timestamp'] = $timestamp > 0 ? $timestamp : time();
+                }
                 if ($requireChallenge) {
                     $prov = Config::get('challenge.provider', 'turnstile');
                     $site = Config::get('challenge.' . $prov . '.site_key', '');
@@ -328,18 +370,24 @@ class SubmitHandler
             }
             Logging::write('error', 'EFORMS_EMAIL_FAIL', $ctx);
             unset($canonical['_uploads']);
-            $newInstance = Helpers::random_id(16);
+            $newInstance = $hasHidden ? Helpers::random_id(16) : 's' . $slot;
             $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
             $meta = [
                 'form_id' => $formId,
                 'instance_id' => $newInstance,
-                'timestamp' => $timestamp > 0 ? $timestamp : time(),
+                'mode' => $mode,
                 'cacheable' => !$hasHidden,
                 'client_validation' => (bool) Config::get('html5.client_validation', false),
                 'action' => \home_url('/eforms/submit'),
                 'hidden_token' => $hasHidden ? (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()) : null,
                 'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
             ];
+            if ($mode === 'cookie') {
+                $meta['slot'] = $slot;
+            }
+            if ($hasHidden) {
+                $meta['timestamp'] = $timestamp > 0 ? $timestamp : time();
+            }
             if ($requireChallenge) {
                 $prov = Config::get('challenge.provider', 'turnstile');
                 $site = Config::get('challenge.' . $prov . '.site_key', '');
@@ -392,15 +440,33 @@ class SubmitHandler
     private function renderErrorAndExit(array $tpl, string $formId, string $msg, bool $includeChallenge = false): void
     {
         $ts = isset($_POST['timestamp']) ? (int) $_POST['timestamp'] : time();
+        $modeInput = $_POST['eforms_mode'] ?? '';
+        $mode = $modeInput === 'hidden' ? 'hidden' : 'cookie';
+        $slot = 1;
+        if ($mode === 'cookie') {
+            $slotRaw = $_POST['eforms_slot'] ?? '';
+            if ($slotRaw !== '') {
+                $slotVal = filter_var($slotRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($slotVal !== false) {
+                    $slot = (int) $slotVal;
+                }
+            }
+        }
+        $instance = $mode === 'hidden' ? ($_POST['instance_id'] ?? Helpers::random_id(16)) : 's' . $slot;
         $meta = [
             'form_id' => $formId,
-            'instance_id' => $_POST['instance_id'] ?? Helpers::random_id(16),
-            'timestamp' => $ts,
-            'cacheable' => true,
+            'instance_id' => $instance,
+            'mode' => $mode,
+            'cacheable' => ($mode === 'cookie'),
             'client_validation' => (bool) Config::get('html5.client_validation', false),
             'action' => \home_url('/eforms/submit'),
             'hidden_token' => null,
         ];
+        if ($mode === 'hidden') {
+            $meta['timestamp'] = $ts;
+        } else {
+            $meta['slot'] = $slot;
+        }
         if ($includeChallenge) {
             $prov = Config::get('challenge.provider', 'turnstile');
             $site = Config::get('challenge.' . $prov . '.site_key', '');

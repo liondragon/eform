@@ -27,7 +27,16 @@ class FormRenderer
             return '<div class="eforms-error">Form configuration error.</div>';
         }
         $tpl = $pre['context'];
-        $instanceId = Helpers::random_id(16);
+        $cacheable = (bool) ($opts['cacheable'] ?? false);
+        $mode = $cacheable ? 'cookie' : 'hidden';
+        $slot = 1;
+        if ($mode === 'cookie' && isset($opts['slot'])) {
+            $slotVal = is_numeric($opts['slot']) ? (int) $opts['slot'] : 1;
+            if ($slotVal > 0) {
+                $slot = $slotVal;
+            }
+        }
+        $instanceId = $mode === 'hidden' ? Helpers::random_id(16) : 's' . $slot;
         $logBase = ['form_id' => $formId, 'instance_id' => $instanceId];
         if ((int) Config::get('logging.level', 0) >= 2) {
             $logBase['desc_sha1'] = sha1(json_encode($tpl['descriptors'] ?? [], JSON_UNESCAPED_SLASHES));
@@ -39,27 +48,32 @@ class FormRenderer
             require_once __DIR__ . '/../Security/Throttle.php';
             Throttle::gc();
         }
-        $cacheable = (bool) ($opts['cacheable'] ?? true);
-        if (!$cacheable) {
+        if ($mode === 'hidden') {
             \nocache_headers();
             \header('Cache-Control: private, no-store, max-age=0');
             if (function_exists('eforms_header')) {
                 eforms_header('Cache-Control: private, no-store, max-age=0');
             }
         }
-        $timestamp = time();
+        $now = time();
         $hasUploads = Uploads::enabled() && Uploads::hasUploadFields($tpl);
         $meta = [
             'form_id' => $formId,
             'instance_id' => $instanceId,
-            'timestamp' => $timestamp,
             'cacheable' => $cacheable,
             'client_validation' => (bool) Config::get('html5.client_validation', false),
             'action' => \home_url('/eforms/submit'),
-            'hidden_token' => $cacheable ? null : (function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4()),
+            'hidden_token' => null,
             'enctype' => $hasUploads ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
+            'mode' => $mode,
         ];
-        if (!$cacheable && ($meta['hidden_token'] ?? '') !== '') {
+        if ($mode === 'hidden') {
+            $meta['timestamp'] = $now;
+            $meta['hidden_token'] = function_exists('wp_generate_uuid4') ? \wp_generate_uuid4() : Helpers::uuid4();
+        } else {
+            $meta['slot'] = $slot;
+        }
+        if ($mode === 'hidden' && ($meta['hidden_token'] ?? '') !== '') {
             $record = Security::hiddenTokenRecord((string) $meta['hidden_token']);
             if ($record === null) {
                 $base = rtrim((string) Config::get('uploads.dir', ''), '/');
@@ -71,11 +85,11 @@ class FormRenderer
                     }
                     if (is_dir($dir)) {
                         $ttl = (int) Config::get('security.token_ttl_seconds', 600);
-                        $expires = $ttl > 0 ? $timestamp + $ttl : 0;
+                        $expires = $ttl > 0 ? $now + $ttl : 0;
                         $payload = json_encode([
                             'mode' => 'hidden',
                             'form_id' => $formId,
-                            'issued_at' => $timestamp,
+                            'issued_at' => $now,
                             'expires' => $expires,
                         ], JSON_UNESCAPED_SLASHES);
                         if ($payload !== false) {
@@ -107,7 +121,7 @@ class FormRenderer
         $this->enqueueAssetsIfNeeded();
         $html = Renderer::form($tpl, $meta, [], []);
         $estimate = (int) ($tpl['max_input_vars_estimate'] ?? 0);
-        if (!$cacheable) {
+        if ($mode === 'hidden') {
             $estimate++;
         }
         $max = (int) ini_get('max_input_vars');

@@ -15,6 +15,7 @@ $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
 $origTs = time() - 5;
 $_POST = [
     'form_id' => 'contact_us',
+    'eforms_mode' => 'cookie',
     'instance_id' => 'instCHFAIL',
     'timestamp' => $origTs,
     'eforms_hp' => '',

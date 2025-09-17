@@ -14,6 +14,7 @@ $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
 $_POST = [
     'form_id' => 'contact_us',
+    'eforms_mode' => 'cookie',
     'instance_id' => 'instCHPASS',
     'timestamp' => time() - 5,
     'eforms_hp' => '',

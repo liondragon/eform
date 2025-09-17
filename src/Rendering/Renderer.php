@@ -61,7 +61,23 @@ class Renderer
     public static function form(array $tpl, array $meta, array $errors, array $values): string
     {
         $formId = $meta['form_id'];
-        $instanceId = $meta['instance_id'];
+        $mode = ($meta['mode'] ?? '') === 'cookie' ? 'cookie' : 'hidden';
+        $cacheable = $mode === 'cookie' ? true : (bool) ($meta['cacheable'] ?? false);
+        $slot = 1;
+        if ($mode === 'cookie') {
+            $slotVal = isset($meta['slot']) ? (int) $meta['slot'] : 1;
+            if ($slotVal > 0) {
+                $slot = $slotVal;
+            }
+        }
+        $instanceId = (string) ($meta['instance_id'] ?? '');
+        if ($mode === 'cookie') {
+            if ($instanceId === '') {
+                $instanceId = 's' . $slot;
+            }
+        } elseif ($instanceId === '') {
+            $instanceId = Helpers::random_id(16);
+        }
         $formClass = Helpers::sanitize_id($tpl['id'] ?? $formId);
         // Success message check
         $successHtml = '';
@@ -143,15 +159,23 @@ class Renderer
         $html .= '>';
         // hidden meta
         $html .= '<input type="hidden" name="form_id" value="' . \esc_attr($formId) . '">';
-        $html .= '<input type="hidden" name="instance_id" value="' . \esc_attr($meta['instance_id']) . '">';
-        $hpId = 'hp_' . Helpers::random_id(8);
+        $html .= '<input type="hidden" name="eforms_mode" value="' . \esc_attr($mode) . '">';
+        if ($mode === 'cookie' && ($slot !== 1 || array_key_exists('slot', $meta))) {
+            $html .= '<input type="hidden" name="eforms_slot" value="' . $slot . '">';
+        }
+        if ($mode === 'hidden') {
+            $html .= '<input type="hidden" name="instance_id" value="' . \esc_attr($instanceId) . '">';
+        }
+        $hpId = $mode === 'hidden' ? 'hp_' . Helpers::random_id(8) : $formId . '-hp-s' . $slot;
         $html .= '<input type="hidden" name="eforms_hp" id="' . \esc_attr($hpId) . '" value="">';
-        $html .= '<input type="hidden" name="timestamp" value="' . (int)$meta['timestamp'] . '">';
+        if ($mode === 'hidden') {
+            $html .= '<input type="hidden" name="timestamp" value="' . (int) ($meta['timestamp'] ?? 0) . '">';
+        }
         $html .= '<input type="hidden" name="js_ok" value="0">';
-        if (!$meta['cacheable']) {
+        if ($mode === 'hidden') {
             $token = $meta['hidden_token'] ?? '';
             $html .= '<input type="hidden" name="eforms_token" value="' . \esc_attr($token) . '">';
-        } else {
+        } elseif ($cacheable) {
             $html .= '<img src="' . \esc_url(\home_url('/eforms/prime?f=' . $formId)) . '" aria-hidden="true" alt="" width="1" height="1" style="position:absolute;left:-9999px;">';
         }
 
@@ -251,7 +275,7 @@ class Renderer
             $html .= '</' . $open . '>';
         }
         if ($rowErr) {
-            Logging::write('warn', TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, ['form_id'=>$formId,'instance_id'=>$meta['instance_id'] ?? '']);
+            Logging::write('warn', TemplateValidator::EFORMS_ERR_ROW_GROUP_UNBALANCED, ['form_id'=>$formId,'instance_id'=>$instanceId]);
         }
         if (!empty($meta['challenge'])) {
             $ch = $meta['challenge'];

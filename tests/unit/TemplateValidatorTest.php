@@ -159,7 +159,7 @@ class TemplateValidatorTest extends BaseTestCase
         $tpl['fields'][] = ['type' => 'row_group', 'mode' => 'end', 'tag' => 'div'];
         $res = TemplateValidator::preflight($tpl);
         $this->assertTrue($res['ok']);
-        $this->assertSame(7, $res['context']['max_input_vars_estimate']);
+        $this->assertSame(9, $res['context']['max_input_vars_estimate']);
         $this->assertCount(4, $res['context']['fields']);
     }
 

@@ -561,7 +561,7 @@ class TemplateValidator
         $rules = $filteredRules;
 
         // max_input_vars estimate (excludes uploads)
-        $estimate = 5; // form_id, instance_id, eforms_hp, timestamp, js_ok
+        $estimate = 7; // form_id, eforms_mode, instance_id, timestamp, eforms_hp, js_ok, eforms_token
         $maxOptsEstimate = Config::get('validation.max_options_per_group', 100);
         foreach ($normFields as $nf) {
             $type = $nf['type'];
