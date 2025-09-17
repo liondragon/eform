@@ -314,29 +314,49 @@ electronic_forms - Spec
       - Hidden-mode error rerender reuses original `instance_id`, `timestamp`, and hidden token.
       - Cookie-mode rerender emits identical markup (no new randomness) and reuses minted `eid`.
       - Renderer id/name attributes stable per descriptor; attr mirror parity holds.
-    - TTL alignment checks:
-      - Minted record `expires - issued_at` equals cookie `Max-Age` (CI assertion).
-      - Hidden record expiry matches `security.token_ttl_seconds` window.
-      - Success ticket TTL respects `security.success_ticket_ttl_seconds` and cleans up after expiry.
+  6. Test/QA Matrix (v4.4 mandatory)
+    - Hidden-mode checks:
+      - Omit or alter the hidden token with `security.submission_token.required=true` → reject with `EFORMS_ERR_TOKEN` hard fail.
+      - Expire or delete the hidden record with `security.submission_token.required=false` → accept submission path but emit a soft signal (no `EFORMS_ERR_TOKEN`).
+      - Replay a burned hidden token after ledger reservation exists → hard fail on `EFORMS_ERR_TOKEN`.
+    - Cookie-mode checks:
+      - Submit with no minted record on disk → hard fail on `EFORMS_ERR_TOKEN`.
+      - Present mismatched `form_id`/`eid` metadata or mix in a hidden token → hard fail on `EFORMS_ERR_TOKEN`.
+      - Drop the cookie and rely on `security.cookie_missing_policy="soft"` → continue submission flow and log the soft signal; `"hard"` or `"challenge"` must block (hard fail) per policy.
+      - Post a slot outside `cookie_mode_slots_allowed` → hard fail on `EFORMS_ERR_TOKEN`.
+    - Honeypot checks:
+      - Fill `eforms_hp` with `security.honeypot_response="stealth_success"` → mimic success UX, burn the ledger entry, and log `stealth:true` (treated as soft fail for QA).
+      - Fill `eforms_hp` with `security.honeypot_response="hard_fail"` → hard fail with the generic global error.
+    - Success-ticket checks:
+      - Valid ticket + matching cookie → banner renders once, clears state (pass condition).
+      - Missing ticket while cookie present → suppress banner and log soft signal.
+      - Replay ticket after verifier burns it → hard fail / no banner.
+    - Determinism checks:
+      - Hidden-mode rerender after validation errors reuses the original `instance_id`, `timestamp`, and hidden token (diff → hard fail).
+      - Cookie-mode rerender emits identical markup and reuses the minted `eid` and slot (diff → hard fail).
+    - TTL-alignment checks:
+      - Minted record `expires - issued_at` matches the cookie `Max-Age`; drift → hard fail in CI.
+      - Hidden record expiry aligns with `security.token_ttl_seconds`; drift → hard fail in CI.
+      - Success ticket expiry respects `security.success_ticket_ttl_seconds` and cleans up on expiry; drift → hard fail in CI.
 
-  6. Spam Decision
+  7. Spam Decision
     - Hard checks first: honeypot_empty and token/Origin hard fails (and hard throttle). Any hard fail stops processing.
     - Soft signals (+1 each unless policy says otherwise): min_fill_ok=false; js_ok!="1" (unless js_hard_mode=true → hard); missing UA; age_ok=false (hidden-token mode advisory); origin_soft_signal; token soft; throttle over-limit soft.
     - cookie_missing_policy='challenge' and verification success clears soft signals (does not override hard failures).
     - Decision: soft_fail_count >= spam.soft_fail_threshold → spam-fail; ==1 → deliver as suspect; ==0 → deliver normal.
     - Accessibility note: js_hard_mode=true blocks non-JS users; keep opt-in.
 
-  7. Redirect Safety
+  8. Redirect Safety
     - wp_safe_redirect; same-origin only (scheme/host/port).
 
-  8. Suspect Handling
+  9. Suspect Handling
     - add headers: X-EForms-Soft-Fails, X-EForms-Suspect; subject tag (configurable)
 
-  9. Throttling (optional; file-based)
+ 10. Throttling (optional; file-based)
     - As previously specified: fixed 60s window, small JSON file, flock; soft over-limit adds +1; hard over-limit = HARD FAIL.
     - Key derivation respects privacy.ip_mode; storage path ${uploads.dir}/throttle/{h2}/{key}.json; GC files >2 days old.
 
-  10. Adaptive challenge (optional; Turnstile preferred)
+  11. Adaptive challenge (optional; Turnstile preferred)
     - Modes: off | auto (require when soft_fail_count>=1) | always
     - Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds +1 soft and logs EFORMS_CHALLENGE_UNCONFIGURED.
     - Render only on POST re-render when required (or always); never on initial GET unless §7.1 requires challenge.
