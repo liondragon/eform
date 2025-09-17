@@ -4,7 +4,7 @@ require __DIR__ . '/../bootstrap.php';
 
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_contact_us'] = '00000000-0000-4000-8000-000000000099';
+set_eid_cookie('contact_us', 'i-00000000-0000-4000-8000-000000000099');
 $_POST = [
     'form_id' => 'contact_us',
     'instance_id' => 'instPROTECT',

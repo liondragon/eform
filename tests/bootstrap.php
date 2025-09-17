@@ -200,6 +200,74 @@ function register_test_env_filter(): void {
         return $defaults;
     });
 }
+
+function mint_eid_record(string $formId, string $eid, ?int $issuedAt = null, ?int $ttl = null): void
+{
+    $eid = (string) $eid;
+    if ($eid === '' || $formId === '') {
+        return;
+    }
+    $base = __DIR__ . '/tmp/uploads/eforms-private';
+    $hash = sha1($eid);
+    $dir = $base . '/eid_minted/' . $formId . '/' . substr($hash, 0, 2);
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0777, true);
+    }
+    if (!is_dir($dir)) {
+        return;
+    }
+    $issuedAt = $issuedAt ?? time();
+    $ttl = $ttl ?? 600;
+    $expires = $issuedAt + $ttl;
+    $payload = json_encode([
+        'mode' => 'cookie',
+        'form_id' => $formId,
+        'eid' => $eid,
+        'issued_at' => $issuedAt,
+        'expires' => $expires,
+    ], JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        return;
+    }
+    @file_put_contents($dir . '/' . $eid . '.json', $payload);
+}
+
+function mint_hidden_token_record(string $formId, string $token, ?int $issuedAt = null, ?int $ttl = null): void
+{
+    $token = (string) $token;
+    if ($token === '' || $formId === '') {
+        return;
+    }
+    $base = __DIR__ . '/tmp/uploads/eforms-private';
+    $hash = hash('sha256', $token);
+    $dir = $base . '/tokens/' . substr($hash, 0, 2);
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0777, true);
+    }
+    if (!is_dir($dir)) {
+        return;
+    }
+    $issuedAt = $issuedAt ?? time();
+    $ttl = $ttl ?? 600;
+    $expires = $issuedAt + $ttl;
+    $payload = json_encode([
+        'mode' => 'hidden',
+        'form_id' => $formId,
+        'issued_at' => $issuedAt,
+        'expires' => $expires,
+    ], JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        return;
+    }
+    @file_put_contents($dir . '/' . $hash . '.json', $payload);
+}
+
+function set_eid_cookie(string $formId, string $eid, ?int $issuedAt = null, ?int $ttl = null): void
+{
+    $issuedAt = $issuedAt ?? (time() - 10);
+    $_COOKIE['eforms_eid_' . $formId] = $eid;
+    mint_eid_record($formId, $eid, $issuedAt, $ttl);
+}
 function set_config(array $overrides): void {
     global $TEST_FILTERS;
     $TEST_FILTERS = [];

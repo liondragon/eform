@@ -9,6 +9,7 @@ $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
 $origInstance = 'instOP1';
 $origToken = '00000000-0000-4000-8000-00000000abcd';
+mint_hidden_token_record('contact_us', $origToken, time() - 60);
 $_POST = [
     'form_id' => 'contact_us',
     'instance_id' => $origInstance,

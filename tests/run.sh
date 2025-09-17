@@ -96,7 +96,7 @@ record_result "spec schema parity" $ok
 # Prime endpoint cookie attributes
 run_test test_prime_cookie
 ok=0
-assert_grep tmp/headers.txt 'Set-Cookie: eforms_t_contact_us=' || ok=1
+assert_grep tmp/headers.txt 'Set-Cookie: eforms_eid_contact_us=' || ok=1
 assert_grep tmp/headers.txt 'Max-Age=' || ok=1
 record_result "prime sets max-age" $ok
 

@@ -58,7 +58,7 @@ final class ChallengeInitTest extends BaseTestCase
     public function testPolicyChallengeEnqueuesScriptWhenCookieMissing(): void
     {
         $this->setConfig('security.cookie_missing_policy', 'challenge');
-        unset($_COOKIE['eforms_t_contact_us']);
+        unset($_COOKIE['eforms_eid_contact_us']);
         $fm = new FormRenderer();
         $GLOBALS['wp_enqueued_scripts'] = [];
         $html = $fm->render('contact_us');

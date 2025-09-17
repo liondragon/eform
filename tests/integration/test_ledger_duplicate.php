@@ -15,7 +15,7 @@ if (is_dir($ledgerBase)) {
 // First submit (should succeed -> redirect 303)
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_contact_us'] = 'dupTok';
+set_eid_cookie('contact_us', 'i-00000000-0000-4000-8000-00000000d000');
 $_POST = [
     'form_id' => 'contact_us',
     'instance_id' => 'instDup1',
@@ -36,7 +36,7 @@ ob_end_clean();
 require __DIR__ . '/../bootstrap.php'; // rebootstrap fresh hooks and artifacts
 $_SERVER['REQUEST_METHOD'] = 'POST';
 $_SERVER['HTTP_REFERER'] = 'http://hub.local/form-test/';
-$_COOKIE['eforms_t_contact_us'] = 'dupTok';
+set_eid_cookie('contact_us', 'i-00000000-0000-4000-8000-00000000d000');
 $_POST = [
     'form_id' => 'contact_us',
     'instance_id' => 'instDup2',
