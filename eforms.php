@@ -123,11 +123,12 @@ namespace {
             $issuedAt = time();
             $value = 'i-' . $uuid;
             $expire = $issuedAt + $ttl;
+            $maxAge = max(0, $expire - $issuedAt);
             $cookieStr = $cookie . '=' . rawurlencode($value)
                 . '; Path=/'
                 . '; HttpOnly'
                 . '; SameSite=Lax'
-                . '; Max-Age=' . $ttl
+                . '; Max-Age=' . $maxAge
                 . '; Expires=' . gmdate('D, d M Y H:i:s', $expire) . ' GMT';
             if (is_ssl()) {
                 $cookieStr .= '; Secure';
@@ -139,19 +140,28 @@ namespace {
             $_COOKIE[$cookie] = $value;
             $uploadsDir = rtrim((string) Config::get('uploads.dir', ''), '/');
             if ($uploadsDir !== '') {
-                $hash = sha1($value);
+                $hash = hash('sha256', $value);
                 $shard = substr($hash, 0, 2);
                 $dir = $uploadsDir . '/eid_minted/' . $formId . '/' . $shard;
                 if (!is_dir($dir)) {
                     @mkdir($dir, 0700, true);
+                    @chmod($dir, 0700);
                 }
                 if (is_dir($dir)) {
+                    $slotsAllowed = [];
+                    if ((bool) Config::get('security.cookie_mode_slots_enabled', false)) {
+                        $slotsAllowed = Config::get('security.cookie_mode_slots_allowed', []);
+                        if (!is_array($slotsAllowed)) {
+                            $slotsAllowed = [];
+                        }
+                    }
                     $payload = json_encode([
                         'mode' => 'cookie',
                         'form_id' => $formId,
                         'eid' => $value,
                         'issued_at' => $issuedAt,
                         'expires' => $expire,
+                        'slots_allowed' => array_values($slotsAllowed),
                     ], JSON_UNESCAPED_SLASHES);
                     if ($payload !== false) {
                         $file = $dir . '/' . $value . '.json';

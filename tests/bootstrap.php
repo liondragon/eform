@@ -201,14 +201,14 @@ function register_test_env_filter(): void {
     });
 }
 
-function mint_eid_record(string $formId, string $eid, ?int $issuedAt = null, ?int $ttl = null): void
+function mint_eid_record(string $formId, string $eid, ?int $issuedAt = null, ?int $ttl = null, array $slotsAllowed = []): void
 {
     $eid = (string) $eid;
     if ($eid === '' || $formId === '') {
         return;
     }
     $base = __DIR__ . '/tmp/uploads/eforms-private';
-    $hash = sha1($eid);
+    $hash = hash('sha256', $eid);
     $dir = $base . '/eid_minted/' . $formId . '/' . substr($hash, 0, 2);
     if (!is_dir($dir)) {
         @mkdir($dir, 0777, true);
@@ -225,6 +225,7 @@ function mint_eid_record(string $formId, string $eid, ?int $issuedAt = null, ?in
         'eid' => $eid,
         'issued_at' => $issuedAt,
         'expires' => $expires,
+        'slots_allowed' => array_values($slotsAllowed),
     ], JSON_UNESCAPED_SLASHES);
     if ($payload === false) {
         return;

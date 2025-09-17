@@ -29,8 +29,8 @@ final class SecurityChecksTest extends BaseTestCase
         $this->assertSame('stealth_success', $res['mode']);
         $log = (string) file_get_contents($this->logFile);
         $this->assertStringContainsString('EFORMS_ERR_HONEYPOT', $log);
-        $hash = sha1('contact_us:' . $token);
-        $ledger = __DIR__ . '/../tmp/uploads/eforms-private/ledger/' . substr($hash, 0, 2) . '/' . $hash . '.used';
+        $hash = hash('sha256', $token);
+        $ledger = __DIR__ . '/../tmp/uploads/eforms-private/ledger/contact_us/' . substr($hash, 0, 2) . '/' . $token . '.used';
         $this->assertFileExists($ledger);
     }
 

@@ -45,32 +45,42 @@ class SubmitHandler
         // Use normalized template context from preflight so that field descriptors
         // include resolved handler identifiers and other defaults.
         $tpl = $pre['context'];
-        $modeInput = $_POST['eforms_mode'] ?? '';
-        if ($modeInput === 'cookie') {
-            $mode = 'cookie';
-        } elseif ($modeInput === 'hidden') {
-            $mode = 'hidden';
-        } else {
+        $modeClaim = $_POST['eforms_mode'] ?? '';
+        if ($modeClaim !== 'cookie' && $modeClaim !== 'hidden') {
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
         $slot = 1;
-        if ($mode === 'cookie') {
-            $slotRaw = $_POST['eforms_slot'] ?? '';
-            if ($slotRaw !== '') {
-                $slotVal = filter_var($slotRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-                if ($slotVal !== false) {
-                    $slot = (int) $slotVal;
-                }
+        $slotRaw = $_POST['eforms_slot'] ?? '';
+        if ($slotRaw !== '') {
+            $slotVal = filter_var($slotRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($slotVal !== false) {
+                $slot = (int) $slotVal;
             }
         }
+        $tokenFieldPresent = array_key_exists('eforms_token', $_POST);
+        $postedToken = (string) ($_POST['eforms_token'] ?? '');
+        $cookieTokenRaw = (string) ($_COOKIE['eforms_eid_' . $formId] ?? '');
+        $tokenInfo = Security::token_validate($formId, [
+            'mode_claim' => $modeClaim,
+            'token_field_present' => $tokenFieldPresent,
+            'posted_token' => $postedToken,
+            'cookie_token' => $cookieTokenRaw,
+            'slot' => $slot,
+        ]);
+        $mode = $tokenInfo['mode'] ?? $modeClaim;
+        $slot = (int) ($tokenInfo['slot'] ?? $slot);
+        if ($slot < 1) {
+            $slot = 1;
+        }
+        $hasHidden = ($mode === 'hidden');
         $instanceIdPost = (string) ($_POST['instance_id'] ?? '');
-        $instanceId = $mode === 'hidden' ? $instanceIdPost : 's' . $slot;
-        if ($mode === 'hidden' && $instanceId === '') {
+        $instanceId = $hasHidden ? $instanceIdPost : 's' . $slot;
+        if ($hasHidden && $instanceId === '') {
             $ctx = ['form_id' => $formId, 'instance_id' => $instanceId];
-            if (isset($_POST['eforms_token'])) {
-                $ctx['submission_id'] = (string) $_POST['eforms_token'];
+            if ($postedToken !== '') {
+                $ctx['submission_id'] = $postedToken;
             }
-            Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $ctx);
+            Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $ctx + ['msg' => 'missing_instance_id']);
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
         $baseMeta = ['form_id' => $formId, 'instance_id' => $instanceId, 'mode' => $mode];
@@ -81,22 +91,25 @@ class SubmitHandler
         if ((int) Config::get('logging.level', 0) >= 2) {
             $logBase['desc_sha1'] = sha1(json_encode($tpl['descriptors'] ?? [], JSON_UNESCAPED_SLASHES));
         }
-        $postedToken = $_POST['eforms_token'] ?? null;
-        $hasHidden = ($mode === 'hidden');
-        $tokenRequired = (bool) Config::get('security.submission_token.required', true);
-        $missingHiddenTokenSoft = false;
-        if ($hasHidden) {
-            if ($postedToken === null || $postedToken === '') {
-                Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $logBase + ['msg' => 'missing_hidden_token']);
-                if ($tokenRequired) {
-                    $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
-                } else {
-                    $missingHiddenTokenSoft = true;
+        $submissionId = (string) ($tokenInfo['submission_id'] ?? '');
+        if ($submissionId === '') {
+            if ($hasHidden) {
+                $submissionId = $postedToken;
+            } else {
+                $submissionId = $cookieTokenRaw;
+                if ($slot > 1 && $submissionId !== '') {
+                    $submissionId .= ':s' . $slot;
                 }
             }
-        } elseif ($postedToken !== null && $postedToken !== '') {
-            Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $logBase + ['msg' => 'unexpected_hidden_token']);
-            $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
+        }
+        $baseMeta['submission_id'] = $submissionId;
+        $logBase['submission_id'] = $submissionId;
+        $logBase['token_mode'] = $tokenInfo['mode'] ?? $mode;
+        if (!$tokenInfo['token_ok'] && isset($tokenInfo['reason'])) {
+            $reason = (string) $tokenInfo['reason'];
+            if (in_array($reason, ['missing_hidden_token', 'invalid_hidden_token', 'hidden_record_missing', 'mode_mismatch', 'form_mismatch', 'hidden_token_posted', 'slot_not_allowed'], true)) {
+                Logging::write('warn', 'EFORMS_ERR_MODE_MISMATCH', $logBase + ['msg' => $reason]);
+            }
         }
         if (Uploads::enabled() && Uploads::hasUploadFields($tpl)) {
             Uploads::gc();
@@ -114,39 +127,17 @@ class SubmitHandler
             $this->renderErrorAndExit($tpl, $formId, 'Security check failed.');
         }
         $softFailCount = $origin['soft_signal'];
-        $cookieName = 'eforms_eid_' . $formId;
-        $cookieToken = $_COOKIE[$cookieName] ?? '';
-        $submissionId = $hasHidden ? (string) $postedToken : (string) $cookieToken;
-        if ($mode === 'cookie' && $slot > 1 && $submissionId !== '') {
-            $submissionId .= ':s' . $slot;
-        }
-        $baseMeta['submission_id'] = $submissionId;
-        $logBase = array_merge($logBase, ['submission_id' => $submissionId]);
-        $tokenInfo = Security::token_validate($formId, $hasHidden, $postedToken);
-        $logBase['token_mode'] = $tokenInfo['mode'] ?? '';
-        $tokenSubmission = (string) ($tokenInfo['submission_id'] ?? $submissionId);
-        if ($mode === 'cookie') {
-            $cookieToken = $tokenSubmission;
-        }
-        $submissionId = $tokenSubmission;
-        if ($mode === 'cookie' && $slot > 1 && $submissionId !== '') {
-            $submissionId .= ':s' . $slot;
-        }
-        $baseMeta['submission_id'] = $submissionId;
-        $logBase['submission_id'] = $submissionId;
-        if ($tokenInfo['mode'] === 'cookie') {
-            $cookieToken = $tokenSubmission;
-        }
         if ($tokenInfo['hard_fail']) {
-            Logging::write('warn', 'EFORMS_ERR_TOKEN', $logBase + [
+            $tokenLog = $logBase;
+            if (isset($tokenInfo['reason'])) {
+                $tokenLog['msg'] = (string) $tokenInfo['reason'];
+            }
+            Logging::write('warn', 'EFORMS_ERR_TOKEN', $tokenLog + [
                 'ip' => Helpers::client_ip(),
             ]);
             $this->renderErrorAndExit($tpl, $formId, 'This form was already submitted or has expired – please reload the page.');
         }
         $softFailCount += $tokenInfo['soft_signal'];
-        if ($missingHiddenTokenSoft && ($tokenInfo['soft_signal'] ?? 0) === 0) {
-            $softFailCount++;
-        }
         $ua = Helpers::sanitize_user_agent($_SERVER['HTTP_USER_AGENT'] ?? '');
         if ($ua === '') {
             $softFailCount++;

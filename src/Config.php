@@ -55,6 +55,22 @@ class Config
         $sec['ua_maxlen'] = self::clampInt($sec['ua_maxlen'], 0, 10000);
         $sec['honeypot_response'] = in_array($sec['honeypot_response'], ['stealth_success','hard_fail'], true) ? $sec['honeypot_response'] : $defaults['security']['honeypot_response'];
         $sec['cookie_missing_policy'] = in_array($sec['cookie_missing_policy'], ['off','soft','hard','challenge'], true) ? $sec['cookie_missing_policy'] : $defaults['security']['cookie_missing_policy'];
+        $sec['cookie_mode_slots_enabled'] = (bool)($sec['cookie_mode_slots_enabled'] ?? false);
+        $slotsAllowed = $sec['cookie_mode_slots_allowed'] ?? [];
+        if (!is_array($slotsAllowed)) {
+            $slotsAllowed = [];
+        }
+        $normalizedSlots = [];
+        foreach ($slotsAllowed as $slotVal) {
+            if (is_int($slotVal) || ctype_digit((string) $slotVal)) {
+                $slot = (int) $slotVal;
+                if ($slot >= 1 && $slot <= 255 && !in_array($slot, $normalizedSlots, true)) {
+                    $normalizedSlots[] = $slot;
+                }
+            }
+        }
+        sort($normalizedSlots, SORT_NUMERIC);
+        $sec['cookie_mode_slots_allowed'] = $normalizedSlots;
         $sec['token_ledger']['enable'] = (bool)($sec['token_ledger']['enable'] ?? true);
         $sec['submission_token']['required'] = (bool)($sec['submission_token']['required'] ?? true);
 
@@ -138,6 +154,8 @@ class Config
                 'ua_maxlen' => 256,
                 'honeypot_response' => 'stealth_success',
                 'cookie_missing_policy' => 'soft',
+                'cookie_mode_slots_enabled' => false,
+                'cookie_mode_slots_allowed' => [],
             ],
             'spam' => [
                 'soft_fail_threshold' => 2,
