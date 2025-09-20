@@ -195,29 +195,43 @@ electronic_forms - Spec
       - Treat resolved descriptors as immutable after preflight and reuse in both Renderer and Validator (no re-merge on POST). Zero string lookups in hot paths; perfect determinism.
 
 6. CENTRAL REGISTRIES (INTERNAL ONLY)
-  - Static registries (no public filters): field_types, validators, normalizers/coercers, renderers.
-  - Registries are private to each owning class and exposed only through resolve() helpers.
-    - Example:
-      - Validator: private const HANDLERS = ['email' => [self::class,'validateEmail'], ...]
-      - Normalizer: private const HANDLERS = ['scalar' => [self::class,'normalizeScalar'], ...]
-      - Renderer: private const HANDLERS = ['text' => [self::class,'emitInput'], 'textarea' => [...], ...]
-      - public static function resolve(string $id): callable { if (!isset(self::HANDLERS[$id])) throw RuntimeException(...); return self::HANDLERS[$id]; }
-  - Uploads registry settings: token->mime/ext expansions; image sanity; caps
-  - Accept token map (canonical, conservative). For v1 parity, only tokens are image and pdf; do not add unless explicitly required.
-  - Upload registry loads on demand when a template with file/files is rendered or posted.
-  - Structural registry (TEMPLATE_SPEC) defines allowed keys, required combos, enums (implements additionalProperties:false).
-  - Escaping map (per sink) to be used consistently:
-    - HTML text -> esc_html
-    - HTML attribute -> esc_attr
-    - Textarea -> esc_textarea
-    - URL (render) -> esc_url
-    - URL (storage/transport) -> esc_url_raw
-    - JSON/logs -> wp_json_encode
-  - Challenge and Throttle modules are loaded only when needed. Initialize the challenge module when (a) challenge.mode != "off", or (b) security.cookie_missing_policy == "challenge", or (c) a POST sets Security::token_validate().require_challenge === true. No classes, hooks, or assets are registered otherwise.
-  - Lazy registries vs autoloading (clarification):
+	- Static registries (no public filters): field_types, validators, normalizers/coercers, renderers.
+	- Registries are private to each owning class and exposed only through resolve() helpers.
+    	- Example:
+	      - Validator: private const HANDLERS = ['email' => [self::class,'validateEmail'], ...]
+	      - Normalizer: private const HANDLERS = ['scalar' => [self::class,'normalizeScalar'], ...]
+	      - Renderer: private const HANDLERS = ['text' => [self::class,'emitInput'], 'textarea' => [...], ...]
+	      - public static function resolve(string $id): callable { if (!isset(self::HANDLERS[$id])) throw RuntimeException(...); return self::HANDLERS[$id]; }
+    - Uploads registry settings: token->mime/ext expansions; image sanity; caps
+	- Accept token map (canonical, conservative). For v1 parity, only tokens are image and pdf; do not add unless explicitly required.
+	- Upload registry loads on demand when a template with file/files is rendered or posted.
+	- Structural registry (TEMPLATE_SPEC) defines allowed keys, required combos, enums (implements additionalProperties:false).
+	- Escaping map (per sink) to be used consistently:
+		- HTML text -> esc_html
+	    - HTML attribute -> esc_attr
+	    - Textarea -> esc_textarea
+	    - URL (render) -> esc_url
+	    - URL (storage/transport) -> esc_url_raw
+		- JSON/logs -> wp_json_encode
+	- Challenge and Throttle modules are loaded only when needed. Initialize the challenge module when (a) challenge.mode != "off", or (b) security.cookie_missing_policy == "challenge", or (c) a POST sets Security::token_validate().require_challenge === true. No classes, hooks, or assets are registered otherwise.
+	- Lazy registries vs autoloading (clarification):
 	  - Autoloading a class is considered "lazy enough" for static registries: the PHP file is loaded only when the class is first referenced. Merely defining `private const HANDLERS` does not initialize any heavy state.
 	  - Derived maps/caches (e.g., resolved descriptor caches) are computed on first use (TemplateValidator preflight / Validator path) and memoized per request.
 	  - No global scans or runtime plugin discovery occurs; resolution is O(1) lookups into those const arrays.
+	-  Lazy-load matrix (components & triggers):
+		| Component        | Init policy | Trigger(s) (first use) | Notes |
+		|------------------|------------:|-------------------------|-------|
+		| Config snapshot | Lazy | First `Config::get()` or entry into `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()` | Idempotent (per request); see §17 for bootstrap timing. |
+		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; reused within request. |
+		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
+		| Security (token/origin) | Lazy | First token/origin check during POST; cookie prime endpoint | No state until called; consults Config on demand. |
+		| Uploads | Lazy | Template declares file(s) or POST carries files | Initializes finfo and policy only when needed. |
+		| Emailer | Lazy | After validation succeeds (just before send) | SMTP/DKIM init only on send; skipped on failures. |
+		| Logging | Lazy | First log write when `logging.mode != "off"` | Opens/rotates file on demand. |
+		| Throttle | Lazy | When `throttle.enable=true` and key present | File created on first check. |
+		| Challenge | Lazy | `challenge.mode != "off"` or cookie policy requires it | Provider script enqueued only when rendered. |
+		| Assets (CSS/JS) | Lazy | When a form is rendered on the page | Version via filemtime; opt-out honored. |
+ 	
 7. SECURITY
   1. Submission Protection for Public Forms (hidden vs cookie)
     - Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
