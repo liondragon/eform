@@ -565,8 +565,8 @@ security.*
   security.honeypot_response ("hard_fail"|"stealth_success"; default "stealth_success")
   security.cookie_missing_policy ("off"|"soft"|"hard"|"challenge"; default "soft")
   security.cookie_mode_slots_enabled (bool; default false)
-  security.cookie_mode_slots_allowed (array<int>; required when slots enabled)
-  security.success_ticket_ttl_seconds (int; default 300)
+  security.cookie_mode_slots_allowed (array<int>; default []; slots normalized to 1-255; honored only when cookie_mode_slots_enabled)
+  security.success_ticket_ttl_seconds (int; default 300; clamp 30-3600)
 
 spam.*
   spam.soft_fail_threshold (int; default 2; clamp 0-5)
