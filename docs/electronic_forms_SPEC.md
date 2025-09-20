@@ -485,7 +485,7 @@ electronic_forms - Spec
   - Reject arrays where a scalar is expected in headers/subject fields.
   - Reply-To from a validated email field (email.reply_to_field).
   - deliverability: recommend SMTP with SPF/DKIM/DMARC
-  - template tokens: {{field.key}}, {{submitted_at}}, {{ip}}, {{form_id}}
+  - template tokens: {{field.key}}, {{submitted_at}}, {{ip}}, {{form_id}}, {{submission_id}}, {{slot}} (emitted only for cookie-mode submissions where slots are configured and successfully bound)
   - If an upload field key appears in include_fields, render value as comma-separated list of original_name_safe in the email body (attachments separate).
   - attachments: only for fields with email_attach=true; enforce uploads.max_email_bytes and email.upload_max_attachments; summarize overflow in body before send.
   - Enforce size/count before PHPMailer->send() to avoid SMTP 552.
