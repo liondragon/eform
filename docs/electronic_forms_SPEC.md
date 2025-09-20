@@ -98,7 +98,7 @@ electronic_forms - Spec
   1. Field Generation and Namespacing
     - Template field keys may include:
       - key (slug), type, label?, placeholder?, required (bool), size (1-100; text-like only: text, tel, url, email), autocomplete?, options (for radios/checkboxes/select), class?, max_length?, min?, max?, step?, pattern?, before_html?, after_html?
-    - key (slug): required; must match ^[a-z0-9_:-]{1,64}$ (lowercase); [] prohibited to prevent PHP array collisions; reserved keys remain disallowed.
+    - key (slug): required; must match `/^[a-z0-9_-]{1,64}$/` (lowercase). [] prohibited to prevent PHP array collisions; reserved keys remain disallowed. Dropping `:` keeps generated IDs/CSS selectors safe.
     - autocomplete: exactly one token. "on"/"off" accepted; else must match WHATWG tokens (name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
     - size: 1-100; honored only for text-like controls (text, tel, url, email).
     - Renderer injects security metadata per the active submission mode. See §7.1 for the canonical hidden-token and cookie-mode contract (required hidden fields, cookie/EID minting, rerender reuse rules, and POST expectations).
