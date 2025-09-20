@@ -7,6 +7,7 @@ electronic_forms - Spec
   - Targets publicly accessible contact forms without authenticated sessions. Cache-friendly and session-agnostic: WordPress nonces are never used.
   - No admin UI.
   - Focus on simplicity and efficiency; avoid overengineering. Easy to maintain and performant for intended use.
+  - Lazy by design: the configuration snapshot is bootstrapped lazily on first access (Renderer/SubmitHandler/Emailer/Security) rather than at plugin load; modules initialize **only when their triggers occur** (see §6.5, §17).
   - No database writes; file-backed one-time token ledger for duplicate-submit prevention (no Redis/queues).
   - Clear boundaries: render vs. validate vs. send vs. log vs. upload.
   - Deterministic pipeline and schema parity: big win for testability.
@@ -213,13 +214,16 @@ electronic_forms - Spec
     - URL (storage/transport) -> esc_url_raw
     - JSON/logs -> wp_json_encode
   - Challenge and Throttle modules are loaded only when needed. Initialize the challenge module when (a) challenge.mode != "off", or (b) security.cookie_missing_policy == "challenge", or (c) a POST sets Security::token_validate().require_challenge === true. No classes, hooks, or assets are registered otherwise.
-
+  - Lazy registries vs autoloading (clarification):
+	  - Autoloading a class is considered "lazy enough" for static registries: the PHP file is loaded only when the class is first referenced. Merely defining `private const HANDLERS` does not initialize any heavy state.
+	  - Derived maps/caches (e.g., resolved descriptor caches) are computed on first use (TemplateValidator preflight / Validator path) and memoized per request.
+	  - No global scans or runtime plugin discovery occurs; resolution is O(1) lookups into those const arrays.
 7. SECURITY
   1. Submission Protection for Public Forms (hidden vs cookie)
     - Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
     - Canonical pipeline (render → persist → POST → rerender) shared by renderer, submit handler, and QA:
       1. **Render (GET)**
-         - Both modes inject `form_id`, `eforms_mode`, the fixed honeypot `eforms_hp`, and the static hidden `js_ok`. Responses include CSS/JS enqueueing decisions and caching headers per §19. `eforms_mode` is informational only; the authoritative mode enforcement occurs via the persisted record detailed in the next bullet.
+         - Both modes inject `form_id`, `eforms_mode`, the fixed honeypot `eforms_hp`, and the static hidden `js_ok`. Responses include CSS/JS enqueueing decisions and caching headers per §19. `eforms_mode` is informational only; the persisted record (see below) is the enforcement authority.
          - Hidden-mode additionally emits a CSPRNG `instance_id` (16–24 bytes → base64url → `^[A-Za-z0-9_-]{22,32}$`), a `timestamp` snapshot, and `<input type=\"hidden\" name=\"eforms_token\" value=\"…\">` where the raw UUID matches `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. The renderer persists that raw token server-side and must reuse the exact `{token, instance_id, timestamp}` trio on every error rerender until a new token is minted. Hidden responses send `Cache-Control: private, no-store`.
          - Cookie-mode renders remain deterministic: they omit `instance_id`, timestamps, and hidden tokens. Multi-instance pages MAY emit a deterministic integer `eforms_slot` (default `1`; slots require a configured allow-list). When slots are configured, each instance emits its own deterministic 1×1 `<img src=\"/eforms/prime?f={form_id}&s={slot}\" aria-hidden=\"true\" alt=\"\" width=\"1\" height=\"1\">` probe; slotless forms continue to send a single `/eforms/prime?f={form_id}` beacon and MUST NOT append `s`. The pixel keeps screen readers from announcing it and layout engines honor the fixed size while `/eforms/prime` returns `204` with `Cache-Control: no-store`. It mints `Set-Cookie: eforms_eid_{form_id}=i-<UUIDv4>; HttpOnly; SameSite=Lax; Path=/; Max-Age=security.token_ttl_seconds; [Secure on HTTPS]` only when the request either lacks a matching cookie or presents one that is expired or has no surviving minted record. `/eforms/prime` MUST load the minted record before skipping `Set-Cookie`; a missing, truncated, or expired record is treated as stale and triggers a fresh mint so implementations never "adopt" a forged or orphaned cookie. When the cookie remains valid and the record loads cleanly, `/eforms/prime` omits `Set-Cookie` and only updates the minted record (unioning the slot into `slots_allowed`). Cookie values must match `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Hidden renders (and unknown IDs) still return 204 but without `Set-Cookie`.
       2. **Persisted records (sole authority for mode + freshness)**
@@ -544,9 +548,17 @@ electronic_forms - Spec
 
 17. CONFIGURATION (SUMMARY)
   - Authoritative defaults: the table below defines the canonical config paths and their default values; other sections should reference this summary instead of re-listing values.
-  - Immutable per-request Config snapshot:
-    - Config::bootstrap() loads defaults (nested array mirroring §17), applies a single eforms_config filter once, validates/clamps types/ranges/enums, then freezes.
-    - Access via Config::get('path.like.this').
+  - Bootstrap timing (lazy & idempotent):
+		- `Config::bootstrap()` is not run at plugin load. It is invoked lazily on first access from any public entry point that requires configuration:
+			- `Config::get()`; `FormRenderer::render()`; `SubmitHandler::handle()`; `Security::token_validate()`; `Emailer::send()`; prime/success endpoints.
+		- Implementations SHOULD use a cheap guard, e.g.:
+			- `if (!Config::isBootstrapped()) { Config::bootstrap(); }`
+		- Within a single request, bootstrapping is idempotent and performed at most once. There is **no cross-request persistence** beyond WordPress options/hooks; this keeps behavior deterministic.
+		- Rationale: deferring bootstrap shortens plugin load time, avoids work on pages without forms, and respects the “lazy by default” objective.
+		- Special cases: `uninstall.php` invokes `Config::bootstrap()` synchronously to read purge flags; WP-CLI commands that operate standalone MAY call `Config::forceBootstrap()` early.
+	- Immutable per-request Config snapshot:
+		- `Config::bootstrap()` loads defaults (nested array mirroring §17), applies a single `eforms_config` filter once, validates/clamps types/ranges/enums, then freezes.
+	- Access via `Config::get('path.like.this')`.
   - Keys (examples, all below are config paths):
     - security.origin_mode: off | soft | hard (default soft)
 
