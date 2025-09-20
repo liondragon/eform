@@ -185,7 +185,7 @@ class TemplateValidator
                 }
             }
             $key = $f['key'] ?? null;
-            if (!is_string($key) || !preg_match('/^[a-z0-9_:-]{1,64}$/', $key)) {
+            if (!is_string($key) || !preg_match('/^[a-z0-9_-]{1,64}$/', $key)) {
                 $errors[] = ['code'=>self::EFORMS_ERR_SCHEMA_TYPE,'path'=>$path.'key'];
                 continue;
             }

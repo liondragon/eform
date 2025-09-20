@@ -65,6 +65,15 @@ class TemplateValidatorTest extends BaseTestCase
         $this->assertContains(TemplateValidator::EFORMS_ERR_TYPE, $codes);
     }
 
+    public function testFieldKeyRejectsColon(): void
+    {
+        $tpl = $this->baseTpl();
+        $tpl['fields'][0]['key'] = 'name:extra';
+        $res = TemplateValidator::preflight($tpl);
+        $codes = array_column($res['errors'], 'code');
+        $this->assertContains(TemplateValidator::EFORMS_ERR_SCHEMA_TYPE, $codes);
+    }
+
     public function testDuplicateFieldKey(): void
     {
         $tpl = $this->baseTpl();
