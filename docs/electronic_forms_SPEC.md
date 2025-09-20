@@ -7,7 +7,7 @@ electronic_forms - Spec
   - Targets publicly accessible contact forms without authenticated sessions. Cache-friendly and session-agnostic: WordPress nonces are never used.
   - No admin UI.
   - Focus on simplicity and efficiency; avoid overengineering. Easy to maintain and performant for intended use.
-  - Lazy by design: the configuration snapshot is bootstrapped lazily on first access (Renderer/SubmitHandler/Emailer/Security) rather than at plugin load; modules initialize **only when their triggers occur** (see §6.5, §17).
+  - Lazy by design: the configuration snapshot is bootstrapped lazily on first access (Renderer/SubmitHandler/Emailer/Security) rather than at plugin load; modules initialize **only when their triggers occur** (see §6: Lazy-load matrix and §17).
   - No database writes; file-backed one-time token ledger for duplicate-submit prevention (no Redis/queues).
   - Clear boundaries: render vs. validate vs. send vs. log vs. upload.
   - Deterministic pipeline and schema parity: big win for testability.
