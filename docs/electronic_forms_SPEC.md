@@ -104,7 +104,7 @@ electronic_forms - Spec
     - Renderer injects security metadata per the active submission mode. See §7.1 for the canonical hidden-token and cookie-mode contract (required hidden fields, cookie/EID minting, rerender reuse rules, and POST expectations).
     - Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
     - Renderer-generated attributes:
-      - id = "{form_id}-{field_key}-{instance_id}" in hidden-mode and "{form_id}-{field_key}-s{slot}" in cookie-mode (slot defaults to 1).
+      - id = "{form_id}-{field_key}-{instance_id}" in hidden-mode and "{form_id}-{field_key}-s{slot}" in cookie-mode (slot suffix emitted only when slots are enabled and explicitly assigned; otherwise no slot suffix).
       - name = "{form_id}[{field_key}]" or "{form_id}[{field_key}][]" for multivalue
     - Reserved field keys (templates must not use): form_id, instance_id, submission_id, eforms_token, eforms_hp, eforms_mode, eforms_slot, timestamp, js_ok, ip, submitted_at.
     - include_fields accepts template keys and meta keys:
