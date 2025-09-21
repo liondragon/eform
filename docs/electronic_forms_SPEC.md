@@ -251,7 +251,7 @@ electronic_forms - Spec
           - `"off"`: treat as degraded-but-allowed (no soft signal, no challenge requirement).
           - `"soft"`: continue the submission path and emit the soft signal (`soft_signal=1`).
           - `"hard"`: treat the absence as tampering → hard fail with `EFORMS_ERR_TOKEN`.
-          - `"challenge"`: continue after logging the soft signal and set `require_challenge=true` so §7.3's challenge handshake must succeed before delivery; failing the challenge escalates to the same hard failure as the `"hard"` path.
+          - `"challenge"`: continue after logging the soft signal and set `require_challenge=true` so §7.11's challenge handshake must succeed before delivery; failing the challenge escalates to the same hard failure as the `"hard"` path.
         Posting a hidden token when the record says cookie (or vice versa) is treated as tampering.
         - Slot enforcement (cookie mode only): when slots are disabled, any posted `eforms_slot` is treated as tampering → HARD FAIL (`EFORMS_ERR_TOKEN`). When slots are enabled, parse `eforms_slot` as a base-10 integer; no implicit default is applied, and a missing or non-numeric `eforms_slot` is treated as tampering that hard-fails with `EFORMS_ERR_TOKEN`. Require the value to appear in `security.cookie_mode_slots_allowed` and in the minted record’s `slots_allowed`. If the minted record’s `slot` is non-null (single-slot case), it MUST equal the POSTed value; when `slot` is null (multi-slot case), the equality check is skipped. Slotless minted records (`slot:null`, empty `slots_allowed`) reject any posted slot. A mismatch hard-fails with `EFORMS_ERR_TOKEN`. The resulting `submission_id` becomes `${eid}` or `${eid}__slot{slot}` (double underscore keeps filenames Windows-safe).
         - Duplicate suppression uses `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used`. Reserve the sentinel via an exclusive-create call (`fopen('xb')` or equivalent) with 0700 directory / 0600 file perms immediately before side effects (email send, file finalize). Hidden tokens and cookie EIDs (with optional `__slot{n}` suffix) must resolve to colon-free `submission_id` values in both modes to keep filenames portable. Treat `EEXIST` as a duplicate submission; any other filesystem failure while reserving the sentinel also counts as a duplicate and must emit an `EFORMS_LEDGER_IO` log entry for ops review. Honeypot short-circuits burn the same ledger entry.
@@ -365,7 +365,8 @@ electronic_forms - Spec
   11. Adaptive challenge (optional; Turnstile preferred)
     - Modes: off | auto (require when soft_fail_count>=1) | always
     - Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds +1 soft and logs EFORMS_CHALLENGE_UNCONFIGURED.
-    - Render only on POST re-render when required (or always); never on initial GET unless §7.1 requires challenge.
+	- Render only on POST re-render when required (or always); never on initial GET unless §7.1 requires challenge.
+	- In cookie mode, challenge rerenders MUST include the `/eforms/prime?f={form_id}[&s={slot}]` pixel so a fresh EID is minted before the next POST.
     - Turnstile → cf-turnstile-response; hCaptcha → h-captcha-response; reCAPTCHA v2 → g-recaptcha-response.
 
 8. VALIDATION & SANITIZATION PIPELINE (DETERMINISTIC)
