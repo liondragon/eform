@@ -201,7 +201,14 @@ function register_test_env_filter(): void {
     });
 }
 
-function mint_eid_record(string $formId, string $eid, ?int $issuedAt = null, ?int $ttl = null, array $slotsAllowed = []): void
+function mint_eid_record(
+    string $formId,
+    string $eid,
+    ?int $issuedAt = null,
+    ?int $ttl = null,
+    array $slotsAllowed = [],
+    ?int $slot = null
+): void
 {
     $eid = (string) $eid;
     if ($eid === '' || $formId === '') {
@@ -219,13 +226,38 @@ function mint_eid_record(string $formId, string $eid, ?int $issuedAt = null, ?in
     $issuedAt = $issuedAt ?? time();
     $ttl = $ttl ?? 600;
     $expires = $issuedAt + $ttl;
+    $normalizedSlots = [];
+    foreach ($slotsAllowed as $slotVal) {
+        if (is_int($slotVal) || ctype_digit((string) $slotVal)) {
+            $slotInt = (int) $slotVal;
+            if ($slotInt >= 1 && $slotInt <= 255 && !in_array($slotInt, $normalizedSlots, true)) {
+                $normalizedSlots[] = $slotInt;
+            }
+        }
+    }
+    sort($normalizedSlots, SORT_NUMERIC);
+    $slotValue = null;
+    if ($slot !== null) {
+        $slot = (int) $slot;
+        if ($slot >= 1 && $slot <= 255) {
+            $slotValue = $slot;
+        }
+    }
+    if ($slotValue !== null && !in_array($slotValue, $normalizedSlots, true)) {
+        $normalizedSlots[] = $slotValue;
+        sort($normalizedSlots, SORT_NUMERIC);
+    }
+    if ($slotValue === null && count($normalizedSlots) === 1) {
+        $slotValue = $normalizedSlots[0];
+    }
     $payload = json_encode([
         'mode' => 'cookie',
         'form_id' => $formId,
         'eid' => $eid,
         'issued_at' => $issuedAt,
         'expires' => $expires,
-        'slots_allowed' => array_values($slotsAllowed),
+        'slots_allowed' => array_values($normalizedSlots),
+        'slot' => $slotValue,
     ], JSON_UNESCAPED_SLASHES);
     if ($payload === false) {
         return;

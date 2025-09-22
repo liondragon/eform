@@ -100,6 +100,13 @@ assert_grep tmp/headers.txt 'Set-Cookie: eforms_eid_contact_us=' || ok=1
 assert_grep tmp/headers.txt 'Max-Age=' || ok=1
 record_result "prime sets max-age" $ok
 
+# Prime reuse within TTL keeps timestamps
+run_test test_prime_cookie_remint
+ok=0
+assert_grep tmp/prime_remint.txt '^timestamps_equal=1$' || ok=1
+assert_grep tmp/prime_remint.txt '^second_set_cookie=0$' || ok=1
+record_result "prime reuse keeps ttl" $ok
+
 # 1) Submit route: 405
 run_test test_submit_405
 ok=0
