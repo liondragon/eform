@@ -4,7 +4,8 @@ electronic_forms - Spec
 1. OBJECTIVE
   - Build a dependency-free, lightweight plugin that renders and processes multiple forms from JSON templates with strict DRY principles and a deterministic pipeline.
   - Internal use on 4-5 sites, ~40 submissions/day across forms, USA only. Not publicly marketed/distributed.
-  - Targets publicly accessible contact forms without authenticated sessions. Cache-friendly and session-agnostic: WordPress nonces are never used.
+  - Targets publicly accessible contact forms without authenticated sessions. Cache-friendly and session-agnostic: WordPress nonces are never used. The plugin does not implement authenticated user flows, account dashboards, or any account management surfaces.
+  - Out of scope for this project: any multi-step or multi-page questionnaires/wizards, or flows that depend on persistent user identity beyond a single submission.
   - No admin UI.
   - Focus on simplicity and efficiency; avoid overengineering. Easy to maintain and performant for intended use.
   - Lazy by design: the configuration snapshot is bootstrapped lazily on first access (Renderer/SubmitHandler/Emailer/Security) rather than at plugin load; modules initialize only when their triggers occur (see §6: Lazy-load matrix and §17).
