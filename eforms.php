@@ -123,54 +123,210 @@ namespace {
             }
             $ttl = (int) Config::get('security.token_ttl_seconds', 600);
             $cookie = 'eforms_eid_' . $formId;
-            $uuid = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : bin2hex(random_bytes(16));
-            $issuedAt = time();
-            $value = 'i-' . $uuid;
-            $expire = $issuedAt + $ttl;
-            $maxAge = max(0, $expire - $issuedAt);
-            $cookieStr = $cookie . '=' . rawurlencode($value)
-                . '; Path=/'
-                . '; HttpOnly'
-                . '; SameSite=Lax'
-                . '; Max-Age=' . $maxAge
-                . '; Expires=' . gmdate('D, d M Y H:i:s', $expire) . ' GMT';
-            if (is_ssl()) {
-                $cookieStr .= '; Secure';
-            }
-            header('Set-Cookie: ' . $cookieStr, false);
-            if (function_exists('eforms_header')) {
-                eforms_header('Set-Cookie: ' . $cookieStr);
-            }
-            $_COOKIE[$cookie] = $value;
             $uploadsDir = rtrim((string) Config::get('uploads.dir', ''), '/');
-            if ($uploadsDir !== '') {
-                $hash = hash('sha256', $value);
-                $shard = substr($hash, 0, 2);
-                $dir = $uploadsDir . '/eid_minted/' . $formId . '/' . $shard;
-                if (!is_dir($dir)) {
-                    @mkdir($dir, 0700, true);
-                    @chmod($dir, 0700);
-                }
-                if (is_dir($dir)) {
-                    $slotsAllowed = [];
-                    if ((bool) Config::get('security.cookie_mode_slots_enabled', false)) {
-                        $slotsAllowed = Config::get('security.cookie_mode_slots_allowed', []);
-                        if (!is_array($slotsAllowed)) {
-                            $slotsAllowed = [];
+            $slotsEnabled = (bool) Config::get('security.cookie_mode_slots_enabled', false);
+            $allowedSlots = [];
+            if ($slotsEnabled) {
+                $configured = Config::get('security.cookie_mode_slots_allowed', []);
+                if (is_array($configured)) {
+                    foreach ($configured as $slotVal) {
+                        if (is_int($slotVal) || ctype_digit((string) $slotVal)) {
+                            $slotInt = (int) $slotVal;
+                            if ($slotInt >= 1 && $slotInt <= 255 && !in_array($slotInt, $allowedSlots, true)) {
+                                $allowedSlots[] = $slotInt;
+                            }
                         }
                     }
-                    $payload = json_encode([
-                        'mode' => 'cookie',
-                        'form_id' => $formId,
-                        'eid' => $value,
-                        'issued_at' => $issuedAt,
-                        'expires' => $expire,
-                        'slots_allowed' => array_values($slotsAllowed),
-                    ], JSON_UNESCAPED_SLASHES);
-                    if ($payload !== false) {
-                        $file = $dir . '/' . $value . '.json';
-                        @file_put_contents($file, $payload);
-                        @chmod($file, 0600);
+                    sort($allowedSlots, SORT_NUMERIC);
+                }
+            }
+            if (!$slotsEnabled || empty($allowedSlots)) {
+                $allowedSlots = [];
+            }
+            $slot = null;
+            if (!empty($allowedSlots) && isset($_GET['s'])) {
+                $candidate = trim((string) $_GET['s']);
+                if ($candidate !== '' && ctype_digit($candidate)) {
+                    $slotValue = (int) $candidate;
+                    if ($slotValue >= 1 && $slotValue <= 255 && in_array($slotValue, $allowedSlots, true)) {
+                        $slot = $slotValue;
+                    }
+                }
+            }
+
+            $atomicWrite = static function (string $path, string $payload): bool {
+                $dir = dirname($path);
+                if (!is_dir($dir)) {
+                    return false;
+                }
+                $tmpFile = '';
+                $fh = false;
+                for ($i = 0; $i < 5; $i++) {
+                    $tmpFile = $dir . '/.' . basename($path) . '.' . bin2hex(random_bytes(6)) . '.tmp';
+                    $fh = @fopen($tmpFile, 'xb');
+                    if ($fh !== false) {
+                        break;
+                    }
+                    $tmpFile = '';
+                }
+                if ($fh === false || $tmpFile === '') {
+                    return false;
+                }
+                $writeOk = @fwrite($fh, $payload);
+                @fflush($fh);
+                fclose($fh);
+                if ($writeOk === false) {
+                    @unlink($tmpFile);
+                    return false;
+                }
+                @chmod($tmpFile, 0600);
+                if (!@rename($tmpFile, $path)) {
+                    @unlink($tmpFile);
+                    return false;
+                }
+                @chmod($path, 0600);
+                return true;
+            };
+
+            $now = time();
+            $eidRegex = '/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i';
+            $existingCookie = isset($_COOKIE[$cookie]) ? (string) $_COOKIE[$cookie] : '';
+            $reused = false;
+            if ($existingCookie !== '' && preg_match($eidRegex, $existingCookie) === 1 && $uploadsDir !== '') {
+                $hash = hash('sha256', $existingCookie);
+                $shard = substr($hash, 0, 2);
+                $dir = $uploadsDir . '/eid_minted/' . $formId . '/' . $shard;
+                $file = $dir . '/' . $existingCookie . '.json';
+                if (is_file($file)) {
+                    $raw = @file_get_contents($file);
+                    if ($raw !== false) {
+                        $data = json_decode($raw, true);
+                        if (
+                            is_array($data)
+                            && ($data['mode'] ?? '') === 'cookie'
+                            && ($data['form_id'] ?? '') === $formId
+                            && ($data['eid'] ?? '') === $existingCookie
+                        ) {
+                            $issuedAt = isset($data['issued_at']) ? (int) $data['issued_at'] : 0;
+                            $expires = isset($data['expires']) ? (int) $data['expires'] : 0;
+                            if ($issuedAt > 0 && $expires > $now) {
+                                $slotsFromRecord = [];
+                                if (isset($data['slots_allowed']) && is_array($data['slots_allowed'])) {
+                                    foreach ($data['slots_allowed'] as $slotVal) {
+                                        if (is_int($slotVal) || ctype_digit((string) $slotVal)) {
+                                            $slotInt = (int) $slotVal;
+                                            if ($slotInt >= 1 && $slotInt <= 255 && !in_array($slotInt, $slotsFromRecord, true)) {
+                                                $slotsFromRecord[] = $slotInt;
+                                            }
+                                        }
+                                    }
+                                }
+                                sort($slotsFromRecord, SORT_NUMERIC);
+                                $recordSlot = null;
+                                if (array_key_exists('slot', $data)) {
+                                    $slotVal = $data['slot'];
+                                    if (is_int($slotVal) || ctype_digit((string) $slotVal)) {
+                                        $slotInt = (int) $slotVal;
+                                        if ($slotInt >= 1 && $slotInt <= 255) {
+                                            $recordSlot = $slotInt;
+                                        }
+                                    }
+                                }
+                                if ($recordSlot !== null && !in_array($recordSlot, $slotsFromRecord, true)) {
+                                    $slotsFromRecord[] = $recordSlot;
+                                    sort($slotsFromRecord, SORT_NUMERIC);
+                                }
+                                $updatedSlots = $slotsFromRecord;
+                                if ($slot !== null && !in_array($slot, $updatedSlots, true)) {
+                                    $updatedSlots[] = $slot;
+                                    sort($updatedSlots, SORT_NUMERIC);
+                                }
+                                $updatedSlotField = $recordSlot;
+                                if ($slot !== null) {
+                                    if ($recordSlot === null) {
+                                        if (count($updatedSlots) === 1) {
+                                            $updatedSlotField = $slot;
+                                        }
+                                    } elseif ($slot !== $recordSlot) {
+                                        $updatedSlotField = null;
+                                    }
+                                }
+                                $needsSlotKey = !array_key_exists('slot', $data);
+                                if ($slot === null && $recordSlot !== null && count($updatedSlots) <= 1) {
+                                    $updatedSlotField = $recordSlot;
+                                }
+                                $needsWrite = $needsSlotKey
+                                    || $updatedSlotField !== $recordSlot
+                                    || $updatedSlots !== $slotsFromRecord;
+                                if ($needsWrite) {
+                                    $payload = json_encode([
+                                        'mode' => 'cookie',
+                                        'form_id' => $formId,
+                                        'eid' => $existingCookie,
+                                        'issued_at' => $issuedAt,
+                                        'expires' => $expires,
+                                        'slots_allowed' => array_values($updatedSlots),
+                                        'slot' => $updatedSlotField,
+                                    ], JSON_UNESCAPED_SLASHES);
+                                    if ($payload !== false) {
+                                        if (!$atomicWrite($file, $payload)) {
+                                            @file_put_contents($file, $payload, LOCK_EX);
+                                            @chmod($file, 0600);
+                                        }
+                                    }
+                                }
+                                $reused = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!$reused) {
+                $uuid = function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : bin2hex(random_bytes(16));
+                $issuedAt = $now;
+                $value = 'i-' . $uuid;
+                $expire = $issuedAt + $ttl;
+                $maxAge = max(0, $expire - $issuedAt);
+                $cookieStr = $cookie . '=' . rawurlencode($value)
+                    . '; Path=/'
+                    . '; HttpOnly'
+                    . '; SameSite=Lax'
+                    . '; Max-Age=' . $maxAge
+                    . '; Expires=' . gmdate('D, d M Y H:i:s', $expire) . ' GMT';
+                if (is_ssl()) {
+                    $cookieStr .= '; Secure';
+                }
+                header('Set-Cookie: ' . $cookieStr, false);
+                if (function_exists('eforms_header')) {
+                    eforms_header('Set-Cookie: ' . $cookieStr);
+                }
+                $_COOKIE[$cookie] = $value;
+                if ($uploadsDir !== '') {
+                    $hash = hash('sha256', $value);
+                    $shard = substr($hash, 0, 2);
+                    $dir = $uploadsDir . '/eid_minted/' . $formId . '/' . $shard;
+                    if (!is_dir($dir)) {
+                        @mkdir($dir, 0700, true);
+                        @chmod($dir, 0700);
+                    }
+                    if (is_dir($dir)) {
+                        $payload = json_encode([
+                            'mode' => 'cookie',
+                            'form_id' => $formId,
+                            'eid' => $value,
+                            'issued_at' => $issuedAt,
+                            'expires' => $expire,
+                            'slots_allowed' => $slot !== null ? [$slot] : [],
+                            'slot' => $slot,
+                        ], JSON_UNESCAPED_SLASHES);
+                        if ($payload !== false) {
+                            $file = $dir . '/' . $value . '.json';
+                            if (!$atomicWrite($file, $payload)) {
+                                @file_put_contents($file, $payload, LOCK_EX);
+                                @chmod($file, 0600);
+                            }
+                        }
                     }
                 }
             }
