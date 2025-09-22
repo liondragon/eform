@@ -331,7 +331,8 @@ electronic_forms - Spec
       - Submit with no minted record on disk → hard fail on `EFORMS_ERR_TOKEN`.
       - Present mismatched `form_id`/`eid` metadata or mix in a hidden token → hard fail on `EFORMS_ERR_TOKEN`.
       - Drop the cookie and rely on `security.cookie_missing_policy="soft"` → continue submission flow and log the soft signal; `"hard"` must block (hard fail) per policy and `"challenge"` must emit the soft signal while forcing the §7.11 adaptive challenge handshake (hard fail only if the challenge cannot be satisfied).
-      - Re-priming with the same valid `eid` within TTL → `issued_at`/`expires` unchanged; `Set-Cookie` not sent.
+      - Re-prime within TTL with the same valid EID → no `Set-Cookie`; `issued_at`/`expires` unchanged.
+      - Expired minted record → new EID minted with fresh timestamps and `Set-Cookie` sent.
       - Post a slot outside `cookie_mode_slots_allowed` → hard fail on `EFORMS_ERR_TOKEN`.
     - Honeypot checks:
       - Fill `eforms_hp` with `security.honeypot_response="stealth_success"` → mimic success UX, burn the ledger entry, and log `stealth:true` (treated as soft fail for QA).
