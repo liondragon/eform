@@ -370,49 +370,14 @@ electronic_forms - Spec
       - Cookie-mode rerender emits identical markup (no new randomness) and reuses the minted `eid` and slot.
       - Renderer id/name attributes stable per descriptor; attr mirror parity holds.
   7. Test/QA Matrix (v4.4 mandatory)
-    - Hidden-mode checks:
-      - Omit or alter the hidden token with `security.submission_token.required=true` → reject with `EFORMS_ERR_TOKEN` hard fail.
-      - Expire or delete the hidden record with `security.submission_token.required=false` → accept submission path but add `"token_soft"` to `soft_reasons` (no `EFORMS_ERR_TOKEN`).
-      - Replay a burned hidden token after ledger reservation exists → hard fail on `EFORMS_ERR_TOKEN`.
-    - Cookie-mode checks:
-      - Submit with no minted record on disk → hard fail on `EFORMS_ERR_TOKEN`.
-      - Present mismatched `form_id`/`eid` metadata or mix in a hidden token → hard fail on `EFORMS_ERR_TOKEN`.
-      - Drop the cookie with `security.cookie_missing_policy="off"` → continue submission; derive an NCID; no `cookie_missing` soft reason; assert that a second identical POST within the same TTL window yields `EEXIST` via the ledger (dedupe holds).
-      - Success behavior with `"off"` (NCID): redirect to a non-cached endpoint; verifier MUST burn the success ticket on first use; replay MUST fail (same contract as other NCID flows).
-      - Suspect scoring with `"off"`: because no `cookie_missing` soft reason is added, the submission is not suspect unless other soft reasons are present (e.g., `min_fill`, `ua_missing`).
-      - Drop the cookie and rely on `security.cookie_missing_policy="soft"` → continue submission flow and add `"cookie_missing"` to `soft_reasons`; derive an NCID and assert that a second identical POST within the same TTL window yields `EEXIST` via the ledger.
-      - Drop the cookie and rely on `security.cookie_missing_policy="challenge"` → require §7.11 challenge; after success, proceed with NCID semantics as above and assert dedup within the TTL window.
-      - Re-prime within TTL with the same valid EID → no `Set-Cookie`; `issued_at`/`expires` unchanged.
-      - Expired minted record → new EID minted with fresh timestamps and `Set-Cookie` sent.
-      - Post a slot outside `cookie_mode_slots_allowed` → hard fail on `EFORMS_ERR_TOKEN`.
-      - Challenge rerender with still-valid cookie (rotation path):
-        - Rerender response sets `Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; HttpOnly; [Secure]`.
-        - The embedded `/eforms/prime?f={form_id}[&s={slot}]` that follows mints a new EID (different from the prior one) and sets `Set-Cookie`.
-        - Prior minted record remains unchanged on disk and expires per TTL.
-      - Cookie-missing + other softs with challenge success (scoping check):
-        - Given `min_fill_time` violation (+1 soft) and `cookie_missing` (+1 soft) with `cookie_missing_policy="challenge"`,
-        - After successful challenge, `soft_reasons` no longer contains `cookie_missing`; the `min_fill` label remains.
-        - Assert final `soft_reasons` contains only `"min_fill"` so downstream handling marks the submission as suspect (not normal and not spam-fail, assuming threshold > 1).
-    - Success behavior without cookies:
-      - NCID flow MUST use redirect to a non-cached endpoint; inline/cached success is not permitted.
-      - Verifier MUST burn the success ticket on first use; replay MUST fail.
-    - Honeypot checks:
-      - Fill `eforms_hp` with `security.honeypot_response="stealth_success"` → mimic success UX, burn the ledger entry, and log `stealth:true` (treated as soft fail for QA).
-      - Fill `eforms_hp` with `security.honeypot_response="hard_fail"` → hard fail with the generic global error.
-    - Success-ticket checks:
-      - Valid ticket + matching cookie → banner renders once, clears state (pass condition).
-      - Missing ticket while cookie present → suppress banner and log a warning (no change to `soft_reasons`).
-      - Replay ticket after verifier burns it → hard fail / no banner.
-    - Determinism checks:
-      - Hidden-mode rerender after validation errors reuses the original `instance_id`, `timestamp`, and hidden token (diff → hard fail).
-      - Hidden-mode `timestamp` MUST equal the record’s `issued_at` on first render and all rerenders; drift → hard fail.
-      - Hidden-mode `instance_id` MUST remain identical across rerenders until token rotation; drift → hard fail.
-      - Cookie-mode rerender emits identical markup and reuses the minted `eid` and slot (diff → hard fail).
-    - TTL-alignment checks:
-      - Minted record JSON stores `expires - issued_at == security.token_ttl_seconds`; drift → hard fail in CI.
-      - Hidden record JSON stores `expires - issued_at == security.token_ttl_seconds`; drift → hard fail in CI.
-      - Success ticket expiry respects `security.success_ticket_ttl_seconds` and cleans up on expiry; drift → hard fail in CI.
-
+    | Checklist item | Spec refs |
+    | --- | --- |
+    | Hidden-mode submissions honor the POST contract (token tampering/expiry is a hard fail when required, soft `token_soft` otherwise) and rerenders reuse `{token, instance_id, timestamp}` deterministically. | §7.1.2; §19.2 |
+    | Cookie-mode posts require the minted record, reject mixed-mode tampering, and reuse the existing `{eid, slot}` tuple on rerender. | §7.1.3; §19.2 |
+    | Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | §7.1.1; §7.1.4; §19.2 |
+    | NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | §7.1.4; §13 |
+    | Slot enforcement accepts only allowed slot values, rejects out-of-range posts, and preserves minted-slot metadata across re-renders and `/eforms/prime` refreshes. | §7.1.3 |
+    | Success tickets gate banner rendering (valid ticket passes once, missing ticket logs warning, replay fails) while obeying TTL cleanup. | §13 |
   8. Spam Decision
     - Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
     - `soft_reasons`: a deduplicated set of labels from the canonical list above.
