@@ -254,12 +254,12 @@ electronic_forms - Spec
          - Sanity regexes (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` for hidden tokens, `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` for cookie EIDs, and `^[A-Za-z0-9_-]{22,32}$` for `instance_id`) run before disk access to weed out obvious forgeries but never determine the mode. SubmitHandler always loads the persisted record before any ledger I/O; missing/expired/mismatched records trigger `EFORMS_ERR_TOKEN`. For hidden-token records, instance_id MUST be present and conform to its regex; missing/non-conformant is a schema violation (caught by CI) and a hard failure at runtime (reject with EFORMS_ERR_TOKEN). Cookie-mode records do not carry an instance_id. 
       3. POST `/eforms/submit`
         - HTTP contract: Requests MUST use HTTP POST with `Content-Type: application/x-www-form-urlencoded` (any charset) or `multipart/form-data` only. Other methods receive 405 and other media types receive 415; payload caps remain governed by §7.5.
-         - After the CSRF/origin gate (§7.4) and method/type checks (§7.5), hidden-mode POSTs must supply `eforms_token` matching the hidden regex. The handler hashes it, loads the hidden record, enforces `{mode:\"hidden\", form_id}` parity, and applies the TTL. Missing/invalid tokens obey `security.submission_token.required` (true → hard fail; false → soft signal) and cookies are ignored.
+         - After the CSRF/origin gate (§7.4) and method/type checks (§7.5), hidden-mode POSTs must supply `eforms_token` matching the hidden regex. The handler hashes it, loads the hidden record, enforces `{mode:\"hidden\", form_id}` parity, and applies the TTL. Missing/invalid tokens obey `security.submission_token.required` (true → hard fail; false → add `"token_soft"` to `soft_reasons`) and cookies are ignored.
          - Cookie-mode POSTs omit `eforms_token` and instead read `eforms_eid_{form_id}`. The cookie must match the EID regex before the minted record is consulted. The record must still say `{mode:\"cookie\"}` with the same `{form_id, eid}` and be unexpired. When the cookie is missing or rejected, apply `security.cookie_missing_policy` with explicit outcomes:
-          - `"off"`: continue (no soft signal, no challenge). When no acceptable cookie is present, derive `submission_id` via the NCID algorithm; set `cookie_present=false`, `is_ncid=true`, `token_ok=false`; do not push `cookie_missing`. Slot enforcement is skipped under NCID.
-          - `"soft"`: continue the submission path and emit the soft signal (`soft_signal=1`).
+          - `"off"`: continue (no change to `soft_reasons`, no challenge). When no acceptable cookie is present, derive `submission_id` via the NCID algorithm; set `cookie_present=false`, `is_ncid=true`, `token_ok=false`; do not push `cookie_missing`. Slot enforcement is skipped under NCID.
+          - `"soft"`: continue the submission path and add `"cookie_missing"` to `soft_reasons`.
           - `"hard"`: treat the absence as tampering → hard fail with `EFORMS_ERR_TOKEN`.
-          - `"challenge"`: continue after logging the soft signal (label it `cookie_missing`) and set `require_challenge=true` so §7.11's challenge handshake must succeed before delivery; failing the challenge escalates to the same hard failure as the `"hard"` path. On successful challenge verification, clear only the `cookie_missing` soft signal; do not clear any other soft signals that may have been recorded for the submission.
+          - `"challenge"`: continue, add `"cookie_missing"` to `soft_reasons`, and set `require_challenge=true` so §7.11's challenge handshake must succeed before delivery; failing the challenge escalates to the same hard failure as the `"hard"` path. After a successful challenge, remove only `"cookie_missing"` from `soft_reasons`; do not remove unrelated labels.
         Posting a hidden token when the record says cookie (or vice versa) is treated as tampering.
          - NCID (no-cookie submission id) for “off”/“soft”/“challenge” paths: When continuing without an acceptable cookie, the handler MUST derive a deterministic submission identifier for the dedup/ledger/success flows:
            - Let `window_idx = floor(now() / security.token_ttl_seconds)`.
@@ -271,10 +271,9 @@ electronic_forms - Spec
            - Report `mode:"cookie"` with `token_ok:false`, and include `cookie_present:false` in validator metadata for logging/QA.
         - Slot enforcement (cookie mode only): when slots are disabled, any posted `eforms_slot` is treated as tampering → HARD FAIL (`EFORMS_ERR_TOKEN`). When slots are enabled, parse `eforms_slot` as a base-10 integer; no implicit default is applied, and a missing or non-numeric `eforms_slot` is treated as tampering that hard-fails with `EFORMS_ERR_TOKEN`. Require the value to appear in `security.cookie_mode_slots_allowed` and in the minted record’s `slots_allowed`. If the minted record’s `slot` is non-null (single-slot case), it MUST equal the POSTed value; when `slot` is null (multi-slot case), the equality check is skipped. Slotless minted records (`slot:null`, empty `slots_allowed`) reject any posted slot. A mismatch hard-fails with `EFORMS_ERR_TOKEN`. The resulting `submission_id` becomes `${eid}` or `${eid}__slot{slot}` (double underscore keeps filenames Windows-safe). When proceeding under an NCID (no acceptable cookie), slot enforcement is skipped and no slot suffix is appended; omit `slot` metadata entirely.
          - Duplicate suppression uses `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` with `{h2}` derived from the `submission_id` per the sharding rule above. Reserve the sentinel via an exclusive-create call (`fopen('xb')` or equivalent) with the shared 0700 directory / 0600 file permission policy from §7.1.2 immediately before side effects (email send, file finalize). Hidden tokens, cookie EIDs (with optional `__slot{n}`), and NCIDs must all resolve to colon-free `submission_id` values. Treat `EEXIST` as a duplicate submission; any other filesystem failure while reserving the sentinel also counts as a duplicate and must emit an `EFORMS_LEDGER_IO` log entry for ops review. Honeypot short-circuits burn the same ledger entry.
-        - Validation exposes `{ mode:"hidden"|"cookie", submission_id:"…", slot?:int, token_ok:bool, hard_fail:bool, require_challenge:bool, cookie_present?:bool, is_ncid?:bool, soft_reasons?: string[] }`. Hidden mode reports the raw token; cookie mode reports the EID (plus slot suffix). For NCIDs (no acceptable cookie), `submission_id` is `"nc-…"`, `cookie_present=false`, `is_ncid=true`, and `slot` is omitted. When `security.cookie_missing_policy="off"` continues without an acceptable cookie, set `require_challenge=false`, keep `soft_reasons` unchanged (no `"cookie_missing"` entry), and surface `token_ok=false` alongside the NCID metadata. When `security.cookie_missing_policy="challenge"` handles a missing cookie, the validator pushes `"cookie_missing"` into `soft_reasons` and sets `require_challenge=true` so §7.11’s adaptive challenge handshake can run before delivery. After a successful challenge, remove `"cookie_missing"` from soft_reasons and recompute derived counters accordingly.
+        - Validation exposes `{ mode:"hidden"|"cookie", submission_id:"…", slot?:int, token_ok:bool, hard_fail:bool, require_challenge:bool, cookie_present?:bool, is_ncid?:bool, soft_reasons?: string[] }`. Hidden mode reports the raw token; cookie mode reports the EID (plus slot suffix). For NCIDs (no acceptable cookie), `submission_id` is `"nc-…"`, `cookie_present=false`, `is_ncid=true`, and `slot` is omitted. When `security.cookie_missing_policy="off"` continues without an acceptable cookie, set `require_challenge=false`, keep `soft_reasons` unchanged (no `"cookie_missing"` entry), and surface `token_ok=false` alongside the NCID metadata. When `security.cookie_missing_policy="challenge"` handles a missing cookie, the validator pushes `"cookie_missing"` into `soft_reasons` and sets `require_challenge=true` so §7.11’s adaptive challenge handshake can run before delivery. After a successful challenge, remove only `"cookie_missing"` from `soft_reasons`; other labels (e.g., `"min_fill"`) remain intact.
         - Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`.
         - Deduping requirement: `soft_reasons` MUST be a deduplicated set drawn from the canonical labels. If absent, treat as empty.
-		- Derived counters: 'soft_fail_count = |soft_reasons|; soft_signal = (soft_fail_count > 0 ? 1 : 0)'. When `security.cookie_missing_policy="off"` proceeds under an NCID, the missing cookie alone does not change `soft_fail_count`. 
 
       4. Rerender and rotation rules
         - Cookie-mode rerenders normally reuse the minted `{eid, slot}` tuple until expiry or success. Challenge flows (either security.cookie_missing_policy="challenge" or a configured challenge mode that demands a rerender) MUST clear the `eforms_eid_{form_id}` cookie via `Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; HttpOnly; [Secure on HTTPS]` (or equivalent) on the same rerender response that embeds `/eforms/prime?f={form_id}[&s={slot}]` so `/eforms/prime` observes the missing cookie and mints a fresh EID before the next POST (explicit exception to §7.1.4’s no-rotation rule). Otherwise, no mid-flow rotation occurs.
@@ -301,7 +300,7 @@ electronic_forms - Spec
     - Origin check: normalize to scheme+host+effective port (80/443 normalized; non-default ports significant). origin_state = same | cross | unknown | missing.
     - Policy (security.origin_mode): off (no signal), soft (default), hard (hard fail on cross/unknown; missing depends on origin_missing_hard).
     - Log only origin_state (no Referrer). Referrer is not consulted.
-    - Security::origin_evaluate() returns {state, hard_fail, soft_signal}.
+    - Security::origin_evaluate() returns {state, hard_fail, soft_reasons?: string[]}.
     - Operational guidance: Only enable origin_mode=hard + origin_missing_hard=true after validating your environment (some older agents omit Origin). Provide a tiny WP-CLI smoke test that POSTs without Origin to verify behavior.
 
   5. POST Size Cap (authoritative)
@@ -334,7 +333,7 @@ electronic_forms - Spec
       - Honeypot filled with `security.honeypot_response="hard_fail"` → HARD FAIL with generic error, no success log.
     - Success handshake checks:
       - Valid success ticket + matching cookie → PASS; banner renders once and clears cookie/query.
-      - Missing success ticket (cookie only) → suppress banner; log soft signal.
+      - Missing success ticket (cookie only) → suppress banner; log a warning (no change to `soft_reasons`).
       - Success ticket re-use after verifier burn → HARD FAIL / no banner.
     - Determinism checks:
       - Hidden-mode error rerender reuses original `instance_id`, `timestamp`, and hidden token.
@@ -345,7 +344,7 @@ electronic_forms - Spec
   6. Test/QA Matrix (v4.4 mandatory)
     - Hidden-mode checks:
       - Omit or alter the hidden token with `security.submission_token.required=true` → reject with `EFORMS_ERR_TOKEN` hard fail.
-      - Expire or delete the hidden record with `security.submission_token.required=false` → accept submission path but emit a soft signal (no `EFORMS_ERR_TOKEN`).
+      - Expire or delete the hidden record with `security.submission_token.required=false` → accept submission path but add `"token_soft"` to `soft_reasons` (no `EFORMS_ERR_TOKEN`).
       - Replay a burned hidden token after ledger reservation exists → hard fail on `EFORMS_ERR_TOKEN`.
     - Cookie-mode checks:
       - Submit with no minted record on disk → hard fail on `EFORMS_ERR_TOKEN`.
@@ -353,7 +352,7 @@ electronic_forms - Spec
       - Drop the cookie with `security.cookie_missing_policy="off"` → continue submission; derive an NCID; no `cookie_missing` soft reason; assert that a second identical POST within the same TTL window yields `EEXIST` via the ledger (dedupe holds).
       - Success behavior with `"off"` (NCID): redirect to a non-cached endpoint; verifier MUST burn the success ticket on first use; replay MUST fail (same contract as other NCID flows).
       - Suspect scoring with `"off"`: because no `cookie_missing` soft reason is added, the submission is not suspect unless other soft reasons are present (e.g., `min_fill`, `ua_missing`).
-      - Drop the cookie and rely on `security.cookie_missing_policy="soft"` → continue submission flow and log the soft signal; derive an NCID and assert that a second identical POST within the same TTL window yields `EEXIST` via the ledger.
+      - Drop the cookie and rely on `security.cookie_missing_policy="soft"` → continue submission flow and add `"cookie_missing"` to `soft_reasons`; derive an NCID and assert that a second identical POST within the same TTL window yields `EEXIST` via the ledger.
       - Drop the cookie and rely on `security.cookie_missing_policy="challenge"` → require §7.11 challenge; after success, proceed with NCID semantics as above and assert dedup within the TTL window.
       - Re-prime within TTL with the same valid EID → no `Set-Cookie`; `issued_at`/`expires` unchanged.
       - Expired minted record → new EID minted with fresh timestamps and `Set-Cookie` sent.
@@ -364,8 +363,8 @@ electronic_forms - Spec
         - Prior minted record remains unchanged on disk and expires per TTL.
       - Cookie-missing + other softs with challenge success (scoping check):
         - Given `min_fill_time` violation (+1 soft) and `cookie_missing` (+1 soft) with `cookie_missing_policy="challenge"`,
-        - After successful challenge, only `cookie_missing` is cleared; `min_fill_time` remains.
-        - Assert final `soft_fail_count == 1` (the `cookie_missing` soft cleared, `min_fill_time` still set) so downstream handling marks the submission as suspect (not normal and not spam-fail, assuming threshold > 1).
+        - After successful challenge, `soft_reasons` no longer contains `cookie_missing`; the `min_fill` label remains.
+        - Assert final `soft_reasons` contains only `"min_fill"` so downstream handling marks the submission as suspect (not normal and not spam-fail, assuming threshold > 1).
     - Success behavior without cookies:
       - NCID flow MUST use redirect to a non-cached endpoint; inline/cached success is not permitted.
       - Verifier MUST burn the success ticket on first use; replay MUST fail.
@@ -374,7 +373,7 @@ electronic_forms - Spec
       - Fill `eforms_hp` with `security.honeypot_response="hard_fail"` → hard fail with the generic global error.
     - Success-ticket checks:
       - Valid ticket + matching cookie → banner renders once, clears state (pass condition).
-      - Missing ticket while cookie present → suppress banner and log soft signal.
+      - Missing ticket while cookie present → suppress banner and log a warning (no change to `soft_reasons`).
       - Replay ticket after verifier burns it → hard fail / no banner.
     - Determinism checks:
       - Hidden-mode rerender after validation errors reuses the original `instance_id`, `timestamp`, and hidden token (diff → hard fail).
@@ -387,11 +386,11 @@ electronic_forms - Spec
       - Success ticket expiry respects `security.success_ticket_ttl_seconds` and cleans up on expiry; drift → hard fail in CI.
 
   7. Spam Decision
-    - Hard checks first: honeypot_empty and token/Origin hard fails (and hard throttle). Any hard fail stops processing.
-    - Soft signals (+1 each unless policy says otherwise): min_fill_ok=false; js_ok!="1" (unless js_hard_mode=true → hard); missing UA; age_ok=false (hidden-token mode advisory); origin_soft_signal; token soft; throttle over-limit soft.
-     - cookie_missing_policy='challenge' and verification success clears only the `cookie_missing` soft signal introduced by that policy. Other soft signals (from the canonical set above) remain and are counted. Hard failures still override.
-    - Decision: soft_fail_count >= spam.soft_fail_threshold → spam-fail; ==1 → deliver as suspect; ==0 → deliver normal.
-    - Accessibility note: js_hard_mode=true blocks non-JS users; keep opt-in.
+    - Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
+    - `soft_reasons`: a deduplicated set of labels from the canonical list above.
+    - When `cookie_missing_policy="challenge"` verification succeeds, remove only the `"cookie_missing"` label that policy added to `soft_reasons`. Other labels (from the canonical set above) remain counted. Hard failures still override.
+    - Scoring (computed, not stored): let `soft_fail_count = |soft_reasons|`. Decision: `soft_fail_count >= spam.soft_fail_threshold` → spam-fail; `soft_fail_count = 1` → deliver as suspect; `soft_fail_count = 0` → deliver normal.
+    - Accessibility note: `js_hard_mode=true` blocks non-JS users; keep opt-in.
 
   9. Redirect Safety
     - wp_safe_redirect; same-origin only (scheme/host/port).
@@ -404,7 +403,7 @@ electronic_forms - Spec
     - Key derivation respects privacy.ip_mode; storage path ${uploads.dir}/throttle/{h2}/{key}.json with `{h2}` derived from the key per §7.1.2’s shared sharding and permission guidance; GC files >2 days old.
 
   12. Adaptive challenge (optional; Turnstile preferred)
-    - Modes: off | auto (require when soft_fail_count>=1) | always
+    - Modes: off | auto (require when `soft_reasons` is non-empty) | always
     - Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds +1 soft and logs EFORMS_CHALLENGE_UNCONFIGURED.
 	- Bootstrap boundaries & where checks happen:
 	  - **No eager checks at plugin load.** Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
@@ -423,7 +422,7 @@ electronic_forms - Spec
     - Row-group object shape must match spec; mis-shapes → EFORMS_ERR_SCHEMA_OBJECT.
     - Handler resolution: resolve all handler IDs to callables; unknown → deterministic RuntimeException (caught → config error).
 
-  1. Security gate (hard/soft signals; stop on hard failure)
+  1. Security gate (hard failures + `soft_reasons`; stop on hard failure)
 
   2. Normalize (lossless)
     - Apply wp_unslash and trim; Helpers::nfc for Unicode NFC (no-op without intl).
@@ -579,7 +578,7 @@ electronic_forms - Spec
   - logging.pii (bool; default false) — allows full emails/IPs in JSONL only; minimal mode still masks unless explicitly overridden.
   - Rotation/retention for JSONL: dirs 0700, files 0600, rotate when file_max_size exceeded, prune > retention_days. flock() used; note NFS caveats.
   - What to log (all modes, subject to pii/headers):
-    - Timestamp (UTC ISO-8601), severity, code, form_id, submission_id, slot? (when provided), request URI (path + only `eforms_*` query), privacy-processed IP, spam signals summary (honeypot, origin_state, soft_fail_count, throttle_state), SMTP failure reason when applicable.
+    - Timestamp (UTC ISO-8601), severity, code, form_id, submission_id, slot? (when provided), request URI (path + only `eforms_*` query), privacy-processed IP, spam signals summary (honeypot, origin_state, soft_reasons, throttle_state), SMTP failure reason when applicable.
     - Token evaluation mode (meta.mode) when the submission gate runs, to differentiate hidden-token vs cookie flows.
     - Cookie consultation boolean (meta.cookie_consulted): true iff the cookie path was evaluated (cookie-mode); false in hidden-mode. Lets tests assert that cookies were never read when a hidden token was posted.
 
@@ -775,7 +774,7 @@ uploads.*
     - On success: move stored uploads; send email; log; PRG/redirect; cleanup per retention.
     - Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
     - throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
-    - Challenge hook: if required (always/auto or cookie policy), verify; success clears soft signals (not hard failures).
+    - Challenge hook: if required (always/auto or cookie policy), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
 
 20. ERROR HANDLING
   - Errors stored by field_key; global errors under _global
