@@ -260,7 +260,8 @@ electronic_forms - Spec
       | `expires`    | `issued_at + security.token_ttl_seconds`.
       | `instance_id`| Base64url CSPRNG, never rewritten until token rotation.
     - **POST requirements:**
-      - Token lookup MUST succeed and match `{form_id, instance_id}`; failure is a hard `EFORMS_ERR_TOKEN` when `security.submission_token.required=true` and a soft `token_soft` label otherwise.
+      - Token lookup MUST succeed; the record MUST say `mode:"hidden"` for the same `form_id`, and TTL MUST be valid. Failure is a hard `EFORMS_ERR_TOKEN` when `security.submission_token.required=true` and a soft `token_soft` label otherwise.
+      - Schema requirement: the hidden-token record MUST contain a conformant `instance_id` (base64url, 16–24 bytes). Missing/non-conformant is a hard failure.
       - Expired or missing records trigger the same policy as above. Replay after ledger burn is a hard fail.
     - **Rerender rules:**
       - Error rerenders MUST reload and reuse the persisted record; do not mint new tokens mid-flow.
@@ -271,7 +272,7 @@ electronic_forms - Spec
       - Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”); soft paths retain the original record for deterministic retries.
 
     #### 7.1.3 Cookie-mode contract
-    - **Markup:** GET renders remain deterministic: no `instance_id`, timestamp, or hidden token. When `security.cookie_mode_slots_enabled=true` and `security.cookie_mode_slots_allowed` is non-empty, each instance emits `eforms_slot`, a matching hidden `<input>`, and a 1×1 `/eforms/prime?f={form_id}&s={slot}` pixel. Slotless deployments omit both the field and the `s` query parameter. Hidden-mode or unknown IDs served from `/eforms/prime` respond `204` without `Set-Cookie`.
+    - **Markup:** GET renders remain deterministic: no `instance_id`, timestamp, or hidden token. When `security.cookie_mode_slots_enabled=true` and `security.cookie_mode_slots_allowed` is non-empty, each instance emits `eforms_slot`, a matching hidden `<input>`, and a 1×1 `/eforms/prime?f={form_id}&s={slot}` pixel (`aria-hidden="true"`, fixed size so assistive tech ignores the noise). Slotless deployments omit both the field and the `s` query parameter. `/eforms/prime` responds **204** with **`Cache-Control: no-store`**.
     - **Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):**
       | Field           | Notes |
       |-----------------|-------|
@@ -282,12 +283,13 @@ electronic_forms - Spec
       | `slots_allowed` | Deduplicated list updated atomically; slotless installs keep `[]`.
       | `slot`          | Nullable canonical slot when one emerges; multiple slots reset it to `null`.
     - **POST requirements:**
-      - Requests MUST present the minted `eforms_eid_{form_id}` cookie and matching JSON record; stale or mismatched records hard-fail.
-      - Slot values must be integers 1–255 within `security.cookie_mode_slots_allowed`; others hard-fail on `EFORMS_ERR_TOKEN`.
+      - Requests MUST present the minted `eforms_eid_{form_id}` cookie whose value matches the EID regex `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, and the JSON record MUST exist and match {`mode:"cookie"`, `form_id`, `eid`}; stale or mismatched records hard-fail.
+      - If slots are **disabled**, any posted `eforms_slot` is tampering → hard fail (`EFORMS_ERR_TOKEN`). If enabled, the slot must be an integer 1–255 present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`. A slotless minted record (`slot:null`, empty `slots_allowed`) rejects any posted slot.
       - Mixing hidden tokens into cookie submissions is tampering → hard fail.
     - **Rerender + rotation:**
       - Normal rerenders reuse the existing `{eid, slot}` tuple. No mid-flow rotation occurs.
       - Challenge-driven rerenders (cookie-missing policies or §7.11 providers) MUST clear `eforms_eid_{form_id}` via `Set-Cookie: … deleted` on the same response that embeds the next `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser mints a new EID before the next POST.
+      - `/eforms/prime` MUST load the minted record **before** skipping `Set-Cookie`. A missing/truncated/expired record is treated as stale and **MUST mint a fresh EID** so implementations never “adopt” a forged/orphaned cookie.
       - `/eforms/prime` sends `Set-Cookie` only when minting a fresh EID; otherwise it unions the observed slot into `slots_allowed` and leaves timestamps untouched.
     - **Dedup behavior:**
       - `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active.
