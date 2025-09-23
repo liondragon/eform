@@ -214,7 +214,10 @@ electronic_forms - Spec
 	    - URL (render) -> esc_url
 	    - URL (storage/transport) -> esc_url_raw
 		- JSON/logs -> wp_json_encode
-	- Challenge and Throttle modules are loaded only when needed. Initialize the challenge module when (a) challenge.mode != "off", or (b) security.cookie_missing_policy == "challenge", or (c) a POST sets Security::token_validate().require_challenge === true. No classes, hooks, or assets are registered otherwise.
+	- Challenge and Throttle modules are loaded only when needed.
+	- Config/bootstrap boundaries (resolving challenge lazy-load conflict):
+	  - **Do not** read configuration at plugin load to decide whether to initialize the Challenge module.
+	  - The need for challenge is evaluated **inside entry points only** (renderer re-render after POST, submit handler POST flow, and verification step), at which time `Config::get()` may be called and a snapshot created. This preserves lazy config bootstrap.
 	- Lazy registries vs autoloading (clarification):
 	  - Autoloading a class is considered "lazy enough" for static registries: the PHP file is loaded only when the class is first referenced. Merely defining `private const HANDLERS` does not initialize any heavy state.
 	  - Derived maps/caches (e.g., resolved descriptor caches) are computed on first use (TemplateValidator preflight / Validator path) and memoized per request.
@@ -230,7 +233,7 @@ electronic_forms - Spec
 		| Emailer | Lazy | After validation succeeds (just before send) | SMTP/DKIM init only on send; skipped on failures. |
 		| Logging | Lazy | First log write when `logging.mode != "off"` | Opens/rotates file on demand. |
 		| Throttle | Lazy | When `throttle.enable=true` and key present | File created on first check. |
-		| Challenge | Lazy | `challenge.mode != "off"` or cookie policy requires it | Provider script enqueued only when rendered. |
+		| Challenge | Lazy | **Only inside entry points:** (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a **POST re-render** when `require_challenge=true`; or (3) verification step when a provider response is present (`cf-turnstile-response` / `h-captcha-response` / `g-recaptcha-response`). | Provider script enqueued only when rendered. Presence of `challenge.mode != "off"` MUST NOT initialize on initial GET; challenge loads only at the entry points above. |
 		| Assets (CSS/JS) | Lazy | When a form is rendered on the page | Version via filemtime; opt-out honored. |
  	
 7. SECURITY
@@ -400,6 +403,9 @@ electronic_forms - Spec
   12. Adaptive challenge (optional; Turnstile preferred)
     - Modes: off | auto (require when soft_fail_count>=1) | always
     - Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds +1 soft and logs EFORMS_CHALLENGE_UNCONFIGURED.
+	- Bootstrap boundaries & where checks happen:
+	  - **No eager checks at plugin load.** Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
+	  - `challenge.mode` is read **only** when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in §5/§17.
 	- Render only on POST re-render when required (or always); never on initial GET unless §7.1 requires challenge.
         - In cookie mode, challenge rerenders MUST clear the `eforms_eid_{form_id}` cookie (as described in §7.1.4) on the same response that embeds the `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser applies the clear before fetching `/eforms/prime` and naturally mints a new EID before the next POST per §7.1.1/§7.1.4 (the explicit exception to §7.1.4's no-rotation rule).
     - Turnstile → cf-turnstile-response; hCaptcha → h-captcha-response; reCAPTCHA v2 → g-recaptcha-response.
