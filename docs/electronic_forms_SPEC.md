@@ -379,6 +379,7 @@ electronic_forms - Spec
     | Honeypot response modes both execute: `stealth_success` fakes the success UX, logs `stealth=true`, burns the ledger entry, and `hard_fail` emits the generic error with no success log. | §7.2 |
     | NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | §7.1.4; §13 |
     | Slot enforcement accepts only allowed slot values, rejects out-of-range posts, and preserves minted-slot metadata across re-renders and `/eforms/prime` refreshes. | §7.1.3 |
+    | Cookie-mode challenge rerenders delete `eforms_eid_{form_id}` via the documented cookie-clear response while embedding a fresh `/eforms/prime` pixel, and QA verifies the browser drops the cookie yet the original minted record persists server-side until its TTL expires naturally. | §7.1.3; §7.1.1 |
     | CI/QA asserts hidden-token and cookie-mode records satisfy `expires - issued_at == security.token_ttl_seconds` and that success-ticket verification honors `security.success_ticket_ttl_seconds` (no banner after TTL). | §7.1.2; §7.1.3; §13 |
     | Success tickets gate banner rendering (valid ticket passes once, missing ticket logs warning, replay fails) while obeying TTL cleanup. | §13 |
   8. Spam Decision
