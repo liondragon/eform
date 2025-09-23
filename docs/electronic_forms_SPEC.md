@@ -301,10 +301,10 @@ electronic_forms - Spec
     - Policy (security.origin_mode): off (no signal), soft (default), hard (hard fail on cross/unknown; missing depends on origin_missing_hard).
     - Log only origin_state (no Referrer). Referrer is not consulted.
     - Security::origin_evaluate() returns {state, hard_fail, soft_reasons?: string[]}.
-    - When `origin_mode="soft"` and the evaluated request is cross-origin or unknown (respecting `origin_missing_hard`/`origin_missing_soft`), add `"origin_soft"` to `soft_reasons`.
+	- When `origin_mode="soft"` and the evaluated request is cross-origin or unknown (respecting `origin_missing_hard`), add `"origin_soft"` to `soft_reasons`.
     - Operational guidance: Only enable origin_mode=hard + origin_missing_hard=true after validating your environment (some older agents omit Origin). Provide a tiny WP-CLI smoke test that POSTs without Origin to verify behavior.
 
-  5. POST Size Cap (authoritative)
+  6. POST Size Cap (authoritative)
     - Applies after Type gate:
       - AppCap = security.max_post_bytes
       - IniPost = Helpers::bytes_from_ini(ini_get('post_max_size'))
@@ -320,7 +320,7 @@ electronic_forms - Spec
     - Hidden-mode checks:
       - Valid hidden token + matching record → PASS; ledger reservation burns token on first success.
       - Wrong form_id in hidden record or POST payload → HARD FAIL (tampering path).
-      - Missing/expired hidden record → HARD FAIL when `security.submission_token.required=true`; SOFT signal when false.
+      - Missing/expired hidden record → HARD FAIL when `security.submission_token.required=true`; add "token_soft" to soft_reasons when false.
       - Reused hidden token after ledger sentinel exists → HARD FAIL with `EFORMS_ERR_TOKEN`.
     - Cookie-mode checks:
       - Valid minted record + cookie → PASS; ledger burns `eid` (+slot when enabled).
@@ -342,7 +342,7 @@ electronic_forms - Spec
       - Hidden-mode `instance_id` is identical across rerenders until token rotation; drift → hard fail.
       - Cookie-mode rerender emits identical markup (no new randomness) and reuses the minted `eid` and slot.
       - Renderer id/name attributes stable per descriptor; attr mirror parity holds.
-  6. Test/QA Matrix (v4.4 mandatory)
+  7. Test/QA Matrix (v4.4 mandatory)
     - Hidden-mode checks:
       - Omit or alter the hidden token with `security.submission_token.required=true` → reject with `EFORMS_ERR_TOKEN` hard fail.
       - Expire or delete the hidden record with `security.submission_token.required=false` → accept submission path but add `"token_soft"` to `soft_reasons` (no `EFORMS_ERR_TOKEN`).
@@ -386,7 +386,7 @@ electronic_forms - Spec
       - Hidden record JSON stores `expires - issued_at == security.token_ttl_seconds`; drift → hard fail in CI.
       - Success ticket expiry respects `security.success_ticket_ttl_seconds` and cleans up on expiry; drift → hard fail in CI.
 
-  7. Spam Decision
+  8. Spam Decision
     - Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
     - `soft_reasons`: a deduplicated set of labels from the canonical list above.
     - When `cookie_missing_policy="challenge"` verification succeeds, remove only the `"cookie_missing"` label that policy added to `soft_reasons`. Other labels (from the canonical set above) remain counted. Hard failures still override.
