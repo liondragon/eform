@@ -302,6 +302,9 @@ electronic_forms - Spec
 			- `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active.
 			- Ledger burns the composite `submission_id` immediately before side effects.
 			- Hard failures surface `EFORMS_ERR_TOKEN`; soft paths keep the minted record untouched for deterministic retries.
+		- Prime endpoint semantics (`/eforms/prime`):
+			- Parse `s` as an integer 1–255. When slots are disabled or `s` is not in `security.cookie_mode_slots_allowed`, treat it as `null` (do not set `slot` and do not modify `slots_allowed`).
+			- Update `slots_allowed` atomically (write-temp + rename, or `flock()` + fsync). Never rewrite `issued_at`/`expires` on reuse.
 
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
 		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode reports the token; cookie mode reports the EID (with slot suffix when present).
