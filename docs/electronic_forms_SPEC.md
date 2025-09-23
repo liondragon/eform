@@ -304,16 +304,16 @@ electronic_forms - Spec
 
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
 		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode reports the token; cookie mode reports the EID (with slot suffix when present).
-                - NCID generation (`Helpers::ncid`) activates when cookie submissions lack an acceptable minted record:
-                        - `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true`.
-                        - `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, and still set `token_ok=false`.
-                        - `security.cookie_missing_policy="hard"` → escalate to a hard failure without NCID reuse.
-                        - `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, and defer delivery until [Security → Adaptive challenge (optional; Turnstile preferred) (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`.
-                        - Deterministic NCID recipe (matches [Configuration → Helpers::ncid (§17)](#sec-configuration)):
-                                - Inputs: `form_id`, the throttle `client_key` derived by `Helpers::throttle_key()` (privacy rules applied), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
-                                - Concatenate the UTF-8 inputs as `form_id . "\n" . client_key . "\n" . window_idx . "\n" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the `submission_id` consumed by the ledger and downstream flows.
-                                - The `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens; when the window rolls forward a fresh NCID (and ledger reservation) is minted automatically.
-                - Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
+		- NCID generation (`Helpers::ncid`) activates when cookie submissions lack an acceptable minted record:
+			- `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true`.
+			- `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, and still set `token_ok=false`.
+			- `security.cookie_missing_policy="hard"` → escalate to a hard failure without NCID reuse.
+			- `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, and defer delivery until [Security → Adaptive challenge (optional; Turnstile preferred) (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`.
+			- Deterministic NCID recipe (matches [Configuration → Helpers::ncid (§17)](#sec-configuration)):
+				- Inputs: `form_id`, the throttle `client_key` derived by `Helpers::throttle_key()` (privacy rules applied), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
+				- Concatenate the UTF-8 inputs as `form_id . "\n" . client_key . "\n" . window_idx . "\n" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the `submission_id` consumed by the ledger and downstream flows.
+				- The `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens; when the window rolls forward a fresh NCID (and ledger reservation) is minted automatically.
+		- Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
 		- Slot metadata from cookie mode flows into `submission_id` and `slots_allowed` as described in [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`.
 		- Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects and treat duplicates (`EEXIST`) as spam. Success handling continues with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID.
 <a id="sec-honeypot"></a>2. Honeypot
