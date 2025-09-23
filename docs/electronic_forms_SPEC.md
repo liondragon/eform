@@ -291,6 +291,7 @@ electronic_forms - Spec
 		- POST requirements:
 			- Requests MUST present the minted `eforms_eid_{form_id}` cookie whose value matches the EID regex `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, and the JSON record MUST exist and match {`mode:"cookie"`, `form_id`, `eid`}; stale or mismatched records hard-fail.
 			- If slots are disabled, any posted `eforms_slot` is tampering → hard fail (`EFORMS_ERR_TOKEN`). If enabled, the slot must be an integer 1–255 present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`. A slotless minted record (`slot:null`, empty `slots_allowed`) rejects any posted slot.
+			- When the persisted record’s `slot` is non-null, the submitted `eforms_slot` MUST equal it. Records with `slot:null` skip the equality check but still reject unexpected slots. If eforms_slot is missing when slot is non-null, treat as a mismatch → hard fail. When slot:null and slots_allowed is non-empty, accept only slots present in slots_allowed.
 			- Mixing hidden tokens into cookie submissions is tampering → hard fail.
 		- Rerender + rotation:
 			- Normal rerenders reuse the existing `{eid, slot}` tuple. No mid-flow rotation occurs.
