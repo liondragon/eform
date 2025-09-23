@@ -611,134 +611,69 @@ electronic_forms - Spec
     - Header parsed case-insensitively; comma-separated list; strip brackets/ports; accept only valid literals.
     - CI tests: forged XFF from untrusted source → use REMOTE_ADDR; trusted proxy + XFF(client,proxy) → pick client; header with only private IPs → fall back to REMOTE_ADDR.
 
-17. CONFIGURATION (SUMMARY)
-  - Authoritative defaults: the table below defines the canonical config paths and their default values; other sections should reference this summary instead of re-listing values.
-  - Bootstrap timing (lazy & idempotent):
-		- `Config::bootstrap()` is not run at plugin load. It is invoked lazily on first access from any public entry point that requires configuration:
-			- `Config::get()`; `FormRenderer::render()`; `SubmitHandler::handle()`; `Security::token_validate()`; `Emailer::send()`; prime/success endpoints.
-		- Implementations SHOULD use a cheap guard, e.g.:
-			- `if (!Config::isBootstrapped()) { Config::bootstrap(); }`
-		- Within a single request, bootstrapping is idempotent and performed at most once. There is no cross-request persistence beyond WordPress options/hooks; this keeps behavior deterministic.
-		- Rationale: deferring bootstrap shortens plugin load time, avoids work on pages without forms, and respects the “lazy by default” objective.
-		- Special cases: `uninstall.php` invokes `Config::bootstrap()` synchronously to read purge flags; WP-CLI commands that operate standalone MAY call `Config::forceBootstrap()` early.
-	- Immutable per-request Config snapshot:
-		- `Config::bootstrap()` loads defaults (nested array mirroring §17), applies a single `eforms_config` filter once, validates/clamps types/ranges/enums, then freezes.
-	- Access via `Config::get('path.like.this')`.
-  - Keys (examples, all below are config paths):
-    - security.origin_mode: off | soft | hard (default soft)
+17. CONFIGURATION: DOMAINS, CONSTRAINTS, AND DEFAULTS
+  - Authority: Default *values* live in code as `Config::DEFAULTS` (see `src/Config.php`). This spec no longer duplicates every literal; the code array is the single source of truth for defaults.
+  - Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
+  - Lazy bootstrap (unchanged): `Config::bootstrap()` is invoked on the first use from `Config::get()`, `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints. Within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
+  - Migration behavior: unknown keys are ignored; missing keys fall back to defaults before clamping; invalid enums/ranges/booleans are coerced to the documented fallback; POST handlers MUST continue to enforce constraints after bootstrap.
 
-security.*
-  security.token_ledger.enable (bool; default true)
-  security.token_ttl_seconds (int; default 600)
-  security.submission_token.required (bool; default true)
-  security.origin_mode (off|soft|hard; default soft)
-  security.origin_missing_soft (bool; default false)
-  security.origin_missing_hard (bool; default false)
-  security.min_fill_seconds (int; default 4; clamp 0-60)
-  security.max_form_age_seconds (derived from token_ttl_seconds)
-  security.js_hard_mode (bool; default false)
-  security.max_post_bytes (int; default 25_000_000)
-  security.ua_maxlen (int; default 256)
-  security.honeypot_response ("hard_fail"|"stealth_success"; default "stealth_success")
-  security.cookie_missing_policy ("off"|"soft"|"hard"|"challenge"; default "soft")
-  security.cookie_mode_slots_enabled (bool; default false; must be true alongside a populated allow list for slots to be honored)
-  security.cookie_mode_slots_allowed (array<int>; default []; slots normalized to 1-255; slots honored only when this list is non-empty and cookie_mode_slots_enabled=true)
-  security.success_ticket_ttl_seconds (int; default 300; clamp 30-3600)
+  `Config::DEFAULTS` also powers uninstall/CLI flows; it exposes a stable public symbol for ops tooling.
 
-spam.*
-  spam.soft_fail_threshold (int; default 2; clamp 0-5)
+#### 17.1 Domains (key groups)
+| Domain    | Key prefix           | Purpose (summary)                                                |
+|-----------|----------------------|------------------------------------------------------------------|
+| Security  | `security.*`         | Token/cookie modes, TTLs, origin challenge policy, POST limits   |
+| Spam      | `spam.*`             | Soft-fail thresholds and spam heuristics                         |
+| Challenge | `challenge.*`        | CAPTCHA/Turnstile providers and HTTP timeouts                    |
+| Email     | `email.*`            | Transport policy, SMTP tuning, DKIM, debug hooks                 |
+| Logging   | `logging.*`          | Mode/level/PII policy, retention, fail2ban emission              |
+| Privacy   | `privacy.*`          | IP handling, salts, proxy trust                                  |
+| Throttle  | `throttle.*`         | Per-IP rate limits, cooldowns, hard-fail multipliers             |
+| Validation| `validation.*`       | Form shape guardrails (field/option caps, HTML size)             |
+| Uploads   | `uploads.*`          | Allow-lists, per-file/per-request caps, retention policy         |
+| Assets    | `assets.*`           | CSS enqueue controls                                             |
+| Install   | `install.*`          | Minimum platform versions, uninstall purge flags                 |
 
-throttle.*
-  throttle.enable (bool; default false)
-  throttle.per_ip.max_per_minute (int; default 5; clamp 1-120)
-  throttle.per_ip.cooldown_seconds (int; default 60; clamp 10-600)
-  throttle.per_ip.hard_multiplier (float; default 3.0; clamp 1.5-10.0)
+#### 17.2 Normative constraints (summary)
+| Domain    | Key                                   | Type  | Constraints (normative)                                                                                      |
+|-----------|---------------------------------------|-------|----------------------------------------------------------------------------------------------------------------|
+| Security  | `security.origin_mode`                | enum  | {`off`,`soft`,`hard`} — governs whether missing Origin headers are tolerated.                                  |
+| Security  | `security.honeypot_response`          | enum  | {`stealth_success`,`hard_fail`} — determines the observable response when the honeypot triggers.               |
+| Security  | `security.cookie_missing_policy`      | enum  | {`off`,`soft`,`hard`,`challenge`} — fallback to default on invalid input; challenge mode may force §7.1 flow.   |
+| Security  | `security.min_fill_seconds`           | int   | clamp 0–60; values <0 become 0; >60 become 60.                                                                |
+| Security  | `security.token_ttl_seconds`          | int   | clamp 1–86400; minted tokens MUST set `expires - issued_at` equal to this value.                               |
+| Security  | `security.max_form_age_seconds`       | int   | clamp 1–86400; defaults to `security.token_ttl_seconds` when omitted.                                          |
+| Security  | `security.success_ticket_ttl_seconds` | int   | clamp 30–3600; governs success ticket validity for redirect mode (§7.2).                                       |
+| Security  | `security.cookie_mode_slots_allowed`  | list  | Normalized to unique ints 1–255; honored only when paired with `cookie_mode_slots_enabled = true`.             |
+| Challenge | `challenge.mode`                      | enum  | {`off`,`auto`,`always`} — controls when human challenges execute; invalid values revert to default.            |
+| Challenge | `challenge.provider`                  | enum  | {`turnstile`,`hcaptcha`,`recaptcha`} — provider-specific keys MUST be populated before enablement.             |
+| Challenge | `challenge.http_timeout_seconds`      | int   | clamp 1–5 seconds.                                                                                            |
+| Throttle  | `throttle.per_ip.max_per_minute`      | int   | clamp 1–120; values beyond clamp saturate; 0 disables throttle only via `throttle.enable = false`.            |
+| Throttle  | `throttle.per_ip.cooldown_seconds`    | int   | clamp 10–600 seconds.                                                                                          |
+| Throttle  | `throttle.per_ip.hard_multiplier`     | float | clamp 1.5–10.0; multiplier applies to hard-fail windows when soft threshold is exceeded.                       |
+| Logging   | `logging.mode`                        | enum  | {`off`,`minimal`,`jsonl`} — determines logging sink (§15).                                                     |
+| Logging   | `logging.level`                       | int   | clamp 0–2; level ≥1 unlocks verbose submission diagnostics.                                                    |
+| Logging   | `logging.retention_days`              | int   | clamp 1–365 days.                                                                                               |
+| Logging   | `logging.fail2ban.target`             | enum  | {`error_log`,`syslog`,`file`} — `file` requires a writable path; invalid values fall back to `error_log`.       |
+| Logging   | `logging.fail2ban.retention_days`     | int   | clamp 1–365; defaults to `logging.retention_days` when unspecified.                                            |
+| Privacy   | `privacy.ip_mode`                     | enum  | {`none`,`masked`,`hash`,`full`} — see §15 for hashing/masking details.                                         |
+| Validation| `validation.max_fields_per_form`      | int   | clamp 1–1000; protects renderer/validator recursion.                                                            |
+| Validation| `validation.max_options_per_group`    | int   | clamp 1–1000; denies pathological option fan-out.                                                              |
+| Validation| `validation.max_items_per_multivalue` | int   | clamp 1–1000; governs checkbox/select count.                                                                   |
+| Validation| `validation.textarea_html_max_bytes`  | int   | clamp 1–1_000_000 bytes; applies before sanitizer; see §11 for mirroring to DOM hints.                         |
 
-challenge.*
-  challenge.mode (off|auto|always; default off)
-  challenge.provider (turnstile|hcaptcha|recaptcha; default turnstile)
-  challenge.turnstile.site_key (string|null; default null)
-  challenge.turnstile.secret_key (string|null; default null)
-  challenge.hcaptcha.site_key (string|null; default null)
-  challenge.hcaptcha.secret_key (string|null; default null)
-  challenge.recaptcha.site_key (string|null; default null)
-  challenge.recaptcha.secret_key (string|null; default null)
-  challenge.http_timeout_seconds (int; default 2; clamp 1-5)
+Additional notes:
+  - `security.js_hard_mode = true` enforces a hard failure for non-JS submissions (§7.1).
+  - `security.max_post_bytes` MUST honor PHP INI limits (post_max_size, upload_max_filesize) and never exceed server caps.
+  - Range/enumeration clamps are mirrored to HTML attributes for UX hints only; server enforcement is authoritative.
+  - Spam heuristics (`spam.*`) and upload caps (`uploads.*`) are documented in §§8 and 18; they inherit defaults from code but keep their behavioral rules in those sections.
 
-html5.*
-  html5.client_validation (bool; default false)
+#### 17.3 Defaults
+  - The canonical defaults array resides at `src/Config.php` as `Config::DEFAULTS`. `Config::defaults()` injects runtime-derived values such as `uploads.dir` (resolved from `wp_upload_dir()`); these dynamic entries remain code-driven.
+  - Changing a default in code changes runtime behavior but MUST NOT weaken any constraint defined in this spec.
 
-email.*
-  email.policy (strict|autocorrect; default strict)
-  email.smtp.timeout_seconds (int; default 10)
-  email.smtp.max_retries (int; default 2)
-  email.smtp.retry_backoff_seconds (int; default 2)
-  email.html (bool; default false)
-  email.from_address (validated same-domain email)
-  email.from_name (sanitized text)
-  email.reply_to_field (field key; optional)
-  email.envelope_sender
-  email.dkim.domain / selector / private_key_path / pass_phrase (optional; all valid to enable)
-  email.disable_send (bool; default false)
-  email.staging_redirect_to (string|array; overrides all recipients)
-  email.suspect_subject_tag (string; default [SUSPECT])
-  email.upload_max_attachments (int; default 5)
-  email.debug.enable (bool; default false)
-  email.debug.max_bytes (int; default 8192)
-
-logging.*
-  logging.mode ("jsonl"|"minimal"|"off"; default "minimal")
-  logging.level (0|1|2; default 0)
-  logging.headers (bool; default false)
-  logging.pii (bool; default false)
-  logging.on_failure_canonical (bool; default false)
-  logging.file_max_size (int bytes; default 5_000_000)
-  logging.retention_days (int; default 30)
-  logging.fail2ban.enable (bool; default false)
-  logging.fail2ban.target ("error_log"|"syslog"|"file"; default "error_log")
-  logging.fail2ban.file (string|null; required when target="file")
-  logging.fail2ban.file_max_size (int bytes; default uses logging.file_max_size)
-  logging.fail2ban.retention_days (int; default uses logging.retention_days)
-
-privacy.*
-  privacy.ip_mode (none|masked|hash|full; default masked)
-  privacy.ip_salt (string; used when mode=hash)
-  privacy.client_ip_header (string; default "")
-  privacy.trusted_proxies (array of CIDR; default [])
-
-assets.*
-  assets.css_disable (bool; default false)
-
-install.*
-  install.min_php (string; default 8.0)
-  install.min_wp (string; default 5.8)
-  install.uninstall.purge_uploads (bool; default false)
-  install.uninstall.purge_logs (bool; default false)
-
-validation.*
-  validation.max_fields_per_form (int; default 150)
-  validation.max_options_per_group (int; default 100)
-  validation.max_items_per_multivalue (int; default 50)
-  validation.textarea_html_max_bytes (int; default 32768)
-
-uploads.*
-  uploads.enable (bool; default true)
-  uploads.dir (path; defaults to wp_upload_dir()['basedir'].'/eforms-private')
-  uploads.allowed_tokens (array; default [image, pdf])
-  uploads.allowed_mime (array; conservative; intersect WP allowed)
-  uploads.allowed_ext (array; derived, lowercase)
-  uploads.max_file_bytes (int; default 5_000_000)
-  uploads.max_files (int; default 10)
-  uploads.total_field_bytes (int; default 10_000_000)
-  uploads.total_request_bytes (int; default 20_000_000)
-  uploads.max_email_bytes (int; default 10_000_000)
-  uploads.delete_after_send (bool; default true)
-  uploads.retention_seconds (int; default 86400)
-  uploads.max_image_px (int; default 50_000_000) // width*height guard
-  uploads.original_maxlen (int; default 100)
-  uploads.transliterate (bool; default true)
-  uploads.max_relative_path_chars (int; default 180)
-  // sha16 is the first 16 hex chars of file’s SHA-256; full SHA recorded in logs
+#### 17.4 CI guardrails
+  - Repository CI asserts that every key documented above exists in `Config::DEFAULTS` and that the clamp/enum metadata in code matches the normative ranges listed here. This keeps the spec and implementation from drifting.
 
 18. UPLOADS (IMPLEMENTATION DETAILS)
   - Intersection: field accept[] ∩ global allow-list must be non-empty → else EFORMS_ERR_ACCEPT_EMPTY
