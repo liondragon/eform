@@ -270,6 +270,8 @@ electronic_forms - Spec
         - Slot enforcement (cookie mode only): when slots are disabled, any posted `eforms_slot` is treated as tampering → HARD FAIL (`EFORMS_ERR_TOKEN`). When slots are enabled, parse `eforms_slot` as a base-10 integer; no implicit default is applied, and a missing or non-numeric `eforms_slot` is treated as tampering that hard-fails with `EFORMS_ERR_TOKEN`. Require the value to appear in `security.cookie_mode_slots_allowed` and in the minted record’s `slots_allowed`. If the minted record’s `slot` is non-null (single-slot case), it MUST equal the POSTed value; when `slot` is null (multi-slot case), the equality check is skipped. Slotless minted records (`slot:null`, empty `slots_allowed`) reject any posted slot. A mismatch hard-fails with `EFORMS_ERR_TOKEN`. The resulting `submission_id` becomes `${eid}` or `${eid}__slot{slot}` (double underscore keeps filenames Windows-safe). When proceeding under an NCID (no acceptable cookie), slot enforcement is skipped and no slot suffix is appended; omit `slot` metadata entirely.
          - Duplicate suppression uses `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` with `{h2}` derived from the `submission_id` per the sharding rule above. Reserve the sentinel via an exclusive-create call (`fopen('xb')` or equivalent) with the shared 0700 directory / 0600 file permission policy from §7.1.2 immediately before side effects (email send, file finalize). Hidden tokens, cookie EIDs (with optional `__slot{n}`), and NCIDs must all resolve to colon-free `submission_id` values. Treat `EEXIST` as a duplicate submission; any other filesystem failure while reserving the sentinel also counts as a duplicate and must emit an `EFORMS_LEDGER_IO` log entry for ops review. Honeypot short-circuits burn the same ledger entry.
         - Validation exposes `{ mode:"hidden"|"cookie", submission_id:"…", slot?:int, token_ok:bool, hard_fail:bool, soft_signal:0|1, require_challenge:bool, cookie_present?:bool, is_ncid?:bool, soft_reasons?:string[] }`. Hidden mode reports the raw token; cookie mode reports the EID (plus slot suffix). For NCIDs (no acceptable cookie), `submission_id` is the `"nc-…"`, `cookie_present=false`, `is_ncid=true`, and `slot` is omitted. When `security.cookie_missing_policy="challenge"` handles a missing cookie, the validator sets `soft_signal=1`, pushes `"cookie_missing"` into `soft_reasons`, and sets `require_challenge=true` so §7.11's adaptive challenge handshake can run before delivery. After a **successful** challenge, remove `"cookie_missing"` from `soft_reasons` and recompute `soft_signal` accordingly.
+        - Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`.
+		- Derivation rule: let `soft_fail_count = |soft_reasons|` (0 if `soft_reasons` is absent/empty); let `soft_signal = (soft_fail_count > 0 ? 1 : 0)`.
       4. Rerender and rotation rules
         - Cookie-mode rerenders normally reuse the minted `{eid, slot}` tuple until expiry or success. Challenge flows (either security.cookie_missing_policy="challenge" or a configured challenge mode that demands a rerender) MUST clear the `eforms_eid_{form_id}` cookie via `Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; HttpOnly; [Secure on HTTPS]` (or equivalent) on the same rerender response that embeds `/eforms/prime?f={form_id}[&s={slot}]` so `/eforms/prime` observes the missing cookie and mints a fresh EID before the next POST (explicit exception to §7.1.4’s no-rotation rule). Otherwise, no mid-flow rotation occurs.
          - Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”). Soft paths retain the same authoritative records so repeated attempts stay deterministic.
@@ -378,21 +380,21 @@ electronic_forms - Spec
   7. Spam Decision
     - Hard checks first: honeypot_empty and token/Origin hard fails (and hard throttle). Any hard fail stops processing.
     - Soft signals (+1 each unless policy says otherwise): min_fill_ok=false; js_ok!="1" (unless js_hard_mode=true → hard); missing UA; age_ok=false (hidden-token mode advisory); origin_soft_signal; token soft; throttle over-limit soft.
-    - cookie_missing_policy='challenge' and verification success clears **only** the `cookie_missing` soft signal introduced by that policy. Other soft signals (e.g., `min_fill`, `js_off` when not hard, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`) remain and are counted. Hard failures still override.
+     - cookie_missing_policy='challenge' and verification success clears only the `cookie_missing` soft signal introduced by that policy. Other soft signals (from the canonical set above) remain and are counted. Hard failures still override.
     - Decision: soft_fail_count >= spam.soft_fail_threshold → spam-fail; ==1 → deliver as suspect; ==0 → deliver normal.
     - Accessibility note: js_hard_mode=true blocks non-JS users; keep opt-in.
 
-  8. Redirect Safety
+  9. Redirect Safety
     - wp_safe_redirect; same-origin only (scheme/host/port).
 
-  9. Suspect Handling
+  10. Suspect Handling
     - add headers: X-EForms-Soft-Fails, X-EForms-Suspect; subject tag (configurable)
 
- 10. Throttling (optional; file-based)
+ 11. Throttling (optional; file-based)
     - As previously specified: fixed 60s window, small JSON file, flock; soft over-limit adds +1; hard over-limit = HARD FAIL.
     - Key derivation respects privacy.ip_mode; storage path ${uploads.dir}/throttle/{h2}/{key}.json with `{h2}` derived from the key per §7.1.2’s shared sharding and permission guidance; GC files >2 days old.
 
-  11. Adaptive challenge (optional; Turnstile preferred)
+  12. Adaptive challenge (optional; Turnstile preferred)
     - Modes: off | auto (require when soft_fail_count>=1) | always
     - Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds +1 soft and logs EFORMS_CHALLENGE_UNCONFIGURED.
 	- Render only on POST re-render when required (or always); never on initial GET unless §7.1 requires challenge.
