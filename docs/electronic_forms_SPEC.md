@@ -204,7 +204,7 @@ electronic_forms - Spec
 	      - Renderer: private const HANDLERS = ['text' => [self::class,'emitInput'], 'textarea' => [...], ...]
 	      - public static function resolve(string $id): callable { if (!isset(self::HANDLERS[$id])) throw RuntimeException(...); return self::HANDLERS[$id]; }
     - Uploads registry settings: token->mime/ext expansions; image sanity; caps
-	- Accept token map (canonical, conservative). For v1 parity, only tokens are image and pdf; do not add unless explicitly required.
+    - Accept token map (canonical, conservative). Default tokens are image and pdf; do not add unless explicitly required.
 	- Upload registry loads on demand when a template with file/files is rendered or posted.
 	- Structural registry (TEMPLATE_SPEC) defines allowed keys, required combos, enums (implements additionalProperties:false).
 	- Escaping map (per sink) to be used consistently:
@@ -369,7 +369,7 @@ electronic_forms - Spec
       - Hidden-mode `instance_id` is identical across rerenders until token rotation; drift → hard fail.
       - Cookie-mode rerender emits identical markup (no new randomness) and reuses the minted `eid` and slot.
       - Renderer id/name attributes stable per descriptor; attr mirror parity holds.
-  7. Test/QA Matrix (v4.4 mandatory)
+  7. Test/QA Matrix (mandatory)
     | Checklist item | Spec refs |
     | --- | --- |
     | Hidden-mode submissions honor the POST contract (token tampering/expiry is a hard fail when required, soft `token_soft` otherwise) and rerenders reuse `{token, instance_id, timestamp}` deterministically. | §7.1.2; §19.2 |
@@ -525,7 +525,7 @@ electronic_forms - Spec
 
 13. SUCCESS BEHAVIOR (PRG)
   - inline: PRG (303) to same URL with `eforms_success={form_id}`. Renderer shows success only in the first instance in source order when multiple same-ID instances exist; suppress in subsequent instances.
-  - redirect: `wp_safe_redirect(redirect_url, 303)`; no flag on destination. Cookie-mode deployments SHOULD prefer `success.mode="redirect"` pointing at a non-cached endpoint per v4.4 guidance.
+  - redirect: `wp_safe_redirect(redirect_url, 303)`; no flag on destination. Cookie-mode deployments SHOULD prefer `success.mode="redirect"` pointing at a non-cached endpoint.
   - Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff), continue to use inline success on cached pages as the graceful fallback.
   - PRG status: fixed at 303.
   - Caching: do not disable page caching globally. Only vary/bypass for (a) the short-lived success cookie `eforms_s_{form_id}` and (b) requests containing `eforms_*` query args.
@@ -879,7 +879,7 @@ Additional notes:
     - image -> image/jpeg, image/png, image/gif, image/webp (SVG excluded)
     - pdf -> application/pdf
     - Explicit exclusions by default: image/svg+xml, image/heic, image/heif, image/tiff
-    - Policy: token set is intentionally minimal for v1 parity (image, pdf).
+    - Policy: token set is intentionally minimal (image, pdf).
 
   3. Filename Policy (Display vs Storage)
     - Start with client name; strip paths; NFC normalize
