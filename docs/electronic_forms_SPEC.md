@@ -359,7 +359,7 @@ electronic_forms - Spec
       - Cookie-missing + other softs with challenge success (scoping check):
         - Given `min_fill_time` violation (+1 soft) and `cookie_missing` (+1 soft) with `cookie_missing_policy="challenge"`,
         - After successful challenge, only `cookie_missing` is cleared; `min_fill_time` remains.
-        - Assert final `soft_fail_count == 1` and downstream handling marks the submission as suspect (not normal and not spam-fail, assuming threshold > 1).
+        - Assert final `soft_fail_count == 1` (the `cookie_missing` soft cleared, `min_fill_time` still set) so downstream handling marks the submission as suspect (not normal and not spam-fail, assuming threshold > 1).
     - Success behavior without cookies:
       - NCID flow MUST use redirect to a non-cached endpoint; inline/cached success is not permitted.
       - Verifier MUST burn the success ticket on first use; replay MUST fail.
