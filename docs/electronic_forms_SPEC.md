@@ -374,6 +374,7 @@ electronic_forms - Spec
     | --- | --- |
     | Hidden-mode submissions honor the POST contract (token tampering/expiry is a hard fail when required, soft `token_soft` otherwise) and rerenders reuse `{token, instance_id, timestamp}` deterministically. | §7.1.2; §19.2 |
     | Cookie-mode posts require the minted record, reject mixed-mode tampering, and reuse the existing `{eid, slot}` tuple on rerender. | §7.1.3; §19.2 |
+    | Cookie-mode re-priming keeps the existing EID within TTL (no `Set-Cookie`, `issued_at`/`expires` unchanged) and mints a new record only once expired; QE MUST exercise both within-TTL and expired flows. | §7.1.3 |
     | Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | §7.1.1; §7.1.4; §19.2 |
     | Honeypot response modes both execute: `stealth_success` fakes the success UX, logs `stealth=true`, burns the ledger entry, and `hard_fail` emits the generic error with no success log. | §7.2 |
     | NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | §7.1.4; §13 |
