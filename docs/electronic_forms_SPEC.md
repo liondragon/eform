@@ -272,7 +272,7 @@ electronic_forms - Spec
         - Slot enforcement (cookie mode only): when slots are disabled, any posted `eforms_slot` is treated as tampering → HARD FAIL (`EFORMS_ERR_TOKEN`). When slots are enabled, parse `eforms_slot` as a base-10 integer; no implicit default is applied, and a missing or non-numeric `eforms_slot` is treated as tampering that hard-fails with `EFORMS_ERR_TOKEN`. Require the value to appear in `security.cookie_mode_slots_allowed` and in the minted record’s `slots_allowed`. If the minted record’s `slot` is non-null (single-slot case), it MUST equal the POSTed value; when `slot` is null (multi-slot case), the equality check is skipped. Slotless minted records (`slot:null`, empty `slots_allowed`) reject any posted slot. A mismatch hard-fails with `EFORMS_ERR_TOKEN`. The resulting `submission_id` becomes `${eid}` or `${eid}__slot{slot}` (double underscore keeps filenames Windows-safe). When proceeding under an NCID (no acceptable cookie), slot enforcement is skipped and no slot suffix is appended; omit `slot` metadata entirely.
          - Duplicate suppression uses `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` with `{h2}` derived from the `submission_id` per the sharding rule above. Reserve the sentinel via an exclusive-create call (`fopen('xb')` or equivalent) with the shared 0700 directory / 0600 file permission policy from §7.1.2 immediately before side effects (email send, file finalize). Hidden tokens, cookie EIDs (with optional `__slot{n}`), and NCIDs must all resolve to colon-free `submission_id` values. Treat `EEXIST` as a duplicate submission; any other filesystem failure while reserving the sentinel also counts as a duplicate and must emit an `EFORMS_LEDGER_IO` log entry for ops review. Honeypot short-circuits burn the same ledger entry.
         - Validation exposes `{ mode:"hidden"|"cookie", submission_id:"…", slot?:int, token_ok:bool, hard_fail:bool, require_challenge:bool, cookie_present?:bool, is_ncid?:bool, soft_reasons?: string[] }`. Hidden mode reports the raw token; cookie mode reports the EID (plus slot suffix). For NCIDs (no acceptable cookie), `submission_id` is `"nc-…"`, `cookie_present=false`, `is_ncid=true`, and `slot` is omitted. When `security.cookie_missing_policy="off"` continues without an acceptable cookie, set `require_challenge=false`, keep `soft_reasons` unchanged (no `"cookie_missing"` entry), and surface `token_ok=false` alongside the NCID metadata. When `security.cookie_missing_policy="challenge"` handles a missing cookie, the validator pushes `"cookie_missing"` into `soft_reasons` and sets `require_challenge=true` so §7.11’s adaptive challenge handshake can run before delivery. After a successful challenge, remove only `"cookie_missing"` from `soft_reasons`; other labels (e.g., `"min_fill"`) remain intact.
-        - Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`.
+        - Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
         - Deduping requirement: `soft_reasons` MUST be a deduplicated set drawn from the canonical labels. If absent, treat as empty.
 
       4. Rerender and rotation rules
@@ -301,6 +301,7 @@ electronic_forms - Spec
     - Policy (security.origin_mode): off (no signal), soft (default), hard (hard fail on cross/unknown; missing depends on origin_missing_hard).
     - Log only origin_state (no Referrer). Referrer is not consulted.
     - Security::origin_evaluate() returns {state, hard_fail, soft_reasons?: string[]}.
+    - When `origin_mode="soft"` and the evaluated request is cross-origin or unknown (respecting `origin_missing_hard`/`origin_missing_soft`), add `"origin_soft"` to `soft_reasons`.
     - Operational guidance: Only enable origin_mode=hard + origin_missing_hard=true after validating your environment (some older agents omit Origin). Provide a tiny WP-CLI smoke test that POSTs without Origin to verify behavior.
 
   5. POST Size Cap (authoritative)
@@ -397,14 +398,15 @@ electronic_forms - Spec
 
   10. Suspect Handling
     - add headers: X-EForms-Soft-Fails, X-EForms-Suspect; subject tag (configurable)
+    - X-EForms-Soft-Fails value = `|soft_reasons|` (computed length of the deduplicated set)
 
  11. Throttling (optional; file-based)
-    - As previously specified: fixed 60s window, small JSON file, flock; soft over-limit adds +1; hard over-limit = HARD FAIL.
+    - As previously specified: fixed 60s window, small JSON file, flock; soft over-limit → add `"throttle_soft"` to `soft_reasons`; hard over-limit = HARD FAIL.
     - Key derivation respects privacy.ip_mode; storage path ${uploads.dir}/throttle/{h2}/{key}.json with `{h2}` derived from the key per §7.1.2’s shared sharding and permission guidance; GC files >2 days old.
 
   12. Adaptive challenge (optional; Turnstile preferred)
-    - Modes: off | auto (require when `soft_reasons` is non-empty) | always
-    - Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds +1 soft and logs EFORMS_CHALLENGE_UNCONFIGURED.
+    - Modes: off | auto (require when `soft_reasons` is non-empty) | always (evaluated after the Security gate populates `soft_reasons`).
+    - Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds `"challenge_unconfigured"` to `soft_reasons` and logs `EFORMS_CHALLENGE_UNCONFIGURED`.
 	- Bootstrap boundaries & where checks happen:
 	  - **No eager checks at plugin load.** Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
 	  - `challenge.mode` is read **only** when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in §5/§17.
