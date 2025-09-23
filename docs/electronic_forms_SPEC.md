@@ -1,6 +1,7 @@
 electronic_forms - Spec
 ================================================================
 
+<a id="sec-objective"></a>
 1. OBJECTIVE
 - Build a dependency-free, lightweight plugin that renders and processes multiple forms from JSON templates with strict DRY principles and a deterministic pipeline.
 - Internal use on 4-5 sites, ~40 submissions/day across forms, USA only. Not publicly marketed/distributed.
@@ -8,12 +9,13 @@ electronic_forms - Spec
 - Out of scope for this project: any multi-step or multi-page questionnaires/wizards, or flows that depend on persistent user identity beyond a single submission.
 - No admin UI.
 - Focus on simplicity and efficiency; avoid overengineering. Easy to maintain and performant for intended use.
-- Lazy by design: the configuration snapshot is bootstrapped lazily on first access (Renderer/SubmitHandler/Emailer/Security) rather than at plugin load; modules initialize only when their triggers occur (see §6: Lazy-load matrix and §17).
+- Lazy by design: the configuration snapshot is bootstrapped lazily on first access (Renderer/SubmitHandler/Emailer/Security) rather than at plugin load; modules initialize only when their triggers occur (see [Central Registries → Lazy-load Matrix (§6)](#sec-lazy-load-matrix) and [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).)
 - No database writes; file-backed one-time token ledger for duplicate-submit prevention (no Redis/queues).
 - Clear boundaries: render vs. validate vs. send vs. log vs. upload.
 - Deterministic pipeline and schema parity: big win for testability.
 - Lazy loading of registries/features and config snapshot: keeps coupling down.
 
+<a id="sec-scope"></a>
 2. SCOPE
 	1. IN
 		- Render forms
@@ -34,13 +36,14 @@ electronic_forms - Spec
 		- Multisite support
 	3. Deployment profiles (defaults vs. opt-ins)
 	- Baseline defaults (minimal ops):
-		- ships with conservative security defaults and minimal operational overhead; see §17 for the authoritative configuration table and exact default values.
+		- ships with conservative security defaults and minimal operational overhead; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for the authoritative configuration table and exact default values.
 	- Opt-ins (enable only if needed):
 		- Throttling, adaptive/always challenge
 		- Fail2ban emission
 		- Rejected-submission logging → set logging.mode="jsonl" (or "minimal") and logging.level>=1
 		- Header logging, PII logging, SMTP debug
 
+<a id="sec-architecture"></a>
 3. ARCHITECTURE AND FILE LAYOUT
 	- /electronic_forms/
 		- eforms.php		// bootstrap + autoloader + shortcode/template tag
@@ -81,6 +84,7 @@ electronic_forms - Spec
 		- forms.css	 // namespaced styles
 		- forms.js		// JS marker (js_ok), error-summary/first-invalid focus, submit lock, spinner
 
+<a id="sec-dry-principles"></a>
 4. DRY PRINCIPLES (SINGLE SOURCES OF TRUTH)
 - Determinism. Given the same template and inputs, the pipeline produces identical canonical outputs, including error ordering.
 - Centralize (validator defaults + tiny helpers used by renderer):
@@ -94,6 +98,7 @@ electronic_forms - Spec
 	- Accept token -> MIME/extension registry (conservative mappings)
 	- Structural spec (PHP): TEMPLATE_SPEC array drives enums/required/unknown-key rules; JSON Schema is generated from or checked against it to avoid drift
 
+<a id="sec-template-model"></a>
 5. TEMPLATE MODEL
 	1. Field Generation and Namespacing
 	- Template field keys may include:
@@ -101,7 +106,7 @@ electronic_forms - Spec
 	- key (slug): required; must match `/^[a-z0-9_-]{1,64}$/` (lowercase). [] prohibited to prevent PHP array collisions; reserved keys remain disallowed. Dropping `:` keeps generated IDs/CSS selectors safe.
 	- autocomplete: exactly one token. "on"/"off" accepted; else must match WHATWG tokens (name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
 	- size: 1-100; honored only for text-like controls (text, tel, url, email).
-	- Renderer injects security metadata per the active submission mode. See §7.1 for the canonical hidden-token and cookie-mode contract (required hidden fields, cookie/EID minting, rerender reuse rules, and POST expectations).
+	- Renderer injects security metadata per the active submission mode. See [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) for the canonical hidden-token and cookie-mode contract (required hidden fields, cookie/EID minting, rerender reuse rules, and POST expectations).
 	- Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
 	- Renderer-generated attributes:
 		- id = "{form_id}-{field_key}-{instance_id}" in hidden-mode and "{form_id}-{field_key}-s{slot}" in cookie-mode (slot suffix emitted only when slots are enabled and explicitly assigned; otherwise no slot suffix).
@@ -178,7 +183,7 @@ electronic_forms - Spec
 			constants: { ... },		 // per-type constants mirrored to DOM (e.g., spellcheck=false)
 			alias_of?: string		 // explicit alias target type name when applicable
 		}
-		- Handler IDs are short tokens scoped to each registry (e.g., "email", "text"). IDs are resolved to callables once during preflight via per-class private registries (see §6).
+		- Handler IDs are short tokens scoped to each registry (e.g., "email", "text"). IDs are resolved to callables once during preflight via per-class private registries (see [Central Registries (Internal Only) (§6)](#sec-central-registries).)
 		- Resolution is fail-fast: unknown IDs throw a deterministic RuntimeException including {type, id, registry, spec_path}. CI surfaces exact descriptor failures.
 		- Alias hygiene: when alias_of is present, assert the alias shares handler IDs with its target; traits may differ. CI enforces alias invariants.
 
@@ -194,6 +199,7 @@ electronic_forms - Spec
 		}
 		- Treat resolved descriptors as immutable after preflight and reuse in both Renderer and Validator (no re-merge on POST). Zero string lookups in hot paths; perfect determinism.
 
+<a id="sec-central-registries"></a>
 6. CENTRAL REGISTRIES (INTERNAL ONLY)
 	- Static registries (no public filters): field_types, validators, normalizers/coercers, renderers.
 	- Registries are private to each owning class and exposed only through resolve() helpers.
@@ -221,10 +227,10 @@ electronic_forms - Spec
 		- Autoloading a class is considered "lazy enough" for static registries: the PHP file is loaded only when the class is first referenced. Merely defining `private const HANDLERS` does not initialize any heavy state.
 		- Derived maps/caches (e.g., resolved descriptor caches) are computed on first use (TemplateValidator preflight / Validator path) and memoized per request.
 		- No global scans or runtime plugin discovery occurs; resolution is O(1) lookups into those const arrays.
-	-	Lazy-load matrix (components & triggers):
+	-	<a id="sec-lazy-load-matrix"></a>Lazy-load matrix (components & triggers):
 		| Component		| Init policy | Trigger(s) (first use) | Notes |
 		|------------------|------------:|-------------------------|-------|
-		| Config snapshot | Lazy | First `Config::get()` or entry into `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()` | Idempotent (per request); see §17 for bootstrap timing. |
+		| Config snapshot | Lazy | First `Config::get()` or entry into `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()` | Idempotent (per request); see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
 		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; reused within request. |
 		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
 		| Security (token/origin) | Lazy | First token/origin check during POST; cookie prime endpoint | Hidden-mode GET persistence is implemented inside `FormRenderer`; Security stays idle until POST (or `/eforms/prime`). |
@@ -235,20 +241,21 @@ electronic_forms - Spec
 		| Challenge | Lazy | Only inside entry points: (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a POST re-render when `require_challenge=true`; or (3) verification step when a provider response is present (`cf-turnstile-response` / `h-captcha-response` / `g-recaptcha-response`). | Provider script enqueued only when rendered. Presence of `challenge.mode != "off"` MUST NOT initialize on initial GET; challenge loads only at the entry points above. |
 		| Assets (CSS/JS) | Lazy | When a form is rendered on the page | Version via filemtime; opt-out honored. |
  	
+<a id="sec-security"></a>
 7. SECURITY
-	1. Submission Protection for Public Forms (hidden vs cookie)
-		1. Shared lifecycle and storage contract
+<a id="sec-submission-protection"></a>1. Submission Protection for Public Forms (hidden vs cookie)
+<a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
 		- Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
 		- Canonical lifecycle (render → persist → POST → rerender/success):
-			- Render (GET): Both modes inject `form_id`, `eforms_mode`, the fixed honeypot `eforms_hp`, and the static hidden `js_ok`. Responses include CSS/JS enqueueing decisions and caching headers per §19. `eforms_mode` is informational; persisted records are authoritative.
+			- Render (GET): Both modes inject `form_id`, `eforms_mode`, the fixed honeypot `eforms_hp`, and the static hidden `js_ok`. Responses include CSS/JS enqueueing decisions and caching headers per [Request Lifecycle (§19)](#sec-request-lifecycle). `eforms_mode` is informational; persisted records are authoritative.
 			- Persist: The renderer (hidden mode) or `/eforms/prime` (cookie mode) writes the authoritative JSON record before any POST handling. Each write happens inside `${uploads.dir}/eforms-private/...` using the shared permissions below.
-			- POST evaluate: `Security::token_validate()` reads the persisted record, returns `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }`, and drives dedupe/challenge policy. NCID handling lives in §7.1.4.
-			- Rerender/success: Error rerenders reuse authoritative metadata. Successful submits hand off to §13 for ticket minting and PRG behavior.
+			- POST evaluate: `Security::token_validate()` reads the persisted record, returns `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }`, and drives dedupe/challenge policy. NCID handling lives in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
+			- Rerender/success: Error rerenders reuse authoritative metadata. Successful submits hand off to [Success Behavior (PRG) (§13)](#sec-success) for ticket minting and PRG behavior.
 		- Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, minted cookies, ledger entries, throttles, and success tickets.
 		- Regex guards (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` hidden tokens, `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` cookie EIDs, `^[A-Za-z0-9_-]{22,32}$` instance IDs) run before disk access to weed out obvious tampering.
 		- Duplicate suppression reserves `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (or equivalent) immediately before side effects. Treat `EEXIST` or any filesystem failure as a duplicate and log `EFORMS_LEDGER_IO` on unexpected IO errors. Honeypot short-circuits burn the same ledger entry. Submission IDs for all modes remain colon-free.
 
-		2. Hidden-mode contract
+<a id="sec-hidden-mode"></a>2. Hidden-mode contract
 		- Markup: GET renders emit a CSPRNG `instance_id` (16–24 bytes → base64url `^[A-Za-z0-9_-]{22,32}$`), the persisted `timestamp`, and `<input type="hidden" name="eforms_token" value="…">` whose UUID matches `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Rerenders MUST reuse the exact `{token, instance_id, timestamp}` trio and send `Cache-Control: private, no-store`.
 		- Persisted record (`tokens/{h2}/{sha256(token)}.json`):
 			| Field		| Notes |
@@ -267,10 +274,10 @@ electronic_forms - Spec
 			- Rotation occurs only when the original record expires or the form succeeds.
 		- Dedup behavior:
 			- `submission_id` equals the raw token.
-			- Ledger burns happen immediately before side effects per §7.1.1.
+			- Ledger burns happen immediately before side effects per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
 			- Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”); soft paths retain the original record for deterministic retries.
 
-		3. Cookie-mode contract
+<a id="sec-cookie-mode"></a>3. Cookie-mode contract
 		- Markup: GET renders remain deterministic: no `instance_id`, timestamp, or hidden token. When `security.cookie_mode_slots_enabled=true` and `security.cookie_mode_slots_allowed` is non-empty, each instance emits `eforms_slot`, a matching hidden `<input>`, and a 1×1 `/eforms/prime?f={form_id}&s={slot}` pixel (`aria-hidden="true"`, fixed size so assistive tech ignores the noise). Slotless deployments omit both the field and the `s` query parameter. `/eforms/prime` responds 204 with `Cache-Control: no-store`.
 		- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
 			| Field			 | Notes |
@@ -287,7 +294,7 @@ electronic_forms - Spec
 			- Mixing hidden tokens into cookie submissions is tampering → hard fail.
 		- Rerender + rotation:
 			- Normal rerenders reuse the existing `{eid, slot}` tuple. No mid-flow rotation occurs.
-			- Challenge-driven rerenders (cookie-missing policies or §7.11 providers) MUST clear `eforms_eid_{form_id}` via `Set-Cookie: … deleted` on the same response that embeds the next `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser mints a new EID before the next POST.
+			- Challenge-driven rerenders (cookie-missing policies or [Security → Adaptive challenge (optional; Turnstile preferred) (§7.12)](#sec-adaptive-challenge) providers) MUST clear `eforms_eid_{form_id}` via `Set-Cookie: … deleted` on the same response that embeds the next `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser mints a new EID before the next POST.
 			- `/eforms/prime` MUST load the minted record before skipping `Set-Cookie`. A missing/truncated/expired record is treated as stale and MUST mint a fresh EID so implementations never “adopt” a forged/orphaned cookie.
 			- `/eforms/prime` sends `Set-Cookie` only when minting a fresh EID; otherwise it unions the observed slot into `slots_allowed` and leaves timestamps untouched.
 		- Dedup behavior:
@@ -295,17 +302,17 @@ electronic_forms - Spec
 			- Ledger burns the composite `submission_id` immediately before side effects.
 			- Hard failures surface `EFORMS_ERR_TOKEN`; soft paths keep the minted record untouched for deterministic retries.
 
-		4. NCIDs, slots, and validation output
+<a id="sec-ncid"></a>4. NCIDs, slots, and validation output
 		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode reports the token; cookie mode reports the EID (with slot suffix when present).
 		- NCID generation (`Helpers::ncid`) activates when cookie submissions lack an acceptable minted record:
 			- `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true`.
 			- `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, and still set `token_ok=false`.
 			- `security.cookie_missing_policy="hard"` → escalate to a hard failure without NCID reuse.
-			- `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, and defer delivery until §7.11 succeeds; on success remove only `cookie_missing` from `soft_reasons`.
+			- `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, and defer delivery until [Security → Adaptive challenge (optional; Turnstile preferred) (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`.
 		- Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
-		- Slot metadata from cookie mode flows into `submission_id` and `slots_allowed` as described in §7.1.3. Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`.
-		- Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects and treat duplicates (`EEXIST`) as spam. Success handling continues with §13 using the NCID-based submission ID.
-	2. Honeypot
+		- Slot metadata from cookie mode flows into `submission_id` and `slots_allowed` as described in [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`.
+		- Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects and treat duplicates (`EEXIST`) as spam. Success handling continues with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID.
+<a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
 	- Field: eforms_hp (fixed POST name). Hidden-mode ids incorporate the per-instance suffix; cookie-mode ids are deterministic "{form_id}-hp-s{slot}" when slots are active; otherwise use a slotless id "{form_id}-hp". Must be empty. Submitted value is discarded and never logged.
@@ -314,14 +321,14 @@ electronic_forms - Spec
 	- "stealth_success": mimic success UX (inline PRG cookie + 303, or redirect); do not count as real successes (log stealth:true).
 	- "hard_fail": re-render with generic global error (HTTP 200); no field-level hints.
 
-	3. Timing Checks
+<a id="sec-timing-checks"></a>3. Timing Checks
 	- min_fill_time default 4s (soft; configurable). Hidden-mode measures from the original hidden timestamp (reused on re-render). Cookie-mode measures from the minted record’s `issued_at` (prime pixel time) and ignores client timestamps entirely.
 	- Max form age:
 		- Cookie mode: enforce via minted record `expires`. Expired → treat as missing cookie and apply `security.cookie_missing_policy`. Because `/eforms/prime` never refreshes `issued_at`/`expires` for a still-valid cookie, the countdown is monotonic: QA fixtures and POST handlers can assert that a re-primed-but-unexpired cookie continues to age out on the original schedule, while an expired record prompts a full remint (new timestamps + Set-Cookie).
 		- Hidden-mode: posted timestamp is best-effort; over `security.max_form_age_seconds` → +1 soft (never hard on age alone).
 	- js_ok flips to "1" on DOM Ready (soft unless `security.js_hard_mode=true`, then HARD FAIL). Cookie-mode markup keeps the field static; only the value toggles via JS.
 
-	4. Headers (Origin policy)
+<a id="sec-origin-policy"></a>4. Headers (Origin policy)
 	- Normalize + truncate UA to printable chars; cap length security.ua_maxlen.
 	- Origin check: normalize to scheme+host+effective port (80/443 normalized; non-default ports significant). origin_state = same | cross | unknown | missing.
 	- Policy (security.origin_mode): off (no signal), soft (default), hard (hard fail on cross/unknown; missing depends on origin_missing_hard).
@@ -330,7 +337,7 @@ electronic_forms - Spec
 	- When `origin_mode="soft"` and the evaluated request is cross-origin or unknown (respecting `origin_missing_hard`), add `"origin_soft"` to `soft_reasons`.
 	- Operational guidance: Only enable origin_mode=hard + origin_missing_hard=true after validating your environment (some older agents omit Origin). Provide a tiny WP-CLI smoke test that POSTs without Origin to verify behavior.
 
-	6. POST Size Cap (authoritative)
+<a id="sec-post-size-cap"></a>6. POST Size Cap (authoritative)
 	- Applies after Type gate:
 		- AppCap = security.max_post_bytes
 		- IniPost = Helpers::bytes_from_ini(ini_get('post_max_size'))
@@ -368,47 +375,48 @@ electronic_forms - Spec
 		- Hidden-mode `instance_id` is identical across rerenders until token rotation; drift → hard fail.
 		- Cookie-mode rerender emits identical markup (no new randomness) and reuses the minted `eid` and slot.
 		- Renderer id/name attributes stable per descriptor; attr mirror parity holds.
-	7. Test/QA Matrix (mandatory)
+<a id="sec-test-qa"></a>7. Test/QA Matrix (mandatory)
 	| Checklist item | Spec refs |
 	| --- | --- |
-	| Hidden-mode submissions honor the POST contract (token tampering/expiry is a hard fail when required, soft `token_soft` otherwise) and rerenders reuse `{token, instance_id, timestamp}` deterministically. | §7.1.2; §19.2 |
-	| Cookie-mode posts require the minted record, reject mixed-mode tampering, and reuse the existing `{eid, slot}` tuple on rerender. | §7.1.3; §19.2 |
-	| Cookie-mode re-priming keeps the existing EID within TTL (no `Set-Cookie`, `issued_at`/`expires` unchanged) and mints a new record only once expired; QE MUST exercise both within-TTL and expired flows. | §7.1.3 |
-	| Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | §7.1.1; §7.1.4; §19.2 |
-	| Honeypot response modes both execute: `stealth_success` fakes the success UX, logs `stealth=true`, burns the ledger entry, and `hard_fail` emits the generic error with no success log. | §7.2 |
-	| NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | §7.1.4; §13 |
-	| Slot enforcement accepts only allowed slot values, rejects out-of-range posts, and preserves minted-slot metadata across re-renders and `/eforms/prime` refreshes. | §7.1.3 |
-	| Cookie-mode challenge rerenders delete `eforms_eid_{form_id}` via the documented cookie-clear response while embedding a fresh `/eforms/prime` pixel, and QA verifies the browser drops the cookie yet the original minted record persists server-side until its TTL expires naturally. | §7.1.3; §7.1.1 |
-	| CI/QA asserts hidden-token and cookie-mode records satisfy `expires - issued_at == security.token_ttl_seconds` and that success-ticket verification honors `security.success_ticket_ttl_seconds` (no banner after TTL). | §7.1.2; §7.1.3; §13 |
-	| Success tickets gate banner rendering (valid ticket passes once, missing ticket logs warning, replay fails) while obeying TTL cleanup. | §13 |
-	8. Spam Decision
+	| Hidden-mode submissions honor the POST contract (token tampering/expiry is a hard fail when required, soft `token_soft` otherwise) and rerenders reuse `{token, instance_id, timestamp}` deterministically. | [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
+	| Cookie-mode posts require the minted record, reject mixed-mode tampering, and reuse the existing `{eid, slot}` tuple on rerender. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
+	| Cookie-mode re-priming keeps the existing EID within TTL (no `Set-Cookie`, `issued_at`/`expires` unchanged) and mints a new record only once expired; QE MUST exercise both within-TTL and expired flows. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) |
+	| Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle); [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
+	| Honeypot response modes both execute: `stealth_success` fakes the success UX, logs `stealth=true`, burns the ledger entry, and `hard_fail` emits the generic error with no success log. | [Security → Honeypot (§7.2)](#sec-honeypot) |
+	| NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Success Behavior (PRG) (§13)](#sec-success) |
+	| Slot enforcement accepts only allowed slot values, rejects out-of-range posts, and preserves minted-slot metadata across re-renders and `/eforms/prime` refreshes. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) |
+	| Cookie-mode challenge rerenders delete `eforms_eid_{form_id}` via the documented cookie-clear response while embedding a fresh `/eforms/prime` pixel, and QA verifies the browser drops the cookie yet the original minted record persists server-side until its TTL expires naturally. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode); [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle) |
+	| CI/QA asserts hidden-token and cookie-mode records satisfy `expires - issued_at == security.token_ttl_seconds` and that success-ticket verification honors `security.success_ticket_ttl_seconds` (no banner after TTL). | [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode); [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode); [Success Behavior (PRG) (§13)](#sec-success) |
+	| Success tickets gate banner rendering (valid ticket passes once, missing ticket logs warning, replay fails) while obeying TTL cleanup. | [Success Behavior (PRG) (§13)](#sec-success) |
+<a id="sec-spam-decision"></a>8. Spam Decision
 	- Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
 	- `soft_reasons`: a deduplicated set of labels from the canonical list above.
 	- When `cookie_missing_policy="challenge"` verification succeeds, remove only the `"cookie_missing"` label that policy added to `soft_reasons`. Other labels (from the canonical set above) remain counted. Hard failures still override.
 	- Scoring (computed, not stored): let `soft_fail_count = |soft_reasons|`. Decision: `soft_fail_count >= spam.soft_fail_threshold` → spam-fail; `soft_fail_count = 1` → deliver as suspect; `soft_fail_count = 0` → deliver normal.
 	- Accessibility note: `js_hard_mode=true` blocks non-JS users; keep opt-in.
 
-	9. Redirect Safety
+<a id="sec-redirect-safety"></a>9. Redirect Safety
 	- wp_safe_redirect; same-origin only (scheme/host/port).
 
-	10. Suspect Handling
+<a id="sec-suspect-handling"></a>10. Suspect Handling
 	- add headers: X-EForms-Soft-Fails, X-EForms-Suspect; subject tag (configurable)
 	- X-EForms-Soft-Fails value = `|soft_reasons|` (computed length of the deduplicated set)
 
-	11. Throttling (optional; file-based)
+<a id="sec-throttling"></a>11. Throttling (optional; file-based)
 	- As previously specified: fixed 60s window, small JSON file, flock; soft over-limit → add `"throttle_soft"` to `soft_reasons`; hard over-limit = HARD FAIL.
-	- Key derivation respects privacy.ip_mode; storage path ${uploads.dir}/throttle/{h2}/{key}.json with `{h2}` derived from the key per §7.1.1’s shared sharding and permission guidance; GC files >2 days old.
+	- Key derivation respects privacy.ip_mode; storage path ${uploads.dir}/throttle/{h2}/{key}.json with `{h2}` derived from the key per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle)’s shared sharding and permission guidance; GC files >2 days old.
 
-	12. Adaptive challenge (optional; Turnstile preferred)
+<a id="sec-adaptive-challenge"></a>12. Adaptive challenge (optional; Turnstile preferred)
 	- Modes: off | auto (require when `soft_reasons` is non-empty) | always (evaluated after the Security gate populates `soft_reasons`).
 	- Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds `"challenge_unconfigured"` to `soft_reasons` and logs `EFORMS_CHALLENGE_UNCONFIGURED`.
 	- Bootstrap boundaries & where checks happen:
 		- No eager checks at plugin load. Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
-		- `challenge.mode` is read only when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in §5/§17.
-	- Render only on POST re-render when required (or always); never on initial GET unless §7.1 requires challenge.
-		- In cookie mode, challenge rerenders MUST clear the `eforms_eid_{form_id}` cookie (as described in §7.1.3) on the same response that embeds the `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser applies the clear before fetching `/eforms/prime` and naturally mints a new EID before the next POST per §7.1.1/§7.1.3 (the explicit exception to §7.1.3's no-rotation rule).
+		- `challenge.mode` is read only when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in [Template Model (§5)](#sec-template-model)/[Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).
+	- Render only on POST re-render when required (or always); never on initial GET unless [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) requires challenge.
+		- In cookie mode, challenge rerenders MUST clear the `eforms_eid_{form_id}` cookie (as described in [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode)) on the same response that embeds the `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser applies the clear before fetching `/eforms/prime` and naturally mints a new EID before the next POST per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle)/[Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) (the explicit exception to [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode)'s no-rotation rule).
 	- Turnstile → cf-turnstile-response; hCaptcha → h-captcha-response; reCAPTCHA v2 → g-recaptcha-response.
 
+<a id="sec-validation-pipeline"></a>
 8. VALIDATION & SANITIZATION PIPELINE (DETERMINISTIC)
 	0. Structural preflight (stop on error; no field processing)
 	- Unknown keys rejected at every level (root/email/success/field/rule).
@@ -430,7 +438,7 @@ electronic_forms - Spec
 	- No rejection allowed in Normalize.
 
 	3. Validate (authoritative; may reject)
-	- Check required, length/pattern/range, allow-lists, cross-field rules (see §10).
+	- Check required, length/pattern/range, allow-lists, cross-field rules (see [Cross-Field Rules (BOUNDED SET) (§10)](#sec-cross-field-rules)).
 	- Options: reject when a disabled option key is submitted.
 	- Uploads:
 		- Enforce per-file, per-field, per-request caps; count cap for files.
@@ -448,14 +456,16 @@ electronic_forms - Spec
 
 	5. Use canonical values only (email/logs)
 
-	6. Escape at sinks only (per map in §6)
+	6. Escape at sinks only (per map in [Central Registries (Internal Only) (§6)](#sec-central-registries))
 
+<a id="sec-html-fields"></a>
 9. SPECIAL CASE: HTML-BEARING FIELDS
 	- textarea_html and template fragments (before_html / after_html)
 	- textarea_html: size bound via validation.textarea_html_max_bytes (default 32768 bytes)
 	- Sanitize with wp_kses_post; sanitized result is canonical; escape per sink.
 	- textarea_html: post-sanitize bound – after wp_kses_post, re-check canonical size; if > max, fail with EFORMS_ERR_HTML_TOO_LARGE (no auto-truncate).
 
+<a id="sec-cross-field-rules"></a>
 10. CROSS-FIELD RULES (BOUNDED SET)
 	- Supported:
 		`target` identifies the field that will receive an error when the rule triggers. The `field` or `fields` entries list the field(s) inspected to determine whether the rule triggers.
@@ -469,6 +479,7 @@ electronic_forms - Spec
 	- additionalProperties:false per rule object
 	- Multiple violations reported together
 
+<a id="sec-field-types"></a>
 11. BUILT-IN FIELD TYPES (DEFAULTS; US-FOCUSED)
 	- Spec::descriptorFor($type) exposes a descriptor for each field type:
 	- is_multivalue: bool
@@ -480,7 +491,7 @@ electronic_forms - Spec
 	- name / first_name / last_name: aliases of text; trim internal multiples; default autocomplete accordingly.
 	- text: length/charset/regex
 	- textarea: length/charset/regex
-	- textarea_html: see §9; mirror maxlength/minlength when provided.
+	- textarea_html: see [Special Case: HTML-Bearing Fields (§9)](#sec-html-fields); mirror maxlength/minlength when provided.
 	- email: type="email", inputmode="email", spellcheck="false", autocapitalize="off"; mirror maxlength/minlength.
 	- url: wp_http_validate_url + allowed schemes (http, https). type="url", spellcheck="false", autocapitalize="off".
 	- tel_us: NANP; digits-only canonical 10 digits; optional +1 stripped; no extensions. type="tel", inputmode="tel"; mirror maxlength.
@@ -493,12 +504,13 @@ electronic_forms - Spec
 	- file: single upload. Accept tokens map:
 	- image → image/jpeg,image/png,image/gif,image/webp
 	- pdf	 → application/pdf
-	- files: multiple upload with max_files; same explicit lists; email attachment policy unchanged (§14).
+	- files: multiple upload with max_files; same explicit lists; email attachment policy unchanged ([Email Delivery (§14)](#sec-email)).
 	- date: mirror min/max and step when provided.
 	- For each field, the HTML attributes emitted (inputmode, pattern, multiple, accept, etc.) must match attr_mirror derived from the resolved descriptor.
 	- Resolved descriptor cache per request:
 	- Include name_tpl and id_prefix to avoid recomputing; reuse in Renderer + Validator.
 
+<a id="sec-accessibility"></a>
 12. ACCESSIBILITY (A11Y)
 	1. Labels
 	- Always render a <label> for each control; if missing, derive Title Case label and mark visually hidden
@@ -522,6 +534,7 @@ electronic_forms - Spec
 	7. File Inputs
 	- follow same patterns as native inputs
 
+<a id="sec-success"></a>
 13. SUCCESS BEHAVIOR (PRG)
 	- inline: PRG (303) to same URL with `eforms_success={form_id}`. Renderer shows success only in the first instance in source order when multiple same-ID instances exist; suppress in subsequent instances.
 	- redirect: `wp_safe_redirect(redirect_url, 303)`; no flag on destination. Cookie-mode deployments SHOULD prefer `success.mode="redirect"` pointing at a non-cached endpoint.
@@ -533,12 +546,13 @@ electronic_forms - Spec
 	- Namespace internal query args with `eforms_*`.
 	- `success.message` is treated as plain text and escaped.
 	- Anti-spoofing (inline mode only):
-	1. On successful POST, create a one-time success ticket `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` (short TTL, e.g., 5 minutes, with `{h2}` derived from the `submission_id` per §7.1.1’s shared sharding and permission guidance) containing `{ form_id, submission_id, issued_at }`. `submission_id` matches the ledger naming scheme (e.g., `eid__slot2` when slots are enabled) so the ticket filenames remain colon-free and Windows-compatible. Set `eforms_s_{form_id}={submission_id}` (`SameSite=Lax`, HttpOnly=false, `Secure` on HTTPS, `Path`=current request path, `Max-Age≈300`).
+	1. On successful POST, create a one-time success ticket `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` (short TTL, e.g., 5 minutes, with `{h2}` derived from the `submission_id` per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle)’s shared sharding and permission guidance) containing `{ form_id, submission_id, issued_at }`. `submission_id` matches the ledger naming scheme (e.g., `eid__slot2` when slots are enabled) so the ticket filenames remain colon-free and Windows-compatible. Set `eforms_s_{form_id}={submission_id}` (`SameSite=Lax`, HttpOnly=false, `Secure` on HTTPS, `Path`=current request path, `Max-Age≈300`).
 	2. Redirect with `?eforms_success={form_id}`.
 	3. Cached page loads a lightweight verifier that calls `/eforms/success-verify?f={form_id}&s={submission_id}` (`Cache-Control: no-store`). Render the success banner only when both the query flag and verifier response succeed. A successful verifier response MUST immediately invalidate the ticket so any subsequent verify call for the same `{form_id, submission_id}` pair returns false. Then clear the cookie and strip the query parameter. This prevents replaying old cookie/query combinations on cached pages.
 	- Success UX without cookies (NCID flow): When the submission proceeded under an NCID (no acceptable cookie), implementations MUST use `success.mode="redirect"` to a non-cached endpoint. Append `&eforms_submission={submission_id}` to the 303 redirect. The `/eforms/success-verify` endpoint MUST accept the `submission_id` (`s`) from either the `eforms_s_{form_id}` cookie or the `eforms_submission` query parameter. Inline success on a cached page MUST NOT be used in this case.
 	- Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}=1` cookie; always pair it with the ticket verifier to prevent spoofing. Logs and downstream consumers MUST treat `submission_id` values as colon-free strings and rely on the separate `slot` metadata when disambiguating multi-instance submissions.
 
+<a id="sec-email"></a>
 14. EMAIL DELIVERY
 	- DMARC alignment: From: no-reply@{site_domain}
 	- From precedence: if email.from_address is a valid same-domain address, use it; otherwise default to no-reply@{site_domain}. Always keep From: on site domain.
@@ -563,6 +577,7 @@ electronic_forms - Spec
 	- autocorrect: do strict parsing, then trim/collapse spaces, lowercase domain, normalize common domain typos in display only (.con→.com, .c0m→.com); canonical stays strict; log [corrected] note when applied.
 	- display_format_tel tokens: "xxx-xxx-xxxx" (default), "(xxx) xxx-xxxx", "xxx.xxx.xxxx" (affects email display only).
 
+<a id="sec-logging"></a>
 15. LOGGING
 	- Mode selects destination; level selects severities; pii/headers select detail; rotation keeps files sane.
 	- logging.mode: "jsonl" | "minimal" | "off" (authoritative)
@@ -586,10 +601,11 @@ electronic_forms - Spec
 	- eforms severity=<error|warning|info> code=<EFORMS_*|PHPMailer> form=<form_id> subm=<submission_id> ip=<masked|hash|full|none> uri="<path?eforms_*...>" msg="<short>" meta=<compact JSON>
 	- Fail2ban (optional; independent of logging.mode; controlled by logging.fail2ban.*)
 	- Emit single-line: eforms[f2b] ts=<unix> code=<EFORMS_ERR_*> ip=<resolved_client_ip> form=<form_id>
-	- Uses resolved client IP per §16 (ignores privacy.ip_mode). Rotation/retention similar to JSONL when target=file.
+	- Uses resolved client IP per [Privacy and IP Handling (§16)](#sec-privacy) (ignores privacy.ip_mode). Rotation/retention similar to JSONL when target=file.
 	- Implementation notes:
 	- Initialize JSONL/minimal logger only when logging.mode!='off'. Fail2ban emission is independent.
 
+<a id="sec-privacy"></a>
 16. PRIVACY AND IP HANDLING
 	- privacy.ip_mode = none | masked | hash | full (default masked)
 	- masked: IPv4 last octet(s) redacted; IPv6 last 80 bits zeroed (compressed)
@@ -606,6 +622,7 @@ electronic_forms - Spec
 	- Header parsed case-insensitively; comma-separated list; strip brackets/ports; accept only valid literals.
 	- CI tests: forged XFF from untrusted source → use REMOTE_ADDR; trusted proxy + XFF(client,proxy) → pick client; header with only private IPs → fall back to REMOTE_ADDR.
 
+<a id="sec-configuration"></a>
 17. CONFIGURATION: DOMAINS, CONSTRAINTS, AND DEFAULTS
 	- Authority: Default *values* live in code as `Config::DEFAULTS` (see `src/Config.php`). This spec no longer duplicates every literal; the code array is the single source of truth for defaults.
 	- Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
@@ -634,11 +651,11 @@ electronic_forms - Spec
 	|-----------|---------------------------------------|-------|----------------------------------------------------------------------------------------------------------------|
 	| Security	| `security.origin_mode`				| enum	| {`off`,`soft`,`hard`} — governs whether missing Origin headers are tolerated.									|
 	| Security	| `security.honeypot_response`			| enum	| {`stealth_success`,`hard_fail`} — determines the observable response when the honeypot triggers.				 |
-	| Security	| `security.cookie_missing_policy`		| enum	| {`off`,`soft`,`hard`,`challenge`} — fallback to default on invalid input; challenge mode may force §7.1 flow.	 |
+	| Security	| `security.cookie_missing_policy`		| enum	| {`off`,`soft`,`hard`,`challenge`} — fallback to default on invalid input; challenge mode may force [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) flow.	 |
 	| Security	| `security.min_fill_seconds`			 | int	 | clamp 0–60; values <0 become 0; >60 become 60.																|
 	| Security	| `security.token_ttl_seconds`			| int	 | clamp 1–86400; minted tokens MUST set `expires - issued_at` equal to this value.								 |
 	| Security	| `security.max_form_age_seconds`		 | int	 | clamp 1–86400; defaults to `security.token_ttl_seconds` when omitted.											|
-	| Security	| `security.success_ticket_ttl_seconds` | int	 | clamp 30–3600; governs success ticket validity for redirect mode (§7.2).										 |
+	| Security	| `security.success_ticket_ttl_seconds` | int	 | clamp 30–3600; governs success ticket validity for redirect mode ([Success Behavior (PRG) (§13)](#sec-success)).										 |
 	| Security	| `security.cookie_mode_slots_allowed`	| list	| Normalized to unique ints 1–255; honored only when paired with `cookie_mode_slots_enabled = true`.			 |
 	| Challenge | `challenge.mode`						| enum	| {`off`,`auto`,`always`} — controls when human challenges execute; invalid values revert to default.			|
 	| Challenge | `challenge.provider`					| enum	| {`turnstile`,`hcaptcha`,`recaptcha`} — provider-specific keys MUST be populated before enablement.			 |
@@ -646,22 +663,22 @@ electronic_forms - Spec
 	| Throttle	| `throttle.per_ip.max_per_minute`		| int	 | clamp 1–120; values beyond clamp saturate; 0 disables throttle only via `throttle.enable = false`.			|
 	| Throttle	| `throttle.per_ip.cooldown_seconds`	| int	 | clamp 10–600 seconds.																							|
 	| Throttle	| `throttle.per_ip.hard_multiplier`	 | float | clamp 1.5–10.0; multiplier applies to hard-fail windows when soft threshold is exceeded.						 |
-	| Logging	 | `logging.mode`						| enum	| {`off`,`minimal`,`jsonl`} — determines logging sink (§15).													 |
+	| Logging	 | `logging.mode`						| enum	| {`off`,`minimal`,`jsonl`} — determines logging sink ([Logging (§15)](#sec-logging)).													 |
 	| Logging	 | `logging.level`						 | int	 | clamp 0–2; level ≥1 unlocks verbose submission diagnostics.													|
 	| Logging	 | `logging.retention_days`				| int	 | clamp 1–365 days.																								 |
 	| Logging	 | `logging.fail2ban.target`			 | enum	| {`error_log`,`syslog`,`file`} — `file` requires a writable path; invalid values fall back to `error_log`.		 |
 	| Logging	 | `logging.fail2ban.retention_days`	 | int	 | clamp 1–365; defaults to `logging.retention_days` when unspecified.											|
-	| Privacy	 | `privacy.ip_mode`					 | enum	| {`none`,`masked`,`hash`,`full`} — see §15 for hashing/masking details.										 |
+	| Privacy	 | `privacy.ip_mode`					 | enum	| {`none`,`masked`,`hash`,`full`} — see [Logging (§15)](#sec-logging) for hashing/masking details.										 |
 	| Validation| `validation.max_fields_per_form`		| int	 | clamp 1–1000; protects renderer/validator recursion.															|
 	| Validation| `validation.max_options_per_group`	| int	 | clamp 1–1000; denies pathological option fan-out.																|
 	| Validation| `validation.max_items_per_multivalue` | int	 | clamp 1–1000; governs checkbox/select count.																	 |
-	| Validation| `validation.textarea_html_max_bytes`	| int	 | clamp 1–1_000_000 bytes; applies before sanitizer; see §11 for mirroring to DOM hints.						 |
+	| Validation| `validation.textarea_html_max_bytes`	| int	 | clamp 1–1_000_000 bytes; applies before sanitizer; see [Built-in Field Types (Defaults; US-focused) (§11)](#sec-field-types) for mirroring to DOM hints.						 |
 
 	Additional notes:
-		- `security.js_hard_mode = true` enforces a hard failure for non-JS submissions (§7.1).
+		- `security.js_hard_mode = true` enforces a hard failure for non-JS submissions ([Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection)).
 		- `security.max_post_bytes` MUST honor PHP INI limits (post_max_size, upload_max_filesize) and never exceed server caps.
 		- Range/enumeration clamps are mirrored to HTML attributes for UX hints only; server enforcement is authoritative.
-		- Spam heuristics (`spam.*`) and upload caps (`uploads.*`) are documented in §§8 and 18; they inherit defaults from code but keep their behavioral rules in those sections.
+		- Spam heuristics (`spam.*`) and upload caps (`uploads.*`) are documented in [Validation & Sanitization Pipeline (Deterministic) (§8)](#sec-validation-pipeline) and [Uploads (Implementation Details) (§18)](#sec-uploads); they inherit defaults from code but keep their behavioral rules in those sections.
 
 	3. Defaults
 		- The canonical defaults array resides at `src/Config.php` as `Config::DEFAULTS`. `Config::defaults()` injects runtime-derived values such as `uploads.dir` (resolved from `wp_upload_dir()`); these dynamic entries remain code-driven.
@@ -670,6 +687,7 @@ electronic_forms - Spec
 	4. CI guardrails
 		- Repository CI asserts that every key documented above exists in `Config::DEFAULTS` and that the clamp/enum metadata in code matches the normative ranges listed here. This keeps the spec and implementation from drifting.
 
+<a id="sec-uploads"></a>
 18. UPLOADS (IMPLEMENTATION DETAILS)
 	- Intersection: field accept[] ∩ global allow-list must be non-empty → else EFORMS_ERR_ACCEPT_EMPTY
 	- Stored filename: {Ymd}/{original_slug}-{sha16}-{seq}.{ext}; files 0600, dirs 0700; full SHA-256 recorded in logs.
@@ -682,12 +700,13 @@ electronic_forms - Spec
 	- fileinfo hard requirement: if ext/fileinfo unavailable, define EFORMS_FINFO_UNAVAILABLE at bootstrap and deterministically fail any upload attempt.
 	- MIME validation requires agreement of finfo + extension + accept-token; finfo=false/unknown → reject with EFORMS_ERR_UPLOAD_TYPE.
 
+<a id="sec-request-lifecycle"></a>
 19. REQUEST LIFECYCLE
-	1. GET
+	<a id="sec-request-lifecycle-get"></a>1. GET
 	- Shortcode `[eform id="slug" cacheable="true|false"]` (`cacheable` defaults to `false`).
 	- Template tag `eform_render('slug', ['cacheable' => true|false])` (`cacheable` defaults to `false`).
 	- `cacheable=false` forces hidden-mode; `cacheable=true` uses cookie-mode.
-	- FormRenderer loads the template and injects the appropriate hidden-token or cookie metadata per §7.1.
+	- FormRenderer loads the template and injects the appropriate hidden-token or cookie metadata per [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection).
 	- Registers/enqueues CSS/JS only when rendering
 	- Always set method="post". If any upload field present, add enctype="multipart/form-data".
 	- Opportunistic GC may run (no WP-Cron).
@@ -698,16 +717,17 @@ electronic_forms - Spec
 	- html5.client_validation=true → omit novalidate; server validator still runs on POST.
 	- Preflight resolves and freezes per-request resolved descriptors; reuse across Renderer and Validator (no re-merge on POST).
 
-	2. POST
+	<a id="sec-request-lifecycle-post"></a>2. POST
 	- SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce
-	- Mode, hidden-field reuse, and rerender behavior follow the canonical contract in §7.1; lifecycle logic never swaps modes mid-flow.
+	- Mode, hidden-field reuse, and rerender behavior follow the canonical contract in [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection); lifecycle logic never swaps modes mid-flow.
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
-	- Error rerenders, ledger reservation timing, and duplicate handling are governed by §7.1; reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` (apply the `{h2}` sharding rule from §7.1.1) via an exclusive-create call (`fopen('xb')` or equivalent) with 0700 directory / 0600 file perms immediately before side effects. Both hidden-token and cookie-mode submissions must resolve colon-free `submission_id` values; treat `EEXIST` as a duplicate and log `EFORMS_LEDGER_IO` on any other filesystem failure while also treating the submission as a duplicate. POST lifecycle code simply orchestrates normalization/validation/email/logging around that contract.
+	- Error rerenders, ledger reservation timing, and duplicate handling are governed by [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection); reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` (apply the `{h2}` sharding rule from [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle)) via an exclusive-create call (`fopen('xb')` or equivalent) with 0700 directory / 0600 file perms immediately before side effects. Both hidden-token and cookie-mode submissions must resolve colon-free `submission_id` values; treat `EEXIST` as a duplicate and log `EFORMS_LEDGER_IO` on any other filesystem failure while also treating the submission as a duplicate. POST lifecycle code simply orchestrates normalization/validation/email/logging around that contract.
 	- On success: move stored uploads; send email; log; PRG/redirect; cleanup per retention.
 	- Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
 	- throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
 	- Challenge hook: if required (always/auto or cookie policy), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
 
+<a id="sec-error-handling"></a>
 20. ERROR HANDLING
 	- Errors stored by field_key; global errors under _global
 	- Renderer prints global summary + per-field messages
@@ -716,18 +736,20 @@ electronic_forms - Spec
 	- "Too many files."
 	- "This file type isn't allowed."
 	- "File upload failed. Please try again."
-	- Re-render after errors passes the mode-specific security metadata defined in §7.1 back to Renderer (hidden: token/instance/timestamp; cookie: `{eid, slot}`).
+	- Re-render after errors passes the mode-specific security metadata defined in [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) back to Renderer (hidden: token/instance/timestamp; cookie: `{eid, slot}`).
 	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_HTML_TOO_LARGE).
 	- Large form advisory via logs and optional HTML comment (WP_DEBUG only).
 	- "This content is too long." maps to EFORMS_ERR_HTML_TOO_LARGE.
 	- "This form was already submitted or has expired - please reload the page." maps to EFORMS_ERR_TOKEN.
 
+<a id="sec-compatibility"></a>
 21. COMPATIBILITY AND UPDATES
 	- Changing type defaults or rules updates behavior globally via registry
 	- Templates remain portable (no callbacks)
 	- Minimum versions: PHP >= 8.0; WordPress >= 5.8 (admin notice + deactivate if unmet)
 	- Terminology: use allow-list/deny-list consistently.
 
+<a id="sec-assets"></a>
 22. ASSETS (CSS & JS)
 	- Enqueued only when a form is rendered; version strings via filemtime().
 	- forms.js provides js_ok="1" on DOM Ready, submit-lock/disabled state, error-summary focus, and first-invalid focus. Not required unless security.js_hard_mode=true.
@@ -739,10 +761,11 @@ electronic_forms - Spec
 	- Turnstile: https://challenges.cloudflare.com/turnstile/v0/api.js (defer, crossorigin=anonymous)
 	- hCaptcha: https://hcaptcha.com/1/api.js (defer)
 	- reCAPTCHA v2: https://www.google.com/recaptcha/api.js (defer)
-	- Do not load challenge script on initial GET unless required by §7.1.
+	- Do not load challenge script on initial GET unless required by [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection).
 	- Secrets hygiene: Render only site_key to HTML. Never expose secret_key or verify tokens in markup/JS. Verify server-side; redact tokens in logs.
 	- Keep novalidate logic unchanged.
 
+<a id="sec-implementation-notes"></a>
 23. NOTES FOR IMPLEMENTATION
 	- instance_id (hidden mode): mint once per token using a cryptographically secure RNG (16–24 bytes), encode as base64url without padding (regex `^[A-Za-z0-9_-]{22,32}$`). Persist in the hidden-token record; do not regenerate on rerender.
 	- timestamp (hidden mode): DO NOT persist a separate field. The timestamp rendered into HTML MUST be the record’s `issued_at`. On rerender, reload the record and reuse the same value.
@@ -764,9 +787,9 @@ electronic_forms - Spec
 	- Helpers::nfc(string $v): string — normalize to Unicode NFC; no-op without intl.
 	- Helpers::cap_id(string $id, int $max=128): string — length cap with middle truncation + stable 8-char base32 suffix.
 	- Helpers::bytes_from_ini(?string $v): int — parses K/M/G; "0"/null/"" -> PHP_INT_MAX; clamps non-negative.
-	- Helpers::h2(string $id): string — derive the shared `[0-9a-f]{2}` shard (see `{h2}` directories in §7.1.1).
-	- Helpers::throttle_key(Request $r): string — derive the throttle key per §10 honoring `privacy.ip_mode`.
-	- Helpers::ncid(string $form_id, string $client_key, int $window_idx, array $canon_post): string — returns `"nc-" . hash('sha256', ...)` with the concatenation defined in §7.1.4.
+	- Helpers::h2(string $id): string — derive the shared `[0-9a-f]{2}` shard (see `{h2}` directories in [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
+	- Helpers::throttle_key(Request $r): string — derive the throttle key per [Cross-Field Rules (BOUNDED SET) (§10)](#sec-cross-field-rules) honoring `privacy.ip_mode`.
+	- Helpers::ncid(string $form_id, string $client_key, int $window_idx, array $canon_post): string — returns `"nc-" . hash('sha256', ...)` with the concatenation defined in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
 	- Renderer consolidation:
 	- Shared text-control helper centralizes attribute assembly; <input> and <textarea> emitters stay small and focused.
 	- Keep group controls (fieldset/legend), selects, and file(s) as dedicated renderers for a11y semantics.
@@ -791,6 +814,7 @@ electronic_forms - Spec
 	- Command to POST without Origin to confirm hard/missing policy behavior.
 	- Command to POST oversized payload to verify RuntimeCap handling.
 
+<a id="sec-email-templates"></a>
 24. EMAIL TEMPLATES (REGISTRY)
 	- Files: /templates/email/{name}.txt.php and {name}.html.php
 	- JSON "email_template": "foo" selects those files ("foo.html.php" when email.html=true); missing/unknown names raise an error
@@ -805,6 +829,7 @@ electronic_forms - Spec
 	- HTML emails: escape per context; no raw user HTML injected
 	- Security hardening: template PHP files include ABSPATH guard (defined('ABSPATH') || exit;).
 
+<a id="sec-templates-to-include"></a>
 25. TEMPLATES TO INCLUDE
 	1. forms/quote-request.json
 	{
@@ -852,6 +877,7 @@ electronic_forms - Spec
 	3. eforms.css
 	- Keep your existing CSS file as-is. Not reproduced here to keep this text plain.
 
+<a id="sec-appendices"></a>
 26. APPENDICES
 	1. Codes (examples)
 	- EFORMS_ERR_TOKEN - "Security check failed."
@@ -895,6 +921,7 @@ electronic_forms - Spec
 	- PHP TEMPLATE_SPEC is authoritative at runtime
 	- JSON Schema is documentation/CI lint only; enforce parity in CI
 
+<a id="sec-past-decisions"></a>
 27. PAST DECISION NOTES
 	- Use Origin as the single header check because it's the modern CSRF boundary and far less likely to be stripped than Referer.
 	- Hidden tokens defend idempotency/duplicate-submits; CSRF defense derives from Origin.
