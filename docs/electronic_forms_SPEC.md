@@ -377,6 +377,7 @@ electronic_forms - Spec
     | Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | §7.1.1; §7.1.4; §19.2 |
     | NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | §7.1.4; §13 |
     | Slot enforcement accepts only allowed slot values, rejects out-of-range posts, and preserves minted-slot metadata across re-renders and `/eforms/prime` refreshes. | §7.1.3 |
+    | CI/QA asserts hidden-token and cookie-mode records satisfy `expires - issued_at == security.token_ttl_seconds` and that success-ticket verification honors `security.success_ticket_ttl_seconds` (no banner after TTL). | §7.1.2; §7.1.3; §13 |
     | Success tickets gate banner rendering (valid ticket passes once, missing ticket logs warning, replay fails) while obeying TTL cleanup. | §13 |
   8. Spam Decision
     - Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
