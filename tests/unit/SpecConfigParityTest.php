@@ -90,18 +90,36 @@ final class SpecConfigParityTest extends BaseTestCase
     private function parseNormativeConstraintsTable(string $spec): array
     {
         $lines = explode("\n", $spec);
-        $inTable = false;
         $tableLines = [];
+        $inConfigSection = false;
+        $inTable = false;
+
         foreach ($lines as $line) {
-            if (str_contains($line, '#### 17.2')) {
+            $trimmed = trim($line);
+
+            if (!$inConfigSection) {
+                if (str_contains($line, '<a id="sec-configuration"></a>')) {
+                    $inConfigSection = true;
+                }
+                continue;
+            }
+
+            if (str_contains($line, '<a id="sec-uploads"></a>')) {
+                break;
+            }
+
+            if (!$inTable && str_contains($line, '2. Normative constraints')) {
                 $inTable = true;
                 continue;
             }
-            if ($inTable && str_contains($line, '#### 17.3')) {
-                break;
-            }
-            if ($inTable && str_starts_with(trim($line), '|')) {
-                $tableLines[] = $line;
+
+            if ($inTable) {
+                if (str_contains($line, '3. Defaults') || str_contains($line, 'Additional notes')) {
+                    break;
+                }
+                if (str_starts_with($trimmed, '|')) {
+                    $tableLines[] = $line;
+                }
             }
         }
 
