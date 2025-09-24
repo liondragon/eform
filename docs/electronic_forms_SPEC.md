@@ -307,8 +307,13 @@ electronic_forms - Spec
 			- `/eforms/prime` sends `Set-Cookie` only when minting a fresh EID; otherwise it unions the observed slot into `slots_allowed` and leaves timestamps untouched.
 		- Dedup behavior:
 			- `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active.
-                        - Ledger burns the composite `submission_id` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
+			- Ledger burns the composite `submission_id` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
 			- Hard failures surface `EFORMS_ERR_TOKEN`; soft paths keep the minted record untouched for deterministic retries.
+		- Slot selection (minimal invariants):
+			- When `cookie_mode_slots_enabled=true`, the renderer MUST choose the `eforms_slot` **deterministically per GET render** and MUST reuse that choice on rerender; clients cannot pick slots.
+			- If multiple instances of the same `form_id` are rendered on one page and there are more instances than values in `security.cookie_mode_slots_allowed`, **excess instances MUST be slotless** (omit `eforms_slot`; call `/eforms/prime` without `s`).
+			- Implementations MAY offer an author override to pin a specific slot (e.g., `slot="N"`). If `N` is not allowed, ignore it and fall back to the implementation’s deterministic choice.
+			- This section constrains determinism only; the exact algorithm (e.g., instance index, round-robin) is implementation-defined.
 		- Prime endpoint semantics (`/eforms/prime`):
 			- Parse `s` as an integer 1–255. When slots are disabled or `s` is not in `security.cookie_mode_slots_allowed`, treat it as `null` (do not set `slot` and do not modify `slots_allowed`).
 			- Update `slots_allowed` atomically (write-temp + rename, or `flock()` + fsync). Never rewrite `issued_at`/`expires` on reuse.
