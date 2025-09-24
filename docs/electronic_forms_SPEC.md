@@ -310,8 +310,21 @@ electronic_forms - Spec
 			| `form_id`		 | Authoritative binding for the EID.
 			| `eid`			 | `i-<UUIDv4>` minted by `/eforms/prime`.
 			| `issued_at`/`expires` | TTL enforced server-side; never rewritten on reuse.
-			| `slots_allowed` | Deduplicated list updated atomically; slotless installs keep `[]`.
-			| `slot`			| Nullable canonical slot when one emerges; multiple slots reset it to `null`.
+			| `slots_allowed` | Deduplicated list of **observed** slots for this EID, updated atomically by `/eforms/prime` (union only). Slotless installs keep `[]`.
+			| `slot`			| Canonical slot: **set to the single observed slot when and only when `|slots_allowed| == 1`; else `null`.** Never set by POST; only `/eforms/prime` transitions it via the rule above. Once `|slots_allowed| > 1`, `slot` remains `null` for the lifetime of the EID.
+		- Slot lifecycle (canonical semantics):
+			- Renderer assigns a deterministic `eforms_slot` per instance; `/eforms/prime` **unions** that value into `slots_allowed` for the EID.
+			- Canonical `slot` is derived purely from `slots_allowed`:
+				- If after union `|slots_allowed| == 1` → `slot = that single value`.
+				- If after union `|slots_allowed| > 1` → `slot = null` (and stays `null` until the EID expires/rotates).
+			- POST **does not** mutate `slots_allowed` or `slot`; only `/eforms/prime` performs unions/derivation.
+			- Effects on validation/dedupe (consistent with existing rules):
+				- When `slot !== null`, POST **must** include matching `eforms_slot`; `submission_id = eid__slot{slot}`.
+				- When `slot === null` and `slots_allowed` is non-empty:
+					- POST **must** include `eforms_slot` and it **must** be one of `slots_allowed`.
+					- `submission_id = eid__slot{posted_slot}` (suffix always used when a slot is posted).
+				- When `slots_enabled` but the specific instance renders **slotless** (per deterministic assignment/exhaustion rules), POST may omit `eforms_slot`; `submission_id = eid` (no suffix).
+			- Rerender behavior: normal rerenders reuse the existing `{eid, slot}`; deterministic assignment minimizes collisions but does not override these rules.
 		- POST requirements (policy-gated presence; tampering always hard-fails):
 			- If `security.cookie_missing_policy="hard"`: the request **MUST** present `eforms_eid_{form_id}` (value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`) **and** a matching minted record {`mode:"cookie"`,`form_id`,`eid`}; missing/invalid cookie or missing record → **HARD FAIL**.
 			- If `security.cookie_missing_policy="challenge"`: cookie preferred; when missing/invalid, continue via **NCID** with `token_ok=false`, add `cookie_missing`, and set `require_challenge=true` (delivery deferred until verification).
