@@ -161,7 +161,7 @@ electronic_forms - Spec
 	- /schema/template.schema.json is CI/docs only; ensure parity with TEMPLATE_SPEC
 	- If JSON is malformed or missing keys, fail gracefully with a clear "Form configuration error" (no white-screen).
 	- Unknown rule values are rejected by the PHP validator.
-	- For file/files: accept[] ∩ global allow-list must be non-empty; else EFORMS_ERR_ACCEPT_EMPTY.
+        - File-type allow-list intersection (design-time + runtime): TemplateValidator rejects any file/files field whose accept[] tokens do not intersect the global uploads allow-list, preventing templates that could never accept uploads. At submission time Validator/Uploads recompute the same intersection against the active configuration; if the set is empty (or becomes empty after config overrides), the request fails with `EFORMS_ERR_ACCEPT_EMPTY` before any file is processed.
 	- CI MUST validate /templates/forms/*.json against /schema/template.schema.json and assert parity with the PHP TEMPLATE_SPEC.
 	- Enforce email.display_format_tel enum; unknown values are dropped at runtime but flagged in preflight.
 
@@ -431,7 +431,7 @@ electronic_forms - Spec
 	- fields[].key must be unique; duplicates → EFORMS_ERR_SCHEMA_DUP_KEY.
 	- Enum enforcement (field.type, rule.rule, row_group.mode, row_group.tag).
 	- Conditional requirements (redirect mode requires redirect_url; files must have max_files>=1 if present; row_group must omit key).
-	- accept[] ∩ global allow-list must be non-empty; else EFORMS_ERR_ACCEPT_EMPTY.
+        - Enforce the accept[]/allow-list intersection per [Template Model → Validation (§5.6)](#sec-template-model) so design-time preflight shares the `EFORMS_ERR_ACCEPT_EMPTY` guard.
 	- Row-group object shape must match spec; mis-shapes → EFORMS_ERR_SCHEMA_OBJECT.
 	- Handler resolution: resolve all handler IDs to callables; unknown → deterministic RuntimeException (caught → config error).
 
@@ -697,7 +697,7 @@ electronic_forms - Spec
 
 <a id="sec-uploads"></a>
 18. UPLOADS (IMPLEMENTATION DETAILS)
-	- Intersection: field accept[] ∩ global allow-list must be non-empty → else EFORMS_ERR_ACCEPT_EMPTY
+        - File-type policy mirrors [Template Model → Validation (§5.6)](#sec-template-model); an empty accept[]/allow-list intersection triggers `EFORMS_ERR_ACCEPT_EMPTY`.
 	- Stored filename: {Ymd}/{original_slug}-{sha16}-{seq}.{ext}; files 0600, dirs 0700; full SHA-256 recorded in logs.
 	- Path collision: increment seq
 	- Path length cap: enforce uploads.max_relative_path_chars; when exceeded, shorten original_slug deterministically to fit.
