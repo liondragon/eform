@@ -842,51 +842,17 @@ electronic_forms - Spec
 
 <a id="sec-templates-to-include"></a>
 25. TEMPLATES TO INCLUDE
-	1. forms/quote-request.json
-	{
-		"id":"quote_request",
-		"version":"1",
-		"title":"Quote Request",
-		"success":{"mode":"redirect","redirect_url":"/?page_id=15"},
-		"email":{
-		"to":"office@flooringartists.com",
-		"subject":"Quote Request",
-		"email_template":"default",
-		"include_fields":["name","email","tel_us","zip_us","message","ip"],
-		"display_format_tel":"xxx-xxx-xxxx"
-		},
-		"fields":[
-		{"key":"name","type":"name","label":"Your Name","required":true,"placeholder":"Your Name","autocomplete":"name"},
-		{"key":"email","type":"email","label":"Email","required":true,"placeholder":"your@email.com","autocomplete":"email"},
-		{"type":"row_group","mode":"start","tag":"div","class":"columns_nomargins"},
-		{"key":"tel_us","type":"tel_us","label":"Phone","required":true,"placeholder":"Phone","autocomplete":"tel"},
-		{"key":"zip_us","type":"zip_us","label":"Zip","required":true,"placeholder":"Project Zip Code","autocomplete":"postal-code"},
-		{"type":"row_group","mode":"end"},
-		{"key":"message","type":"textarea","label":"Message","required":true}
-		],
-		"submit_button_text":"Send"
-	}
-	2. forms/contact.json
-	{
-		"id":"contact_us",
-		"version":"1",
-		"title":"Contact Us",
-		"success":{"mode":"inline","message":"Thanks! We got your message."},
-		"email":{
-		"to":"admin@example.com",
-		"subject":"Contact Form",
-		"email_template":"default",
-		"include_fields":["name","email","message"]
-		},
-		"fields":[
-		{"key":"name","type":"name","label":"Your Name","required":true,"before_html":"<h3>Hello,</h3>"},
-		{"key":"message","type":"textarea","label":"Message","required":true,"placeholder":"And continue here ..."},
-		{"key":"email","type":"email","label":"Email","autocomplete":"email","size":40,"required":true,"placeholder":"you@example.com"}
-		],
-		"submit_button_text":"Send Your Request"
-	}
-	3. eforms.css
-	- Keep your existing CSS file as-is. Not reproduced here to keep this text plain.
+        1. [`templates/forms/quote-request.json`](../templates/forms/quote-request.json)
+                - Canonical “Quote Request” flow with `success.mode="redirect"` to illustrate post-submit navigation.
+                - Demonstrates row-group wrappers for a temporary two-column layout (`row_group` start/end with `class="columns_nomargins"`).
+                - Shows required `tel_us` and `zip_us` fields with autocomplete hints alongside standard `name`/`email` inputs.
+                - Email block includes `include_fields` that capture the submitter IP and applies `display_format_tel="xxx-xxx-xxxx"`.
+        2. [`templates/forms/contact.json`](../templates/forms/contact.json)
+                - Inline-success contact form (`success.mode="inline"`) that thanks the user without redirecting.
+                - Example of injecting sanitized template fragments via `before_html` on the first field.
+                - Highlights placeholder usage, explicit `size` for the email control, and subject templating (`"Contact Form - {{field.name}}"`).
+        3. eforms.css
+                - Keep your existing CSS file as-is. Not reproduced here to keep this text plain.
 
 <a id="sec-appendices"></a>
 26. APPENDICES
