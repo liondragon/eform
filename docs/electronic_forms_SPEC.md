@@ -233,7 +233,7 @@ electronic_forms - Spec
 		| Config snapshot | Lazy | First `Config::get()` or entry into `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()` | Idempotent (per request); see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
 		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; reused within request. |
 		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
-		| Security (token/origin) | Lazy | First token/origin check during POST; cookie prime endpoint | Hidden-mode GET persistence is implemented inside `FormRenderer`; Security stays idle until POST (or `/eforms/prime`). |
+		| Security (token/origin) | Lazy | **Hidden-token mint during GET render**, any token/origin check during POST, or `/eforms/prime` cookie mint | `FormRenderer` **delegates** all minting to Security helpers (no local UUID/TTL logic). Minting helpers do not load challenge/throttle and only read the config snapshot needed for TTL/paths. |
 		| Uploads | Lazy | Template declares file(s) or POST carries files | Initializes finfo and policy only when needed. |
 		| Emailer | Lazy | After validation succeeds (just before send) | SMTP/DKIM init only on send; skipped on failures. |
 		| Logging | Lazy | First log write when `logging.mode != "off"` | Opens/rotates file on demand. |
@@ -248,7 +248,10 @@ electronic_forms - Spec
 		- Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
 		- Canonical lifecycle (render → persist → POST → rerender/success):
 			- Render (GET): Both modes inject `form_id`, `eforms_mode`, the fixed honeypot `eforms_hp`, and the static hidden `js_ok`. Responses include CSS/JS enqueueing decisions and caching headers per [Request Lifecycle (§19)](#sec-request-lifecycle). `eforms_mode` is informational; persisted records are authoritative.
-			- Persist: The renderer (hidden mode) or `/eforms/prime` (cookie mode) writes the authoritative JSON record before any POST handling. Each write happens inside `${uploads.dir}/eforms-private/...` using the shared permissions below.
+			- Persist:
+				- **Hidden mode**: `FormRenderer` calls **`Security::mint_hidden_record(form_id)`** to obtain `{ token, instance_id, issued_at, expires }` and to atomically write `tokens/{h2}/{sha256(token)}.json`. The renderer **does not** generate UUIDs/timestamps/TTL itself; it only embeds returned values into HTML.
+				- **Cookie mode**: `/eforms/prime` calls **`Security::mint_cookie_record(form_id, slot?)`** to mint `eid` (`i-<UUIDv4>`), set `{ issued_at, expires, slots_allowed, slot }`, and write `eid_minted/{form_id}/{h2}/{eid}.json` with `Set-Cookie` when appropriate.
+				- Minting helpers are **pure** w.r.t. validation/challenge (they do not evaluate origin/challenge, do not consult throttle, and do not rotate cookies except as specified for `/eforms/prime`); they may read the configuration snapshot for TTLs/paths and create directories/files with the permissions defined below.
 			- POST evaluate: `Security::token_validate()` reads the persisted record, returns `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }`, and drives dedupe/challenge policy. NCID handling lives in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
 			- Rerender/success: Error rerenders reuse authoritative metadata. Successful submits hand off to [Success Behavior (PRG) (§13)](#sec-success) for ticket minting and PRG behavior.
                 - Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, minted cookies, ledger entries, throttles, and success tickets.
@@ -259,6 +262,13 @@ electronic_forms - Spec
                         - Honeypot short-circuits burn the same ledger entry, and submission IDs for all modes remain colon-free.
 
 <a id="sec-hidden-mode"></a>2. Hidden-mode contract
+		- **Minting helper (authority)**:
+			- `Security::mint_hidden_record(form_id)`:
+				- Returns `{ token: UUIDv4, instance_id: base64url(16–24 bytes), issued_at: unix, expires: issued_at + security.token_ttl_seconds }`.
+				- Writes JSON record at `tokens/{h2}/{sha256(token)}.json` with `{ mode:"hidden", form_id, instance_id, issued_at, expires }` (never rewritten on rerender).
+				- Guarantees directory creation with `0700` perms and file creation with `0600` perms; atomic write (temp + rename or `flock()`+fsync).
+				- Does **not** load challenge/throttle modules and does not evaluate origin policy.
+			- `FormRenderer` must embed the returned `token`, `instance_id`, and `issued_at` (as `timestamp`) in HTML and **must not** generate or alter them.
 		- Markup: GET renders emit a CSPRNG `instance_id` (16–24 bytes → base64url `^[A-Za-z0-9_-]{22,32}$`), the persisted `timestamp`, and `<input type="hidden" name="eforms_token" value="…">` whose UUID matches `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Rerenders MUST reuse the exact `{token, instance_id, timestamp}` trio and send `Cache-Control: private, no-store`.
 		- Persisted record (`tokens/{h2}/{sha256(token)}.json`):
 			| Field		| Notes |
@@ -285,6 +295,13 @@ electronic_forms - Spec
 			- Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”); soft paths retain the original record for deterministic retries.
 
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
+		- **Minting helper (authority)**:
+			- `Security::mint_cookie_record(form_id, slot?)`:
+				- Returns `{ eid: "i-" UUIDv4, issued_at: unix, expires: issued_at + security.token_ttl_seconds, slots_allowed:[], slot:null|int }` (slot handling per policy).
+				- Writes JSON record at `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
+				- For `/eforms/prime`, sets `Set-Cookie: eforms_eid_{form_id}={eid}` **only when** minting a fresh EID; unions `slots_allowed` on reuse; never rewrites `issued_at`/`expires`.
+				- Does **not** load challenge/throttle modules and does not evaluate origin policy.
+			- `/eforms/prime` must use the values returned by `Security::mint_cookie_record(…)` and **must not** generate or alter EIDs/timestamps/TTLs itself.
 		- Markup: GET renders remain deterministic: no `instance_id`, timestamp, or hidden token. When `security.cookie_mode_slots_enabled=true` and `security.cookie_mode_slots_allowed` is non-empty, each instance emits `eforms_slot`, a matching hidden `<input>`, and a 1×1 `/eforms/prime?f={form_id}&s={slot}` pixel (`aria-hidden="true"`, fixed size so assistive tech ignores the noise). Slotless deployments omit both the field and the `s` query parameter. `/eforms/prime` responds 204 with `Cache-Control: no-store`.
 		- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
 			| Field			 | Notes |
