@@ -309,9 +309,11 @@ electronic_forms - Spec
 			- `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active.
 			- Ledger burns the composite `submission_id` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
 			- Hard failures surface `EFORMS_ERR_TOKEN`; soft paths keep the minted record untouched for deterministic retries.
-		- Slot selection (minimal invariants):
-			- When `cookie_mode_slots_enabled=true`, the renderer MUST choose the `eforms_slot` **deterministically per GET render** and MUST reuse that choice on rerender; clients cannot pick slots.
-			- If multiple instances of the same `form_id` are rendered on one page and there are more instances than values in `security.cookie_mode_slots_allowed`, **excess instances MUST be slotless** (omit `eforms_slot`; call `/eforms/prime` without `s`).
+		- <a id="sec-slot-selection"></a>Slot selection (minimal invariants):
+			- When `cookie_mode_slots_enabled=true`, the renderer MUST choose the `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender; clients cannot pick slots.
+			- Determinism MUST depend only on inputs available at render time (e.g., `form_id`, the allowed-slots set, and the instance’s document order/index), not on client state or timing.
+			- If multiple instances of the same `form_id` are rendered on one page and there are more instances than values in `security.cookie_mode_slots_allowed`, excess instances MUST be slotless (omit `eforms_slot`; call `/eforms/prime` without `s`).
+			- When multiple instances share a page, implementations SHOULD assign distinct allowed slots in document order and only reuse a slot after all allowed slots are used once; this minimizes canonical-slot nulling from collisions.
 			- Implementations MAY offer an author override to pin a specific slot (e.g., `slot="N"`). If `N` is not allowed, ignore it and fall back to the implementation’s deterministic choice.
 			- This section constrains determinism only; the exact algorithm (e.g., instance index, round-robin) is implementation-defined.
 		- Prime endpoint semantics (`/eforms/prime`):
@@ -320,7 +322,7 @@ electronic_forms - Spec
 
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
 		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present).
-		- NCID generation (`Helpers::ncid`) activates when an authoritative identifier is missing/invalid **and the mode’s policy permits soft continuation**:
+		- NCID generation (`Helpers::ncid`) activates when an authoritative identifier is missing/invalid and the mode’s policy permits soft continuation:
 			- Hidden mode: when the hidden token lookup fails and `security.submission_token.required=false`, emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, and set `is_ncid=true`. `cookie_present?` is omitted in this mode.
 			- `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true`.
 			- `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, and still set `token_ok=false`.
