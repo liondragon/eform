@@ -269,7 +269,9 @@ electronic_forms - Spec
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/cookie/NCID):
 			- Minting helpers are authoritative: they return canonical metadata and persist records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed).
 			- Minting helpers never evaluate challenge, throttle, or origin policy; they only consult the configuration snapshot for TTLs/paths, and entry points embed the returned fields verbatim.
+			- Config read scope: The preceding restriction applies only to minting helpers. Validation (`Security::token_validate()`) may read any policy keys required (e.g., `security.*`, `challenge.*`, `privacy.*`) to compute `{token_ok, require_challenge, soft_reasons, cookie_present?}`.
 			- Minting/verification helpers MUST ensure a configuration snapshot exists by calling `Config::get()` on first use.
+			- Config bootstrap responsibility: Public entry points MAY call `Config::get()` if they need configuration before invoking helpers. Helpers (minting and validation) MUST call `Config::get()` on first use as a safety net. Do not call `Config::bootstrap()` directly; `Config::get()` is idempotent and performs bootstrap when needed.
 			- Error rerenders reuse the persisted record; rotation occurs only after expiry or a successful submission (PRG). Mode-specific challenge flows layer on top of this invariant.
 			- Ledger reservation is uniform: reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects, treat `EEXIST` as a duplicate, and burn honeypot/soft paths the same way.
 			- Tampering guards are uniform: regex validation precedes disk access; mode/form_id mismatches or cross-mode payloads are hard failures; NCID fallbacks mark `token_ok=false` while preserving dedupe semantics.
