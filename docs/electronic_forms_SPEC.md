@@ -432,7 +432,7 @@ electronic_forms - Spec
 		- Reused hidden token after ledger sentinel exists → HARD FAIL with `EFORMS_ERR_TOKEN`.
 	- Cookie-mode checks:
 		- Valid minted record + cookie → PASS; ledger burns `eid` (+slot when enabled).
-		- Missing minted record for posted `eid` (stale cache) → HARD FAIL.
+		- Missing/expired/no minted record for a syntactically valid `eid` → follow [Cookie policy outcomes (§7.1.3.2)]: `hard` ⇒ HARD FAIL; `soft`/`off`/`challenge` ⇒ continue via NCID (challenge may be required).
 		- Cookie present but form_id mismatch in record → HARD FAIL.
 		- Hidden token posted while minted record says cookie → HARD FAIL (tampering).
 		- Slot posted outside allow-list → HARD FAIL on `EFORMS_ERR_TOKEN`.
@@ -441,7 +441,8 @@ electronic_forms - Spec
 		- Honeypot filled with `security.honeypot_response="stealth_success"` → mimic success UX, log stealth=true, burn ledger.
 		- Honeypot filled with `security.honeypot_response="hard_fail"` → HARD FAIL with generic error, no success log.
 	- Success handshake checks:
-		- Valid success ticket + matching cookie → PASS; banner renders once and clears cookie/query.
+		- (Inline mode) Valid success ticket + matching cookie → PASS; banner renders once and clears cookie/query.
+		- (NCID redirect mode) Valid success ticket + `eforms_submission` query parameter → PASS; no cookie required.
 		- Missing success ticket (cookie only) → suppress banner; log a warning (no change to `soft_reasons`).
 		- Success ticket re-use after verifier burn → HARD FAIL / no banner.
 	- Determinism checks:
