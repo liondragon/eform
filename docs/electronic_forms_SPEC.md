@@ -335,13 +335,17 @@ electronic_forms - Spec
 			- Mixing hidden tokens into cookie submissions is tampering → hard fail.
 		- Rerender + rotation:
 			- Normal rerenders reuse the existing `{eid, slot}` tuple. No mid-flow rotation occurs.
-			- Challenge-driven rerenders (cookie-missing policies or [Security → Adaptive challenge (optional; Turnstile preferred) (§7.12)](#sec-adaptive-challenge) providers) MUST clear `eforms_eid_{form_id}` via `Set-Cookie: … deleted` on the same response that embeds the next `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser mints a new EID before the next POST.
+			- Challenge rerender **before verification** (i.e., when `require_challenge=true`): MUST clear `eforms_eid_{form_id}` via `Set-Cookie: … deleted` **and** embed the next `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser mints a new EID before the next POST.
+			- Response **after successful verification** for `cookie_missing_policy="challenge"`: **do not rotate again** on that success response (no additional clear or remint); proceed with the validated submission and PRG.
 			- `/eforms/prime` MUST load the minted record before skipping `Set-Cookie`. A missing/truncated/expired record is treated as stale and MUST mint a fresh EID so implementations never “adopt” a forged/orphaned cookie.
 			- `/eforms/prime` sends `Set-Cookie` only when minting a fresh EID; otherwise it unions the observed slot into `slots_allowed` and leaves timestamps untouched.
 		- Dedup behavior:
 			- `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active (or an NCID when allowed by policy above).
 			- Ledger burns the composite `submission_id` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
 			- **Tampering and integrity violations always** surface `EFORMS_ERR_TOKEN` (policy does not apply). **Missing/invalid cookie** surfaces `EFORMS_ERR_TOKEN` only when `security.cookie_missing_policy="hard"`; otherwise proceed via the NCID path above.
+			- **Record retention on NCID**: if NCID is used for a cookie-mode submission, any existing minted EID record for that `form_id` is retained until TTL and is not modified; it does not receive a new cookie and is ignored by the current flow.
+			- **Prime after NCID**: while that record remains valid, `/eforms/prime` does not re-set the cookie for it (no `Set-Cookie`); once expired, the next `/eforms/prime` mints a fresh EID and sets the cookie as usual.
+			- These rules ensure NCID dedupe remains stable for the flow that lacked a cookie while avoiding silent adoption or overwrite of server records minted earlier.
 		- <a id="sec-slot-selection"></a>Slot selection (minimal invariants):
 			- When `cookie_mode_slots_enabled=true`, the renderer MUST choose the `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender; clients cannot pick slots.
 			- Determinism MUST depend only on inputs available at render time (e.g., `form_id`, the allowed-slots set, and the instance’s document order/index), not on client state or timing.
@@ -471,7 +475,9 @@ electronic_forms - Spec
 		- No eager checks at plugin load. Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
 		- `challenge.mode` is read only when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in [Template Model (§5)](#sec-template-model)/[Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).
 	- Render only on POST re-render when required (or always); never on initial GET unless [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) requires challenge.
-		- In cookie mode, challenge rerenders MUST clear the `eforms_eid_{form_id}` cookie (as described in [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode)) on the same response that embeds the `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser applies the clear before fetching `/eforms/prime` and naturally mints a new EID before the next POST per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle)/[Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) (the explicit exception to [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode)'s no-rotation rule).
+		- In cookie mode:
+			- **Before verification** (when `require_challenge=true`), the challenge rerender MUST clear `eforms_eid_{form_id}` and embed the `/eforms/prime?f={form_id}[&s={slot}]` pixel to mint a new EID before the next POST (see [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode)).
+			- **After successful verification** for `cookie_missing_policy="challenge"`, do **not** rotate the cookie again on that success response; proceed to deliver/PRG with the just-verified submission.
 	- Turnstile → cf-turnstile-response; hCaptcha → h-captcha-response; reCAPTCHA v2 → g-recaptcha-response.
 
 <a id="sec-validation-pipeline"></a>
