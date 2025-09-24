@@ -225,7 +225,7 @@ electronic_forms - Spec
 			- Renderer: private const HANDLERS = ['text' => [self::class,'emitInput'], 'textarea' => [...], ...]
 			- public static function resolve(string $id): callable { if (!isset(self::HANDLERS[$id])) throw RuntimeException(...); return self::HANDLERS[$id]; }
 	- Uploads registry settings: token->mime/ext expansions; image sanity; caps
-        - Accept token map lives in [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map). Default tokens remain image and pdf; do not add new tokens without explicit review.
+        - Accept token map lives in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens). Default tokens remain image and pdf; do not add new tokens without explicit review.
 	- Upload registry loads on demand when a template with file/files is rendered or posted.
 	- Structural registry (TEMPLATE_SPEC) defines allowed keys, required combos, enums (implements additionalProperties:false).
 	- Escaping map (per sink) to be used consistently:
@@ -340,11 +340,11 @@ electronic_forms - Spec
 				| Slots disabled globally | MUST reject any posted `eforms_slot`. | `submission_id = eid`. | Posted slot ⇒ HARD FAIL (`EFORMS_ERR_TOKEN`). |
 				| POST from slotless render | MUST reject payloads containing `eforms_slot`. | `submission_id = eid`. | Slotless renders stay valid even if other instances later union slots into the record. |
 				| POST from slotted render | MUST require integer `eforms_slot` present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`; when `slot` is non-null, require equality; otherwise accept only enumerated values. | `submission_id = eid__slot{posted_slot}`. | Missing/mismatched slot ⇒ HARD FAIL (`EFORMS_ERR_TOKEN`). |
-				| Error rerender after NCID fallback | MUST clear `eforms_eid_{form_id}` (Set-Cookie: deleted) and embed `/eforms/prime` before rendering. | Next GET mints a fresh EID; orphaned record remains untouched. | Applies when cookie policies below fall back to NCID. |
-				| Challenge rerender (before verification) | When `require_challenge=true`, MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime?f={form_id}[&s={slot}]`. | Fresh EID minted prior to the next POST (for future flows). Current flow remains keyed by its NCID until it completes. | Ensures verification runs with a cookie present while preserving NCID identifier pinning. |
-				| Challenge success response | MUST reuse the just-verified cookie; do not rotate again on that success response (MUST NOT remint). | Persisted record reused. | Applies only to `cookie_missing_policy="challenge"`. |
+				| Error rerender after NCID fallback | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | `submission_id` stays pinned to the NCID from that section. | Applies when cookie policies below fall back to NCID. |
+				| Challenge rerender (before verification) | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Same NCID; follow-up GET mints the replacement cookie defined there. | Ensures verification runs with a cookie present while preserving NCID pinning. |
+				| Challenge success response | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Persisted record reused per that contract. | Applies only to `cookie_missing_policy="challenge"`. |
 			- <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
-				| Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
+| Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
 				|-------------|-----------------------------------------------------|-----------|-------------|---------------------|--------------------|-------------------|
 				| `hard` | Reject with `EFORMS_ERR_TOKEN`. | — | — | — | — | True when the header existed and parsed; otherwise false. |
 				| `soft` | Continue via NCID; treat tampering separately; add `cookie_missing`. | `false` | `cookie_missing` | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
@@ -365,23 +365,26 @@ electronic_forms - Spec
 				- NCID fallbacks leave previously minted cookie records untouched until natural expiry. Subsequent `/eforms/prime` calls (arriving without a cookie) mint fresh EIDs; orphaned records are never adopted or rewritten.
 				- Ledger handling follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); HARD FAIL rows above surface `EFORMS_ERR_TOKEN`.
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
-			- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) or an NCID as directed by [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix).
+				- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) or an NCID as directed by [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix).
 - `cookie_present?` (boolean) is ALWAYS present. In cookie-mode validations, it is `true` iff the request carried a cookie named `eforms_eid_{form_id}` whose value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, regardless of whether a server record exists or is fresh. In hidden-mode validations, implementers MUST NOT consult or parse any `eforms_eid_*` cookie; `cookie_present?` MUST be `false`.
-			- Tampering remains reserved for regex/form/mode/slot violations; those are hard failures routed through [Security invariants (§7.1.2)](#sec-security-invariants).
-- <a id="sec-ncid-hidden"></a>Hidden-mode NCID fallback:
-- When `security.submission_token.required=false` and the hidden-token lookup fails (missing/expired/nonexistent record), emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, set `is_ncid=true`. `cookie_present?` MUST be present and set to `false` in hidden mode.
-			- Cookie-mode NCIDs follow the rows for `off`, `soft`, and `challenge` in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix). `hard` never issues an NCID. Policy rows already define `token_ok`, `require_challenge`, `cookie_present?`, and soft-label behavior for both absent cookies and stale records.
-			- Deterministic NCID recipe (`Helpers::ncid`, normative):
-				- Inputs: `form_id`, the throttle `client_key` from `Helpers::throttle_key()` (after privacy rules), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
-				- Concatenate `form_id . "
-" . client_key . "
-" . window_idx . "
-" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the ledger identifier.
-				- `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens. When the window rolls forward, mint a fresh NCID (and ledger reservation) automatically.
-			- Canonical soft-reason labels (deduplicated set): `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
-			- Slot metadata from cookie flows is governed by [Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`; slotted submissions embed `slot` in `submission_id` as `eid__slot{n}`.
-			- Ledger behavior for NCIDs follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat `EEXIST` as spam, and continue with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based identifier.
-- <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
+				- Tampering remains reserved for regex/form/mode/slot violations; those are hard failures routed through [Security invariants (§7.1.2)](#sec-security-invariants).
+- <a id="sec-ncid-contract"></a>Deterministic NCID contract (normative):
+				- <a id="sec-ncid-hidden"></a>Hidden-mode NCID fallback: When `security.submission_token.required=false` and the hidden-token lookup fails (missing/expired/nonexistent record), emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, set `is_ncid=true`, and keep `cookie_present?=false`.
+				- Cookie-mode NCIDs follow the rows for `off`, `soft`, and `challenge` in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix). `hard` never issues an NCID; policy rows already define `token_ok`, `require_challenge`, `cookie_present?`, and soft-label behavior for both absent cookies and stale records.
+				- Deterministic NCID recipe (`Helpers::ncid`, normative):
+								- Inputs: `form_id`, the throttle `client_key` from `Helpers::throttle_key()` (after privacy rules), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
+								- Concatenate `form_id . "\0" . client_key . "\0" . window_idx . "\0" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the ledger identifier.
+								- `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens. When the window rolls forward, mint a fresh NCID (and ledger reservation) automatically.
+				- Canonical soft-reason labels (deduplicated set): `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
+				- Slot metadata from cookie flows is governed by [Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`; slotted submissions embed `slot` in `submission_id` as `eid__slot{n}`.
+				- Identifier pinning (challenge): If the policy path returns an NCID and `require_challenge=true`, that submission MUST continue to use the same NCID as its `submission_id` through verification and success. The fresh cookie minted on the rerender is reserved for subsequent submissions and MUST NOT change the identifier mid-flow.
+				- Ledger behavior for NCIDs follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat `EEXIST` as spam, and continue with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based identifier.
+- <a id="sec-ncid-rerender"></a>NCID rerender and challenge lifecycle (normative):
+				- Error rerender after NCID fallback: delete `eforms_eid_{form_id}` (Set-Cookie: deleted) and embed `/eforms/prime` before rendering. The next GET mints a fresh cookie while the flow remains pinned to the NCID above.
+				- Challenge rerender before verification: when `require_challenge=true`, delete `eforms_eid_{form_id}`, embed `/eforms/prime?f={form_id}[&s={slot}]`, and keep the NCID as the authoritative `submission_id` until verification succeeds.
+				- Challenge success response: reuse the just-verified cookie; do not remint inside the success response. Subsequent submissions receive fresh cookies via `/eforms/prime`.
+- <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, the `eforms_submission` query flag, and verifier requirements are defined in [Success Behavior (PRG) (§13)](#sec-success) (see [NCID-only handoff (§13.1)](#sec-success-ncid)).
+<a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
 				| Scenario | Identifier outcome | Required action | Canonical section |
 				|----------|--------------------|-----------------|-------------------|
 				| Valid hidden record | `submission_id = token` | Embed the helper’s `{token, instance_id, timestamp}` verbatim and reuse them on rerender. | [Hidden-mode contract (§7.1.2)](#sec-hidden-mode) |
@@ -389,10 +392,10 @@ electronic_forms - Spec
 				| Cookie policy `hard` | — (submission rejected) | Fail with `EFORMS_ERR_TOKEN`; do not mint/retain NCIDs. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) |
 				| Cookie policy `soft` | `submission_id = nc-…` (`is_ncid=true`) | Continue without challenge; add `cookie_missing`. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) |
 				| Cookie policy `off` | `submission_id = nc-…` (`is_ncid=true`) | Continue; add `cookie_missing` only when a syntactically valid cookie lacked a record. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) |
-				| Cookie policy `challenge` | `submission_id = nc-…` (`is_ncid=true`, `require_challenge=true`) | Require verification before proceeding; clear cookie on rerender, keep NCID pinned through success. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix), [Cookie-mode lifecycle (§7.1.3.1)](#sec-cookie-lifecycle-matrix) |
-				| Challenge rerender after NCID fallback | `submission_id = same nc-…` | Delete `eforms_eid_{form_id}` and embed `/eforms/prime` before rendering. | [Cookie-mode lifecycle (§7.1.3.1)](#sec-cookie-lifecycle-matrix) |
-				| Challenge success response | `submission_id = same nc-…` | Reuse the just-verified cookie; do **not** mint a new EID in the success response. | [Cookie-mode lifecycle (§7.1.3.1)](#sec-cookie-lifecycle-matrix) |
-				| NCID success handoff (no acceptable cookie) | `submission_id = nc-…` | Use redirect PRG with `eforms_submission={submission_id}`; inline success is prohibited. | [Success → NCID-only handoff (§13.1)](#sec-success-ncid) |
+				| Cookie policy `challenge` | `submission_id = nc-…` (`is_ncid=true`, `require_challenge=true`) | Require verification before proceeding; follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender) for rerender and success handling. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) |
+				| Challenge rerender after NCID fallback | `submission_id = same nc-…` | Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | [Cookie-mode lifecycle (§7.1.3.1)](#sec-cookie-lifecycle-matrix) |
+				| Challenge success response | `submission_id = same nc-…` | Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | [Cookie-mode lifecycle (§7.1.3.1)](#sec-cookie-lifecycle-matrix) |
+				| NCID success handoff (no acceptable cookie) | `submission_id = nc-…` | See [Success → NCID-only handoff (§13.1)](#sec-success-ncid). | [Success → NCID-only handoff (§13.1)](#sec-success-ncid) |
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
@@ -587,8 +590,8 @@ electronic_forms - Spec
 	- checkbox: single -> bool; group -> array of keys
 	- zip_us: type="text", inputmode="numeric", pattern="\\d{5}" (hint only); always set maxlength=5; server enforces ^\d{5}$.
 	- zip (generic): freeform
-	- file: single upload. See [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map) for the canonical MIME/extension mapping and default token policy.
-	- files: multiple upload with max_files; reuse the same token definitions from [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map); email attachment policy follows [Email Delivery (§14)](#sec-email).
+	- file: single upload. See [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens) for the canonical MIME/extension mapping and default token policy.
+	- files: multiple upload with max_files; reuse the same token definitions from [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens); email attachment policy follows [Email Delivery (§14)](#sec-email).
 	- date: mirror min/max and step when provided.
 	- For each field, the HTML attributes emitted (inputmode, pattern, multiple, accept, etc.) must match attr_mirror derived from the resolved descriptor.
 	- Resolved descriptor cache per request:
@@ -773,18 +776,29 @@ electronic_forms - Spec
 
 <a id="sec-uploads"></a>
 18. UPLOADS (IMPLEMENTATION DETAILS)
-	- Intersection: field accept[] ∩ global allow-list must be non-empty → else EFORMS_ERR_ACCEPT_EMPTY
-	- Stored filename: {Ymd}/{original_slug}-{sha16}-{seq}.{ext}; files 0600, dirs 0700; full SHA-256 recorded in logs.
-	- Path collision: increment seq
-	- Path length cap: enforce uploads.max_relative_path_chars; when exceeded, shorten original_slug deterministically to fit.
-	- Email attachments use original_name_safe (RFC 5987 as needed); de-dup per email scope: name.ext, name (2).ext, ...
-	- Delete uploads after successful send unless retention applies; if email send fails after files were stored, cleanup per retention policy. On final send failure, delete unless uploads.retention_seconds>0 (then GC per retention).
-	- GC: opportunistic on GET and best-effort on POST shutdown only. No WP-Cron.
-	- has_uploads flag computed during preflight; guard Uploads init on that.
-	- fileinfo hard requirement: if ext/fileinfo unavailable, define EFORMS_FINFO_UNAVAILABLE at bootstrap and deterministically fail any upload attempt.
-	- MIME validation requires agreement of finfo + extension + accept-token; finfo=false/unknown → reject with EFORMS_ERR_UPLOAD_TYPE.
-
-<a id="sec-request-lifecycle"></a>
+				- <a id="sec-uploads-accept-tokens"></a>Accept-token policy (normative):
+								- image → `image/jpeg`, `image/png`, `image/gif`, `image/webp` (SVG excluded).
+								- pdf → `application/pdf`.
+								- Explicit exclusions by default: `image/svg+xml`, `image/heic`, `image/heif`, `image/tiff`.
+								- Default tokens remain `{image, pdf}`. Adding tokens requires explicit review and MUST update this list.
+								- Applies to both `file` and `files` field types. Email attachment policy inherits the same mappings and is further constrained by [Email Delivery (§14)](#sec-email).
+				- <a id="sec-uploads-filenames"></a>Filename policy (display vs storage, normative):
+								- Start from the client-supplied name; strip paths; NFC normalize.
+								- Run `sanitize_file_name()`, remove control characters, and collapse redundant whitespace or dots.
+								- Enforce a single dot before the extension; lowercase the extension.
+								- Block reserved Windows names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`).
+								- Truncate to `uploads.original_maxlen`; fallback to `file.{ext}` if the result is empty.
+								- Transliterate to ASCII when `uploads.transliterate=true`; otherwise keep UTF-8 and emit RFC 5987 `filename*`.
+								- De-duplicate names per email scope: `name.ext`, `name (2).ext`, …; strip CR/LF before handing to PHPMailer.
+								- Stored filename: `{Ymd}/{original_slug}-{sha16}-{seq}.{ext}` with files `0600`, dirs `0700`; record full SHA-256 in logs.
+								- Path collision: increment `seq`.
+								- Path length cap: enforce `uploads.max_relative_path_chars`; shorten `original_slug` deterministically when exceeded.
+				- Intersection: field `accept[]` ∩ global allow-list must be non-empty → else `EFORMS_ERR_ACCEPT_EMPTY`.
+				- Delete uploads after successful send unless retention applies; if email send fails after files were stored, cleanup per retention policy. On final send failure, delete unless `uploads.retention_seconds>0` (then GC per retention).
+				- GC: opportunistic on GET and best-effort on POST shutdown only. No WP-Cron.
+				- `has_uploads` flag computed during preflight; guard Uploads init on that.
+				- Fileinfo hard requirement: if ext/fileinfo unavailable, define `EFORMS_FINFO_UNAVAILABLE` at bootstrap and deterministically fail any upload attempt.
+				- MIME validation requires agreement of finfo + extension + accept-token; finfo=false/unknown ⇒ reject with `EFORMS_ERR_UPLOAD_TYPE`.
 19. REQUEST LIFECYCLE
 	<a id="sec-request-lifecycle-get"></a>1. GET
 	- Shortcode `[eform id="slug" cacheable="true|false"]` (`cacheable` defaults to `false`).
@@ -950,23 +964,14 @@ electronic_forms - Spec
 	- EFORMS_FAIL2BAN_IO - "Fail2ban file I/O problem."
 	- EFORMS_FINFO_UNAVAILABLE - "File uploads are unsupported on this server."
 
-	2. <a id="sec-accept-token-map"></a>Accept Token -> MIME/Extension Map (canonical, conservative)
-	- image -> image/jpeg, image/png, image/gif, image/webp (SVG excluded)
-	- pdf -> application/pdf
-	- Explicit exclusions by default: image/svg+xml, image/heic, image/heif, image/tiff
-	- Default tokens: {image, pdf}. Additional tokens require explicit review and MUST update this table.
+	2. <a id="sec-accept-token-map"></a>Accept Token -> MIME/Extension Map (informative summary)
+	- Canonical rules live in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens). This appendix mirrors the current defaults for quick reference only.
+	- Current defaults (informative): image → image/jpeg, image/png, image/gif, image/webp (SVG excluded); pdf → application/pdf. Other tokens are excluded by default (e.g., image/svg+xml, image/heic, image/heif, image/tiff).
 	- Applies to both `file` and `files` field types; multi-file inputs reuse these lists, and email attachment policy remains governed by [Email Delivery (§14)](#sec-email).
 
-	3. Filename Policy (Display vs Storage)
-	- Start with client name; strip paths; NFC normalize
-	- sanitize_file_name(); remove control chars; collapse whitespace/dots
-	- enforce single dot before extension; lowercase extension
-	- block reserved Windows names (CON, PRN, AUX, NUL, COM1–COM9, LPT1–LPT9)
-	- truncate to uploads.original_maxlen; fallback "file.{ext}" if empty
-	- transliterate to ASCII when uploads.transliterate=true; else keep UTF-8 and use RFC 5987 filename*
-	- de-dupe per email scope: "name.ext", "name (2).ext", ...
-	- strip CR/LF from all filename strings before mailer
-	- Storage name: {Ymd}/{original_slug}-{sha16}-{seq}.{ext}; never expose full paths
+	3. Filename Policy (informative summary)
+	- Canonical rules live in [Uploads → Filename policy (§18)](#sec-uploads-filenames). This appendix reiterates the current behavior for orientation only.
+	- Highlights: sanitize and normalize client names, enforce a single lowercase extension, block reserved Windows names, respect `uploads.original_maxlen`, transliterate when configured, de-duplicate per email scope, and persist files under `{Ymd}/{original_slug}-{sha16}-{seq}.{ext}` with private permissions.
 
 	4. Schema Source of Truth
 	- PHP TEMPLATE_SPEC is authoritative at runtime
