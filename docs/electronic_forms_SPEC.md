@@ -726,7 +726,7 @@ electronic_forms - Spec
 	| Security	| `security.min_fill_seconds`			 | int	 | clamp 0–60; values <0 become 0; >60 become 60.																|
 	| Security	| `security.token_ttl_seconds`			| int	 | clamp 1–86400; minted tokens MUST set `expires - issued_at` equal to this value.								 |
 	| Security	| `security.max_form_age_seconds`		 | int	 | clamp 1–86400; defaults to `security.token_ttl_seconds` when omitted.											|
-	| Security	| `security.success_ticket_ttl_seconds` | int	 | clamp 30–3600; governs success ticket validity for redirect mode ([Success Behavior (PRG) (§13)](#sec-success)).										 |
+	| Security  | `security.success_ticket_ttl_seconds` | int  | clamp 30–3600; governs success ticket validity for success verification (inline & redirect) ([Success Behavior (PRG) (§13)](#sec-success)). |
 	| Security	| `security.cookie_mode_slots_allowed`	| list	| Normalized to unique ints 1–255; honored only when paired with `cookie_mode_slots_enabled = true`.			 |
 	| Challenge | `challenge.mode`						| enum	| {`off`,`auto`,`always`} — controls when human challenges execute; invalid values MUST be rejected.			|
 	| Challenge | `challenge.provider`					| enum	| {`turnstile`,`hcaptcha`,`recaptcha`} — provider-specific keys MUST be populated before enablement.			 |
@@ -896,7 +896,8 @@ electronic_forms - Spec
 	- fields (canonical values only, keyed by field key)
 	- meta limited to { submitted_at, ip, form_id, submission_id, slot? }
 	- uploads summary (attachments per Emailer policy)
-	- Token expansion: {{field.key}}, {{submitted_at}}, {{ip}}, {{form_id}}
+	- Token expansion: {{field.key}}, {{submitted_at}}, {{ip}}, {{form_id}}, {{submission_id}}, {{slot}}
+	- {{slot}} is emitted only for cookie-mode submissions where a slot was configured and bound.
 	- Escaping:
 	- text emails: plain text; CR/LF normalized
 	- HTML emails: escape per context; no raw user HTML injected
