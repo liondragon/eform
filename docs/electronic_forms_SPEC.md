@@ -309,6 +309,7 @@ electronic_forms - Spec
 				- Writes JSON record at `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
 				- For `/eforms/prime`, sets `Set-Cookie: eforms_eid_{form_id}={eid}` **only when** minting a fresh EID; unions `slots_allowed` on reuse; never rewrites `issued_at`/`expires`.
 			- `/eforms/prime` must use the values returned by `Security::mint_cookie_record(…)` and **must not** generate or alter EIDs/timestamps/TTLs itself.
+			- `Security::mint_cookie_record()` itself is responsible for calling `Config::get()` on first use so `/eforms/prime` and any reuse path bootstrap the configuration snapshot without each route invoking `Config::bootstrap()` manually.
 		- Markup: GET renders remain deterministic: no `instance_id`, timestamp, or hidden token. When `security.cookie_mode_slots_enabled=true` and `security.cookie_mode_slots_allowed` is non-empty, each instance emits `eforms_slot`, a matching hidden `<input>`, and a 1×1 `/eforms/prime?f={form_id}&s={slot}` pixel (`aria-hidden="true"`, fixed size so assistive tech ignores the noise). Slotless deployments omit both the field and the `s` query parameter. `/eforms/prime` responds 204 with `Cache-Control: no-store`.
 		- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
 			| Field			 | Notes |
@@ -328,9 +329,10 @@ electronic_forms - Spec
 			- Effects on validation/dedupe (consistent with existing rules):
 				- When the rendered instance included `eforms_slot`, POST **MUST** include the same value; `submission_id = eid__slot{slot}`.
 				- When the rendered instance was slotless (no `eforms_slot` field), POST **MUST NOT** include `eforms_slot`; `submission_id = eid` (valid regardless of the record’s `slot`).
+				- Slotless renders remain valid even after other instances set a canonical `slot`; equality checks apply **only** to submissions from slotted renders.
 			- Rerender behavior: normal rerenders reuse the existing `{eid, slot}`; deterministic assignment minimizes collisions but does not override these rules.
                 - POST requirements (policy-gated presence; tampering always hard-fails):
-						- Scope: The first row applies to slotless renders. All subsequent rows assume the rendered instance included `eforms_slot`.
+                                                - Rendered-instance precedence. If the rendered instance was slotless, the POST MUST NOT include `eforms_slot` and MUST NOT apply any persisted-slot equality check; `submission_id = eid`.
 		| Scenario | Required fields / behavior | Rejection cases |
 		|----------|---------------------------|-----------------|
 		| Rendered instance slotless | Do not include eforms_slot; `submission_id = eid`. | Including eforms_slot → HARD FAIL (EFORMS_ERR_TOKEN). |
@@ -340,8 +342,8 @@ electronic_forms - Spec
 		| All policies | Always validate the minted record `{mode:"cookie", form_id, eid}` before trusting the POST body. | Mode/form_id mismatch, mixing hidden tokens into cookie submissions, forged/malformed EID, cross-mode payloads, or slot violations → **HARD FAIL**. |
 		| Slots disabled | Omit `eforms_slot`. | Any posted slot is tampering → `EFORMS_ERR_TOKEN`. |
 		| Slots enabled | Posted `eforms_slot` must be an integer 1–255 present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`; slotless records (`slot:null`, empty `slots_allowed`) reject posted slots. | Value outside either allow-list or a non-integer post → **HARD FAIL**. |
-		| Persisted slot non-null | Submitted `eforms_slot` MUST equal the persisted `slot`. | Missing/mismatched slot → **HARD FAIL**. |
-		| Persisted slot null with observed slots | Accept only posted slots enumerated in `slots_allowed`; omit `eforms_slot` only when the renderer emitted a slotless instance. | Unexpected or missing slot when `slots_allowed` is non-empty → **HARD FAIL**. |
+                | Persisted slot non-null (**slotted renders only**) | Submitted `eforms_slot` MUST equal the persisted `slot`. | Missing/mismatched slot → **HARD FAIL**. |
+                | Persisted slot null with observed slots (**slotted renders only**) | Accept only posted slots enumerated in `slots_allowed`; omit `eforms_slot` only when the renderer emitted a slotless instance. | Unexpected or missing slot when `slots_allowed` is non-empty → **HARD FAIL**. |
 		- All **HARD FAIL** cases above surface `EFORMS_ERR_TOKEN`; see [Security invariants (§7.1.2)](#sec-security-invariants).
 		- Rerender + rotation (supplements [Security invariants (§7.1.2)](#sec-security-invariants)):
 			- Normal rerenders reuse the existing `{eid, slot}` tuple. No mid-flow rotation occurs.
