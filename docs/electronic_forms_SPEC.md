@@ -269,6 +269,7 @@ electronic_forms - Spec
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/cookie/NCID):
 			- Minting helpers are authoritative: they return canonical metadata and persist records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed).
 			- Minting helpers never evaluate challenge, throttle, or origin policy; they only consult the configuration snapshot for TTLs/paths, and entry points embed the returned fields verbatim.
+			- Minting/verification helpers MUST ensure a configuration snapshot exists by calling `Config::get()` on first use.
 			- Error rerenders reuse the persisted record; rotation occurs only after expiry or a successful submission (PRG). Mode-specific challenge flows layer on top of this invariant.
 			- Ledger reservation is uniform: reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects, treat `EEXIST` as a duplicate, and burn honeypot/soft paths the same way.
 			- Tampering guards are uniform: regex validation precedes disk access; mode/form_id mismatches or cross-mode payloads are hard failures; NCID fallbacks mark `token_ok=false` while preserving dedupe semantics.
@@ -325,11 +326,8 @@ electronic_forms - Spec
 				- If after union `|slots_allowed| > 1` → `slot = null` (and stays `null` until the EID expires/rotates).
 			- POST **does not** mutate `slots_allowed` or `slot`; only `/eforms/prime` performs unions/derivation.
 			- Effects on validation/dedupe (consistent with existing rules):
-				- When `slot !== null`, POST **must** include matching `eforms_slot`; `submission_id = eid__slot{slot}`.
-				- When `slot === null` and `slots_allowed` is non-empty:
-					- POST **must** include `eforms_slot` and it **must** be one of `slots_allowed`.
-					- `submission_id = eid__slot{posted_slot}` (suffix always used when a slot is posted).
-				- When `slots_enabled` but the specific instance renders **slotless** (per deterministic assignment/exhaustion rules), POST may omit `eforms_slot`; `submission_id = eid` (no suffix).
+				- When the rendered instance included `eforms_slot`, POST **MUST** include the same value; `submission_id = eid__slot{slot}`.
+				- When the rendered instance was slotless (no `eforms_slot` field), POST **MUST NOT** include `eforms_slot`; `submission_id = eid` (valid regardless of the record’s `slot`).
 			- Rerender behavior: normal rerenders reuse the existing `{eid, slot}`; deterministic assignment minimizes collisions but does not override these rules.
                 - POST requirements (policy-gated presence; tampering always hard-fails):
 		| Scenario | Required fields / behavior | Rejection cases |
@@ -369,12 +367,13 @@ electronic_forms - Spec
 
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
 		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) **or an NCID when `security.cookie_missing_policy!="hard"`**.
+		- `cookie_present?` is true iff the request carried a syntactically valid `eforms_eid_{form_id}` cookie; otherwise false. Presence does not imply that a minted record exists.
 		- NCID generation (`Helpers::ncid`) activates when an authoritative identifier is missing/invalid and the mode’s policy permits soft continuation:
 			- Hidden mode: when the hidden token lookup fails and `security.submission_token.required=false`, emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, and set `is_ncid=true`. `cookie_present?` is omitted in this mode.
 			- Cookie mode:
-				- If `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true`.
-				- If `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, and set `token_ok=false`.
-				- If `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, and defer delivery until [Security → Adaptive challenge (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`.
+				- If `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true` when the cookie was absent or malformed.
+				- If `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, set `token_ok=false`, and set `cookie_present=false` when the cookie was absent or malformed.
+				- If `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, set `cookie_present=false` when the cookie was absent or malformed, and defer delivery until [Security → Adaptive challenge (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`.
 				- If `security.cookie_missing_policy="hard"` → **no NCID**; treat missing/invalid cookie as **HARD FAIL**.
 			- Deterministic NCID recipe (matches [Configuration → Helpers::ncid (§17)](#sec-configuration)):
 				- Inputs: `form_id`, the throttle `client_key` derived by `Helpers::throttle_key()` (privacy rules applied), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
@@ -480,6 +479,7 @@ electronic_forms - Spec
 <a id="sec-adaptive-challenge"></a>12. Adaptive challenge (optional; Turnstile preferred)
 	- Modes: off | auto (require when `soft_reasons` is non-empty) | always (evaluated after the Security gate populates `soft_reasons`).
 	- Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds `"challenge_unconfigured"` to `soft_reasons` and logs `EFORMS_CHALLENGE_UNCONFIGURED`.
+	- If a challenge is required (by `challenge.mode` or `cookie_missing_policy="challenge"`) but no provider is correctly configured, set `challenge_unconfigured` in `soft_reasons`, set `require_challenge=false`, and continue as if the cookie policy were soft (proceed via NCID when applicable). Do not hard-fail solely because the provider is unavailable.
 	- Bootstrap boundaries & where checks happen:
 		- No eager checks at plugin load. Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
 		- `challenge.mode` is read only when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in [Template Model (§5)](#sec-template-model)/[Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).
