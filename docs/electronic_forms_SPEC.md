@@ -1,6 +1,10 @@
 electronic_forms - Spec
 ================================================================
 
+<a id="sec-normative-note"></a>Normative vs. Non-normative
+	- Narrative text, tables, and matrices are normative unless explicitly marked otherwise.
+	- Diagrams and callouts are non-normative references only; they illustrate the normative rules above.
+
 <a id="sec-objective"></a>
 1. OBJECTIVE
 - Build a dependency-free, lightweight plugin that renders and processes multiple forms from JSON templates with strict DRY principles and a deterministic pipeline.
@@ -312,99 +316,70 @@ electronic_forms - Spec
 			- Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”); soft paths retain the original record for deterministic retries.
 
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
-		- **Minting helper (authority)**:
-			- `Security::mint_cookie_record(form_id, slot?)`:
-				- Returns `{ eid: "i-" UUIDv4, issued_at: unix, expires: issued_at + security.token_ttl_seconds, slots_allowed:[], slot:null|int }` (slot handling per policy).
-				- Writes JSON record at `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
-				- For `/eforms/prime`, sets `Set-Cookie: eforms_eid_{form_id}={eid}` **only when** minting a fresh EID; unions `slots_allowed` on reuse; never rewrites `issued_at`/`expires`.
-			- `/eforms/prime` must use the values returned by `Security::mint_cookie_record(…)` and **must not** generate or alter EIDs/timestamps/TTLs itself.
-			- `Security::mint_cookie_record()` itself is responsible for calling `Config::get()` on first use so `/eforms/prime` and any reuse path bootstrap the configuration snapshot without each route invoking `Config::bootstrap()` manually.
-		- Markup: GET renders remain deterministic: no `instance_id`, timestamp, or hidden token. When `security.cookie_mode_slots_enabled=true` and `security.cookie_mode_slots_allowed` is non-empty, each instance emits `eforms_slot`, a matching hidden `<input>`, and a 1×1 `/eforms/prime?f={form_id}&s={slot}` pixel (`aria-hidden="true"`, fixed size so assistive tech ignores the noise). Slotless deployments omit both the field and the `s` query parameter. `/eforms/prime` responds 204 with `Cache-Control: no-store`.
-		- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
-			| Field			 | Notes |
-			|-----------------|-------|
-			| `mode`			| Always `"cookie"`.
-			| `form_id`		 | Authoritative binding for the EID.
-			| `eid`			 | `i-<UUIDv4>` minted by `/eforms/prime`.
-			| `issued_at`/`expires` | TTL enforced server-side; never rewritten on reuse.
-			| `slots_allowed` | Deduplicated list of **observed** slots for this EID, updated atomically by `/eforms/prime` (union only). Slotless installs keep `[]`.
-			| `slot`			| Canonical slot: **set to the single observed slot when and only when `|slots_allowed| == 1`; else `null`.** Never set by POST; only `/eforms/prime` transitions it via the rule above. Once `|slots_allowed| > 1`, `slot` remains `null` for the lifetime of the EID.
-		- Slot lifecycle (canonical semantics):
-			- Renderer assigns a deterministic `eforms_slot` per instance; `/eforms/prime` **unions** that value into `slots_allowed` for the EID.
-			- Canonical `slot` is derived purely from `slots_allowed`:
-				- If after union `|slots_allowed| == 1` → `slot = that single value`.
-				- If after union `|slots_allowed| > 1` → `slot = null` (and stays `null` until the EID expires/rotates).
-			- POST **does not** mutate `slots_allowed` or `slot`; only `/eforms/prime` performs unions/derivation.
-			- Effects on validation/dedupe (consistent with existing rules):
-				- When the rendered instance included `eforms_slot`, POST **MUST** include the same value; `submission_id = eid__slot{slot}`. When a slotted render posts and the persisted slot is null (multiple observed), `submission_id = eid__slot{posted_slot}`.
-				- When the rendered instance was slotless (no `eforms_slot` field), POST **MUST NOT** include `eforms_slot`; `submission_id = eid` (valid regardless of the record’s `slot`).
-				- Slotless renders remain valid even after other instances set a canonical `slot`; equality checks apply **only** to submissions from slotted renders.
-			- Rerender behavior: normal rerenders reuse the existing `{eid, slot}`; deterministic assignment minimizes collisions but does not override these rules.
-                - POST requirements (policy-gated presence; tampering always hard-fails):
-			- A syntactically valid EID with a missing/expired record is invalid (policy-handled) rather than tampering.
-			- **Rendered-instance precedence:** slotless render ⇒ MUST NOT post `eforms_slot`; skip equality checks; `submission_id = eid`.
-		| Scenario | Required fields / behavior | Rejection cases |
-		|----------|---------------------------|-----------------|
-		| Rendered instance slotless | Do not include eforms_slot; `submission_id = eid`. | Including eforms_slot → HARD FAIL (EFORMS_ERR_TOKEN). |
-		| `security.cookie_missing_policy="hard"` | Present `eforms_eid_{form_id}` (matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`) and a matching minted record `{mode:"cookie", form_id, eid}`. | Missing/invalid cookie or missing record → **HARD FAIL**. |
-		| `security.cookie_missing_policy="challenge"` | Prefer the cookie; when missing/invalid, continue via NCID with `token_ok=false`, add `cookie_missing`, set `require_challenge=true`, and defer delivery until verification. | Tampering still hard-fails even on the NCID path. |
-		| `security.cookie_missing_policy="soft"` / `"off"` | Prefer the cookie; when missing/invalid, continue via NCID with `token_ok=false` and add `cookie_missing` (no challenge). | Missing cookie alone does not hard-fail, but tampering rules still apply. |
-		| All policies | Always validate the minted record `{mode:"cookie", form_id, eid}` before trusting the POST body. | Mode/form_id mismatch, mixing hidden tokens into cookie submissions, forged/malformed EID, cross-mode payloads, or slot violations → **HARD FAIL**. |
-		| Slots disabled | Omit `eforms_slot`. | Any posted slot is tampering → `EFORMS_ERR_TOKEN`. |
-		| Slots enabled | Posted `eforms_slot` must be an integer 1–255 present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`; slotless records (`slot:null`, empty `slots_allowed`) reject posted slots. | Value outside either allow-list or a non-integer post → **HARD FAIL**. |
-                | Persisted slot non-null (**slotted renders only**) | Submitted `eforms_slot` MUST equal the persisted `slot`. | Missing/mismatched slot → **HARD FAIL**. |
-                | Persisted slot null with observed slots (**slotted renders only**) | Accept only posted slots enumerated in `slots_allowed`; omit `eforms_slot` only when the renderer emitted a slotless instance. | Unexpected or missing slot when `slots_allowed` is non-empty → **HARD FAIL**. |
-		- All **HARD FAIL** cases above surface `EFORMS_ERR_TOKEN`; see [Security invariants (§7.1.2)](#sec-security-invariants).
-		- Rerender + rotation (supplements [Security invariants (§7.1.2)](#sec-security-invariants)):
-			- Normal rerenders reuse the existing `{eid, slot}` tuple. No mid-flow rotation occurs.
-			- NCID rerender (non-challenge): when `Security::token_validate()` continues via NCID under soft or off, the error rerender MUST clear `eforms_eid_{form_id}` (Set-Cookie: … deleted) so the follow-up GET has no cookie and `/eforms/prime` mints a fresh EID. This does not alter any on-disk cookie record (see “Record retention on NCID”).
-			- Challenge rerender **before verification** (i.e., when `require_challenge=true`): MUST clear `eforms_eid_{form_id}` via `Set-Cookie: … deleted` **and** embed the next `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser mints a new EID before the next POST.
-			- Response **after successful verification** for `cookie_missing_policy="challenge"`: **do not rotate again** on that success response (no additional clear or remint); proceed with the validated submission and PRG.
-			- Challenge rotation state machine: `require_challenge=true` is authoritative for "waiting for verification". Any rerender that still reports `require_challenge=true` (including retries after a failed provider response) follows the clear + fresh `/eforms/prime` rule above. Once verification succeeds and `require_challenge=false`, reuse the just-verified cookie with **no** additional rotation on the success response. Other cookie-loss policies (`off`/`soft`/`hard`) never rotate mid-flow.
-			- `/eforms/prime` MUST load the minted record before skipping `Set-Cookie`. A missing/truncated/expired record is treated as stale and MUST mint a fresh EID so implementations never “adopt” a forged/orphaned cookie.
-			- `/eforms/prime` sends `Set-Cookie` only when minting a fresh EID; otherwise it unions the observed slot into `slots_allowed` and leaves timestamps untouched.
-		- Dedup behavior:
-			- `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active (or an NCID when allowed by policy above).
-			- Ledger handling and tamper responses follow [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); cookie-specific policies above govern the NCID fallback labels.
-			- **Record retention on NCID**: when validation continues via an NCID, leave any previously minted cookie record untouched until it naturally expires. Do **not** delete, rewrite, or repurpose it for the NCID flow; ledger dedupe still treats the orphaned cookie record as reserved for its original EID.
-			- **Prime after NCID**: a rerender triggered by the NCID path still embeds `/eforms/prime`; because no cookie accompanies that request, `/eforms/prime` MUST mint a brand-new EID and issue a new cookie while leaving the abandoned record on disk. Later `/eforms/prime` hits during the same TTL likewise mint fresh EIDs (never attempting to "resurrect" the orphan), and once the orphan expires the next call proceeds as a normal fresh mint.
-			- These rules ensure NCID dedupe remains stable for the flow that lacked a cookie while avoiding silent adoption or overwrite of server records minted earlier.
-		- <a id="sec-slot-selection"></a>Slot selection (minimal invariants):
-			- When `cookie_mode_slots_enabled=true`, the renderer MUST choose the `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender; clients cannot pick slots.
-			- Determinism MUST depend only on inputs available at render time (e.g., `form_id`, the allowed-slots set, and the instance’s document order/index), not on client state or timing.
-			- If multiple instances of the same `form_id` are rendered on one page and there are more instances than values in `security.cookie_mode_slots_allowed`, excess instances MUST be slotless (omit `eforms_slot`; call `/eforms/prime` without `s`).
-			- When multiple instances share a page, implementations SHOULD assign distinct allowed slots in document order and only reuse a slot after all allowed slots are used once; this minimizes canonical-slot nulling from collisions.
-			- Implementations MAY offer an author override to pin a specific slot (e.g., `slot="N"`). If `N` is not allowed, ignore it and fall back to the implementation’s deterministic choice.
-			- This section constrains determinism only; the exact algorithm (e.g., instance index, round-robin) is implementation-defined.
-		- Prime endpoint semantics (`/eforms/prime`):
-			- Parse `s` as an integer 1–255. When slots are disabled or `s` is not in `security.cookie_mode_slots_allowed`, treat it as `null` (do not set `slot` and do not modify `slots_allowed`).
-			- Update `slots_allowed` atomically (write-temp + rename, or `flock()` + fsync). Never rewrite `issued_at`/`expires` on reuse.
-
+			- **Minting helper (authority)**:
+				- `Security::mint_cookie_record(form_id, slot?)`:
+					- Returns `{ eid: i-<UUIDv4>, issued_at, expires, slots_allowed:[], slot:null }` and persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
+					- Writes with atomic `{h2}` directory creation (`0700`) and `0600` file permissions; unions slot observations per `/eforms/prime` (no writes from POST).
+					- Calls `Config::get()` on first use so `/eforms/prime` never manages bootstrap manually. Helpers remain pure w.r.t. challenge/origin/throttle.
+			- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
+			- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
+				| Field | Notes |
+				|-----------------|-------|
+				| `mode` | Always `"cookie"`. |
+				| `form_id` | Authoritative binding for the EID. |
+				| `eid` | `i-<UUIDv4>` minted by `/eforms/prime`. |
+				| `issued_at` / `expires` | TTL enforced server-side; never rewritten on reuse. |
+				| `slots_allowed` | Deduplicated union of observed slots; only `/eforms/prime` mutates it. Slotless installs keep `[]`. |
+				| `slot` | Derived: set to the single observed slot when and only when `|slots_allowed| == 1`; otherwise `null`. |
+			- <a id="sec-cookie-lifecycle-matrix"></a>Lifecycle matrix (normative):
+				| Flow trigger | Server MUST | Identifier outcome | Notes |
+				|--------------|-------------|--------------------|-------|
+				| GET render (slots disabled) | MUST omit `eforms_slot`; embed `/eforms/prime?f={form_id}` pixel; reuse markup verbatim on rerender. | `eid` rendered without slot suffix. | Slotless deployments omit the `s` query parameter entirely. |
+				| GET render (slots enabled) | MUST emit deterministic `eforms_slot` and `/eforms/prime?f={form_id}&s={slot}` pixel chosen from the allowed set. | `/eforms/prime` unions the slot into `slots_allowed`. | Deterministic assignment depends only on render-time inputs; clients cannot pick slots. |
+				| `/eforms/prime` request | MUST call `Security::mint_cookie_record()`; union `s` (when allowed) into `slots_allowed`; derive canonical `slot` when the union size is one; load the record before skipping `Set-Cookie`. | Persists `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`. | Missing/truncated/expired record ⇒ mint a new EID and send `Set-Cookie`. Response: `204` + `Cache-Control: no-store`. Never rewrite TTLs on reuse. |
+				| Slots disabled globally | MUST reject any posted `eforms_slot`. | `submission_id = eid`. | Posted slot ⇒ HARD FAIL (`EFORMS_ERR_TOKEN`). |
+				| POST from slotless render | MUST reject payloads containing `eforms_slot`. | `submission_id = eid`. | Slotless renders stay valid even if other instances later union slots into the record. |
+				| POST from slotted render | MUST require integer `eforms_slot` present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`; when `slot` is non-null, require equality; otherwise accept only enumerated values. | `submission_id = eid__slot{posted_slot}`. | Missing/mismatched slot ⇒ HARD FAIL (`EFORMS_ERR_TOKEN`). |
+				| Error rerender after NCID fallback | MUST clear `eforms_eid_{form_id}` (Set-Cookie: deleted) and embed `/eforms/prime` before rendering. | Next GET mints a fresh EID; orphaned record remains untouched. | Applies when cookie policies below fall back to NCID. |
+				| Challenge rerender (before verification) | When `require_challenge=true`, MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime?f={form_id}[&s={slot}]`. | Fresh EID minted prior to the next POST. | Ensures verification runs against a newly minted cookie. |
+				| Challenge success response | MUST reuse the just-verified cookie; do not rotate again on that success response (MUST NOT remint). | Persisted record reused. | Applies only to `cookie_missing_policy="challenge"`. |
+			- <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
+				| Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
+				|-------------|-----------------------------------------------------|-----------|-------------|---------------------|--------------------|-------------------|
+				| `hard` | Reject with `EFORMS_ERR_TOKEN`. | — | — | — | — | True when the header existed and parsed; otherwise false. |
+				| `soft` | Continue via NCID; treat tampering separately; add `cookie_missing`. | `false` | `cookie_missing` | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
+				| `off` | Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record. | `false` | Conditional (see handling) | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when only the record was missing/expired. |
+				| `challenge` | Continue via NCID, set `require_challenge=true`, and add `cookie_missing`. Remove only that label after successful verification. | `false` until verification succeeds | `cookie_missing` (removed on success) | `true` until provider success | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true while a syntactically valid cookie lacks a record. |
+			- Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`). See [Security invariants (§7.1.2)](#sec-security-invariants).
+			- <a id="sec-slot-selection"></a>Slot selection (deterministic):
+				- When `cookie_mode_slots_enabled=true`, the renderer MUST choose `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender.
+				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
+				- Multiple instances on one page SHOULD consume distinct allowed slots in document order; surplus instances MUST be slotless (omit `eforms_slot` and prime without `s`).
+			- Prime endpoint semantics (`/eforms/prime`):
+				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
+				- Update `slots_allowed` atomically (write-temp + rename or `flock()` + fsync) without rewriting `issued_at` / `expires`.
+				- Respond `204` with `Cache-Control: no-store`.
+			- Dedup + retention:
+				- `submission_id` equals the EID with optional `__slot{n}` suffix when slots are active; NCID fallbacks reuse the deterministic NCID recipe in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
+				- NCID fallbacks leave previously minted cookie records untouched until natural expiry. Subsequent `/eforms/prime` calls (arriving without a cookie) mint fresh EIDs; orphaned records are never adopted or rewritten.
+				- Ledger handling follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); HARD FAIL rows above surface `EFORMS_ERR_TOKEN`.
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
-		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) **or an NCID when `security.cookie_missing_policy!="hard"`**.
-		- `cookie_present?` is true iff the request carried a cookie named `eforms_eid_{form_id}` whose value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, regardless of whether a server record exists or is fresh.
-		- When the browser sends a syntactically valid EID but no matching record exists (e.g., GC/TTL expiry) or the record is expired, treat it as invalid (not tampering) and:
-			- `token_ok=false`
-			- Add `cookie_missing` to `soft_reasons`
-			- Branch by policy:
-				- `security.cookie_missing_policy="hard"` → **HARD FAIL** (`EFORMS_ERR_TOKEN`).
-				- `security.cookie_missing_policy="soft"` / `"off"` → continue via NCID (`is_ncid=true`), preserve `cookie_present?=true`, and proceed with the NCID flow.
-				- `security.cookie_missing_policy="challenge"` → set `require_challenge=true`, proceed with the challenge flow, and on success remove only `cookie_missing` from `soft_reasons`.
-		- Tampering remains reserved for regex/form_id/mode/slot violations; those are hard failures.
-		- NCID generation (`Helpers::ncid`) activates when an authoritative identifier is missing/invalid and the mode’s policy permits soft continuation:
-			- Hidden mode: when the hidden token lookup fails and `security.submission_token.required=false`, emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, and set `is_ncid=true`. `cookie_present?` is omitted in this mode.
-			- Cookie mode:
-				- If `security.cookie_missing_policy="off"` → when the cookie was absent or malformed, continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present?=false` / `is_ncid=true`. Syntactically valid but missing/expired records follow the rule above (invalid—policy-handled, not tampering—so continue via NCID with `cookie_present?=true`).
-				- If `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, set `token_ok=false`, and set `cookie_present?=false` when the cookie was absent or malformed. Missing/expired records still add `cookie_missing` but preserve `cookie_present?=true`.
-				- If `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, set `cookie_present?=false` when the cookie was absent or malformed, and defer delivery until [Security → Adaptive challenge (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`. When the cookie was syntactically valid but missing/expired, `cookie_present?` remains `true` while the challenge flow runs.
-				- If `security.cookie_missing_policy="hard"` → **no NCID**; treat missing/invalid cookie as **HARD FAIL**, including the syntactically valid but missing/expired case above.
-			- Deterministic NCID recipe (matches [Configuration → Helpers::ncid (§17)](#sec-configuration)):
-				- Inputs: `form_id`, the throttle `client_key` derived by `Helpers::throttle_key()` (privacy rules applied), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
-				- Concatenate the UTF-8 inputs as `form_id . "\n" . client_key . "\n" . window_idx . "\n" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the `submission_id` consumed by the ledger and downstream flows.
-				- The `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens; when the window rolls forward a fresh NCID (and ledger reservation) is minted automatically.
-		- Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
-		- Slot metadata from cookie mode flows into `submission_id` and `slots_allowed` as described in [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`.
-		- Ledger behavior for NCIDs follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat duplicates (`EEXIST`) as spam, and continue with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID (applies to both cookie-missing and hidden-mode NCIDs).
+			- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) or an NCID as directed by [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix).
+			- `cookie_present?` is `true` iff the request carried a cookie named `eforms_eid_{form_id}` whose value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, regardless of whether a server record exists or is fresh.
+			- Tampering remains reserved for regex/form/mode/slot violations; those are hard failures routed through [Security invariants (§7.1.2)](#sec-security-invariants).
+			- <a id="sec-ncid-hidden"></a>Hidden-mode NCID fallback:
+				- When `security.submission_token.required=false` and the hidden-token lookup fails (missing/expired/nonexistent record), emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, set `is_ncid=true`, and omit `cookie_present?`.
+			- Cookie-mode NCIDs follow the rows for `off`, `soft`, and `challenge` in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix). `hard` never issues an NCID. Policy rows already define `token_ok`, `require_challenge`, `cookie_present?`, and soft-label behavior for both absent cookies and stale records.
+			- Deterministic NCID recipe (`Helpers::ncid`, normative):
+				- Inputs: `form_id`, the throttle `client_key` from `Helpers::throttle_key()` (after privacy rules), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
+				- Concatenate `form_id . "
+" . client_key . "
+" . window_idx . "
+" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the ledger identifier.
+				- `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens. When the window rolls forward, mint a fresh NCID (and ledger reservation) automatically.
+			- Canonical soft-reason labels (deduplicated set): `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
+			- Slot metadata from cookie flows is governed by [Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`; slotted submissions embed `slot` in `submission_id` as `eid__slot{n}`.
+			- Ledger behavior for NCIDs follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat `EEXIST` as spam, and continue with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based identifier.
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
@@ -477,10 +452,10 @@ electronic_forms - Spec
 		- Renderer id/name attributes stable per descriptor; attr mirror parity holds.
 <a id="sec-test-qa"></a>7. Test/QA Checklist (mandatory)
 	- Hidden-mode scenarios → follow [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode) and the POST flow coverage in [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post).
-	- Cookie-mode scenarios → follow [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) for minted-record reuse, TTL re-priming, slot handling, and challenge flows, with lifecycle storage details from [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
+	- Cookie-mode scenarios → follow [Security → Cookie-mode lifecycle matrix (§7.1.3.1)](#sec-cookie-lifecycle-matrix) and [Security → Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) for minted-record reuse, TTL re-priming, slot handling, and challenge flows, with lifecycle storage details from [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
 	- NCID and ledger scenarios → follow [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract) and [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) for cookie-loss policies, dedupe behavior, and redirect-only PRG handoffs.
 	- Honeypot scenarios → follow [Security → Honeypot (§7.2)](#sec-honeypot) for both response modes.
-	- Success-ticket scenarios → follow [Success Behavior (PRG) (§13)](#sec-success) for one-time banner display and TTL enforcement.
+	- Success-ticket scenarios → follow [Success Behavior (PRG) (§13 → inline flow)](#sec-success-flow) for one-time banner display, verifier requirements, and TTL enforcement.
 <a id="sec-spam-decision"></a>8. Spam Decision
 	- Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
 	- `soft_reasons`: a deduplicated set of labels from the canonical list above.
@@ -599,7 +574,7 @@ electronic_forms - Spec
 	- zip_us: type="text", inputmode="numeric", pattern="\\d{5}" (hint only); always set maxlength=5; server enforces ^\d{5}$.
 	- zip (generic): freeform
 	- file: single upload. See [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map) for the canonical MIME/extension mapping and default token policy.
-	- files: multiple upload with max_files; reuse the same token definitions from [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map); email attachment policy unchanged ([Email Delivery (§14)](#sec-email)).
+	- files: multiple upload with max_files; reuse the same token definitions from [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map); email attachment policy follows [Email Delivery (§14)](#sec-email).
 	- date: mirror min/max and step when provided.
 	- For each field, the HTML attributes emitted (inputmode, pattern, multiple, accept, etc.) must match attr_mirror derived from the resolved descriptor.
 	- Resolved descriptor cache per request:
@@ -631,22 +606,22 @@ electronic_forms - Spec
 
 <a id="sec-success"></a>
 13. SUCCESS BEHAVIOR (PRG)
-	- inline: PRG (303) to same URL with `eforms_success={form_id}`. Renderer shows success only in the first instance in source order when multiple same-ID instances exist; suppress in subsequent instances.
-	- redirect: `wp_safe_redirect(redirect_url, 303)`; no flag on destination. Cookie-mode deployments SHOULD prefer `success.mode="redirect"` pointing at a non-cached endpoint.
-	- Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff), continue to use inline success on cached pages as the graceful fallback.
-	- PRG status: fixed at 303.
-	- Caching: do not disable page caching globally. Only vary/bypass for (a) the short-lived success cookie `eforms_s_{form_id}` and (b) requests containing `eforms_*` query args.
-	- Success responses MUST send: `Cache-Control: private, no-store, max-age=0` and SHOULD include `Vary: Cookie` scoped to `eforms_s_{form_id}`.
-	- Any request containing `eforms_*` query args MUST send: `Cache-Control: private, no-store, max-age=0`.
-	- Namespace internal query args with `eforms_*`.
-	- `success.message` is treated as plain text and escaped.
-	- Anti-spoofing (inline mode only):
-	1. On successful POST, create a one-time success ticket `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` (short TTL, e.g., 5 minutes, with `{h2}` derived from the `submission_id` per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle)’s shared sharding and permission guidance) containing `{ form_id, submission_id, issued_at }`. `submission_id` matches the ledger naming scheme (e.g., `eid__slot2` when slots are enabled) so the ticket filenames remain colon-free and Windows-compatible. Set `eforms_s_{form_id}={submission_id}` (`SameSite=Lax`, HttpOnly=false, `Secure` on HTTPS, `Path`=current request path, `Max-Age≈300`).
-	2. Redirect with `?eforms_success={form_id}`.
-	3. Cached page loads a lightweight verifier that calls `/eforms/success-verify?f={form_id}&s={submission_id}` (`Cache-Control: no-store`). Render the success banner only when both the query flag and verifier response succeed. A successful verifier response MUST immediately invalidate the ticket so any subsequent verify call for the same `{form_id, submission_id}` pair returns false. Then clear the cookie and strip the query parameter. This prevents replaying old cookie/query combinations on cached pages.
-	- Success UX without cookies (NCID flow): When the submission proceeded under an NCID (no acceptable cookie), implementations MUST use `success.mode="redirect"` to a non-cached endpoint. Append `&eforms_submission={submission_id}` to the 303 redirect. The `/eforms/success-verify` endpoint MUST accept the `submission_id` (`s`) from either the `eforms_s_{form_id}` cookie or the `eforms_submission` query parameter. Inline success on a cached page MUST NOT be used in this case.
-	- Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}=1` cookie; always pair it with the ticket verifier to prevent spoofing. Logs and downstream consumers MUST treat `submission_id` values as colon-free strings and rely on the separate `slot` metadata when disambiguating multi-instance submissions.
-
+			- PRG status is fixed at 303. Success responses MUST send `Cache-Control: private, no-store, max-age=0` and SHOULD include `Vary: Cookie` scoped to `eforms_s_{form_id}`. Any request containing `eforms_*` query args MUST also send `Cache-Control: private, no-store, max-age=0`.
+			- Namespace internal query args with `eforms_*`. `success.message` is plain text and escaped.
+			- Caching: do not disable page caching globally. Only vary/bypass for (a) the short-lived success cookie `eforms_s_{form_id}` and (b) requests containing `eforms_*` query args.
+			- <a id="sec-success-modes"></a>Modes (normative summary):
+				| Mode | PRG target | Display rule | Cache guidance |
+				|------|------------|--------------|----------------|
+				| Inline | `303` back to the same URL with `?eforms_success={form_id}`. | Renderer shows the banner only in the first instance in source order; suppress subsequent duplicates. | Works on cached pages only when paired with the verifier flow below. |
+				| Redirect | `wp_safe_redirect(redirect_url, 303)` without adding flags to the destination. | Destination renders its own success UX. | Cookie-mode deployments SHOULD prefer redirect targets that are not cached. |
+			- Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff), continue to use inline success on cached pages as the graceful fallback.
+			- <a id="sec-success-flow"></a>Canonical inline verifier flow (normative):
+				1. On successful POST, create `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{ form_id, submission_id, issued_at }` (short TTL, e.g., 5 minutes). Derive `{h2}` from the `submission_id` per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
+				2. Set `eforms_s_{form_id}={submission_id}` with `SameSite=Lax`, `Secure` on HTTPS, HttpOnly=false, `Path` equal to the current request path, and `Max-Age≈300` seconds.
+				3. Redirect with `?eforms_success={form_id}` (303).
+				4. On the follow-up GET, the renderer (or lightweight JS helper) calls `/eforms/success-verify?f={form_id}&s={submission_id}` (`Cache-Control: no-store`). Render the success banner only when both the query flag and verifier response succeed. The verifier MUST immediately invalidate the ticket so subsequent calls for the same `{form_id, submission_id}` pair return false, then clear the cookie and strip the query parameter. Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}` cookie.
+			- Downstream consumers MUST treat `submission_id` values as colon-free strings and rely on separate slot metadata when disambiguating multi-instance submissions.
+			- <a id="sec-success-ncid"></a>NCID-only handoff: when a submission proceeded under an NCID (no acceptable cookie), implementations MUST use `success.mode="redirect"` to a non-cached endpoint. Inline success MUST NOT be used in this case. Append `&eforms_submission={submission_id}` to the 303 redirect. `/eforms/success-verify` MUST accept the `submission_id` (`s`) from either the `eforms_s_{form_id}` cookie or the `eforms_submission` query parameter.
 <a id="sec-email"></a>
 14. EMAIL DELIVERY
 	- DMARC alignment: From: no-reply@{site_domain}
@@ -721,7 +696,7 @@ electronic_forms - Spec
 17. CONFIGURATION: DOMAINS, CONSTRAINTS, AND DEFAULTS
 	- Authority: Default *values* live in code as `Config::DEFAULTS` (see `src/Config.php`). This spec no longer duplicates every literal; the code array is the single source of truth for defaults.
 	- Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
-	- Lazy bootstrap (unchanged): `Config::bootstrap()` is invoked on the first use from `Config::get()`, `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints. Within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
+	- Lazy bootstrap: `Config::bootstrap()` is invoked on the first use from `Config::get()`, `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints. Within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
 	- Migration behavior: unknown keys MUST be rejected; missing keys fall back to defaults before clamping; invalid enums/ranges/booleans MUST trigger validation errors rather than coercion; POST handlers MUST continue to enforce constraints after bootstrap.
 
 	`Config::DEFAULTS` also powers uninstall/CLI flows; it exposes a stable public symbol for ops tooling.
@@ -860,7 +835,7 @@ electronic_forms - Spec
 	- reCAPTCHA v2: https://www.google.com/recaptcha/api.js (defer)
 	- Do not load challenge script on initial GET unless required by [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection).
 	- Secrets hygiene: Render only site_key to HTML. Never expose secret_key or verify tokens in markup/JS. Verify server-side; redact tokens in logs.
-	- Keep novalidate logic unchanged.
+	- Honor novalidate behavior: do not add `novalidate`; progressive enhancement depends on native validation.
 
 <a id="sec-implementation-notes"></a>
 23. NOTES FOR IMPLEMENTATION
