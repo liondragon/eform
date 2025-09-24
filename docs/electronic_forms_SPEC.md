@@ -330,8 +330,10 @@ electronic_forms - Spec
 				- When the rendered instance was slotless (no `eforms_slot` field), POST **MUST NOT** include `eforms_slot`; `submission_id = eid` (valid regardless of the record’s `slot`).
 			- Rerender behavior: normal rerenders reuse the existing `{eid, slot}`; deterministic assignment minimizes collisions but does not override these rules.
                 - POST requirements (policy-gated presence; tampering always hard-fails):
+						- Scope: The first row applies to slotless renders. All subsequent rows assume the rendered instance included `eforms_slot`.
 		| Scenario | Required fields / behavior | Rejection cases |
 		|----------|---------------------------|-----------------|
+		| Rendered instance slotless | Do not include eforms_slot; `submission_id = eid`. | Including eforms_slot → HARD FAIL (EFORMS_ERR_TOKEN). |
 		| `security.cookie_missing_policy="hard"` | Present `eforms_eid_{form_id}` (matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`) and a matching minted record `{mode:"cookie", form_id, eid}`. | Missing/invalid cookie or missing record → **HARD FAIL**. |
 		| `security.cookie_missing_policy="challenge"` | Prefer the cookie; when missing/invalid, continue via NCID with `token_ok=false`, add `cookie_missing`, set `require_challenge=true`, and defer delivery until verification. | Tampering still hard-fails even on the NCID path. |
 		| `security.cookie_missing_policy="soft"` / `"off"` | Prefer the cookie; when missing/invalid, continue via NCID with `token_ok=false` and add `cookie_missing` (no challenge). | Missing cookie alone does not hard-fail, but tampering rules still apply. |
