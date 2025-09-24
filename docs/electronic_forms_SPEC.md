@@ -295,8 +295,11 @@ electronic_forms - Spec
 			| `issued_at`/`expires` | TTL enforced server-side; never rewritten on reuse.
 			| `slots_allowed` | Deduplicated list updated atomically; slotless installs keep `[]`.
 			| `slot`			| Nullable canonical slot when one emerges; multiple slots reset it to `null`.
-		- POST requirements:
-			- Requests MUST present the minted `eforms_eid_{form_id}` cookie whose value matches the EID regex `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, and the JSON record MUST exist and match {`mode:"cookie"`, `form_id`, `eid`}; stale or mismatched records hard-fail.
+		- POST requirements (policy-gated presence; tampering always hard-fails):
+			- If `security.cookie_missing_policy="hard"`: the request **MUST** present `eforms_eid_{form_id}` (value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`) **and** a matching minted record {`mode:"cookie"`,`form_id`,`eid`}; missing/invalid cookie or missing record → **HARD FAIL**.
+			- If `security.cookie_missing_policy="challenge"`: cookie preferred; when missing/invalid, continue via **NCID** with `token_ok=false`, add `cookie_missing`, and set `require_challenge=true` (delivery deferred until verification).
+			- If `security.cookie_missing_policy` is `"soft"` or `"off"`: cookie preferred; when missing/invalid, continue via **NCID** with `token_ok=false` and add `cookie_missing` (no hard fail).
+			- **Regardless of policy**, the following are **HARD FAILS**: mode/form_id mismatch in the minted record; mixing hidden tokens into cookie submissions; forged/malformed EID; slot violations (out of allow-list, missing when required, or mismatch vs persisted `slot`); and any cross-mode tampering.
 			- If slots are disabled, any posted `eforms_slot` is tampering → hard fail (`EFORMS_ERR_TOKEN`). If enabled, the slot must be an integer 1–255 present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`. A slotless minted record (`slot:null`, empty `slots_allowed`) rejects any posted slot.
 			- When the persisted record’s `slot` is non-null, the submitted `eforms_slot` MUST equal it. Records with `slot:null` skip the equality check but still reject unexpected slots. If eforms_slot is missing when slot is non-null, treat as a mismatch → hard fail. When slot:null and slots_allowed is non-empty, accept only slots present in slots_allowed.
 			- Mixing hidden tokens into cookie submissions is tampering → hard fail.
@@ -306,9 +309,9 @@ electronic_forms - Spec
 			- `/eforms/prime` MUST load the minted record before skipping `Set-Cookie`. A missing/truncated/expired record is treated as stale and MUST mint a fresh EID so implementations never “adopt” a forged/orphaned cookie.
 			- `/eforms/prime` sends `Set-Cookie` only when minting a fresh EID; otherwise it unions the observed slot into `slots_allowed` and leaves timestamps untouched.
 		- Dedup behavior:
-			- `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active.
+			- `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active (or an NCID when allowed by policy above).
 			- Ledger burns the composite `submission_id` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
-			- Hard failures surface `EFORMS_ERR_TOKEN`; soft paths keep the minted record untouched for deterministic retries.
+			- **Tampering and integrity violations always** surface `EFORMS_ERR_TOKEN` (policy does not apply). **Missing/invalid cookie** surfaces `EFORMS_ERR_TOKEN` only when `security.cookie_missing_policy="hard"`; otherwise proceed via the NCID path above.
 		- <a id="sec-slot-selection"></a>Slot selection (minimal invariants):
 			- When `cookie_mode_slots_enabled=true`, the renderer MUST choose the `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender; clients cannot pick slots.
 			- Determinism MUST depend only on inputs available at render time (e.g., `form_id`, the allowed-slots set, and the instance’s document order/index), not on client state or timing.
@@ -321,13 +324,14 @@ electronic_forms - Spec
 			- Update `slots_allowed` atomically (write-temp + rename, or `flock()` + fsync). Never rewrite `issued_at`/`expires` on reuse.
 
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
-		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present).
+		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) **or an NCID when `security.cookie_missing_policy!="hard"`**.
 		- NCID generation (`Helpers::ncid`) activates when an authoritative identifier is missing/invalid and the mode’s policy permits soft continuation:
 			- Hidden mode: when the hidden token lookup fails and `security.submission_token.required=false`, emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, and set `is_ncid=true`. `cookie_present?` is omitted in this mode.
-			- `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true`.
-			- `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, and still set `token_ok=false`.
-			- `security.cookie_missing_policy="hard"` → escalate to a hard failure without NCID reuse.
-			- `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, and defer delivery until [Security → Adaptive challenge (optional; Turnstile preferred) (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`.
+			- Cookie mode:
+				- If `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true`.
+				- If `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, and set `token_ok=false`.
+				- If `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, and defer delivery until [Security → Adaptive challenge (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`.
+				- If `security.cookie_missing_policy="hard"` → **no NCID**; treat missing/invalid cookie as **HARD FAIL**.
 			- Deterministic NCID recipe (matches [Configuration → Helpers::ncid (§17)](#sec-configuration)):
 				- Inputs: `form_id`, the throttle `client_key` derived by `Helpers::throttle_key()` (privacy rules applied), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
 				- Concatenate the UTF-8 inputs as `form_id . "\n" . client_key . "\n" . window_idx . "\n" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the `submission_id` consumed by the ledger and downstream flows.
