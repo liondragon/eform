@@ -209,7 +209,7 @@ electronic_forms - Spec
 			- Renderer: private const HANDLERS = ['text' => [self::class,'emitInput'], 'textarea' => [...], ...]
 			- public static function resolve(string $id): callable { if (!isset(self::HANDLERS[$id])) throw RuntimeException(...); return self::HANDLERS[$id]; }
 	- Uploads registry settings: token->mime/ext expansions; image sanity; caps
-	- Accept token map (canonical, conservative). Default tokens are image and pdf; do not add unless explicitly required.
+        - Accept token map lives in [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map). Default tokens remain image and pdf; do not add new tokens without explicit review.
 	- Upload registry loads on demand when a template with file/files is rendered or posted.
 	- Structural registry (TEMPLATE_SPEC) defines allowed keys, required combos, enums (implements additionalProperties:false).
 	- Escaping map (per sink) to be used consistently:
@@ -512,10 +512,8 @@ electronic_forms - Spec
 	- checkbox: single -> bool; group -> array of keys
 	- zip_us: type="text", inputmode="numeric", pattern="\\d{5}" (hint only); always set maxlength=5; server enforces ^\d{5}$.
 	- zip (generic): freeform
-	- file: single upload. Accept tokens map:
-	- image → image/jpeg,image/png,image/gif,image/webp
-	- pdf	 → application/pdf
-	- files: multiple upload with max_files; same explicit lists; email attachment policy unchanged ([Email Delivery (§14)](#sec-email)).
+	- file: single upload. See [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map) for the canonical MIME/extension mapping and default token policy.
+	- files: multiple upload with max_files; reuse the same token definitions from [Appendices → Accept Token Map (§26.2)](#sec-accept-token-map); email attachment policy unchanged ([Email Delivery (§14)](#sec-email)).
 	- date: mirror min/max and step when provided.
 	- For each field, the HTML attributes emitted (inputmode, pattern, multiple, accept, etc.) must match attr_mirror derived from the resolved descriptor.
 	- Resolved descriptor cache per request:
@@ -877,11 +875,12 @@ electronic_forms - Spec
 	- EFORMS_FAIL2BAN_IO - "Fail2ban file I/O problem."
 	- EFORMS_FINFO_UNAVAILABLE - "File uploads are unsupported on this server."
 
-	2. Accept Token -> MIME/Extension Map (canonical, conservative)
+	2. <a id="sec-accept-token-map"></a>Accept Token -> MIME/Extension Map (canonical, conservative)
 	- image -> image/jpeg, image/png, image/gif, image/webp (SVG excluded)
 	- pdf -> application/pdf
 	- Explicit exclusions by default: image/svg+xml, image/heic, image/heif, image/tiff
-	- Policy: token set is intentionally minimal (image, pdf).
+	- Default tokens: {image, pdf}. Additional tokens require explicit review and MUST update this table.
+	- Applies to both `file` and `files` field types; multi-file inputs reuse these lists, and email attachment policy remains governed by [Email Delivery (§14)](#sec-email).
 
 	3. Filename Policy (Display vs Storage)
 	- Start with client name; strip paths; NFC normalize
