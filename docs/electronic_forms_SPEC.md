@@ -309,6 +309,7 @@ electronic_forms - Spec
 				- Writes JSON record at `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
 				- For `/eforms/prime`, sets `Set-Cookie: eforms_eid_{form_id}={eid}` **only when** minting a fresh EID; unions `slots_allowed` on reuse; never rewrites `issued_at`/`expires`.
 			- `/eforms/prime` must use the values returned by `Security::mint_cookie_record(…)` and **must not** generate or alter EIDs/timestamps/TTLs itself.
+			- `Security::mint_cookie_record()` itself is responsible for calling `Config::get()` on first use so `/eforms/prime` and any reuse path bootstrap the configuration snapshot without each route invoking `Config::bootstrap()` manually.
 		- Markup: GET renders remain deterministic: no `instance_id`, timestamp, or hidden token. When `security.cookie_mode_slots_enabled=true` and `security.cookie_mode_slots_allowed` is non-empty, each instance emits `eforms_slot`, a matching hidden `<input>`, and a 1×1 `/eforms/prime?f={form_id}&s={slot}` pixel (`aria-hidden="true"`, fixed size so assistive tech ignores the noise). Slotless deployments omit both the field and the `s` query parameter. `/eforms/prime` responds 204 with `Cache-Control: no-store`.
 		- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
 			| Field			 | Notes |
@@ -328,6 +329,7 @@ electronic_forms - Spec
 			- Effects on validation/dedupe (consistent with existing rules):
 				- When the rendered instance included `eforms_slot`, POST **MUST** include the same value; `submission_id = eid__slot{slot}`.
 				- When the rendered instance was slotless (no `eforms_slot` field), POST **MUST NOT** include `eforms_slot`; `submission_id = eid` (valid regardless of the record’s `slot`).
+				- Slotless renders remain valid even after other instances set a canonical `slot`; equality checks apply **only** to submissions from slotted renders.
 			- Rerender behavior: normal rerenders reuse the existing `{eid, slot}`; deterministic assignment minimizes collisions but does not override these rules.
                 - POST requirements (policy-gated presence; tampering always hard-fails):
                                                 - Rendered-instance precedence. If the rendered instance was slotless, the POST MUST NOT include `eforms_slot` and MUST NOT apply any persisted-slot equality check; `submission_id = eid`.
