@@ -334,13 +334,13 @@ electronic_forms - Spec
 				- If after union `|slots_allowed| > 1` → `slot = null` (and stays `null` until the EID expires/rotates).
 			- POST **does not** mutate `slots_allowed` or `slot`; only `/eforms/prime` performs unions/derivation.
 			- Effects on validation/dedupe (consistent with existing rules):
-				- When the rendered instance included `eforms_slot`, POST **MUST** include the same value; `submission_id = eid__slot{slot}`.
+				- When the rendered instance included `eforms_slot`, POST **MUST** include the same value; `submission_id = eid__slot{slot}`. When a slotted render posts and the persisted slot is null (multiple observed), `submission_id = eid__slot{posted_slot}`.
 				- When the rendered instance was slotless (no `eforms_slot` field), POST **MUST NOT** include `eforms_slot`; `submission_id = eid` (valid regardless of the record’s `slot`).
 				- Slotless renders remain valid even after other instances set a canonical `slot`; equality checks apply **only** to submissions from slotted renders.
 			- Rerender behavior: normal rerenders reuse the existing `{eid, slot}`; deterministic assignment minimizes collisions but does not override these rules.
                 - POST requirements (policy-gated presence; tampering always hard-fails):
 			- A syntactically valid EID with a missing/expired record is invalid (policy-handled) rather than tampering.
-                                                - Rendered-instance precedence. If the rendered instance was slotless, the POST MUST NOT include `eforms_slot` and MUST NOT apply any persisted-slot equality check; `submission_id = eid`.
+			- **Rendered-instance precedence:** slotless render ⇒ MUST NOT post `eforms_slot`; skip equality checks; `submission_id = eid`.
 		| Scenario | Required fields / behavior | Rejection cases |
 		|----------|---------------------------|-----------------|
 		| Rendered instance slotless | Do not include eforms_slot; `submission_id = eid`. | Including eforms_slot → HARD FAIL (EFORMS_ERR_TOKEN). |
@@ -392,7 +392,7 @@ electronic_forms - Spec
 		- NCID generation (`Helpers::ncid`) activates when an authoritative identifier is missing/invalid and the mode’s policy permits soft continuation:
 			- Hidden mode: when the hidden token lookup fails and `security.submission_token.required=false`, emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, and set `is_ncid=true`. `cookie_present?` is omitted in this mode.
 			- Cookie mode:
-				- If `security.cookie_missing_policy="off"` → when the cookie was absent or malformed, continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present?=false` / `is_ncid=true`. Syntactically valid but missing/expired records follow the rule above (NCID with `cookie_present?=true`).
+				- If `security.cookie_missing_policy="off"` → when the cookie was absent or malformed, continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present?=false` / `is_ncid=true`. Syntactically valid but missing/expired records follow the rule above (invalid—policy-handled, not tampering—so continue via NCID with `cookie_present?=true`).
 				- If `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, set `token_ok=false`, and set `cookie_present?=false` when the cookie was absent or malformed. Missing/expired records still add `cookie_missing` but preserve `cookie_present?=true`.
 				- If `security.cookie_missing_policy="challenge"` → mark `require_challenge=true`, add `cookie_missing`, set `cookie_present?=false` when the cookie was absent or malformed, and defer delivery until [Security → Adaptive challenge (§7.12)](#sec-adaptive-challenge) succeeds; on success remove only `cookie_missing` from `soft_reasons`. When the cookie was syntactically valid but missing/expired, `cookie_present?` remains `true` while the challenge flow runs.
 				- If `security.cookie_missing_policy="hard"` → **no NCID**; treat missing/invalid cookie as **HARD FAIL**, including the syntactically valid but missing/expired case above.
@@ -498,7 +498,7 @@ electronic_forms - Spec
 	- Key derivation respects privacy.ip_mode; storage path ${uploads.dir}/throttle/{h2}/{key}.json with `{h2}` derived from the key per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle)’s shared sharding and permission guidance; GC files >2 days old.
 
 <a id="sec-adaptive-challenge"></a>12. Adaptive challenge (optional; Turnstile preferred)
-	- Challenge rotation follows the Precedence & rotation exceptions in [Security → Security invariants (§7.1.2)](#sec-security-invariants).
+	- Challenge rotation follows the Precedence & rotation exceptions in [Security → Security invariants (§7.1.2)](#sec-security-invariants) (cookie-mode only; hidden-mode never rotates pre-success).
 	- Modes: off | auto (require when `soft_reasons` is non-empty) | always (evaluated after the Security gate populates `soft_reasons`).
 	- Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds `"challenge_unconfigured"` to `soft_reasons` and logs `EFORMS_CHALLENGE_UNCONFIGURED`.
 	- If a challenge is required (by `challenge.mode` or `cookie_missing_policy="challenge"`) but no provider is correctly configured, set `challenge_unconfigured` in `soft_reasons`, set `require_challenge=false`, and continue as if the cookie policy were soft (proceed via NCID when applicable). Do not hard-fail solely because the provider is unavailable.
