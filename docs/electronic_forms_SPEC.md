@@ -325,10 +325,11 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 			- **Minting helper (authority)**:
 				- `Security::mint_cookie_record(form_id, slot?)`:
 					- Returns `{ eid: i-<UUIDv4>, issued_at, expires, slots_allowed:[], slot:null }` and persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
+					- Slot persistence responsibility (normative): `Security::mint_cookie_record(form_id, slot?)` only creates the base record when missing and never unions the observed slot. It may therefore return `slots_allowed=[]` and `slot=null` immediately after mint. The `/eforms/prime` endpoint is solely responsible for loading the record, unioning the observed `s` value, deriving canonical `slot` when `|slots_allowed|==1`, and persisting that update atomically. Helpers MUST NOT rewrite `slots_allowed` or `slot`.
 					- Writes with atomic `{h2}` directory creation (`0700`) and `0600` file permissions; unions slot observations per `/eforms/prime` (no writes from POST).
 					- Calls `Config::get()` on first use so `/eforms/prime` never manages bootstrap manually. Helpers remain pure w.r.t. challenge/origin/throttle.
-- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-- Rerenders MUST reuse the minted `eid` and deterministic slot choice; see [Security invariants (§7.1.2)](#sec-security-invariants) for rotation exceptions.
+			- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
+			- Rerenders MUST reuse the minted `eid` and deterministic slot choice; see [Security invariants (§7.1.2)](#sec-security-invariants) for rotation exceptions. Exceptions (normative, sanctioned): When (a) an NCID fallback occurs or (b) a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` and embed `/eforms/prime` to mint a fresh cookie before the next POST (see [Security invariants (§7.1.2)](#sec-security-invariants) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender)). Doing so does not violate the reuse rule because the submission remains pinned to its NCID while the new cookie is reserved for subsequent submissions.
 			- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
 				| Field | Notes |
 				|-----------------|-------|
@@ -347,6 +348,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
 				- Multiple instances on one page SHOULD consume distinct allowed slots in document order; surplus instances MUST be slotless (omit `eforms_slot` and prime without `s`).
 			- Prime endpoint semantics (`/eforms/prime`):
+				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint only if missing, then loads the current record, unions `s`, derives `slot`, and persists the updated record atomically (`write-temp + rename` or `flock()` + fsync). Skipping `Set-Cookie` is decided after this load/update, based on the up-to-date record and request cookie state.
 				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
 				- Update `slots_allowed` atomically (write-temp + rename or `flock()` + fsync) without rewriting `issued_at` / `expires`.
 				- Respond `204` with `Cache-Control: no-store`.
@@ -695,6 +697,11 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 	- Authority: Default *values* live in code as `Config::DEFAULTS` (see `src/Config.php`). This spec no longer duplicates every literal; the code array is the single source of truth for defaults.
 	- Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
 	- Lazy bootstrap: `Config::bootstrap()` is invoked on the first use from `Config::get()`, `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints. Within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
+	- Bootstrap ownership (normative):
+		- Entry points SHOULD call `Config::get()` before invoking helpers.
+		- Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly.
+		- When adding a new public endpoint, that endpoint owns calling `Config::get()` up front; do not call `Config::bootstrap()` directly.
+		- Call order (illustrative): Endpoint → `Config::get()` → Helper (which internally no-ops `Config::get()` again) → …
 	- Migration behavior: unknown keys MUST be rejected; missing keys fall back to defaults before clamping; invalid enums/ranges/booleans MUST trigger validation errors rather than coercion; POST handlers MUST continue to enforce constraints after bootstrap.
 
 	`Config::DEFAULTS` also powers uninstall/CLI flows; it exposes a stable public symbol for ops tooling.
