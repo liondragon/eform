@@ -381,6 +381,18 @@ electronic_forms - Spec
 			- Canonical soft-reason labels (deduplicated set): `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
 			- Slot metadata from cookie flows is governed by [Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`; slotted submissions embed `slot` in `submission_id` as `eid__slot{n}`.
 			- Ledger behavior for NCIDs follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat `EEXIST` as spam, and continue with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based identifier.
+- <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
+				| Scenario | Identifier outcome | Required action | Canonical section |
+				|----------|--------------------|-----------------|-------------------|
+				| Valid hidden record | `submission_id = token` | Embed the helper’s `{token, instance_id, timestamp}` verbatim and reuse them on rerender. | [Hidden-mode contract (§7.1.2)](#sec-hidden-mode) |
+				| Hidden record missing/expired with optional token | `submission_id = nc-…` (`is_ncid=true`, `token_ok=false`, `soft_reasons += token_soft`) | Continue via NCID and preserve hidden-mode metadata. | [Hidden-mode NCID fallback (§7.1.4)](#sec-ncid-hidden) |
+				| Cookie policy `hard` | — (submission rejected) | Fail with `EFORMS_ERR_TOKEN`; do not mint/retain NCIDs. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) |
+				| Cookie policy `soft` | `submission_id = nc-…` (`is_ncid=true`) | Continue without challenge; add `cookie_missing`. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) |
+				| Cookie policy `off` | `submission_id = nc-…` (`is_ncid=true`) | Continue; add `cookie_missing` only when a syntactically valid cookie lacked a record. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) |
+				| Cookie policy `challenge` | `submission_id = nc-…` (`is_ncid=true`, `require_challenge=true`) | Require verification before proceeding; clear cookie on rerender, keep NCID pinned through success. | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix), [Cookie-mode lifecycle (§7.1.3.1)](#sec-cookie-lifecycle-matrix) |
+				| Challenge rerender after NCID fallback | `submission_id = same nc-…` | Delete `eforms_eid_{form_id}` and embed `/eforms/prime` before rendering. | [Cookie-mode lifecycle (§7.1.3.1)](#sec-cookie-lifecycle-matrix) |
+				| Challenge success response | `submission_id = same nc-…` | Reuse the just-verified cookie; do **not** mint a new EID in the success response. | [Cookie-mode lifecycle (§7.1.3.1)](#sec-cookie-lifecycle-matrix) |
+				| NCID success handoff (no acceptable cookie) | `submission_id = nc-…` | Use redirect PRG with `eforms_submission={submission_id}`; inline success is prohibited. | [Success → NCID-only handoff (§13.1)](#sec-success-ncid) |
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
@@ -623,7 +635,7 @@ electronic_forms - Spec
 				3. Redirect with `?eforms_success={form_id}` (303).
 				4. On the follow-up GET, the renderer (or lightweight JS helper) calls `/eforms/success-verify?f={form_id}&s={submission_id}` (`Cache-Control: no-store`). Render the success banner only when both the query flag and verifier response succeed. The verifier MUST immediately invalidate the ticket so subsequent calls for the same `{form_id, submission_id}` pair return false, then clear the cookie and strip the query parameter. Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}` cookie.
 			- Downstream consumers MUST treat `submission_id` values as colon-free strings and rely on separate slot metadata when disambiguating multi-instance submissions.
-- <a id="sec-success-ncid"></a>NCID-only handoff: when a submission proceeded under an NCID (no acceptable cookie), implementations MUST use `success.mode="redirect"` to a non-cached endpoint. Inline success MUST NOT be used in this case. The `submission_id` is the pinned NCID for this flow. Append `&eforms_submission={submission_id}` to the 303 redirect. `/eforms/success-verify` MUST accept the `submission_id` (`s`) from either the `eforms_s_{form_id}` cookie or the `eforms_submission` query parameter.
+- <a id="sec-success-ncid"></a>NCID-only handoff: when a submission proceeded under an NCID (no acceptable cookie), implementations MUST use `success.mode="redirect"` to a non-cached endpoint. Inline success MUST NOT be used in this case. The `submission_id` is the pinned NCID for this flow. Append `&eforms_submission={submission_id}` to the 303 redirect. `/eforms/success-verify` MUST accept the `submission_id` (`s`) from either the `eforms_s_{form_id}` cookie or the `eforms_submission` query parameter. Refer to [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for the identifier and rotation summary that drives this redirect-only flow.
 <a id="sec-email"></a>
 14. EMAIL DELIVERY
 	- DMARC alignment: From: no-reply@{site_domain}
@@ -791,11 +803,11 @@ electronic_forms - Spec
 
 	<a id="sec-request-lifecycle-post"></a>2. POST
 	- SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce
-		- Cookie handling (present/valid vs. invalid/expired) follows [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) for labeling `cookie_present?`, `token_ok`, and `soft_reasons`.
+		- Cookie handling (present/valid vs. invalid/expired) follows [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for identifier outcomes plus the canonical `cookie_present?`, `token_ok`, and `soft_reasons` labels.
 	- Mode, hidden-field reuse, and rerender behavior follow the canonical contract in [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection); lifecycle logic never swaps modes mid-flow.
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
         - Error rerenders and duplicate handling follow [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` or other IO failures as duplicates (logging `EFORMS_LEDGER_IO`), and sequences normalization, validation, email, and logging around that contract with the colon-free `submission_id` supplied by Security.
-	- Hidden-mode NCID fallback: when a hidden record is missing or expired and continuation is permitted, expect the NCID metadata documented in [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode) and [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); rerenders retain the persisted `{instance_id, timestamp}` while dedupe/logging use the NCID `submission_id`.
+	- Hidden-mode NCID fallback: when continuation is permitted without a hidden record, rely on [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for the NCID metadata while rerenders keep the persisted `{instance_id, timestamp}` from [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode).
 	- On success: move stored uploads; send email; log; PRG/redirect; cleanup per retention.
 	- Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
 	- throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
@@ -841,9 +853,7 @@ electronic_forms - Spec
 
 <a id="sec-implementation-notes"></a>
 23. NOTES FOR IMPLEMENTATION
-	- instance_id (hidden mode): mint once per token using a cryptographically secure RNG (16–24 bytes), encode as base64url without padding (regex `^[A-Za-z0-9_-]{22,32}$`). Persist in the hidden-token record; do not regenerate on rerender.
-	- timestamp (hidden mode): DO NOT persist a separate field. The timestamp rendered into HTML MUST be the record’s `issued_at`. On rerender, reload the record and reuse the same value.
-	- Hidden record lifecycle: NEVER rewrite `issued_at`/`expires`/`instance_id` on rerender; only mint a new record on rotation/expiry. If the hidden record is missing at POST, follow `security.submission_token.required` for hard/soft behavior.
+	- Security cross-reference (supplementary): Embed the metadata returned by `Security::mint_hidden_record()`/`Security::mint_cookie_record()` verbatim. Reuse persisted `{token, instance_id, timestamp}` on rerender and consult [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for rotation, NCID fallbacks, and challenge-driven cookie handling.
 	- Use esc_textarea for <textarea> output
 	- Enqueue assets only when a form exists on the page
 	- Logs dir perms 0700; log files 0600
@@ -863,12 +873,11 @@ electronic_forms - Spec
 	- Helpers::bytes_from_ini(?string $v): int — parses K/M/G; "0"/null/"" -> PHP_INT_MAX; clamps non-negative.
 	- Helpers::h2(string $id): string — derive the shared `[0-9a-f]{2}` shard (see `{h2}` directories in [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
 	- Helpers::throttle_key(Request $r): string — derive the throttle key per [Cross-Field Rules (BOUNDED SET) (§10)](#sec-cross-field-rules) honoring `privacy.ip_mode`.
-	- Helpers::ncid(string $form_id, string $client_key, int $window_idx, array $canon_post): string — returns `"nc-" . hash('sha256', ...)` with the concatenation defined in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
+	- Helpers::ncid(string $form_id, string $client_key, int $window_idx, array $canon_post): string — returns `"nc-" . hash('sha256', ...)` with the concatenation defined in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) (see the summary row in [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for expected identifiers).
 	- Renderer consolidation:
 	- Shared text-control helper centralizes attribute assembly; <input> and <textarea> emitters stay small and focused.
 	- Keep group controls (fieldset/legend), selects, and file(s) as dedicated renderers for a11y semantics.
-	- Cookie-policy precedence eliminates ambiguity and keeps UX predictable on cookie-blocked browsers without weakening hidden-token path.
-	- When cookie_missing_policy='challenge' and verification succeeds, do not rotate the cookie again on the same response (avoid breaking back-button resubmits).
+	- Cookie-policy precedence, rotation, and challenge behavior are summarized in [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary); defer to that matrix rather than re-deriving UX in helpers.
 	- Minimal logging via error_log() is a good ops fallback; JSONL is primary structured option.
 	- Fail2ban emission isolates raw IP use to a single, explicit channel designed for enforcement.
 	- Fail2ban rotation uses the same timestamped rename scheme as JSONL.
