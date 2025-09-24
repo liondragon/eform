@@ -1,0 +1,27 @@
+# Spec Contracts
+
+> Single place for canonicality, ownership, and the helper-contract template.
+> This file is **normative** unless a paragraph is explicitly marked “non-normative”.
+
+## 1) Canonicality & Precedence
+- **Matrices are authoritative for _outcomes_** (e.g., `token_ok`, `require_challenge`, `submission_id`, `cookie_present?`).
+- **Helper contracts are authoritative for _behavior/returns_** (inputs, side-effects, idempotency, hit/miss/expired).
+- **Narrative text must not contradict** matrices or helper contracts.
+- If two sources conflict, the PR **must** update both and declare which is canonical in the PR description.
+
+## 2) State Model (cookie/hidden/NCID)
+- **Identifiers**: `token` (hidden), `eid[_ _slot{n}]` (cookie), `nc-…` (NCID).
+- **Flags**: `token_ok`, `require_challenge`, `hard_fail`, `cookie_present?`, `is_ncid`, `soft_reasons[]`.
+- **Rotation**: “no rotation before success” except the **explicit carve-outs**: NCID fallback & pre-verification challenge (cookie mode) may clear cookie + re-prime; the submission remains NCID-pinned.
+
+## 3) CI/Verifier Rules (summary)
+- Every “MUST/SHOULD/MAY” sentence **SHOULD** include a condition (`when|if|unless`) unless it’s a global invariant.
+- Every helper contract in §7.1.x contains **Inputs / Side-effects / Returns** blocks.
+- Changes in **Appendix 26** require a corresponding change in at least one anchored narrative/helper section (and vice-versa).
+
+## 4) Anchors used by the Verifier
+- Matrices: `#sec-app-cookie-policy`, `#sec-app-cookie-lifecycle`, `#sec-app-cookie-ncid`
+- Helper sections: `#sec-hidden-mode`, `#sec-cookie-mode`, `#sec-ncid`
+- Narrative hub: `#sec-submission-protection`
+
+*(Non-normative) Tip: keep quotes short; prefer matrices for exact outcomes.*
