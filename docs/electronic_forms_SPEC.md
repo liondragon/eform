@@ -108,21 +108,33 @@ electronic_forms - Spec
 	- size: 1-100; honored only for text-like controls (text, tel, url, email).
 	- Renderer injects security metadata per the active submission mode. See [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) for the canonical hidden-token and cookie-mode contract (required hidden fields, cookie/EID minting, rerender reuse rules, and POST expectations).
 	- Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
-	- Renderer-generated attributes:
-		- id = "{form_id}-{field_key}-{instance_id}" in hidden-mode and "{form_id}-{field_key}-s{slot}" in cookie-mode (slot suffix emitted only when slots are enabled and explicitly assigned; otherwise no slot suffix).
-		- name = "{form_id}[{field_key}]" or "{form_id}[{field_key}][]" for multivalue
-	- Reserved field keys (templates must not use): form_id, instance_id, submission_id, eforms_token, eforms_hp, eforms_mode, eforms_slot, timestamp, js_ok, ip, submitted_at.
+        - Renderer-generated attributes:
+		| Attribute(s) | Emission rule | Notes |
+		|--------------|---------------|-------|
+		| `id` | Hidden mode: `{form_id}-{field_key}-{instance_id}`. Cookie mode: `{form_id}-{field_key}-s{slot}` when slots are active; omit the suffix when no slot is assigned. | Slot suffix mirrors the deterministic renderer assignment; slotless instances remain suffix-free. |
+		| `name` | `{form_id}[{field_key}]` | Append `[]` only for multivalue descriptors (checkboxes, multi-select). |
+		| `required` | Mirrors the template’s `required: true|false`. | Server-side validation remains authoritative; the attribute is a UX hint only. |
+		| `maxlength` / `minlength` | Emitted from `max_length` / `min_length` in the descriptor or template overrides. | Client-side mirrors of validator bounds; never relax the server rules. |
+		| `min` / `max` / `step` | Derived from numeric/date traits in the descriptor. | Applies to number/date-like controls per type defaults or template overrides. |
+		| `pattern` | Pulled from descriptor typing hints when provided. | Acts as a hint only; validator enforces canonical rules. |
+		| `inputmode` | Provided by descriptor typing aids. | Complements `pattern` and other per-type editing helpers (see 11). |
+		| `multiple` | Added when the descriptor reports `is_multivalue=true`. | Ensures DOM/UI affordances align with array POST bodies. |
+		| `accept` | Mirrors descriptor/token-driven MIME allow-lists. | `image` token → `image/jpeg,image/png,image/gif,image/webp`; `pdf` token → `application/pdf`. |
+		| `enterkeyhint` | `"send"` on the last text-like control or `<textarea>` in DOM order. | Best-effort UX affordance; does not affect validation or submission flow. |
+        - Reserved field keys (templates must not use): form_id, instance_id, submission_id, eforms_token, eforms_hp, eforms_mode, eforms_slot, timestamp, js_ok, ip, submitted_at.
 	- include_fields accepts template keys and meta keys:
 		- allowed meta keys: ip, submitted_at, form_id, instance_id (hidden-mode only), submission_id, slot (available for email/logs only)
 	- Template fragments (before_html / after_html):
 		- Sanitized via wp_kses_post (same as textarea_html); sanitized result is canonical.
 		- No inline styles. May not cross row_group boundaries.
 	- Upload field options: for type=file/files, optional accept[], max_file_bytes, max_files (files only), email_attach (bool). Per-field values override global limits.
-	- Attribute emission list (summary): maxlength, min, max, step, minlength, pattern, inputmode, multiple, accept are emitted when applicable from the template/registry traits.
-	- Client-side attribute mirroring (UX hints only): Renderer mirrors server limits as HTML attributes—max_length -> maxlength, min/max/step for numeric/date, min_length -> minlength (future). These never relax server rules; server validation is authoritative.
-	- Typing/editing aids: Renderer emits inputmode, pattern (hints only), and editing helpers per field type (see 11).
-	- Uploads -> HTML attributes: image token => accept="image/jpeg,image/png,image/gif,image/webp" (do not use image/*); pdf => application/pdf.
-	- Enter key UX: Renderer sets enterkeyhint="send" on the last text-like control or <textarea> in DOM order. Best-effort only; no effect on validation/submission flow. The required attribute is driven strictly by template required: true|false.
+        - Client-side hints (summary):
+		| Hint | Emission rule | Notes |
+		|------|---------------|-------|
+		| Attribute mirrors | Renderer copies validator bounds to HTML attributes (`max_length` → `maxlength`, numeric/date bounds → `min`/`max`/`step`, `min_length` → `minlength`). | Keeps UX hints aligned with server policy; the validator remains canonical. |
+		| Editing aids | Per-type helpers emit `inputmode`, `pattern`, and related typing aids. | See [Built-in Field Types (Defaults; US-focused) (§11)](#sec-field-types) for the per-type matrix. |
+		| Upload affordances | `accept` reflects descriptor tokens (`image` / `pdf`); other per-field upload options (e.g., `max_file_bytes`, `max_files`, `email_attach`) follow the descriptor defaults unless overridden. | Hints do not override the global upload caps enforced server-side. |
+		| UX niceties | `enterkeyhint="send"` marks the final text-like control or `<textarea>`; other renderer-managed classes mirror template-provided `class` values. | All hints are advisory and never weaken validation. |
 
 	2. Row Groups (Structured Wrappers)
 	- pseudo-field: type=row_group with { mode:"start"|"end", tag:"div"|"section" (default div), class:"..." }
@@ -319,13 +331,17 @@ electronic_forms - Spec
 					- `submission_id = eid__slot{posted_slot}` (suffix always used when a slot is posted).
 				- When `slots_enabled` but the specific instance renders **slotless** (per deterministic assignment/exhaustion rules), POST may omit `eforms_slot`; `submission_id = eid` (no suffix).
 			- Rerender behavior: normal rerenders reuse the existing `{eid, slot}`; deterministic assignment minimizes collisions but does not override these rules.
-		- POST requirements (policy-gated presence; tampering always hard-fails):
-			- If `security.cookie_missing_policy="hard"`: the request **MUST** present `eforms_eid_{form_id}` (value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`) **and** a matching minted record {`mode:"cookie"`,`form_id`,`eid`}; missing/invalid cookie or missing record → **HARD FAIL**.
-			- If `security.cookie_missing_policy="challenge"`: cookie preferred; when missing/invalid, continue via **NCID** with `token_ok=false`, add `cookie_missing`, and set `require_challenge=true` (delivery deferred until verification).
-			- If `security.cookie_missing_policy` is `"soft"` or `"off"`: cookie preferred; when missing/invalid, continue via **NCID** with `token_ok=false` and add `cookie_missing` (no hard fail).
-			- **Regardless of policy**, the following are **HARD FAILS**: mode/form_id mismatch in the minted record; mixing hidden tokens into cookie submissions; forged/malformed EID; slot violations (out of allow-list, missing when required, or mismatch vs persisted `slot`); and any cross-mode tampering.
-			- If slots are disabled, any posted `eforms_slot` is tampering → hard fail (`EFORMS_ERR_TOKEN`). If enabled, the slot must be an integer 1–255 present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`. A slotless minted record (`slot:null`, empty `slots_allowed`) rejects any posted slot.
-			- When the persisted record’s `slot` is non-null, the submitted `eforms_slot` MUST equal it. Records with `slot:null` skip the equality check but still reject unexpected slots. If eforms_slot is missing when slot is non-null, treat as a mismatch → hard fail. When slot:null and slots_allowed is non-empty, accept only slots present in slots_allowed.
+                - POST requirements (policy-gated presence; tampering always hard-fails):
+		| Scenario | Required fields / behavior | Rejection cases |
+		|----------|---------------------------|-----------------|
+		| `security.cookie_missing_policy="hard"` | Present `eforms_eid_{form_id}` (matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`) and a matching minted record `{mode:"cookie", form_id, eid}`. | Missing/invalid cookie or missing record → **HARD FAIL**. |
+		| `security.cookie_missing_policy="challenge"` | Prefer the cookie; when missing/invalid, continue via NCID with `token_ok=false`, add `cookie_missing`, set `require_challenge=true`, and defer delivery until verification. | Tampering still hard-fails even on the NCID path. |
+		| `security.cookie_missing_policy="soft"` / `"off"` | Prefer the cookie; when missing/invalid, continue via NCID with `token_ok=false` and add `cookie_missing` (no challenge). | Missing cookie alone does not hard-fail, but tampering rules still apply. |
+		| All policies | Always validate the minted record `{mode:"cookie", form_id, eid}` before trusting the POST body. | Mode/form_id mismatch, mixing hidden tokens into cookie submissions, forged/malformed EID, cross-mode payloads, or slot violations → **HARD FAIL**. |
+		| Slots disabled | Omit `eforms_slot`. | Any posted slot is tampering → `EFORMS_ERR_TOKEN`. |
+		| Slots enabled | Posted `eforms_slot` must be an integer 1–255 present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`; slotless records (`slot:null`, empty `slots_allowed`) reject posted slots. | Value outside either allow-list or a non-integer post → **HARD FAIL**. |
+		| Persisted slot non-null | Submitted `eforms_slot` MUST equal the persisted `slot`. | Missing/mismatched slot → **HARD FAIL**. |
+		| Persisted slot null with observed slots | Accept only posted slots enumerated in `slots_allowed`; omit `eforms_slot` only when the renderer emitted a slotless instance. | Unexpected or missing slot when `slots_allowed` is non-empty → **HARD FAIL**. |
 		- Rerender + rotation (supplements [Security invariants (§7.1.2)](#sec-security-invariants)):
 			- Normal rerenders reuse the existing `{eid, slot}` tuple. No mid-flow rotation occurs.
 			- Challenge rerender **before verification** (i.e., when `require_challenge=true`): MUST clear `eforms_eid_{form_id}` via `Set-Cookie: … deleted` **and** embed the next `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser mints a new EID before the next POST.
