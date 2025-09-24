@@ -234,7 +234,7 @@ electronic_forms - Spec
 	-	<a id="sec-lazy-load-matrix"></a>Lazy-load lifecycle (components & triggers):
 		| Component		| Init policy | Trigger(s) (first use) | Notes |
 		|------------------|------------:|-------------------------|-------|
-		| Config snapshot | Lazy | First `Config::get()` or entry into `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()` | Idempotent (per request); entry points decide when to create the snapshot; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
+		| Config snapshot | Lazy | First `Config::get()` or entry into `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, **`/eforms/prime`**, or **`/eforms/success-verify`** | Idempotent (per request); entry points decide when to create the snapshot; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
 		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; memoizes per request (no global scans). |
 		| Static registries (`HANDLERS` maps) | Lazy | First call to `resolve()` / class autoload | Autoloading counts as lazy; classes hold only const maps; derived caches compute on demand. |
 		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
