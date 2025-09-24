@@ -252,7 +252,7 @@ electronic_forms - Spec
  	
 <a id="sec-security"></a>
 7. SECURITY
-Matrices are normative and housed in [Appendix 26](#sec-appendices).
+Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 <a id="sec-submission-protection"></a>1. Submission Protection for Public Forms (hidden vs cookie)
 - See [Lifecycle quickstart (§7.1.0)](#sec-lifecycle-quickstart) for the canonical render → persist → POST → rerender/success contract that governs both modes.
 - Detailed matrices live in [Appendix 26.5](#sec-app-cookie-policy) through [Appendix 26.7](#sec-app-cookie-ncid); this section keeps the authoritative mode invariants and shared storage rules.
@@ -267,7 +267,6 @@ Matrices are normative and housed in [Appendix 26](#sec-appendices).
 7) **Success path** — Move uploads, send mail, log, then complete PRG via [Success behavior (§13)](#sec-success) (inline cookie vs. redirect verifier, including NCID-only flows in [§13.1](#sec-success-ncid)).
 8) **Rotation** — Hidden mode never rotates before success; cookie mode remints on `/eforms/prime` when records are missing or expired. See [Security invariants (§7.1.2)](#sec-security-invariants) for precedence and rotation exceptions.
 
-Renderer reuse of `{token, instance_id, timestamp}` (hidden) or `{eid, slot}` (cookie) remains mandatory across rerenders; see [Hidden-mode contract (§7.1.2)](#sec-hidden-mode) and [Cookie-mode contract (§7.1.3)](#sec-cookie-mode).
 <a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
 - Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
                 - Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, minted cookies, ledger entries, throttles, and success tickets.
@@ -328,7 +327,8 @@ Renderer reuse of `{token, instance_id, timestamp}` (hidden) or `{eid, slot}` (c
 					- Returns `{ eid: i-<UUIDv4>, issued_at, expires, slots_allowed:[], slot:null }` and persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
 					- Writes with atomic `{h2}` directory creation (`0700`) and `0600` file permissions; unions slot observations per `/eforms/prime` (no writes from POST).
 					- Calls `Config::get()` on first use so `/eforms/prime` never manages bootstrap manually. Helpers remain pure w.r.t. challenge/origin/throttle.
-			- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
+- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
+- Rerenders MUST reuse the minted `eid` and deterministic slot choice; see [Security invariants (§7.1.2)](#sec-security-invariants) for rotation exceptions.
 			- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
 				| Field | Notes |
 				|-----------------|-------|
@@ -427,7 +427,7 @@ Renderer reuse of `{token, instance_id, timestamp}` (hidden) or `{eid, slot}` (c
 		- Reused hidden token after ledger sentinel exists → HARD FAIL with `EFORMS_ERR_TOKEN`.
 	- Cookie-mode checks:
 		- Valid minted record + cookie → PASS; ledger burns `eid` (+slot when enabled).
-		- Missing/expired/no minted record for a syntactically valid `eid` → follow [Cookie policy outcomes (§7.1.3.2)]: `hard` ⇒ HARD FAIL; `soft`/`off`/`challenge` ⇒ continue via NCID (challenge may be required).
+- Missing/expired/no minted record for a syntactically valid `eid` → follow [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix): `hard` ⇒ HARD FAIL; `soft`/`off`/`challenge` ⇒ continue via NCID (challenge may be required).
 		- Cookie present but form_id mismatch in record → HARD FAIL.
 		- Hidden token posted while minted record says cookie → HARD FAIL (tampering).
 		- Slot posted outside allow-list → HARD FAIL on `EFORMS_ERR_TOKEN`.
