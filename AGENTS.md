@@ -1,5 +1,17 @@
 # Spec authoring conventions (for agents)
 
+## Canonicality
+- Matrices are authoritative for **outcomes** (token_ok, require_challenge, identifiers).
+- Helper contracts are authoritative for **behavior/returns** (inputs, side-effects, idempotency, hit/miss/expired).
+- Narrative must not contradict either.
+- If they conflict, the PR MUST fix both and state which source is canonical in the PR description.
+- Verifier checks that **narrative + matrices + helper contracts** are aligned (see `scripts/spec_lint.py`).
+
+## Roles
+- Spec Agent: finds contradictions; proposes minimal normative edits.
+- Implementation Agent: applies diffs; updates code/docs.
+- Verifier: confirms alignment and runs spec-lint in CI.
+
 ## Scope
 - These conventions apply **only to Markdown docs** (`*.md`) in `/docs/` and top-level `README*.md`.
 - They **do not apply to source code** (`/src`, `/assets`, templates, tests, build scripts, etc.). Code follows its own language/tooling standards.
