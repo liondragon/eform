@@ -251,9 +251,12 @@ electronic_forms - Spec
 			- Persist: The renderer (hidden mode) or `/eforms/prime` (cookie mode) writes the authoritative JSON record before any POST handling. Each write happens inside `${uploads.dir}/eforms-private/...` using the shared permissions below.
 			- POST evaluate: `Security::token_validate()` reads the persisted record, returns `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }`, and drives dedupe/challenge policy. NCID handling lives in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
 			- Rerender/success: Error rerenders reuse authoritative metadata. Successful submits hand off to [Success Behavior (PRG) (§13)](#sec-success) for ticket minting and PRG behavior.
-		- Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, minted cookies, ledger entries, throttles, and success tickets.
-		- Regex guards (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` hidden tokens, `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` cookie EIDs, `^[A-Za-z0-9_-]{22,32}$` instance IDs) run before disk access to weed out obvious tampering.
-		- Duplicate suppression reserves `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (or equivalent) immediately before side effects. Treat `EEXIST` or any filesystem failure as a duplicate and log `EFORMS_LEDGER_IO` on unexpected IO errors. Honeypot short-circuits burn the same ledger entry. Submission IDs for all modes remain colon-free.
+                - Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, minted cookies, ledger entries, throttles, and success tickets.
+                - Regex guards (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` hidden tokens, `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` cookie EIDs, `^[A-Za-z0-9_-]{22,32}$` instance IDs) run before disk access to weed out obvious tampering.
+                - <a id="sec-ledger-contract"></a>Ledger reservation contract
+                        - Duplicate suppression reserves `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (or equivalent) immediately before side effects.
+                        - Treat `EEXIST` or any filesystem failure as a duplicate and log `EFORMS_LEDGER_IO` on unexpected IO errors.
+                        - Honeypot short-circuits burn the same ledger entry, and submission IDs for all modes remain colon-free.
 
 <a id="sec-hidden-mode"></a>2. Hidden-mode contract
 		- Markup: GET renders emit a CSPRNG `instance_id` (16–24 bytes → base64url `^[A-Za-z0-9_-]{22,32}$`), the persisted `timestamp`, and `<input type="hidden" name="eforms_token" value="…">` whose UUID matches `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Rerenders MUST reuse the exact `{token, instance_id, timestamp}` trio and send `Cache-Control: private, no-store`.
@@ -274,7 +277,7 @@ electronic_forms - Spec
 			- Rotation occurs only when the original record expires or the form succeeds.
 		- Dedup behavior:
 			- `submission_id` equals the raw token.
-			- Ledger burns happen immediately before side effects per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
+                        - Ledger burns happen immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
 			- Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”); soft paths retain the original record for deterministic retries.
 
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
@@ -300,7 +303,7 @@ electronic_forms - Spec
 			- `/eforms/prime` sends `Set-Cookie` only when minting a fresh EID; otherwise it unions the observed slot into `slots_allowed` and leaves timestamps untouched.
 		- Dedup behavior:
 			- `submission_id` is the EID with an optional `__slot{n}` suffix when slots are active.
-			- Ledger burns the composite `submission_id` immediately before side effects.
+                        - Ledger burns the composite `submission_id` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
 			- Hard failures surface `EFORMS_ERR_TOKEN`; soft paths keep the minted record untouched for deterministic retries.
 		- Prime endpoint semantics (`/eforms/prime`):
 			- Parse `s` as an integer 1–255. When slots are disabled or `s` is not in `security.cookie_mode_slots_allowed`, treat it as `null` (do not set `slot` and do not modify `slots_allowed`).
@@ -319,7 +322,7 @@ electronic_forms - Spec
 				- The `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens; when the window rolls forward a fresh NCID (and ledger reservation) is minted automatically.
 		- Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
 		- Slot metadata from cookie mode flows into `submission_id` and `slots_allowed` as described in [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`.
-		- Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects and treat duplicates (`EEXIST`) as spam. Success handling continues with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID.
+                - Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract) and treat duplicates (`EEXIST`) as spam. Success handling continues with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID.
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
@@ -389,7 +392,7 @@ electronic_forms - Spec
 	| Hidden-mode submissions honor the POST contract (token tampering/expiry is a hard fail when required, soft `token_soft` otherwise) and rerenders reuse `{token, instance_id, timestamp}` deterministically. | [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
 	| Cookie-mode posts require the minted record, reject mixed-mode tampering, and reuse the existing `{eid, slot}` tuple on rerender. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
 	| Cookie-mode re-priming keeps the existing EID within TTL (no `Set-Cookie`, `issued_at`/`expires` unchanged) and mints a new record only once expired; QE MUST exercise both within-TTL and expired flows. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) |
-	| Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle); [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
+        | Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
 	| Honeypot response modes both execute: `stealth_success` fakes the success UX, logs `stealth=true`, burns the ledger entry, and `hard_fail` emits the generic error with no success log. | [Security → Honeypot (§7.2)](#sec-honeypot) |
 	| NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Success Behavior (PRG) (§13)](#sec-success) |
 	| Slot enforcement accepts only allowed slot values, rejects out-of-range posts, and preserves minted-slot metadata across re-renders and `/eforms/prime` refreshes. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) |
@@ -729,7 +732,7 @@ electronic_forms - Spec
 	- SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce
 	- Mode, hidden-field reuse, and rerender behavior follow the canonical contract in [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection); lifecycle logic never swaps modes mid-flow.
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
-	- Error rerenders, ledger reservation timing, and duplicate handling are governed by [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection); reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` (apply the `{h2}` sharding rule from [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle)) via an exclusive-create call (`fopen('xb')` or equivalent) with 0700 directory / 0600 file perms immediately before side effects. Both hidden-token and cookie-mode submissions must resolve colon-free `submission_id` values; treat `EEXIST` as a duplicate and log `EFORMS_LEDGER_IO` on any other filesystem failure while also treating the submission as a duplicate. POST lifecycle code simply orchestrates normalization/validation/email/logging around that contract.
+        - Error rerenders and duplicate handling follow [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` or other IO failures as duplicates (logging `EFORMS_LEDGER_IO`), and sequences normalization, validation, email, and logging around that contract with the colon-free `submission_id` supplied by Security.
 	- On success: move stored uploads; send email; log; PRG/redirect; cleanup per retention.
 	- Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
 	- throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
