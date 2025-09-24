@@ -281,7 +281,8 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 			- Minting helpers never evaluate challenge, throttle, or origin policy; they only consult the configuration snapshot for TTLs/paths, and entry points embed the returned fields verbatim.
 			- Config read scope: The preceding restriction applies only to minting helpers. Validation (`Security::token_validate()`) may read any policy keys required (e.g., `security.*`, `challenge.*`, `privacy.*`) to compute `{token_ok, require_challenge, soft_reasons, cookie_present?}`.
 			- Minting/verification helpers MUST ensure a configuration snapshot exists by calling `Config::get()` on first use.
-			- Config bootstrap responsibility: Public entry points MAY call `Config::get()` if they need configuration before invoking helpers. Helpers (minting and validation) MUST call `Config::get()` on first use as a safety net. Do not call `Config::bootstrap()` directly; `Config::get()` is idempotent and performs bootstrap when needed.
+			- Call order (illustrative): Endpoint → `Config::get()` → Helper (helper idempotently calls `Config::get()` again) → …
+			- Lazy definition (normative): “Lazy” means the first `Config::get()` in a request performs `bootstrap()` exactly once. Entry points SHOULD call `Config::get()` up front; helpers MUST call it again as a backstop. Redundant calls are expected and safe—no separate “early init” path is required for new endpoints.
 			- Error rerenders reuse the persisted record; rotation occurs only after expiry or a successful submission (PRG). Mode-specific challenge flows layer on top of this invariant.
 			- Ledger reservation is uniform: reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects, treat `EEXIST` as a duplicate, and burn honeypot/soft paths the same way.
 			- Tampering guards are uniform: regex validation precedes disk access; mode/form_id mismatches or cross-mode payloads are hard failures; NCID fallbacks mark `token_ok=false` while preserving dedupe semantics.
@@ -291,6 +292,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 					- Challenge pre-verification (cookie mode only, when `require_challenge=true`): the rerender MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime` so a fresh EID is minted before the next POST.
 					- NCID rerender in cookie mode (non-challenge): the rerender MUST clear `eforms_eid_{form_id}` to ensure `/eforms/prime` mints a fresh EID on the follow-up GET.
 					- Otherwise: “no rotation before success” holds; rotation happens only on expiry or after a successful submission (PRG).
+					- Explicit carve-out (normative): The cookie clear + re-prime required by (a) NCID fallbacks and (b) pre-verification challenge rerenders is NOT considered a violation of “no rotation before success.” The submission stays pinned to the NCID; the freshly minted cookie is reserved for subsequent submissions.
 				- Hidden-mode challenge never rotates the hidden token before success; the token/instance/timestamp trio is reused across rerenders until success or expiry.
 
 <a id="sec-hidden-mode"></a>2. Hidden-mode contract
@@ -325,7 +327,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 			- **Minting helper (authority)**:
 				- `Security::mint_cookie_record(form_id, slot?)`:
 					- Returns `{ eid: i-<UUIDv4>, issued_at, expires, slots_allowed:[], slot:null }` and persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
-					- Slot persistence responsibility (normative): `Security::mint_cookie_record(form_id, slot?)` only creates the base record when missing and never unions the observed slot. It may therefore return `slots_allowed=[]` and `slot=null` immediately after mint. The `/eforms/prime` endpoint is solely responsible for loading the record, unioning the observed `s` value, deriving canonical `slot` when `|slots_allowed|==1`, and persisting that update atomically. Helpers MUST NOT rewrite `slots_allowed` or `slot`.
+					- Slot argument handling (normative): The helper MUST validate the optional `slot?` against the allowed set (int 1–255 and configured allow-list). Invalid or disabled ⇒ treat as `null`. The helper MUST NOT persist or union slot observations; it MAY ignore/normalize the argument for logging/metrics only. The `/eforms/prime` endpoint is solely responsible for loading the record, unioning the observed `s`, deriving canonical `slot` when `|slots_allowed|==1`, and persisting that update atomically. Helpers MUST NOT rewrite `slots_allowed` or `slot`.
 					- Writes with atomic `{h2}` directory creation (`0700`) and `0600` file permissions; unions slot observations per `/eforms/prime` (no writes from POST).
 					- Calls `Config::get()` on first use so `/eforms/prime` never manages bootstrap manually. Helpers remain pure w.r.t. challenge/origin/throttle.
 			- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
@@ -348,6 +350,12 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
 				- Multiple instances on one page SHOULD consume distinct allowed slots in document order; surplus instances MUST be slotless (omit `eforms_slot` and prime without `s`).
 			- Prime endpoint semantics (`/eforms/prime`):
+				- Set-Cookie attributes (normative): `/eforms/prime` MUST set `eforms_eid_{form_id}` with:
+					- `Path=/`
+					- `Secure` when the request is HTTPS; omit otherwise
+					- `HttpOnly=true`
+					- `SameSite=Lax`
+					- `Max-Age = security.token_ttl_seconds`
 				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint only if missing, then loads the current record, unions `s`, derives `slot`, and persists the updated record atomically (`write-temp + rename` or `flock()` + fsync). Skipping `Set-Cookie` is decided after this load/update, based on the up-to-date record and request cookie state.
 				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
 				- Update `slots_allowed` atomically (write-temp + rename or `flock()` + fsync) without rewriting `issued_at` / `expires`.
