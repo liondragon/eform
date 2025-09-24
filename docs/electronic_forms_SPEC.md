@@ -247,7 +247,7 @@ electronic_forms - Spec
 		| Emailer | Lazy | After validation succeeds (just before send) | SMTP/DKIM init only on send; skipped on failures. |
 		| Logging | Lazy | First log write when `logging.mode != "off"` | Opens/rotates file on demand. |
 		| Throttle | Lazy | When `throttle.enable=true` and key present | File created on first check. |
-		| Challenge | Lazy | Only inside entry points: (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a POST re-render when `require_challenge=true`; or (3) verification step when a provider response is present (`cf-turnstile-response` / `h-captcha-response` / `g-recaptcha-response`). | Provider script enqueued only when rendered. Presence of `challenge.mode != "off"` MUST NOT initialize on initial GET; challenge loads only at the entry points above. |
+               | Challenge | Lazy | Only inside entry points: (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a POST re-render when `require_challenge=true`; or (3) verification step when a provider response is present (`cf-turnstile-response` / `h-captcha-response` / `g-recaptcha-response`). | Provider script enqueued only when rendered. Even when `challenge.mode="always"`, challenge MUST NOT initialize on the initial GET; it loads only on: (a) POST rerender after `Security::token_validate()` sets `require_challenge=true`, or (b) the verification step when a provider response is present. |
 		| Assets (CSS/JS) | Lazy | When a form is rendered on the page | Version via filemtime; opt-out honored. |
  	
 <a id="sec-security"></a>
@@ -341,7 +341,7 @@ electronic_forms - Spec
 				| POST from slotless render | MUST reject payloads containing `eforms_slot`. | `submission_id = eid`. | Slotless renders stay valid even if other instances later union slots into the record. |
 				| POST from slotted render | MUST require integer `eforms_slot` present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`; when `slot` is non-null, require equality; otherwise accept only enumerated values. | `submission_id = eid__slot{posted_slot}`. | Missing/mismatched slot ⇒ HARD FAIL (`EFORMS_ERR_TOKEN`). |
 				| Error rerender after NCID fallback | MUST clear `eforms_eid_{form_id}` (Set-Cookie: deleted) and embed `/eforms/prime` before rendering. | Next GET mints a fresh EID; orphaned record remains untouched. | Applies when cookie policies below fall back to NCID. |
-				| Challenge rerender (before verification) | When `require_challenge=true`, MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime?f={form_id}[&s={slot}]`. | Fresh EID minted prior to the next POST. | Ensures verification runs against a newly minted cookie. |
+| Challenge rerender (before verification) | When `require_challenge=true`, MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime?f={form_id}[&s={slot}]`. | Fresh EID minted prior to the next POST (for future flows). Current flow remains keyed by its NCID until it completes. | Ensures verification runs with a cookie present while preserving NCID identifier pinning. |
 				| Challenge success response | MUST reuse the just-verified cookie; do not rotate again on that success response (MUST NOT remint). | Persisted record reused. | Applies only to `cookie_missing_policy="challenge"`. |
 			- <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
 				| Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
@@ -350,7 +350,8 @@ electronic_forms - Spec
 				| `soft` | Continue via NCID; treat tampering separately; add `cookie_missing`. | `false` | `cookie_missing` | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
 				| `off` | Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record. | `false` | Conditional (see handling) | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when only the record was missing/expired. |
 				| `challenge` | Continue via NCID, set `require_challenge=true`, and add `cookie_missing`. Remove only that label after successful verification. | `false` until verification succeeds | `cookie_missing` (removed on success) | `true` until provider success | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true while a syntactically valid cookie lacks a record. |
-			- Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`). See [Security invariants (§7.1.2)](#sec-security-invariants).
+- Identifier pinning (challenge): If the policy path returns an NCID and `require_challenge=true`, that submission MUST continue to use the same NCID as its `submission_id` through verification and success. The fresh cookie minted on the rerender is reserved for subsequent submissions and MUST NOT change the identifier mid-flow.
+- Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`). See [Security invariants (§7.1.2)](#sec-security-invariants).
 			- <a id="sec-slot-selection"></a>Slot selection (deterministic):
 				- When `cookie_mode_slots_enabled=true`, the renderer MUST choose `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender.
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
@@ -365,10 +366,10 @@ electronic_forms - Spec
 				- Ledger handling follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); HARD FAIL rows above surface `EFORMS_ERR_TOKEN`.
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
 			- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) or an NCID as directed by [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix).
-			- `cookie_present?` is `true` iff the request carried a cookie named `eforms_eid_{form_id}` whose value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, regardless of whether a server record exists or is fresh.
+- `cookie_present?` (boolean) is ALWAYS present. It is `true` iff the request carried a cookie named `eforms_eid_{form_id}` whose value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, regardless of whether a server record exists or is fresh. In hidden-mode validations, `cookie_present?` MUST be `false`.
 			- Tampering remains reserved for regex/form/mode/slot violations; those are hard failures routed through [Security invariants (§7.1.2)](#sec-security-invariants).
-			- <a id="sec-ncid-hidden"></a>Hidden-mode NCID fallback:
-				- When `security.submission_token.required=false` and the hidden-token lookup fails (missing/expired/nonexistent record), emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, set `is_ncid=true`, and omit `cookie_present?`.
+- <a id="sec-ncid-hidden"></a>Hidden-mode NCID fallback:
+- When `security.submission_token.required=false` and the hidden-token lookup fails (missing/expired/nonexistent record), emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, set `is_ncid=true`. `cookie_present?` MUST be present and set to `false` in hidden mode.
 			- Cookie-mode NCIDs follow the rows for `off`, `soft`, and `challenge` in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix). `hard` never issues an NCID. Policy rows already define `token_ok`, `require_challenge`, `cookie_present?`, and soft-label behavior for both absent cookies and stale records.
 			- Deterministic NCID recipe (`Helpers::ncid`, normative):
 				- Inputs: `form_id`, the throttle `client_key` from `Helpers::throttle_key()` (after privacy rules), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
@@ -483,7 +484,7 @@ electronic_forms - Spec
 	- Bootstrap boundaries & where checks happen:
 		- No eager checks at plugin load. Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
 		- `challenge.mode` is read only when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in [Template Model (§5)](#sec-template-model)/[Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).
-	- Render only on POST re-render when required (or always); never on initial GET unless [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) requires challenge.
+- Render only on POST re-render when required (including `challenge.mode="always"`) or during verification; never on the initial GET.
 		- In cookie mode:
 			- **Before verification** (when `require_challenge=true`), the challenge rerender MUST clear `eforms_eid_{form_id}` and embed the `/eforms/prime?f={form_id}[&s={slot}]` pixel to mint a new EID before the next POST (see [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode)).
 			- **After successful verification** for `cookie_missing_policy="challenge"`, do **not** rotate the cookie again on that success response; proceed to deliver/PRG with the just-verified submission.
@@ -622,7 +623,7 @@ electronic_forms - Spec
 				3. Redirect with `?eforms_success={form_id}` (303).
 				4. On the follow-up GET, the renderer (or lightweight JS helper) calls `/eforms/success-verify?f={form_id}&s={submission_id}` (`Cache-Control: no-store`). Render the success banner only when both the query flag and verifier response succeed. The verifier MUST immediately invalidate the ticket so subsequent calls for the same `{form_id, submission_id}` pair return false, then clear the cookie and strip the query parameter. Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}` cookie.
 			- Downstream consumers MUST treat `submission_id` values as colon-free strings and rely on separate slot metadata when disambiguating multi-instance submissions.
-			- <a id="sec-success-ncid"></a>NCID-only handoff: when a submission proceeded under an NCID (no acceptable cookie), implementations MUST use `success.mode="redirect"` to a non-cached endpoint. Inline success MUST NOT be used in this case. Append `&eforms_submission={submission_id}` to the 303 redirect. `/eforms/success-verify` MUST accept the `submission_id` (`s`) from either the `eforms_s_{form_id}` cookie or the `eforms_submission` query parameter.
+- <a id="sec-success-ncid"></a>NCID-only handoff: when a submission proceeded under an NCID (no acceptable cookie), implementations MUST use `success.mode="redirect"` to a non-cached endpoint. Inline success MUST NOT be used in this case. The `submission_id` is the pinned NCID for this flow. Append `&eforms_submission={submission_id}` to the 303 redirect. `/eforms/success-verify` MUST accept the `submission_id` (`s`) from either the `eforms_s_{form_id}` cookie or the `eforms_submission` query parameter.
 <a id="sec-email"></a>
 14. EMAIL DELIVERY
 	- DMARC alignment: From: no-reply@{site_domain}
@@ -834,7 +835,7 @@ electronic_forms - Spec
 	- Turnstile: https://challenges.cloudflare.com/turnstile/v0/api.js (defer, crossorigin=anonymous)
 	- hCaptcha: https://hcaptcha.com/1/api.js (defer)
 	- reCAPTCHA v2: https://www.google.com/recaptcha/api.js (defer)
-	- Do not load challenge script on initial GET unless required by [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection).
+- Do not load challenge script on the initial GET. “Always” mode does not override this; challenges are rendered on POST rerender or during verification only.
 	- Secrets hygiene: Render only site_key to HTML. Never expose secret_key or verify tokens in markup/JS. Verify server-side; redact tokens in logs.
 	- Honor novalidate behavior: do not add `novalidate`; progressive enhancement depends on native validation.
 
