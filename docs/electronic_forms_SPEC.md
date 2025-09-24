@@ -342,6 +342,7 @@ electronic_forms - Spec
 		| Slots enabled | Posted `eforms_slot` must be an integer 1–255 present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`; slotless records (`slot:null`, empty `slots_allowed`) reject posted slots. | Value outside either allow-list or a non-integer post → **HARD FAIL**. |
 		| Persisted slot non-null | Submitted `eforms_slot` MUST equal the persisted `slot`. | Missing/mismatched slot → **HARD FAIL**. |
 		| Persisted slot null with observed slots | Accept only posted slots enumerated in `slots_allowed`; omit `eforms_slot` only when the renderer emitted a slotless instance. | Unexpected or missing slot when `slots_allowed` is non-empty → **HARD FAIL**. |
+		- All **HARD FAIL** cases above surface `EFORMS_ERR_TOKEN`; see [Security invariants (§7.1.2)](#sec-security-invariants).
 		- Rerender + rotation (supplements [Security invariants (§7.1.2)](#sec-security-invariants)):
 			- Normal rerenders reuse the existing `{eid, slot}` tuple. No mid-flow rotation occurs.
 			- Challenge rerender **before verification** (i.e., when `require_challenge=true`): MUST clear `eforms_eid_{form_id}` via `Set-Cookie: … deleted` **and** embed the next `/eforms/prime?f={form_id}[&s={slot}]` pixel so the browser mints a new EID before the next POST.
