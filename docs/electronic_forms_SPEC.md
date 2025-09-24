@@ -281,8 +281,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 			- Minting helpers never evaluate challenge, throttle, or origin policy; they only consult the configuration snapshot for TTLs/paths, and entry points embed the returned fields verbatim.
 			- Config read scope: The preceding restriction applies only to minting helpers. Validation (`Security::token_validate()`) may read any policy keys required (e.g., `security.*`, `challenge.*`, `privacy.*`) to compute `{token_ok, require_challenge, soft_reasons, cookie_present?}`.
 			- Minting/verification helpers MUST ensure a configuration snapshot exists by calling `Config::get()` on first use.
-			- Call order (illustrative): Endpoint → `Config::get()` → Helper (helper idempotently calls `Config::get()` again) → …
-			- Lazy definition (normative): “Lazy” means the first `Config::get()` in a request performs `bootstrap()` exactly once. Entry points SHOULD call `Config::get()` up front; helpers MUST call it again as a backstop. Redundant calls are expected and safe—no separate “early init” path is required for new endpoints.
+  			- Lazy bootstrap (normative): Endpoint **SHOULD** call `Config::get()` up front; helpers **MUST** call it again as a backstop. The first `Config::get()` per request runs `bootstrap()` exactly once; redundant calls are expected and safe.
 			- Error rerenders reuse the persisted record; rotation occurs only after expiry or a successful submission (PRG). Mode-specific challenge flows layer on top of this invariant.
 			- Ledger reservation is uniform: reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects, treat `EEXIST` as a duplicate, and burn honeypot/soft paths the same way.
 			- Tampering guards are uniform: regex validation precedes disk access; mode/form_id mismatches or cross-mode payloads are hard failures; NCID fallbacks mark `token_ok=false` while preserving dedupe semantics.
@@ -356,7 +355,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 					- `HttpOnly=true`
 					- `SameSite=Lax`
 					- `Max-Age = security.token_ttl_seconds`
-				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint only if missing, then loads the current record, unions `s`, derives `slot`, and persists the updated record atomically (`write-temp + rename` or `flock()` + fsync). Skipping `Set-Cookie` is decided after this load/update, based on the up-to-date record and request cookie state.
+				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint only if missing, then loads the current record, unions `s`, derives `slot`, and persists the update atomically (`write-temp+rename` or `flock()`+fsync). Whether to skip `Set-Cookie` is decided after this load/update.
 				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
 				- Update `slots_allowed` atomically (write-temp + rename or `flock()` + fsync) without rewriting `issued_at` / `expires`.
 				- Respond `204` with `Cache-Control: no-store`.
