@@ -371,9 +371,16 @@ electronic_forms - Spec
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
 	- Field: eforms_hp (fixed POST name). Hidden-mode ids incorporate the per-instance suffix; cookie-mode ids are deterministic "{form_id}-hp-s{slot}" when slots are active; otherwise use a slotless id "{form_id}-hp". Must be empty. Submitted value is discarded and never logged.
 	- Config: security.honeypot_response: "hard_fail" | "stealth_success" (default stealth_success).
-	- Common behavior: treat as spam-certain; short-circuit before validation/coercion/email; delete temp uploads; record throttle signal; attempt ledger reservation to burn the ledger entry for that `submission_id`; no cookie rotation occurs.
-	- "stealth_success": mimic success UX (inline PRG cookie + 303, or redirect); do not count as real successes (log stealth:true).
-	- "hard_fail": re-render with generic global error (HTTP 200); no field-level hints.
+	- Common behavior:
+		- UX: treat as spam-certain, short-circuit before validation/coercion/email, delete temp uploads, and avoid cookie rotation.
+		- Logging: record the throttle signal.
+		- Ledger: attempt reservation to burn the ledger entry for that `submission_id`.
+	- "stealth_success":
+		- UX: mimic success (inline PRG cookie + 303, or redirect).
+		- Logging: do not count as real successes; log stealth:true.
+	- "hard_fail":
+		- UX: re-render with generic global error (HTTP 200) and no field-level hints.
+		- Logging: emit no success log.
 
 <a id="sec-timing-checks"></a>3. Timing Checks
 	- min_fill_time default 4s (soft; configurable). Hidden-mode measures from the original hidden timestamp (reused on re-render). Cookie-mode measures from the minted record’s `issued_at` (prime pixel time) and ignores client timestamps entirely.
@@ -429,20 +436,12 @@ electronic_forms - Spec
 		- Hidden-mode `instance_id` is identical across rerenders until token rotation; drift → hard fail.
 		- Cookie-mode rerender emits identical markup (no new randomness) and reuses the minted `eid` and slot.
 		- Renderer id/name attributes stable per descriptor; attr mirror parity holds.
-<a id="sec-test-qa"></a>7. Test/QA Matrix (mandatory)
-	| Checklist item | Spec refs |
-	| --- | --- |
-	| Hidden-mode submissions honor the POST contract (token tampering/expiry is a hard fail when required, soft `token_soft` otherwise) and rerenders reuse `{token, instance_id, timestamp}` deterministically. | [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
-	| Cookie-mode posts require the minted record, reject mixed-mode tampering, and reuse the existing `{eid, slot}` tuple on rerender. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
-	| Cookie-mode re-priming keeps the existing EID within TTL (no `Set-Cookie`, `issued_at`/`expires` unchanged) and mints a new record only once expired; QE MUST exercise both within-TTL and expired flows. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) |
-        | Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
-	| Hidden-mode with `submission_token.required=false`: missing/expired token produces an NCID (`token_soft`), dedupes via the ledger, and successfully completes PRG flows. | [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode); [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) |
-	| Honeypot response modes both execute: `stealth_success` fakes the success UX, logs `stealth=true`, burns the ledger entry, and `hard_fail` emits the generic error with no success log. | [Security → Honeypot (§7.2)](#sec-honeypot) |
-	| NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Success Behavior (PRG) (§13)](#sec-success) |
-	| Slot enforcement accepts only allowed slot values, rejects out-of-range posts, and preserves minted-slot metadata across re-renders and `/eforms/prime` refreshes. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) |
-	| Cookie-mode challenge rerenders delete `eforms_eid_{form_id}` via the documented cookie-clear response while embedding a fresh `/eforms/prime` pixel, and QA verifies the browser drops the cookie yet the original minted record persists server-side until its TTL expires naturally. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode); [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle) |
-	| CI/QA asserts hidden-token and cookie-mode records satisfy `expires - issued_at == security.token_ttl_seconds` and that success-ticket verification honors `security.success_ticket_ttl_seconds` (no banner after TTL). | [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode); [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode); [Success Behavior (PRG) (§13)](#sec-success) |
-	| Success tickets gate banner rendering (valid ticket passes once, missing ticket logs warning, replay fails) while obeying TTL cleanup. | [Success Behavior (PRG) (§13)](#sec-success) |
+<a id="sec-test-qa"></a>7. Test/QA Checklist (mandatory)
+	- Hidden-mode scenarios → follow [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode) and the POST flow coverage in [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post).
+	- Cookie-mode scenarios → follow [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) for minted-record reuse, TTL re-priming, slot handling, and challenge flows, with lifecycle storage details from [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
+	- NCID and ledger scenarios → follow [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract) and [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) for cookie-loss policies, dedupe behavior, and redirect-only PRG handoffs.
+	- Honeypot scenarios → follow [Security → Honeypot (§7.2)](#sec-honeypot) for both response modes.
+	- Success-ticket scenarios → follow [Success Behavior (PRG) (§13)](#sec-success) for one-time banner display and TTL enforcement.
 <a id="sec-spam-decision"></a>8. Spam Decision
 	- Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
 	- `soft_reasons`: a deduplicated set of labels from the canonical list above.
