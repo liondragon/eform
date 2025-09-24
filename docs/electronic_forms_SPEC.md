@@ -269,14 +269,18 @@ electronic_forms - Spec
 			| `expires`	| `issued_at + security.token_ttl_seconds`.
 			| `instance_id`| Base64url CSPRNG, never rewritten until token rotation.
 		- POST requirements:
-			- Token lookup MUST succeed; the record MUST say `mode:"hidden"` for the same `form_id`, and TTL MUST be valid. Failure is a hard `EFORMS_ERR_TOKEN` when `security.submission_token.required=true` and a soft `token_soft` label otherwise.
+			- Token lookup MUST succeed; the record MUST say `mode:"hidden"` for the same `form_id`, and TTL MUST be valid.
+			- Failure is a hard `EFORMS_ERR_TOKEN` when `security.submission_token.required=true`.
+			- When `security.submission_token.required=false`, continue with a soft label `token_soft` and an NCID-derived `submission_id` per
+			  [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) (hidden-mode NCID). This enables duplicate suppression
+			  and success tickets even when the token is absent or expired.
 			- Schema requirement: the hidden-token record MUST contain a conformant `instance_id` (base64url, 16–24 bytes). Missing/non-conformant is a hard failure.
 			- Expired or missing records trigger the same policy as above. Replay after ledger burn is a hard fail.
 		- Rerender rules:
 			- Error rerenders MUST reload and reuse the persisted record; do not mint new tokens mid-flow.
 			- Rotation occurs only when the original record expires or the form succeeds.
 		- Dedup behavior:
-			- `submission_id` equals the raw token.
+			- `submission_id` equals the raw token when the hidden record validates; the NCID fallback above replaces it only when continuation occurs without a hidden token.
                         - Ledger burns happen immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
 			- Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”); soft paths retain the original record for deterministic retries.
 
@@ -310,8 +314,9 @@ electronic_forms - Spec
 			- Update `slots_allowed` atomically (write-temp + rename, or `flock()` + fsync). Never rewrite `issued_at`/`expires` on reuse.
 
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
-		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode reports the token; cookie mode reports the EID (with slot suffix when present).
-		- NCID generation (`Helpers::ncid`) activates when cookie submissions lack an acceptable minted record:
+		- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present).
+		- NCID generation (`Helpers::ncid`) activates when an authoritative identifier is missing/invalid **and the mode’s policy permits soft continuation**:
+			- Hidden mode: when the hidden token lookup fails and `security.submission_token.required=false`, emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, and set `is_ncid=true`. `cookie_present?` is omitted in this mode.
 			- `security.cookie_missing_policy="off"` → continue with `token_ok=false`, emit no `cookie_missing` soft reason, and set `submission_id="nc-…"` with `cookie_present=false` / `is_ncid=true`.
 			- `security.cookie_missing_policy="soft"` → continue with an NCID, add `cookie_missing` to `soft_reasons`, and still set `token_ok=false`.
 			- `security.cookie_missing_policy="hard"` → escalate to a hard failure without NCID reuse.
@@ -322,7 +327,7 @@ electronic_forms - Spec
 				- The `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens; when the window rolls forward a fresh NCID (and ledger reservation) is minted automatically.
 		- Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
 		- Slot metadata from cookie mode flows into `submission_id` and `slots_allowed` as described in [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`.
-                - Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract) and treat duplicates (`EEXIST`) as spam. Success handling continues with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID.
+- Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract) and treat duplicates (`EEXIST`) as spam. Success handling continues with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID (applies to both cookie-missing and hidden-mode NCIDs).
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
@@ -393,6 +398,7 @@ electronic_forms - Spec
 	| Cookie-mode posts require the minted record, reject mixed-mode tampering, and reuse the existing `{eid, slot}` tuple on rerender. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
 	| Cookie-mode re-priming keeps the existing EID within TTL (no `Set-Cookie`, `issued_at`/`expires` unchanged) and mints a new record only once expired; QE MUST exercise both within-TTL and expired flows. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) |
         | Cookie loss policies (`off`/`soft`/`challenge`) fall back to NCIDs with the documented `cookie_missing` labeling, and repeated submissions within the TTL hit ledger `EEXIST` to prove dedupe. | [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) |
+	| Hidden-mode with `submission_token.required=false`: missing/expired token produces an NCID (`token_soft`), dedupes via the ledger, and successfully completes PRG flows. | [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode); [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) |
 	| Honeypot response modes both execute: `stealth_success` fakes the success UX, logs `stealth=true`, burns the ledger entry, and `hard_fail` emits the generic error with no success log. | [Security → Honeypot (§7.2)](#sec-honeypot) |
 	| NCID flows complete the redirect-only PRG handoff and burn success tickets on first verification to block replay. | [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); [Success Behavior (PRG) (§13)](#sec-success) |
 	| Slot enforcement accepts only allowed slot values, rejects out-of-range posts, and preserves minted-slot metadata across re-renders and `/eforms/prime` refreshes. | [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) |
@@ -731,6 +737,7 @@ electronic_forms - Spec
 	- Mode, hidden-field reuse, and rerender behavior follow the canonical contract in [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection); lifecycle logic never swaps modes mid-flow.
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
         - Error rerenders and duplicate handling follow [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` or other IO failures as duplicates (logging `EFORMS_LEDGER_IO`), and sequences normalization, validation, email, and logging around that contract with the colon-free `submission_id` supplied by Security.
+	- Hidden-mode NCID fallback: when a hidden record is missing or expired and continuation is permitted, expect the NCID metadata documented in [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode) and [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid); rerenders retain the persisted `{instance_id, timestamp}` while dedupe/logging use the NCID `submission_id`.
 	- On success: move stored uploads; send email; log; PRG/redirect; cleanup per retention.
 	- Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
 	- throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
