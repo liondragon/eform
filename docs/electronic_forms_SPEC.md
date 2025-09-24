@@ -274,7 +274,7 @@ electronic_forms - Spec
 			- When `security.submission_token.required=false`, continue with a soft label `token_soft` and an NCID-derived `submission_id` per
 			  [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) (hidden-mode NCID). This enables duplicate suppression
 			  and success tickets even when the token is absent or expired.
-			- Schema requirement: the hidden-token record MUST contain a conformant `instance_id` (base64url, 16–24 bytes). Missing/non-conformant is a hard failure.
+			- Schema requirement (when a hidden-token record is present): the record MUST contain a conformant `instance_id` (base64url, 16–24 bytes). If present but non-conformant → hard failure. When continuing via hidden-mode NCID due to a missing/expired record, this check is not evaluated.
 			- Expired or missing records trigger the same policy as above. Replay after ledger burn is a hard fail.
 		- Rerender rules:
 			- Error rerenders MUST reload and reuse the persisted record; do not mint new tokens mid-flow.
@@ -327,7 +327,7 @@ electronic_forms - Spec
 				- The `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens; when the window rolls forward a fresh NCID (and ledger reservation) is minted automatically.
 		- Canonical soft-reason labels: `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
 		- Slot metadata from cookie mode flows into `submission_id` and `slots_allowed` as described in [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`.
-- Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract) and treat duplicates (`EEXIST`) as spam. Success handling continues with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID (applies to both cookie-missing and hidden-mode NCIDs).
+		- Ledger behavior for NCIDs matches other modes: reserve `${submission_id}.used` immediately before side effects per [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract) and treat duplicates (`EEXIST`) as spam. Success handling continues with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based submission ID (applies to both cookie-missing and hidden-mode NCIDs).
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
