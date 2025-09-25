@@ -4,6 +4,7 @@ electronic_forms - Spec
 <a id="sec-normative-note"></a>Normative vs. Non-normative
 	- Narrative text, tables, and matrices are normative unless explicitly marked otherwise.
 	- Diagrams and callouts are non-normative references only; they illustrate the normative rules above.
+	- **Conflict resolution (normative):** When two normative sources disagree, apply this order of authority: 1) Appendix matrices; 2) Helper contracts; 3) Narrative. The higher item prevails without expanding scope. (Stubs that “retain the legacy anchor” are informative unless they restate matrix rows verbatim.)****
 
 <a id="sec-objective"></a>
 1. OBJECTIVE
