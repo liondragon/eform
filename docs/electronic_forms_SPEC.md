@@ -289,8 +289,8 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 			- Precedence & rotation exceptions:
 				- Order of rules (highest → lowest):
 					- Hard failures (honeypot, tamper, hard throttle, hard origin/cookie policy) stop processing immediately.
-					- Challenge pre-verification (cookie mode only, when `require_challenge=true`): the rerender MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime` so a fresh EID is minted before the next POST.
-					- NCID rerender in cookie mode (non-challenge): the rerender MUST clear `eforms_eid_{form_id}` to ensure `/eforms/prime` mints a fresh EID on the follow-up GET.
+                                       - Challenge pre-verification (cookie mode only, when `require_challenge=true`): the rerender MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted EID is reissued via `Set-Cookie` before the next POST.
+                                       - NCID rerender in cookie mode (non-challenge): the rerender MUST clear `eforms_eid_{form_id}` to ensure `/eforms/prime` reissues the persisted EID on the follow-up GET.
 					- Otherwise: “no rotation before success” holds; rotation happens only on expiry or after a successful submission (PRG).
 					- Explicit carve-out (normative): The cookie clear + re-prime required by (a) NCID fallbacks and (b) pre-verification challenge rerenders is NOT considered a violation of “no rotation before success.” The submission stays pinned to the NCID; the freshly minted cookie is reserved for subsequent submissions.
 				- Hidden-mode challenge never rotates the hidden token before success; the token/instance/timestamp trio is reused across rerenders until success or expiry.
