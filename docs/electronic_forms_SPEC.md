@@ -238,7 +238,7 @@ electronic_forms - Spec
 	-	<a id="sec-lazy-load-matrix"></a>Lazy-load lifecycle (components & triggers):
 		| Component		| Init policy | Trigger(s) (first use) | Notes |
 		|------------------|------------:|-------------------------|-------|
-                | Config snapshot | Lazy | First `Config::get()` call (entry points such as `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, **`/eforms/prime`**, and **`/eforms/success-verify`** invoke it before helpers; helpers still call `Config::get()` as the backstop) | Idempotent (per request); entry points decide when to create the snapshot; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
+               | Config snapshot | Lazy | First `Config::get()` call (entry points such as `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, and **`/eforms/success-verify`** invoke it before helpers; `/eforms/prime` relies on `Security::mint_cookie_record()` to perform the same idempotent bootstrap) | Idempotent (per request); entry points decide when to create the snapshot; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
 		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; memoizes per request (no global scans). |
 		| Static registries (`HANDLERS` maps) | Lazy | First call to `resolve()` / class autoload | Autoloading counts as lazy; classes hold only const maps; derived caches compute on demand. |
 		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
@@ -626,7 +626,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 				|------|------------|--------------|----------------|
 				| Inline | `303` back to the same URL with `?eforms_success={form_id}`. | Renderer shows the banner only in the first instance in source order; suppress subsequent duplicates. | Works on cached pages only when paired with the verifier flow below. |
 				| Redirect | `wp_safe_redirect(redirect_url, 303)` without adding flags to the destination. | Destination renders its own success UX. | Cookie-mode deployments SHOULD prefer redirect targets that are not cached. |
-			- Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff), continue to use inline success on cached pages as the graceful fallback.
+                       - Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff) **and the submission retained a cookie-mode identifier (not an NCID)**, continue to use inline success on cached pages as the graceful fallback.
 			- <a id="sec-success-flow"></a>Canonical inline verifier flow (normative):
 				1. On successful POST, create `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{ form_id, submission_id, issued_at }` (short TTL, e.g., 5 minutes). Derive `{h2}` from the `submission_id` per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
 				2. Set `eforms_s_{form_id}={submission_id}` with `SameSite=Lax`, `Secure` on HTTPS, HttpOnly=false, `Path` equal to the current request path, and `Max-Age≈300` seconds.
