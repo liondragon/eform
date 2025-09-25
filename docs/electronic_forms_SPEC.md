@@ -238,7 +238,7 @@ electronic_forms - Spec
 	-	<a id="sec-lazy-load-matrix"></a>Lazy-load lifecycle (components & triggers):
 		| Component		| Init policy | Trigger(s) (first use) | Notes |
 		|------------------|------------:|-------------------------|-------|
-		| Config snapshot | Lazy | First `Config::get()` call (entry points such as `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, and **`/eforms/success-verify`** invoke it before helpers; **`/eforms/prime`** relies on its helper fallback) | Idempotent (per request); entry points decide when to create the snapshot; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
+                | Config snapshot | Lazy | First `Config::get()` call (entry points such as `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, **`/eforms/prime`**, and **`/eforms/success-verify`** invoke it before helpers; helpers still call `Config::get()` as the backstop) | Idempotent (per request); entry points decide when to create the snapshot; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
 		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; memoizes per request (no global scans). |
 		| Static registries (`HANDLERS` maps) | Lazy | First call to `resolve()` / class autoload | Autoloading counts as lazy; classes hold only const maps; derived caches compute on demand. |
 		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
@@ -327,6 +327,8 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
                                 - `Security::mint_cookie_record(form_id, slot?)`:
                                         - Returns `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed:[], slot:null } }`.
                                         - Status semantics (normative): `miss` when no record existed, `expired` when the persisted record was stale and got replaced, `hit` when an unexpired record already existed; all cases return the canonical record payload.
+                                        - Expired status (normative): `expired` iff `now >= record.expires`; helpers never refresh `issued_at`/`expires` on `hit`.
+                                        - Header boundary (normative): `Security::mint_cookie_record()` never emits `Set-Cookie`; `/eforms/prime` alone decides whether to send the header per the carve-out below.
                                         - On `miss`/`expired`, persist `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`; on `hit`, leave the record untouched.
 - Slot argument handling (normative): The helper MUST validate the optional `slot?` against the allowed set (int 1–255 and configured allow-list). Invalid or disabled ⇒ treat as `null`. Apart from writing the initial record described above, the helper MUST NOT persist or union slot observations; it MAY ignore/normalize the argument for logging/metrics only. The `/eforms/prime` endpoint is solely responsible for loading the record, unioning the observed `s`, deriving canonical `slot` when `|slots_allowed|==1`, and persisting that update atomically. Helpers MUST NOT rewrite `slots_allowed` or `slot`.
 					- Writes with atomic `{h2}` directory creation (`0700`) and `0600` file permissions; unions slot observations per `/eforms/prime` (no writes from POST).
@@ -357,7 +359,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 					- `HttpOnly=true`
                                         - `SameSite=Lax`
                                         - `Max-Age = security.token_ttl_seconds`
-                            - Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match; it MAY skip the header only when an identical unexpired cookie was presented.
+                            - Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match; it MAY skip the header only when an identical, unexpired cookie (same Name, Value, Path, SameSite, Secure) was presented.
 				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint only if missing, then loads the current record, unions `s`, derives `slot`, and persists the update atomically (`write-temp+rename` or `flock()`+fsync). Whether to skip `Set-Cookie` is decided after this load/update.
 				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
 				- Update `slots_allowed` atomically (write-temp + rename or `flock()` + fsync) without rewriting `issued_at` / `expires`.
