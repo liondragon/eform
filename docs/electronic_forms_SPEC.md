@@ -324,13 +324,17 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
 			- **Minting helper (authority)**:
-				- `Security::mint_cookie_record(form_id, slot?)`:
-					- Returns `{ eid: i-<UUIDv4>, issued_at, expires, slots_allowed:[], slot:null }` and persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`.
+                                - `Security::mint_cookie_record(form_id, slot?)`:
+                                        - Returns `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed:[], slot:null } }`.
+                                        - Status semantics (normative): `miss` when no record existed, `expired` when the persisted record was stale and got replaced, `hit` when an unexpired record already existed; all cases return the canonical record payload.
+                                        - `expired` iff `now ≥ record.expires`; helpers never refresh `issued_at`/`expires` on `hit`.
+                                        - On `miss`/`expired`, persist `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`; on `hit`, leave the record untouched.
+                                        - `Security::mint_cookie_record()` never emits `Set-Cookie`; only `/eforms/prime` decides whether to send the header per the carve-out above.
 - Slot argument handling (normative): The helper MUST validate the optional `slot?` against the allowed set (int 1–255 and configured allow-list). Invalid or disabled ⇒ treat as `null`. Apart from writing the initial record described above, the helper MUST NOT persist or union slot observations; it MAY ignore/normalize the argument for logging/metrics only. The `/eforms/prime` endpoint is solely responsible for loading the record, unioning the observed `s`, deriving canonical `slot` when `|slots_allowed|==1`, and persisting that update atomically. Helpers MUST NOT rewrite `slots_allowed` or `slot`.
 					- Writes with atomic `{h2}` directory creation (`0700`) and `0600` file permissions; unions slot observations per `/eforms/prime` (no writes from POST).
 					- Calls `Config::get()` on first use so `/eforms/prime` never manages bootstrap manually. Helpers remain pure w.r.t. challenge/origin/throttle.
 			- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-			- Rerenders MUST reuse the minted `eid` and deterministic slot choice; see [Security invariants (§7.1.2)](#sec-security-invariants) for rotation exceptions. Exceptions (normative, sanctioned): When (a) an NCID fallback occurs or (b) a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` and embed `/eforms/prime` to mint a fresh cookie before the next POST (see [Security invariants (§7.1.2)](#sec-security-invariants) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender)). Doing so does not violate the reuse rule because the submission remains pinned to its NCID while the new cookie is reserved for subsequent submissions.
+                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice; see [Security invariants (§7.1.2)](#sec-security-invariants) for rotation exceptions. Exceptions (normative, sanctioned): When (a) an NCID fallback occurs or (b) a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` and embed `/eforms/prime` to mint a fresh cookie before the next POST (see [Security invariants (§7.1.2)](#sec-security-invariants) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender)). Even in those flows the rerendered markup MUST emit the deterministic `eforms_slot` (when applicable) and the `/eforms/prime` pixel so the submission stays NCID-pinned while reserving the replacement cookie for future posts.
 			- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
 				| Field | Notes |
 				|-----------------|-------|
@@ -349,12 +353,13 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
 				- Multiple instances on one page SHOULD consume distinct allowed slots in document order; surplus instances MUST be slotless (omit `eforms_slot` and prime without `s`).
 			- Prime endpoint semantics (`/eforms/prime`):
-				- Set-Cookie attributes (normative): `/eforms/prime` MUST set `eforms_eid_{form_id}` with:
+                            - Set-Cookie attributes (normative): `/eforms/prime` MUST set `eforms_eid_{form_id}` with:
 					- `Path=/`
 					- `Secure` when the request is HTTPS; omit otherwise
 					- `HttpOnly=true`
-					- `SameSite=Lax`
-					- `Max-Age = security.token_ttl_seconds`
+                                        - `SameSite=Lax`
+                                        - `Max-Age = security.token_ttl_seconds`
+                            - Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match; it MAY skip the header only when an identical, unexpired cookie (same Name, Value, Path, SameSite, Secure) was presented.
 				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint only if missing, then loads the current record, unions `s`, derives `slot`, and persists the update atomically (`write-temp+rename` or `flock()`+fsync). Whether to skip `Set-Cookie` is decided after this load/update.
 				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
 				- Update `slots_allowed` atomically (write-temp + rename or `flock()` + fsync) without rewriting `issued_at` / `expires`.
