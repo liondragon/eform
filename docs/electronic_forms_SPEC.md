@@ -361,7 +361,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 					- `SameSite=Lax`
 					- `Max-Age = security.token_ttl_seconds`
   				- Definition: “sends `Set-Cookie`” refers to the positive header emitted under the carve-out below; deletion headers on rerender are governed by [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
-  				- Definition — **unexpired match**: the request presents `eforms_eid_{form_id}` matching the EID regex, a server record exists for that EID with `now < record.expires`, and the cookie attributes (Path, SameSite, Secure) match the configured values.
+  				- Definition — **unexpired match**: the request presents `eforms_eid_{form_id}` matching the EID regex and a server record exists for that EID with `now < record.expires`. HTTP requests do not echo Path/SameSite/Secure, so equality is inferred from minting with the configured attributes.
 				- Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match; it MAY skip the header only when an identical, unexpired cookie (same Name, Value, Path, SameSite, Secure) was presented.
 				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint when missing or expired, then loads the current record, unions `s`, derives `slot`, and persists the update atomically (`write-temp+rename` or `flock()`+fsync). Whether to skip `Set-Cookie` is decided after this load/update.
 				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
@@ -369,7 +369,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 				- Respond `204` with `Cache-Control: no-store`.
 			- Dedup + retention:
 				- `submission_id` equals the EID with optional `__slot{n}` suffix when slots are active; NCID fallbacks reuse the deterministic NCID recipe in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
-				- NCID fallbacks leave previously minted cookie records untouched until natural expiry. Subsequent `/eforms/prime` calls (arriving without a cookie) mint fresh EIDs; orphaned records are never adopted or rewritten.
+				- NCID fallbacks leave previously minted cookie records untouched until natural expiry. `/eforms/prime` reuses the persisted record on a `hit` (even when the request lacked a cookie) and only remints after expiry or success; orphaned records simply age out without being rewritten.
 				- Ledger handling follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); HARD FAIL rows above surface `EFORMS_ERR_TOKEN`.
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
 - `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) or an NCID as directed by [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix).
