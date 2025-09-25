@@ -277,7 +277,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
                         - Honeypot short-circuits burn the same ledger entry, and submission IDs for all modes remain colon-free.
 
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/cookie/NCID):
-			- Minting helpers are authoritative: they return canonical metadata and persist records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed).
+			- Minting helpers are authoritative: they return canonical metadata and persist records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed). Only `/eforms/prime` may **mint/refresh** cookie identifiers; other endpoints may **only delete** the cookie as specified in §7.1.4.2.
 			- Minting helpers never evaluate challenge, throttle, or origin policy; they only consult the configuration snapshot for TTLs/paths, and entry points embed the returned fields verbatim.
 			- Config read scope: The preceding restriction applies only to minting helpers. Validation (`Security::token_validate()`) may read any policy keys required (e.g., `security.*`, `challenge.*`, `privacy.*`) to compute `{token_ok, require_challenge, soft_reasons, cookie_present?}`.
 			- Minting/verification helpers MUST ensure a configuration snapshot exists by calling `Config::get()` on first use.
