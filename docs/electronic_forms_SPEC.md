@@ -414,7 +414,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 <a id="sec-timing-checks"></a>3. Timing Checks
 	- min_fill_time default 4s (soft; configurable). Hidden-mode measures from the original hidden timestamp (reused on re-render). Cookie-mode measures from the minted record’s `issued_at` (prime pixel time) and ignores client timestamps entirely.
 	- Max form age:
-		- Cookie mode: enforce via minted record `expires`. Expired → treat as missing cookie and apply `security.cookie_missing_policy`. Because `/eforms/prime` never refreshes `issued_at`/`expires` for a still-valid cookie, the countdown is monotonic: QA fixtures and POST handlers can assert that a re-primed-but-unexpired cookie continues to age out on the original schedule, while an expired record prompts a full remint (new timestamps + Set-Cookie).
+		- - Cookie mode: enforce via minted record `expires`. Expired → treat as missing cookie and apply `security.cookie_missing_policy`. Because `/eforms/prime` never refreshes `issued_at`/`expires` for a still-valid record, the server-side countdown stays monotonic when an unexpired cookie is presented: QA fixtures and POST handlers can assert that a re-primed request with that cookie continues to age out on the original schedule, while an expired record prompts a full remint (new timestamps + Set-Cookie). When the browser omitted the cookie, the required `Set-Cookie` reissues the same identifier without altering the stored expiry.
 		- Hidden-mode: posted timestamp is best-effort; over `security.max_form_age_seconds` → +1 soft (never hard on age alone).
 	- js_ok flips to "1" on DOM Ready (soft unless `security.js_hard_mode=true`, then HARD FAIL). Cookie-mode markup keeps the field static; only the value toggles via JS.
 
@@ -712,7 +712,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 17. CONFIGURATION: DOMAINS, CONSTRAINTS, AND DEFAULTS
 	- Authority: Default *values* live in code as `Config::DEFAULTS` (see `src/Config.php`). This spec no longer duplicates every literal; the code array is the single source of truth for defaults.
 	- Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
-	- Lazy bootstrap: `Config::bootstrap()` is invoked on the first use from `Config::get()`, `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints. Within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
+	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints) invokes `Config::bootstrap()`; within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
 	- Bootstrap ownership (normative):
 		- Entry points SHOULD call `Config::get()` before invoking helpers.
 		- Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly.
