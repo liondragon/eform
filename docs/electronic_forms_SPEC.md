@@ -629,7 +629,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 				| Mode | PRG target | Display rule | Cache guidance |
 				|------|------------|--------------|----------------|
 				| Inline | `303` back to the same URL with `?eforms_success={form_id}`. | Renderer shows the banner only in the first instance in source order; suppress subsequent duplicates. | Works on cached pages only when paired with the verifier flow below. |
-				| Redirect | `wp_safe_redirect(redirect_url, 303)` without adding flags to the destination. | Destination renders its own success UX. | Cookie-mode deployments SHOULD prefer redirect targets that are not cached. |
+				| Redirect | `wp_safe_redirect(redirect_url, 303)` (append `&eforms_submission=…` only when following the NCID handoff). | Destination renders its own success UX. | Cookie-mode deployments SHOULD prefer redirect targets that are not cached. |
                        - Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff) **and the submission retained a cookie-mode identifier (not an NCID)**, continue to use inline success on cached pages as the graceful fallback.
 			- <a id="sec-success-flow"></a>Canonical inline verifier flow (normative):
 				1. On successful POST, create `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{ form_id, submission_id, issued_at }` (short TTL, e.g., 5 minutes). Derive `{h2}` from the `submission_id` per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
