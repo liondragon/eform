@@ -354,13 +354,14 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
 				- Multiple instances on one page SHOULD consume distinct allowed slots in document order; surplus instances MUST be slotless (omit `eforms_slot` and prime without `s`).
 			- Prime endpoint semantics (`/eforms/prime`):
-                            - Set-Cookie attributes (normative): `/eforms/prime` MUST set `eforms_eid_{form_id}` with:
+  				- Set-Cookie attributes (normative): When `/eforms/prime` sends `Set-Cookie`, it MUST set `eforms_eid_{form_id}` with:
 					- `Path=/`
 					- `Secure` when the request is HTTPS; omit otherwise
 					- `HttpOnly=true`
-                                        - `SameSite=Lax`
-                                        - `Max-Age = security.token_ttl_seconds`
-                            - Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match; it MAY skip the header only when an identical, unexpired cookie (same Name, Value, Path, SameSite, Secure) was presented.
+					- `SameSite=Lax`
+					- `Max-Age = security.token_ttl_seconds`
+  				- Definition: “sends `Set-Cookie`” refers to the positive header emitted under the carve-out below; deletion headers on rerender are governed by (§7.1.4.2)](#sec-ncid-rerender).
+				- Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match; it MAY skip the header only when an identical, unexpired cookie (same Name, Value, Path, SameSite, Secure) was presented.
 				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint only if missing, then loads the current record, unions `s`, derives `slot`, and persists the update atomically (`write-temp+rename` or `flock()`+fsync). Whether to skip `Set-Cookie` is decided after this load/update.
 				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
 				- Update `slots_allowed` atomically (write-temp + rename or `flock()` + fsync) without rewriting `issued_at` / `expires`.
