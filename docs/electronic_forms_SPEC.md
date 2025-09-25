@@ -47,7 +47,7 @@ electronic_forms - Spec
 		- Fail2ban emission
 		- Rejected-submission logging → set logging.mode="jsonl" (or "minimal") and logging.level>=1
 		- Header logging, PII logging, SMTP debug
-
+	- Operational profile: Cookie mode is intended for cached pages; hidden-token mode is recommended elsewhere. On cached pages, /eforms/prime is the canonical way to mint/refresh the anti-duplication cookie; setting it on the main GET is not supported.
 <a id="sec-architecture"></a>
 3. ARCHITECTURE AND FILE LAYOUT
 	- /electronic_forms/
