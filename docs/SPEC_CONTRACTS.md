@@ -3,11 +3,12 @@
 > Single place for canonicality, ownership, and the helper-contract template.
 > This file is **normative** unless a paragraph is explicitly marked “non-normative”.
 
-## 1) Canonicality & Precedence
+## 1) Canonicality & Precedence {#sec-canonicality}
 - **Matrices are authoritative for _outcomes_** (e.g., `token_ok`, `require_challenge`, `submission_id`, `cookie_present?`).
 - **Helper contracts are authoritative for _behavior/returns_** (inputs, side-effects, idempotency, hit/miss/expired).
 - **Narrative text must not contradict** matrices or helper contracts.
 - If two sources conflict, the PR **must** update both and declare which is canonical in the PR description.
+- The narrative preamble at [Normative vs. Non-normative](electronic_forms_SPEC.md#sec-normative-note) defers to this section; update the hierarchy here and reference it elsewhere to avoid drift.
 
 ## 2) State Model (cookie/hidden/NCID)
 - **Identifiers**: `token` (hidden), `eid[_ _slot{n}]` (cookie), `nc-…` (NCID).
