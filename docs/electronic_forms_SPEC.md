@@ -265,7 +265,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 5) **Normalize → Validate → Coerce** — Apply deterministic processing in that order. Refer to §§8–11 for uploads, cross-field rules, and sanitization.
 6) **Ledger reservation** — Reserve `${uploads.dir}/…/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects. Treat `EEXIST`/IO failures as duplicates per [Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
 7) **Success path** — Move uploads, send mail, log, then complete PRG via [Success behavior (§13)](#sec-success) (inline cookie vs. redirect verifier, including NCID-only flows in [§13.1](#sec-success-ncid)).
-8) **Rotation** — Hidden mode never rotates before success; cookie mode remints on `/eforms/prime` when records are missing or expired. See [Security invariants (§7.1.2)](#sec-security-invariants) for precedence and rotation exceptions.
+9) **Rotation** — Hidden mode never rotates before success; cookie mode remints on `/eforms/prime` when records are expired or when an NCID/challenge rerender cleared the cookie. See [Security invariants (§7.1.2)](#sec-security-invariants) for precedence and rotation exceptions.
 
 <a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
 - Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
