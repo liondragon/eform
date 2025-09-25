@@ -399,7 +399,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
 	- Field: eforms_hp (fixed POST name). Hidden-mode ids incorporate the per-instance suffix; cookie-mode ids are deterministic "{form_id}-hp-s{slot}" when slots are active; otherwise use a slotless id "{form_id}-hp". Must be empty. Submitted value is discarded and never logged.
-	- Config: security.honeypot_response: "hard_fail" | "stealth_success" (default stealth_success).
+- Config: `security.honeypot_response` ∈ {`hard_fail`,`stealth_success`}. Defaults defer to `Config::DEFAULTS`; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for the authoritative values.
 	- Common behavior:
 		- UX: treat as spam-certain, short-circuit before validation/coercion/email, delete temp uploads, and avoid cookie rotation.
 		- Logging: record the throttle signal.
@@ -412,7 +412,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 		- Logging: emit no success log.
 
 <a id="sec-timing-checks"></a>3. Timing Checks
-	- min_fill_time default 4s (soft; configurable). Hidden-mode measures from the original hidden timestamp (reused on re-render). Cookie-mode measures from the minted record’s `issued_at` (prime pixel time) and ignores client timestamps entirely.
+- min_fill_time (soft; configurable). Hidden-mode measures from the original hidden timestamp (reused on re-render). Cookie-mode measures from the minted record’s `issued_at` (prime pixel time) and ignores client timestamps entirely. *(Informative: Deployments that ship with the baseline profile inherit the duration from `Config::DEFAULTS`; if code changes the literal, the new default prevails.)*
 	- Max form age:
 		- - Cookie mode: enforce via minted record `expires`. Expired → treat as missing cookie and apply `security.cookie_missing_policy`. Because `/eforms/prime` never refreshes `issued_at`/`expires` for a still-valid record, the server-side countdown stays monotonic when an unexpired cookie is presented: QA fixtures and POST handlers can assert that a re-primed request with that cookie continues to age out on the original schedule, while an expired record prompts a full remint (new timestamps + Set-Cookie). When the browser omitted the cookie, the required `Set-Cookie` reissues the same identifier without altering the stored expiry.
 		- Hidden-mode: posted timestamp is best-effort; over `security.max_form_age_seconds` → +1 soft (never hard on age alone).
@@ -671,9 +671,9 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 	- minimal — compact line per event via error_log(); rotation governed by server.
 	- off — no logging (except optional Fail2ban emission).
 	- Severity mapping: error (fatal pipeline failures), warning (rejections, validation, challenge timeouts), info (successful sends, token rotations, throttling state changes).
-	- logging.level: 0 errors; 1 +warnings; 2 +info (default 0)
-	- logging.headers (bool; default false) — if true, log normalized UA/Origin (scheme+host only).
-	- logging.pii (bool; default false) — allows full emails/IPs in JSONL only; minimal mode still masks unless explicitly overridden.
+- `logging.level`: 0 errors; 1 +warnings; 2 +info. *(Informative: The shipping profile inherits its literal from `Config::DEFAULTS`; code remains authoritative for the actual default.)*
+- `logging.headers` (bool) — if true, log normalized UA/Origin (scheme+host only). *(Informative: The opt-in state shown in examples reflects `Config::DEFAULTS`; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) before assuming the literal.)*
+- `logging.pii` (bool) — allows full emails/IPs in JSONL only; minimal mode still masks unless explicitly overridden. *(Informative: Baseline enablement defers to `Config::DEFAULTS`; code-defined defaults prevail if they change.)*
 	- Rotation/retention for JSONL: dirs 0700, files 0600, rotate when file_max_size exceeded, prune > retention_days. flock() used; note NFS caveats.
 	- What to log (all modes, subject to pii/headers):
 	- Timestamp (UTC ISO-8601), severity, code, form_id, submission_id, slot? (when provided), request URI (path + only `eforms_*` query), privacy-processed IP, spam signals summary (honeypot, origin_state, soft_reasons, throttle_state), SMTP failure reason when applicable.
@@ -693,7 +693,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 
 <a id="sec-privacy"></a>
 16. PRIVACY AND IP HANDLING
-	- privacy.ip_mode = none | masked | hash | full (default masked)
+- `privacy.ip_mode` ∈ {`none`,`masked`,`hash`,`full`}. *(Informative: The baseline selection comes from `Config::DEFAULTS`; if the code-defined literal changes, the new value governs.)*
 	- masked: IPv4 last octet(s) redacted; IPv6 last 80 bits zeroed (compressed)
 	- hash: sha256(ip + optional salt); store hash only
 	- full: store/display IP as-is
