@@ -63,7 +63,7 @@ cookie_lifecycle_rows:
     flow_trigger: GET render (slots disabled)
     server_must: "MUST omit `eforms_slot`; embed `/eforms/prime?f={form_id}` pixel; reuse markup verbatim on rerender."
     identifier:
-      kind: eid
+      kind: submission_id
       text: "`submission_id` rendered without slot suffix."
     notes: "Slotless deployments omit the `s` query parameter entirely."
     references:
