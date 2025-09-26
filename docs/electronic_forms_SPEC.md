@@ -347,7 +347,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 				       - Challenge pre-verification (cookie mode only, when `require_challenge=true`): the rerender MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted EID is reissued via `Set-Cookie` before the next POST.
 				       - NCID rerender in cookie mode (non-challenge): the rerender MUST clear `eforms_eid_{form_id}` to ensure `/eforms/prime` reissues the persisted EID on the follow-up GET.
 					- Otherwise: “no rotation before success” holds; rotation happens only on expiry or after a successful submission (PRG).
-  					- Explicit carve-out (normative): The cookie clear + re-prime required by (a) NCID fallbacks and (b) pre-verification challenge rerenders is NOT considered a violation of “no rotation before success.” The submission stays pinned to the NCID; the reissued cookie header is reserved for subsequent submissions.
+  					- Explicit carve-out (normative): The cookie clear + re-prime required by (a) NCID fallbacks and (b) pre-verification challenge rerenders is NOT considered a violation of “no rotation before success.” The submission stays pinned to the NCID; the reissued cookie header keeps the rerender/verification flow cookie-present while remaining available for subsequent submissions.
+					- Definition — Rerender cookie reuse: The reissued header only preserves cookie presence for the ongoing rerender/verification while the submission remains NCID-pinned.
 				- Hidden-mode challenge never rotates the hidden token before success; the token/instance/timestamp trio is reused across rerenders until success or expiry.
 
 <a id="sec-hidden-mode"></a>2. Hidden-mode contract
