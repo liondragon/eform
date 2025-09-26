@@ -157,18 +157,17 @@ electronic_forms - Spec
         - Minimal shape:
                 - id (slug), version (string), title (string)
                 - success { mode:"inline"|"redirect", redirect_url?, message? }
-                - email { to, subject, email_template ("foo" -> templates/email/foo.*), include_fields[], display_format_tel? }
-                        - display_format_tel? See [Template Model → display_format_tel tokens (§5.3)](#sec-display-format-tel); unknown values fall back to the default format at runtime.
+				- email { to, subject, email_template ("foo" -> templates/email/foo.*), include_fields[], display_format_tel? (see [display_format_tel tokens (§5.3)](#sec-display-format-tel)) }
                 - fields[] of field objects (see 5.1)
                 - submit_button_text (string)
                 - rules[] of bounded JSON rules (see 10)
 
 ### display_format_tel tokens {#sec-display-format-tel}
-- Allowed values:
-	- "xxx-xxx-xxxx" (default)
-	- "(xxx) xxx-xxxx"
-	- "xxx.xxx.xxxx"
-- Unknown tokens revert to the default presentation at runtime; TemplateValidator MUST flag them during preflight.
+		- Allowed values:
+			- "xxx-xxx-xxxx" (default)
+			- "(xxx) xxx-xxxx"
+			- "xxx.xxx.xxxx"
+		- Unknown tokens revert to the default presentation at runtime; TemplateValidator MUST flag them during preflight.
 
 	4. Options Shape
 	- options = [{ key, label, disabled? }, ...]
