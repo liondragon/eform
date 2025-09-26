@@ -645,7 +645,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - Render only on POST re-render when required (including `challenge.mode="always"`) or during verification; never on the initial GET.
 		- In cookie mode:
 			- **Before verification** (when `require_challenge=true`), the challenge rerender MUST clear `eforms_eid_{form_id}` and embed the `/eforms/prime?f={form_id}[&s={slot}]` pixel so it reissues the persisted cookie before the next POST (see [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode)).
-			- **After successful verification** for `cookie_missing_policy="challenge"`, do **not** rotate the cookie again on that success response; proceed to deliver/PRG with the just-verified submission.
+			- **After successful verification** for `cookie_missing_policy="challenge"`, do **not** mint a new EID on that success response; still send the NCID rerender deletion header plus embedded `/eforms/prime` per [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender) so the existing record is reissued before PRG.
+			- Definition — Challenge success reuse = deletion header + embedded `/eforms/prime` that reissues the persisted record without reminting.
 	- Turnstile → cf-turnstile-response; hCaptcha → h-captcha-response; reCAPTCHA v2 → g-recaptcha-response.
 
 <a id="sec-validation-pipeline"></a>
