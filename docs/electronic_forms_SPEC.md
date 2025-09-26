@@ -154,14 +154,21 @@ electronic_forms - Spec
 	- Location: /templates/forms/
 	- Filename allow-list: /^[a-z0-9-]+\.json$/
 	- Design-time schema pointer (optional but recommended): use a stable web URL to the schema in your repo (e.g., "${SCHEMA_URL}/template.schema.json") or a local absolute path. Avoid hard-coded /wp-content/plugins/... paths.
-	- Minimal shape:
-		- id (slug), version (string), title (string)
-		- success { mode:"inline"|"redirect", redirect_url?, message? }
-		- email { to, subject, email_template ("foo" -> templates/email/foo.*), include_fields[], display_format_tel? }
-			- display_format_tel enum: "xxx-xxx-xxxx" (default), "(xxx) xxx-xxxx", "xxx.xxx.xxxx" (any other value falls back to default at runtime)
-		- fields[] of field objects (see 5.1)
-		- submit_button_text (string)
-		- rules[] of bounded JSON rules (see 10)
+        - Minimal shape:
+                - id (slug), version (string), title (string)
+                - success { mode:"inline"|"redirect", redirect_url?, message? }
+                - email { to, subject, email_template ("foo" -> templates/email/foo.*), include_fields[], display_format_tel? }
+                        - display_format_tel? See [Template Model → display_format_tel tokens (§5.3)](#sec-display-format-tel); unknown values fall back to the default format at runtime.
+                - fields[] of field objects (see 5.1)
+                - submit_button_text (string)
+                - rules[] of bounded JSON rules (see 10)
+
+### display_format_tel tokens {#sec-display-format-tel}
+- Allowed values:
+	- "xxx-xxx-xxxx" (default)
+	- "(xxx) xxx-xxxx"
+	- "xxx.xxx.xxxx"
+- Unknown tokens revert to the default presentation at runtime; TemplateValidator MUST flag them during preflight.
 
 	4. Options Shape
 	- options = [{ key, label, disabled? }, ...]
@@ -663,7 +670,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 	- email.policy:
 	- strict: RFC-compliant parsing; trim; single @; reject otherwise.
 	- autocorrect: do strict parsing, then trim/collapse spaces, lowercase domain, normalize common domain typos in display only (.con→.com, .c0m→.com); canonical stays strict; log [corrected] note when applied.
-	- display_format_tel tokens: "xxx-xxx-xxxx" (default), "(xxx) xxx-xxxx", "xxx.xxx.xxxx" (affects email display only).
+        - display_format_tel follows [Template Model → display_format_tel tokens](#sec-display-format-tel); formatting affects email presentation only.
 
 <a id="sec-logging"></a>
 15. LOGGING
