@@ -102,122 +102,133 @@ electronic_forms - Spec
 
 <a id="sec-template-model"></a>
 5. TEMPLATE MODEL
-	1. Field Generation and Namespacing
-	- Template field keys may include:
-		- key (slug), type, label?, placeholder?, required (bool), size (1-100; text-like only: text, tel, url, email), autocomplete?, options (for radios/checkboxes/select), class?, max_length?, min?, max?, step?, pattern?, before_html?, after_html?
-	- key (slug): required; must match `/^[a-z0-9_-]{1,64}$/` (lowercase). [] prohibited to prevent PHP array collisions; reserved keys remain disallowed. Dropping `:` keeps generated IDs/CSS selectors safe.
-	- autocomplete: exactly one token. "on"/"off" accepted; else must match WHATWG tokens (name, given-name, family-name, email, tel, postal-code, street-address, address-line1, address-line2, organization, …). Invalid tokens are dropped.
-	- size: 1-100; honored only for text-like controls (text, tel, url, email).
-	- Renderer injects security metadata per the active submission mode. See [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) for the canonical hidden-token and cookie-mode contract (required hidden fields, cookie/EID minting, rerender reuse rules, and POST expectations).
-	- Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
-	- Renderer-generated attributes:
-		| Attribute(s) | Emission rule | Notes |
-		|--------------|---------------|-------|
-		| `id` | Hidden mode: `{form_id}-{field_key}-{instance_id}`. Cookie mode: `{form_id}-{field_key}-s{slot}` when slots are active; omit the suffix when no slot is assigned. | Slot suffix mirrors the deterministic renderer assignment; slotless instances remain suffix-free. |
-		| `name` | `{form_id}[{field_key}]` | Append `[]` only for multivalue descriptors (checkboxes, multi-select). |
-		| `required` | Mirrors the template’s `required: true|false`. | Server-side validation remains authoritative; the attribute is a UX hint only. |
-		| `maxlength` / `minlength` | Emitted from `max_length` / `min_length` in the descriptor or template overrides. | Client-side mirrors of validator bounds; never relax the server rules. |
-		| `min` / `max` / `step` | Derived from numeric/date traits in the descriptor. | Applies to number/date-like controls per type defaults or template overrides. |
-		| `pattern` | Pulled from descriptor typing hints when provided. | Acts as a hint only; validator enforces canonical rules. |
-		| `inputmode` | Provided by descriptor typing aids. | Complements `pattern` and other per-type editing helpers (see 11). |
-		| `multiple` | Added when the descriptor reports `is_multivalue=true`. | Ensures DOM/UI affordances align with array POST bodies. |
-		| `accept` | Mirrors descriptor/token-driven MIME allow-lists. | `image` token → `image/jpeg,image/png,image/gif,image/webp`; `pdf` token → `application/pdf`. |
-		| `enterkeyhint` | `"send"` on the last text-like control or `<textarea>` in DOM order. | Best-effort UX affordance; does not affect validation or submission flow. |
-	- Reserved field keys (templates must not use): form_id, instance_id, submission_id, eforms_token, eforms_hp, eforms_mode, eforms_slot, timestamp, js_ok, ip, submitted_at.
-	- include_fields accepts template keys and meta keys:
-		- allowed meta keys: ip, submitted_at, form_id, instance_id (hidden-mode only), submission_id, slot (available for email/logs only)
-	- Template fragments (before_html / after_html):
-		- Sanitized via wp_kses_post (same as textarea_html); sanitized result is canonical.
-		- No inline styles. May not cross row_group boundaries.
-	- Upload field options: for type=file/files, optional accept[], max_file_bytes, max_files (files only), email_attach (bool). Per-field values override global limits.
-	- Client-side hints (summary):
-		| Hint | Emission rule | Notes |
-		|------|---------------|-------|
-		| Attribute mirrors | Renderer copies validator bounds to HTML attributes (`max_length` → `maxlength`, numeric/date bounds → `min`/`max`/`step`, `min_length` → `minlength`). | Keeps UX hints aligned with server policy; the validator remains canonical. |
-		| Editing aids | Per-type helpers emit `inputmode`, `pattern`, and related typing aids. | See [Built-in Field Types (Defaults; US-focused) (§11)](#sec-field-types) for the per-type matrix. |
-		| Upload affordances | `accept` reflects descriptor tokens (`image` / `pdf`); other per-field upload options (e.g., `max_file_bytes`, `max_files`, `email_attach`) follow the descriptor defaults unless overridden. | Hints do not override the global upload caps enforced server-side. |
-		| UX niceties | `enterkeyhint="send"` marks the final text-like control or `<textarea>`; other renderer-managed classes mirror template-provided `class` values. | All hints are advisory and never weaken validation. |
 
-	2. Row Groups (Structured Wrappers)
-	- pseudo-field: type=row_group with { mode:"start"|"end", tag:"div"|"section" (default div), class:"..." }
-	- no key; no data; supports nesting
-	- renderer adds a base wrapper class (e.g., "eforms-row") to each row_group element.
-	- Dangling opens auto-closed at form end to keep DOM valid; emit one _global config error EFORMS_ERR_ROW_GROUP_UNBALANCED. A stray "end" with an empty stack is ignored and logged.
-	- row_group pseudo-fields do not count toward validation.max_fields_per_form.
-	- Row-group objects must omit key and allow only {type, mode, tag, class}; enforce additionalProperties:false.
-	- Mis-balance reporting: if the row_group stack is mis-balanced at form end, emit a single _global config error (do not duplicate per-field errors).
+### 5.1 Field descriptors and namespacing {#sec-template-model-fields}
+> **Contract — Field descriptors and namespacing**
+> - Inputs:
+>	- Template field entries may declare `key`, `type`, `label?`, `placeholder?`, `required?`, `size?` (text-like only: `text`, `tel`, `url`, `email`), `autocomplete?`, `options?` (for radios/checkboxes/select), `class?`, `max_length?`, `min?`, `max?`, `step?`, `pattern?`, `before_html?`, and `after_html?`.
+>	- Each entry MUST include a `key` slug matching `/^[a-z0-9_-]{1,64}$/` (lowercase). Square brackets are prohibited to prevent PHP array collisions, and reserved keys remain disallowed.
+>	- `autocomplete` accepts exactly one token: `on`, `off`, or a WHATWG token such as `name`, `given-name`, `family-name`, `email`, `tel`, `postal-code`, `street-address`, `address-line1`, `address-line2`, or `organization`.
+>	- `size` ranges from 1–100 and only applies to text-like controls.
+> - Side-effects:
+>	- TemplateValidator sanitizes `before_html` and `after_html` via `wp_kses_post`; the sanitized string becomes canonical, inline styles are forbidden, and fragments may not cross `row_group` boundaries.
+>	- Invalid `autocomplete` tokens are dropped during normalization, template-provided classes are preserved verbatim, and per-field upload overrides are merged into descriptor metadata.
+>	- TemplateValidator enforces the reserved-key list so authors cannot collide with `form_id`, `instance_id`, `submission_id`, `eforms_token`, `eforms_hp`, `eforms_mode`, `eforms_slot`, `timestamp`, `js_ok`, `ip`, or `submitted_at`.
+> - Returns:
+>	- `FormRenderer` emits `<form class="eforms-form eforms-form-{form_id}">` with `eforms_mode` metadata and delegates hidden/cookie security fields to [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection).
+>	- Renderer-generated attributes follow the table below so markup mirrors validator bounds and deterministic slot metadata.
+>	- `include_fields` may reference template keys plus the meta keys `ip`, `submitted_at`, `form_id`, `instance_id` (hidden mode only), `submission_id`, and `slot` (email/logs only).
+>	- Upload descriptors (`type=file|files`) may override `accept[]`, `max_file_bytes`, `max_files` (for `files`), and `email_attach` (bool); overrides shadow global defaults without relaxing enforcement.
+>	- Client-side hints (inputmode, pattern, accept tokens, `enterkeyhint`) follow the descriptor defaults summarized in the hint table below.
+> - Failure modes:
+>	- Slugs outside the allowed regex, duplicate keys, or reserved names produce deterministic TemplateValidator schema errors (e.g., `EFORMS_ERR_SCHEMA_DUP_KEY`, `EFORMS_ERR_SCHEMA_KEY`), preventing render.
+>	- HTML fragments that attempt inline styles or cross `row_group` boundaries are rejected during structural preflight.
+>	- Upload overrides whose `accept[]` tokens fall outside the global allow-list fail validation, triggering `EFORMS_ERR_ACCEPT_EMPTY` per [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens).
 
-	3. Template JSON
-	- Location: /templates/forms/
-	- Filename allow-list: /^[a-z0-9-]+\.json$/
-	- Design-time schema pointer (optional but recommended): use a stable web URL to the schema in your repo (e.g., "${SCHEMA_URL}/template.schema.json") or a local absolute path. Avoid hard-coded /wp-content/plugins/... paths.
-	- Minimal shape:
-		- id (slug), version (string), title (string)
-		- success { mode:"inline"|"redirect", redirect_url?, message? }
-				- email { to, subject, email_template ("foo" -> templates/email/foo.*), include_fields[], display_format_tel? (see [display_format_tel tokens (§5.3)](#sec-display-format-tel)) }
-		- fields[] of field objects (see 5.1)
-		- submit_button_text (string)
-		- rules[] of bounded JSON rules (see 10)
+| Attribute(s) | Emission rule | Notes |
+|--------------|---------------|-------|
+| `id` | Hidden mode: `{form_id}-{field_key}-{instance_id}`. Cookie mode: `{form_id}-{field_key}-s{slot}` when slots are active; omit the suffix when no slot is assigned. | Slot suffix mirrors the deterministic renderer assignment; slotless instances remain suffix-free. |
+| `name` | `{form_id}[{field_key}]` | Append `[]` only for multivalue descriptors (checkboxes, multi-select). |
+| `required` | Mirrors the template’s `required: true|false`. | Server-side validation remains authoritative; the attribute is a UX hint only. |
+| `maxlength` / `minlength` | Emitted from `max_length` / `min_length` in the descriptor or template overrides. | Client-side mirrors of validator bounds; never relax the server rules. |
+| `min` / `max` / `step` | Derived from numeric/date traits in the descriptor. | Applies to number/date-like controls per type defaults or template overrides. |
+| `pattern` | Pulled from descriptor typing hints when provided. | Acts as a hint only; validator enforces canonical rules. |
+| `inputmode` | Provided by descriptor typing aids. | Complements `pattern` and other per-type editing helpers (see §11). |
+| `multiple` | Added when the descriptor reports `is_multivalue=true`. | Ensures DOM/UI affordances align with array POST bodies. |
+| `accept` | Mirrors descriptor/token-driven MIME allow-lists. | `image` token → `image/jpeg,image/png,image/gif,image/webp`; `pdf` token → `application/pdf`. |
+| `enterkeyhint` | `"send"` on the last text-like control or `<textarea>` in DOM order. | Best-effort UX affordance; does not affect validation or submission flow. |
 
-### display_format_tel tokens {#sec-display-format-tel}
-		- Allowed values:
-			- "xxx-xxx-xxxx" (default)
-			- "(xxx) xxx-xxxx"
-			- "xxx.xxx.xxxx"
-		- Unknown tokens revert to the default presentation at runtime; TemplateValidator MUST flag them during preflight.
+| Hint | Emission rule | Notes |
+|------|---------------|-------|
+| Attribute mirrors | Renderer copies validator bounds to HTML attributes (`max_length` → `maxlength`, numeric/date bounds → `min`/`max`/`step`, `min_length` → `minlength`). | Keeps UX hints aligned with server policy; the validator remains canonical. |
+| Editing aids | Per-type helpers emit `inputmode`, `pattern`, and related typing aids. | See [Built-in Field Types (Defaults; US-focused) (§11)](#sec-field-types) for the per-type matrix. |
+| Upload affordances | `accept` reflects descriptor tokens (`image` / `pdf`); other per-field upload options (e.g., `max_file_bytes`, `max_files`, `email_attach`) follow the descriptor defaults unless overridden. | Hints do not override the global upload caps enforced server-side. |
+| UX niceties | `enterkeyhint="send"` marks the final text-like control or `<textarea>`; other renderer-managed classes mirror template-provided `class` values. | All hints are advisory and never weaken validation. |
 
-	4. Options Shape
-	- options = [{ key, label, disabled? }, ...]
-	- stored value = option key; label is for rendering only
-	- Validation rule: if options[i].disabled === true, that option key may not be submitted; selecting it is a validation error.
+### 5.2 Row groups (structured wrappers) {#sec-template-row-groups}
+> **Contract — Row groups**
+> - Inputs:
+>	- Pseudo-fields use `type:"row_group"` with `{ mode:"start"|"end", tag:"div"|"section" (default `div`), class? }`.
+>	- Row-group objects omit `key`, carry no submission data, and may be nested.
+> - Side-effects:
+>	- `FormRenderer` adds a base wrapper class (for example `eforms-row`) to each emitted group and maintains a stack so dangling opens are auto-closed at form end to keep the DOM valid.
+>	- TemplateValidator enforces `additionalProperties:false` for row-group objects to block unexpected keys.
+> - Returns:
+>	- Row groups never count toward `validation.max_fields_per_form` and exist purely to organize markup.
+> - Failure modes:
+>	- An unbalanced stack at EOF emits a single global config error `EFORMS_ERR_ROW_GROUP_UNBALANCED`; stray `end` entries with an empty stack are ignored and logged.
 
-	5. Versioning & Cache Keys
-	- prefer explicit version; fallback to filemtime()
+### 5.3 Template JSON {#sec-template-json}
+> **Contract — Template JSON envelope**
+> - Inputs:
+>	- Templates live in `/templates/forms/` with filenames matching `/^[a-z0-9-]+\.json$/`.
+>	- Authors may include a design-time schema pointer (recommended) using a stable URL or absolute path (avoid hard-coded `/wp-content/plugins/...` paths).
+> - Side-effects:
+>	- None beyond normalization; runtime loads files lazily and never modifies them in place.
+> - Returns:
+>	- Minimal shape includes `id` (slug), `version` (string), `title` (string), `success { mode:"inline"|"redirect", redirect_url?, message? }`, `email { to, subject, email_template, include_fields[], display_format_tel? }`, `fields[]` (see §5.1), `submit_button_text` (string), and bounded JSON `rules[]` (see §10).
+> - Failure modes:
+>	- Filenames outside the allow-list are ignored. Malformed or incomplete JSON triggers a deterministic “Form configuration error” without a white screen.
 
-	6. Validation (Design-time vs Runtime)
-	- Runtime in PHP, 2 phases:
-		- (0) Structural preflight by TemplateValidator
-		- (1) Normalize -> Validate -> Coerce by Validator
-	- /schema/template.schema.json is CI/docs only; ensure parity with TEMPLATE_SPEC
-	- If JSON is malformed or missing keys, fail gracefully with a clear "Form configuration error" (no white-screen).
-	- Unknown rule values are rejected by the PHP validator.
-	- For file/files: accept[] ∩ global allow-list must be non-empty; else EFORMS_ERR_ACCEPT_EMPTY.
-	- CI MUST validate /templates/forms/*.json against /schema/template.schema.json and assert parity with the PHP TEMPLATE_SPEC.
-	- Enforce email.display_format_tel enum; unknown values are dropped at runtime but flagged in preflight.
+### 5.4 display_format_tel tokens {#sec-display-format-tel}
+> **Contract — `display_format_tel` formatting**
+> - Inputs:
+>	- `email.display_format_tel` selects the formatting token applied to telephone values in email summaries.
+> - Side-effects:
+>	- TemplateValidator enforces the enumerated list and retains the sanitized token in the TemplateContext.
+> - Returns:
+>	- Allowed values: `"xxx-xxx-xxxx"` (default), `"(xxx) xxx-xxxx"`, and `"xxx.xxx.xxxx"`.
+> - Failure modes:
+>	- Unknown tokens are flagged during preflight and revert to the default presentation at runtime.
 
-	7. TemplateContext (internal)
-	- TemplateValidator returns a normalized TemplateContext consumed by Renderer, Validator, and Security.
-	- Keys include: has_uploads (bool), descriptors[] (resolved field descriptors), version, id, email, success, rules, fields (normalized copies), max_input_vars_estimate (advisory).
-	- Type Descriptors & Handler Resolution
-		- TEMPLATE_SPEC provides type descriptors. Each descriptor bundles:
-		{
-			type: string,
-			is_multivalue: bool,
-			html: { tag:"input|textarea|select", type?, multiple?, inputmode?, pattern?, attrs_mirror:[...] },
-			validate: { required?, pattern?, range?, canonicalize? },
-			handlers: {
-			validator_id: string,	 // e.g., "email"
-			normalizer_id: string,	// e.g., "email"
-			renderer_id: string	 // e.g., "email"
-			},
-			constants: { ... },		 // per-type constants mirrored to DOM (e.g., spellcheck=false)
-			alias_of?: string		 // explicit alias target type name when applicable
-		}
-		- Handler IDs are short tokens scoped to each registry (e.g., "email", "text"). IDs are resolved to callables once during preflight via per-class private registries (see [Central Registries (Internal Only) (§6)](#sec-central-registries).)
-		- Resolution is fail-fast: unknown IDs throw a deterministic RuntimeException including {type, id, registry, spec_path}. CI surfaces exact descriptor failures.
-		- Alias hygiene: when alias_of is present, assert the alias shares handler IDs with its target; traits may differ. CI enforces alias invariants.
+### 5.5 Options shape {#sec-template-options}
+> **Contract — Field options**
+> - Inputs:
+>	- `options` arrays contain objects `{ key, label, disabled? }` for radios, checkboxes, and selects.
+> - Side-effects:
+>	- TemplateValidator ensures each option object matches the declared shape and preserves author-supplied ordering.
+> - Returns:
+>	- Stored submission values equal the option `key`; `label` exists only for rendering.
+> - Failure modes:
+>	- Options marked `disabled:true` MUST NOT be submitted; selecting one produces a validation error. Malformed option objects raise `EFORMS_ERR_SCHEMA_OBJECT`.
 
-	- Resolved-descriptor cache (per request)
-		- For each field (template key + type), precompute a resolved descriptor:
-		{
-			key, type, is_multivalue,
-			name_tpl: "{form_id}[{key}]" | "{form_id}[{key}][]",
-			id_prefix: "{form_id}-{key}-",
-			html, validate, constants,
-			attr_mirror: [...],
-			handlers: { v: callable, n: callable, r: callable }
-		}
-		- Treat resolved descriptors as immutable after preflight and reuse in both Renderer and Validator (no re-merge on POST). Zero string lookups in hot paths; perfect determinism.
+### 5.6 Versioning & cache keys {#sec-template-versioning}
+> **Contract — Template versioning**
+> - Inputs:
+>	- Templates SHOULD provide an explicit `version` string; when omitted, runtime falls back to `filemtime()`.
+> - Side-effects:
+>	- Version strings feed cache keys used by TemplateContext consumers; changes force downstream caches to invalidate.
+> - Returns:
+>	- The normalized version value is stored in TemplateContext and mirrored into success/logging metadata.
+> - Failure modes:
+>	- None; omission simply relies on `filemtime()` which may cache-bust less predictably.
+
+### 5.7 Validation (design-time vs. runtime) {#sec-template-validation}
+> **Contract — Template validation lifecycle**
+> - Inputs:
+>	- Runtime evaluation uses two phases: `(0)` structural preflight via `TemplateValidator`, then `(1)` normalize → validate → coerce via `Validator`.
+>	- `/schema/template.schema.json` exists for CI/docs only and is mechanically derived from `TEMPLATE_SPEC`.
+> - Side-effects:
+>	- TemplateValidator rejects unknown keys, enum violations, malformed rule objects, and reports deterministic error codes.
+>	- CI MUST validate `/templates/forms/*.json` against the schema and assert parity with the PHP `TEMPLATE_SPEC` so dual sources do not drift.
+> - Returns:
+>	- On failure, runtime surfaces a clear “Form configuration error” while continuing to render a fallback UX (no WSOD). Successful normalization yields canonical field arrays reused by Renderer, Security, and Validator.
+> - Failure modes:
+>	- Unknown rule values or malformed JSON raise deterministic schema errors. File/file descriptors whose `accept[]` intersection with the global allow-list is empty trigger `EFORMS_ERR_ACCEPT_EMPTY`. Invalid `email.display_format_tel` tokens are flagged here and dropped before runtime use.
+
+### 5.8 TemplateContext (internal) {#sec-template-context}
+> **Contract — TemplateContext output**
+> - Inputs:
+>	- `TemplateValidator` resolves descriptors from `TEMPLATE_SPEC`, reading handler IDs (`validator_id`, `normalizer_id`, `renderer_id`), HTML traits, validation ranges, constants, and optional `alias_of` metadata.
+>	- Handler registries are private to their owning classes (see [Central Registries (Internal Only) (§6)](#sec-central-registries)) and expose `resolve()` helpers for deterministic lookup.
+> - Side-effects:
+>	- Descriptor resolution is fail-fast: unknown handler IDs throw a deterministic `RuntimeException` containing `{ type, id, registry, spec_path }`, which CI surfaces immediately.
+>	- Alias hygiene runs during preflight, asserting that aliases share handler IDs with their target; violations fail CI.
+> - Returns:
+>	- TemplateContext exposes `has_uploads` (bool), `descriptors[]` (resolved field descriptors), `version`, `id`, `email`, `success`, `rules`, normalized `fields`, and `max_input_vars_estimate` (advisory).
+>	- Each resolved descriptor includes `{ key, type, is_multivalue, name_tpl, id_prefix, html, validate, constants, attr_mirror, handlers: { v, n, r } }` and remains immutable for the request. Renderer and Validator reuse the same descriptor objects to avoid re-merging during POST.
+> - Failure modes:
+>	- Attempting to resolve unknown handlers, mutate descriptors post-preflight, or violate alias invariants aborts template loading and is treated as a configuration error surfaced during CI or first render.
 
 <a id="sec-central-registries"></a>
 6. CENTRAL REGISTRIES (INTERNAL ONLY)
@@ -981,7 +992,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Reference: Escape targets for `<textarea>` and other sinks follow [Central Registries (Internal Only) (§6)](#sec-central-registries).
 	- Reference: Asset enqueueing requirements are summarized in [Lazy-load lifecycle (components & triggers) (§6.1)](#sec-lazy-load-matrix).
 	- Reference: Directory permissions, deny rules, and rotation constraints follow [Security → Shared lifecycle and storage contract (§7.1.1)](#sec-shared-lifecycle) and [Security invariants (§7.1.2)](#sec-security-invariants).
-	- Reference: Option-key and class-token limits derive from [Template Model (§5.1)](#sec-template-model).
+	- Reference: Option-key and class-token limits derive from [Template Model (§5.1)](#sec-template-model-fields).
 	- Non-normative tips (supplemental):
 		- Sanitize template classes by splitting on whitespace, keeping `[A-Za-z0-9_-]{1,32}` tokens, truncating longer tokens to 32 characters, deduplicating while preserving the first occurrence, joining with single spaces, capping the final attribute at 128 characters, and omitting the attribute when empty.
 		- Filename policy reference: see [Appendix 26.3](#sec-uploads-filenames).
