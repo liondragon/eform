@@ -105,7 +105,7 @@ electronic_forms - Spec
 5. TEMPLATE MODEL
 
 ### 5.1 Field descriptors and namespacing {#sec-template-model-fields}
-> **Contract — Field descriptors and namespacing**
+> **Contract — TemplateValidator::validate_fields**
 > - Inputs:
 >	- Template field entries may declare `key`, `type`, `label?`, `placeholder?`, `required?`, `size?` (text-like only: `text`, `tel`, `url`, `email`), `autocomplete?`, `options?` (for radios/checkboxes/select), `class?`, `max_length?`, `min?`, `max?`, `step?`, `pattern?`, `before_html?`, and `after_html?`.
 >	- Each entry MUST include a `key` slug matching `/^[a-z0-9_-]{1,64}$/` (lowercase). Square brackets are prohibited to prevent PHP array collisions, and reserved keys remain disallowed.
@@ -147,7 +147,7 @@ electronic_forms - Spec
 | UX niceties | `enterkeyhint="send"` marks the final text-like control or `<textarea>`; other renderer-managed classes mirror template-provided `class` values. | All hints are advisory and never weaken validation. |
 
 ### 5.2 Row groups (structured wrappers) {#sec-template-row-groups}
-> **Contract — Row groups**
+> **Contract — TemplateValidator::validate_row_groups**
 > - Inputs:
 >	- Pseudo-fields use `type:"row_group"` with `{ mode:"start"|"end", tag:"div"|"section" (default `div`), class? }`.
 >	- Row-group objects omit `key`, carry no submission data, and may be nested.
@@ -160,7 +160,7 @@ electronic_forms - Spec
 >	- An unbalanced stack at EOF emits a single global config error `EFORMS_ERR_ROW_GROUP_UNBALANCED`; stray `end` entries with an empty stack are ignored and logged.
 
 ### 5.3 Template JSON {#sec-template-json}
-> **Contract — Template JSON envelope**
+> **Contract — TemplateValidator::validate_template_envelope**
 > - Inputs:
 >	- Templates live in `/templates/forms/` with filenames matching `/^[a-z0-9-]+\.json$/`.
 >	- Authors may include a design-time schema pointer (recommended) using a stable URL or absolute path (avoid hard-coded `/wp-content/plugins/...` paths).
@@ -172,7 +172,7 @@ electronic_forms - Spec
 >	- Filenames outside the allow-list are ignored. Malformed or incomplete JSON triggers a deterministic “Form configuration error” without a white screen.
 
 ### 5.4 display_format_tel tokens {#sec-display-format-tel}
-> **Contract — `display_format_tel` formatting**
+> **Contract — TemplateValidator::validate_display_format_tel**
 > - Inputs:
 >	- `email.display_format_tel` selects the formatting token applied to telephone values in email summaries.
 > - Side-effects:
@@ -183,7 +183,7 @@ electronic_forms - Spec
 >	- Unknown tokens are flagged during preflight and revert to the default presentation at runtime.
 
 ### 5.5 Options shape {#sec-template-options}
-> **Contract — Field options**
+> **Contract — TemplateValidator::validate_field_options**
 > - Inputs:
 >	- `options` arrays contain objects `{ key, label, disabled? }` for radios, checkboxes, and selects.
 > - Side-effects:
@@ -194,7 +194,7 @@ electronic_forms - Spec
 >	- Options marked `disabled:true` MUST NOT be submitted; selecting one produces a validation error. Malformed option objects raise `EFORMS_ERR_SCHEMA_OBJECT`.
 
 ### 5.6 Versioning & cache keys {#sec-template-versioning}
-> **Contract — Template versioning**
+> **Contract — TemplateContext::normalize_version**
 > - Inputs:
 >	- Templates SHOULD provide an explicit `version` string; when omitted, runtime falls back to `filemtime()`.
 > - Side-effects:
@@ -205,7 +205,7 @@ electronic_forms - Spec
 >	- None; omission simply relies on `filemtime()` which may cache-bust less predictably.
 
 ### 5.7 Validation (design-time vs. runtime) {#sec-template-validation}
-> **Contract — Template validation lifecycle**
+> **Contract — SubmitHandler::validate_template_lifecycle**
 > - Inputs:
 >	- Runtime evaluation uses two phases: `(0)` structural preflight via `TemplateValidator`, then `(1)` normalize → validate → coerce via `Validator`.
 >	- `/schema/template.schema.json` exists for CI/docs only and is mechanically derived from `TEMPLATE_SPEC`.
@@ -218,7 +218,7 @@ electronic_forms - Spec
 >	- Unknown rule values or malformed JSON raise deterministic schema errors. File/file descriptors whose `accept[]` intersection with the global allow-list is empty trigger `EFORMS_ERR_ACCEPT_EMPTY`. Invalid `email.display_format_tel` tokens are flagged here and dropped before runtime use.
 
 ### 5.8 TemplateContext (internal) {#sec-template-context}
-> **Contract — TemplateContext output**
+> **Contract — TemplateContext::build**
 > - Inputs:
 >	- `TemplateValidator` resolves descriptors from `TEMPLATE_SPEC`, reading handler IDs (`validator_id`, `normalizer_id`, `renderer_id`), HTML traits, validation ranges, constants, and optional `alias_of` metadata.
 >	- Handler registries are private to their owning classes (see [Central Registries (Internal Only) (§6)](#sec-central-registries)) and expose `resolve()` helpers for deterministic lookup.
