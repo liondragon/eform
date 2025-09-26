@@ -6,6 +6,7 @@
 - Narrative must not contradict either.
 - If they conflict, the PR MUST fix both and state which source is canonical in the PR description.
 - Verifier checks that **narrative + matrices + helper contracts** are aligned (see `scripts/spec_lint.py`).
+- Normative vs. informative hierarchy lives in [`docs/SPEC_CONTRACTS.md#sec-normative-note`](docs/SPEC_CONTRACTS.md#sec-normative-note); other specs must include or link to that section instead of duplicating it.
 
 ## Roles
 - Spec Agent: finds contradictions; proposes minimal normative edits.
@@ -81,3 +82,4 @@
 - [ ] Lists use tabs for indentation; no mixed tab/space.
 - [ ] No accidental reflow/whitespace-only churn.
 - [ ] If editing Security §7, QA matrix links updated as needed.
+- [ ] If adjusting the normative/informative hierarchy, edits land in `docs/SPEC_CONTRACTS.md#sec-normative-note` (other files should reference/include it).
