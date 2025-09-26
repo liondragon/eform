@@ -332,6 +332,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
 			- Dependencies: This contract assumes the shared requirements in [Security invariants (§7.1.2)](#sec-security-invariants) and the rerender rules in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender); the sub-blocks below call out cookie-mode specifics.
 			- **Minting helper (authority)**
+					- On first use, the helper MUST call `Config::get()` so the shared configuration snapshot is bootstrapped per [Security invariants (§7.1.2)](#sec-security-invariants) and [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).
 					- `Security::mint_cookie_record(form_id, slot?)` returns `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }` and never emits `Set-Cookie`.
 					- Status semantics (normative): `miss` when no record existed, `expired` when the persisted record was stale and got replaced, `hit` when an unexpired record already existed; all paths return the canonical record payload.
 					- Expired status (normative): `expired` iff `now >= record.expires`; helpers never refresh `issued_at`/`expires` on `hit`.
