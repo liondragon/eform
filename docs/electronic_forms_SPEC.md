@@ -522,7 +522,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 				- Error rerender after NCID fallback: delete `eforms_eid_{form_id}` (Set-Cookie: deleted) and embed `/eforms/prime` before rendering. The next GET reissues the persisted cookie record while the flow remains pinned to the NCID above.
 				- Definition — Reissue = send `Set-Cookie` for the existing record without changing `eid`, `issued_at`, or `expires`.
 				- Challenge rerender before verification: when `require_challenge=true`, delete `eforms_eid_{form_id}`, embed `/eforms/prime?f={form_id}[&s={slot}]`, and keep the NCID as the authoritative `submission_id` until verification succeeds.
-- Challenge success response: delete `eforms_eid_{form_id}` (Set-Cookie: deleted) and embed `/eforms/prime?f={form_id}[&s={slot}]` before delivering success so the just-verified record is reused. Do not remint inside the response; the embedded prime reissues the persisted cookie on the follow-up GET.
+- Challenge success response: send the `eforms_eid_{form_id}` deletion header with the PRG redirect and rely on the follow-up GET to embed `/eforms/prime?f={form_id}[&s={slot}]` so the just-verified record is reused. Do not remint inside the redirect; the renderer reissues the persisted cookie on the subsequent GET.
+Definition — PRG re-prime = the success redirect carries the deletion header and the next GET emits the deterministic prime pixel before the next POST.
 - <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, the `eforms_submission` query flag, and verifier requirements are defined in [Success Behavior (PRG) (§13)](#sec-success) (see [NCID-only handoff (§13.1)](#sec-success-ncid)).
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
