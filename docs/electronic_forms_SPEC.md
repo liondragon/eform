@@ -382,7 +382,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 			| `expires`	| `issued_at + security.token_ttl_seconds`.
 			| `instance_id`| Base64url CSPRNG, never rewritten until token rotation.
 		- POST requirements:
-			- Token lookup MUST succeed; the record MUST say `mode:"hidden"` for the same `form_id`, and TTL MUST be valid.
+  			- Success requires a matching record: when lookup finds one, it MUST say `mode:"hidden"` for the same `form_id`, and TTL MUST be valid. Missing or expired records fall through to the policies below.
 			- Failure is a hard `EFORMS_ERR_TOKEN` when `security.submission_token.required=true`.
 			- When `security.submission_token.required=false`, continue with a soft label `token_soft` and an NCID-derived `submission_id` per
 			  [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) (hidden-mode NCID). This enables duplicate suppression
