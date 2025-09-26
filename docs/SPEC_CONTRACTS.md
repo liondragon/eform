@@ -32,7 +32,7 @@ This front matter summarizes the single canonical hierarchy defined in [Spec Con
 
 ## 3) CI/Verifier Rules (summary)
 - Every “MUST/SHOULD/MAY” sentence **SHOULD** include a condition (`when|if|unless`) unless it’s a global invariant.
-- Every helper contract in §7.1.x contains **Inputs / Side-effects / Returns** blocks.
+- Every contract block (helper or narrative) MUST expose the **Inputs / Side-effects / Returns / Failure modes** structure defined below.
 - Changes in the **Security §7.1 matrices** require a corresponding change in at least one anchored narrative/helper section (and vice-versa).
 
 ## 4) Anchors used by the Verifier
@@ -41,3 +41,17 @@ This front matter summarizes the single canonical hierarchy defined in [Spec Con
 - Narrative hub: `#sec-submission-protection`
 
 *(Non-normative) Tip: keep quotes short; prefer matrices for exact outcomes.*
+
+## 5) Contract Blocks (normative template)
+- Use this pattern for every normative helper or narrative contract (including Template Model subsections):
+        > **Contract — {scope/title}**
+        > - Inputs:
+        >	- Enumerate the data the helper consumes (request payloads, template fields, records, config snapshots, etc.).
+        > - Side-effects:
+        >	- Describe writes, logging, minted identifiers, or other externally visible mutations.
+        > - Returns:
+        >	- List the structured values the helper/narrative produces or guarantees (arrays, markup invariants, cache keys, etc.).
+        > - Failure modes:
+        >	- Call out hard-fail vs. soft-path behavior, including specific error codes, sanitization fallbacks, or rejection criteria.
+- Headline with `Contract — …` (bold) so linters can spot missing anchors.
+- The verifier scans for these bullet labels; changing them requires updating `scripts/spec_lint.py` and this template together.
