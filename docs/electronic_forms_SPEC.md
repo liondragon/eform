@@ -257,7 +257,7 @@ electronic_forms - Spec
 		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; memoizes per request (no global scans). |
 		| Static registries (`HANDLERS` maps) | Lazy | First call to `resolve()` / class autoload | Autoloading counts as lazy; classes hold only const maps; derived caches compute on demand. |
 		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
-		| Security (token/origin) | Lazy | **Hidden-token mint during GET render**, any token/origin check during POST, or `/eforms/prime` cookie mint | `FormRenderer` **delegates** all minting to Security helpers (no local UUID/TTL logic). Minting helpers do not load challenge/throttle and only read the config snapshot needed for TTL/paths. |
+		| Security (token/origin) | Lazy | **Hidden-token mint during GET render**, any token/origin check during POST, or `/eforms/prime` cookie mint | `FormRenderer` **delegates** all minting to Security helpers (no local UUID/TTL logic). Minting helpers do not load challenge/throttle; they read the config snapshot for TTL/path **and slot policy** before returning canonical metadata. |
 		| Uploads | Lazy | Template declares file(s) or POST carries files | Initializes finfo and policy only when needed. |
 		| Emailer | Lazy | After validation succeeds (just before send) | SMTP/DKIM init only on send; skipped on failures. |
 		| Logging | Lazy | First log write when `logging.mode != "off"` | Opens/rotates file on demand. |
@@ -442,6 +442,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                         | `hard` | Reject with `EFORMS_ERR_TOKEN`. Return the structured result and abort before ledger reservation. | `false` | — | `false` | none (`submission_id=null`) | Per request; true only when a syntactically valid cookie header was present on this POST. |
                                         | `soft` | Continue via NCID; treat tampering separately; add `cookie_missing`. | `false` | `cookie_missing` | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
                                         | `off` | Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record. | `false` | Conditional (see handling) | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when only the record was missing/expired. |
+  										| `challenge` | Continue via NCID; require verification before proceeding; add `cookie_missing`. | `false` | `cookie_missing` | `true` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
 - Identifier pinning (challenge): See [Security → NCIDs, slots, and validation output (§7.1.4)](#sec-ncid) for the canonical challenge pinning rules.
 - Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`) (see [Security invariants (§7.1.2)](#sec-security-invariants)).
 - <a id="sec-slot-selection"></a>Slot selection (deterministic):
