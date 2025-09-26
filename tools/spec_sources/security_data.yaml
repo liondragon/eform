@@ -60,7 +60,7 @@ cookie_lifecycle_rows:
   - flow_trigger: "`/eforms/prime` request"
     server_must: "MUST call `Security::mint_cookie_record()`; union `s` (when allowed) into `slots_allowed`; derive canonical `slot` when the union size is one; load the record before deciding on `Set-Cookie`; MUST skip the positive header when the request presented an identical, unexpired cookie (same Name/Value/Path/SameSite/Secure)."
     identifier: "Persists `{ mode:\"cookie\", form_id, eid, issued_at, expires, slots_allowed, slot }`."
-    notes: "Missing/truncated/expired record **or a request lacking an unexpired match** ⇒ send `Set-Cookie`; otherwise MUST skip the header whenever that identical, unexpired cookie is present. Response: `204` + `Cache-Control: no-store`. Never rewrite TTLs on reuse."
+    notes: "Missing/truncated/expired record **or a request lacking an unexpired match** ⇒ send `Set-Cookie`; otherwise MUST skip the header whenever that identical, unexpired cookie is present. Response: `204` + `Cache-Control: no-store`. Never rewrite server TTL fields on reuse (`issued_at`/`expires` stay unchanged even when the header is reissued)."
     references:
       - "#sec-cookie-mode"
       - "#sec-cookie-lifecycle-matrix"
