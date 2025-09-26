@@ -267,7 +267,7 @@ electronic_forms - Spec
  	
 <a id="sec-security"></a>
 7. SECURITY
-Cookie and NCID matrices in this section are normative; per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality) §7 remains the canonical location for these policies.
+Cookie and NCID matrices in this section are normative; per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality) §7 remains the authoritative location for these policies.
 <a id="sec-submission-protection"></a>1. Submission Protection for Public Forms (hidden vs cookie)
 - See [Lifecycle quickstart (§7.1.0)](#sec-lifecycle-quickstart) for the canonical render → persist → POST → rerender/success contract that governs both modes.
 - Detailed matrices live in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix), [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix), and [Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary); this section keeps the authoritative mode invariants and shared storage rules while pointing back to [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality).
