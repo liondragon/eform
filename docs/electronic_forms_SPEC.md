@@ -101,7 +101,7 @@ electronic_forms - Spec
 	- Upload policy (accept tokens/mimes/exts; per-file/field/request caps)
 	- Row group stack handling (balanced start/end)
 	- Accept token -> MIME/extension registry (conservative mappings)
-	- Structural spec (PHP): TEMPLATE_SPEC array drives enums/required/unknown-key rules; JSON Schema is generated from or checked against it to avoid drift
+- Structural spec (PHP): The PHP `TEMPLATE_SPEC` array (defined in `src/Validation/TemplateValidator.php`) is the sole canonical definition for enums/required/unknown-key rules; `/schema/template.schema.json` must be auto-generated or mechanically derived from that array (no manual edits) to eliminate dual sources
 
 <a id="sec-template-model"></a>
 5. TEMPLATE MODEL
