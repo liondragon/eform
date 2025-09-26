@@ -1021,13 +1021,13 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- PHP TEMPLATE_SPEC is authoritative at runtime
 	- JSON Schema is documentation/CI lint only; enforce parity in CI
 
-        5. <a id="sec-app-cookie-policy"></a>Cookie policy outcomes (normative matrix)
+	5. <a id="sec-app-cookie-policy"></a>Cookie policy outcomes (informative pointer)
         - Informative pointer: the canonical matrix for `security.cookie_missing_policy` lives in [Security → Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix). This appendix retains the legacy anchor for compatibility.
 
-        6. <a id="sec-app-cookie-lifecycle"></a>Cookie-mode lifecycle matrix (normative)
+	6. <a id="sec-app-cookie-lifecycle"></a>Cookie-mode lifecycle matrix (informative pointer)
         - Informative pointer: the authoritative lifecycle table for cached renders, `/eforms/prime`, and NCID/challenge rerenders now resides in [Security → Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix). This appendix retains the legacy anchor for compatibility.
 
-        7. <a id="sec-app-cookie-ncid"></a>Cookie/NCID reference (normative)
+	7. <a id="sec-app-cookie-ncid"></a>Cookie/NCID reference (informative pointer)
         - Informative pointer: the canonical identifier summary is located at [Security → Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary). This appendix retains the legacy anchor for compatibility.
 
 <a id="sec-past-decisions"></a>
