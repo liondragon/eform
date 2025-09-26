@@ -142,7 +142,7 @@ cookie_lifecycle_rows:
       - sec-cookie-lifecycle-matrix
   - id: cookie-lifecycle-challenge-success
     flow_trigger: Challenge success response
-    server_must: "MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
+    server_must: "Send the NCID rerender deletion header on the PRG redirect and rely on the follow-up GET (renderer) to embed `/eforms/prime` per [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
     identifier:
       kind: ncid
       text: "Persisted record reused per that contract."
