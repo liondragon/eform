@@ -883,49 +883,49 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 
 <a id="sec-implementation-notes"></a>
 23. NOTES FOR IMPLEMENTATION
-	- Security cross-reference (supplementary): Embed the metadata returned by `Security::mint_hidden_record()`/`Security::mint_cookie_record()` verbatim. Reuse persisted `{token, instance_id, timestamp}` on rerender and consult [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for rotation, NCID fallbacks, and challenge-driven cookie handling.
-	- Use esc_textarea for <textarea> output
-	- Enqueue assets only when a form exists on the page
-	- Logs dir perms 0700; log files 0600
-	- Sanitize class tokens [A-Za-z0-9_-]{1,32} per token; cap total length
-	-> Algorithm: split on whitespace; keep tokens matching [A-Za-z0-9_-]{1,32}; truncate longer tokens to 32; de-duplicate preserving first occurrence; join with a single space; cap final attribute at 128 chars; omit class when empty.
-	- Option keys: [a-z0-9_-]{1,64}; unique within field
-	- Filename policy: see 26.3
-	- TemplateValidator sketch: pure-PHP walkers with per-level allowed-key maps; normalize scalars/arrays; emit EFORMS_ERR_SCHEMA_* with path (e.g., fields[3].type)
-	- Caching: in-request static memoization only; no cross-request caching.
-	- No WordPress nonce usage. Submission token TTL is controlled via security.token_ttl_seconds.
-	- Max_input_vars heuristic is conservative; it does not count $_FILES.
-	- Keep deny rules (index.html + .htaccess/web.config) in uploads/logs dirs. Perms 0700/0600.
-	- Renderer & escaping: canonical values remain unescaped until sink time; do not escape twice or mix escaped/canonical.
-	- Helpers:
-	- Helpers::nfc(string $v): string — normalize to Unicode NFC; no-op without intl.
-	- Helpers::cap_id(string $id, int $max=128): string — length cap with middle truncation + stable 8-char base32 suffix.
-	- Helpers::bytes_from_ini(?string $v): int — parses K/M/G; "0"/null/"" -> PHP_INT_MAX; clamps non-negative.
-	- Helpers::h2(string $id): string — derive the shared `[0-9a-f]{2}` shard (see `{h2}` directories in [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
-	- Helpers::throttle_key(Request $r): string — derive the throttle key per [Cross-Field Rules (BOUNDED SET) (§10)](#sec-cross-field-rules) honoring `privacy.ip_mode`.
-	- Helpers::ncid(string $form_id, string $client_key, int $window_idx, array $canon_post): string — returns `"nc-" . hash('sha256', ...)` with the concatenation defined in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) (see the summary row in [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for expected identifiers).
-	- Renderer consolidation:
-	- Shared text-control helper centralizes attribute assembly; <input> and <textarea> emitters stay small and focused.
-	- Keep group controls (fieldset/legend), selects, and file(s) as dedicated renderers for a11y semantics.
-	- Cookie-policy precedence, rotation, and challenge behavior are summarized in [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary); defer to that matrix rather than re-deriving UX in helpers.
-	- Minimal logging via error_log() is a good ops fallback; JSONL is primary structured option.
-	- Fail2ban emission isolates raw IP use to a single, explicit channel designed for enforcement.
-	- Fail2ban rotation uses the same timestamped rename scheme as JSONL.
-	- If logging.fail2ban.file is relative, resolve under uploads.dir (e.g., ${uploads.dir}/f2b/eforms-f2b.log).
-	- Uninstall: when install.uninstall.purge_logs=true, also delete Fail2ban file and rotated siblings.
-	- Header name compare is case-insensitive. Cap header length at ~1-2 KB before parsing to avoid pathological inputs.
-	- Recommend logging.mode="minimal" in setup docs to capture critical failures; provide guidance for switching to "off" once stable.
-	- Element ID length cap: cap generated IDs (e.g., `"{form_id}-{field_key}-{instance_id}"` or `"{form_id}-{field_key}-s{slot}"`) at 128 chars via Helpers::cap_id().
-	- Permissions fallback: create dirs 0700 (files 0600); on failure, fall back once to 0750/0640 and emit a single warning (when logging enabled).
-	- Cookie mode does not require JS.
-	- CI scaffolding:
-	- Descriptor resolution test: iterate Spec::typeDescriptors(), resolve all handler IDs; assert callable.
-	- Schema parity test: generate JSON Schema from TEMPLATE_SPEC (or vice versa) and diff; fail on enum/required/shape drift.
-	- Determinism tests: fixed template + inputs → assert identical error ordering, canonical values, rendered attribute set.
-	- TTL alignment test: assert `minted_record.expires - minted_record.issued_at == security.token_ttl_seconds` and success tickets honor `security.success_ticket_ttl_seconds`.
-	- WP-CLI smoke tests:
-	- Command to POST without Origin to confirm hard/missing policy behavior.
-	- Command to POST oversized payload to verify RuntimeCap handling.
+	- Reference: See [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) and [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for minted metadata reuse, rotation, and challenge handling.
+	- Reference: Escape targets for `<textarea>` and other sinks follow [Central Registries (Internal Only) (§6)](#sec-central-registries).
+	- Reference: Asset enqueueing requirements are summarized in [Lazy-load lifecycle (components & triggers) (§6.1)](#sec-lazy-load-matrix).
+	- Reference: Directory permissions, deny rules, and rotation constraints follow [Security → Shared lifecycle and storage contract (§7.1.1)](#sec-shared-lifecycle) and [Security invariants (§7.1.2)](#sec-security-invariants).
+	- Reference: Option-key and class-token limits derive from [Template Model (§5.1)](#sec-template-model).
+	- Non-normative tips (supplemental):
+		- Sanitize template classes by splitting on whitespace, keeping `[A-Za-z0-9_-]{1,32}` tokens, truncating longer tokens to 32 characters, deduplicating while preserving the first occurrence, joining with single spaces, capping the final attribute at 128 characters, and omitting the attribute when empty.
+		- Filename policy reference: see [Appendix 26.3](#sec-uploads-filenames).
+		- TemplateValidator sketch: pure-PHP walkers with per-level allowed-key maps; normalize scalars/arrays; emit `EFORMS_ERR_SCHEMA_*` with path details (e.g., `fields[3].type`).
+		- Caching: prefer in-request static memoization only; avoid cross-request caches.
+		- No WordPress nonce usage; submission token TTL is controlled via `security.token_ttl_seconds`.
+		- `max_input_vars` heuristic is conservative; it does not count `$_FILES`.
+		- Keep deny rules (index.html + .htaccess/web.config) in uploads/logs directories.
+		- Renderer & escaping: keep canonical values unescaped until sink time; avoid double-escaping or mixing escaped/canonical values.
+		- Helpers:
+			- `Helpers::nfc(string $v): string` — normalize to Unicode NFC; no-op without intl.
+			- `Helpers::cap_id(string $id, int $max=128): string` — length cap with middle truncation + stable 8-character base32 suffix.
+			- `Helpers::bytes_from_ini(?string $v): int` — parses K/M/G; `"0"`/null/`""` → `PHP_INT_MAX`; clamps non-negative.
+			- `Helpers::h2(string $id): string` — derive the shared `[0-9a-f]{2}` shard (see `{h2}` directories in [Security → Shared lifecycle and storage contract (§7.1.1)](#sec-shared-lifecycle)).
+			- `Helpers::throttle_key(Request $r): string` — derive the throttle key per [Cross-Field Rules (BOUNDED SET) (§10)](#sec-cross-field-rules) honoring `privacy.ip_mode`.
+			- `Helpers::ncid(string $form_id, string $client_key, int $window_idx, array $canon_post): string` — returns `"nc-" . hash('sha256', ...)` with the concatenation defined in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid) and the summary row in [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary).
+		- Renderer consolidation:
+			- Shared text-control helper centralizes attribute assembly; `<input>` and `<textarea>` emitters stay small and focused.
+			- Keep group controls (fieldset/legend), selects, and file(s) as dedicated renderers for a11y semantics.
+			- Cookie-policy precedence, rotation, and challenge behavior are summarized in [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary); defer to that matrix rather than re-deriving UX in helpers.
+		- Minimal logging via `error_log()` is a good ops fallback; JSONL is the primary structured option.
+		- Fail2ban emission isolates raw IP use to a single, explicit channel designed for enforcement.
+		- Fail2ban rotation uses the same timestamped rename scheme as JSONL.
+		- If `logging.fail2ban.file` is relative, resolve it under `uploads.dir` (e.g., `${uploads.dir}/f2b/eforms-f2b.log`).
+		- Uninstall: when `install.uninstall.purge_logs=true`, also delete the Fail2ban file and rotated siblings.
+		- Header name comparisons are case-insensitive; cap header length at ~1–2 KB before parsing to avoid pathological inputs.
+		- Recommend `logging.mode="minimal"` in setup docs to capture critical failures; provide guidance for switching to `"off"` once stable.
+		- Element ID length cap: cap generated IDs (e.g., `"{form_id}-{field_key}-{instance_id}"` or `"{form_id}-{field_key}-s{slot}"`) at 128 characters via `Helpers::cap_id()`.
+		- Permissions fallback: create directories `0700` (files `0600`); on failure, fall back once to `0750/0640` and emit a single warning when logging is enabled.
+		- Cookie mode does not require JS.
+		- CI scaffolding:
+			- Descriptor resolution test: iterate `Spec::typeDescriptors()`, resolve all handler IDs, and assert each is callable.
+			- Schema parity test: generate JSON Schema from `TEMPLATE_SPEC` (or vice versa) and diff; fail on enum/required/shape drift.
+			- Determinism tests: fixed template + inputs → assert identical error ordering, canonical values, and rendered attribute sets.
+			- TTL alignment test: assert `minted_record.expires - minted_record.issued_at == security.token_ttl_seconds` and success tickets honor `security.success_ticket_ttl_seconds`.
+			- WP-CLI smoke tests:
+				- Command to POST without Origin to confirm hard/missing policy behavior.
+				- Command to POST oversized payload to verify RuntimeCap handling.
 
 <a id="sec-email-templates"></a>
 24. EMAIL TEMPLATES (REGISTRY)
