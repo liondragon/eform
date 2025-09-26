@@ -272,7 +272,7 @@ Cookie and NCID matrices in this section are normative; per [Canonicality & Prec
 - See [Lifecycle quickstart (§7.1.0)](#sec-lifecycle-quickstart) for the canonical render → persist → POST → rerender/success contract that governs both modes.
 - Detailed matrices live in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix), [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix), and [Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary); this section keeps the authoritative mode invariants and shared storage rules while pointing back to [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality).
 <a id="sec-lifecycle-quickstart"></a>7.1.0 Lifecycle quickstart (normative)
-<!-- BEGIN GENERATED: lifecycle-pipeline-quickstart -->
+<!-- BEGIN BLOCK: lifecycle-pipeline-quickstart -->
 **Pipeline-first outline (render → persist → POST → challenge → normalization → ledger → success)**
 
 | Stage | Canonical invariants |
@@ -320,7 +320,7 @@ Cookie and NCID matrices in this section are normative; per [Canonicality & Prec
 - **Why:** PRG finalizes the NCID pin, enables success-ticket verification, and is the sole time cookie mode may rotate (apart from expiry-driven remint).
 - **How:** Execute side effects only after ledger reservation, then emit the success response (`/eforms/success-verify` ticket or redirect). Cookie rotation occurs only on PRG completion or when `/eforms/prime` detects expiry; hidden mode never rotates before success.
 Definition — Rotation trigger = minted record replacement caused by expiry or post-success PRG.
-<!-- END GENERATED: lifecycle-pipeline-quickstart -->
+<!-- END BLOCK: lifecycle-pipeline-quickstart -->
 
 <a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
 - Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
