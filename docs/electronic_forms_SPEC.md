@@ -267,12 +267,33 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 - _Non-normative overview diagram_: `Render → Persist → POST → Challenge? → Normalize → Ledger → Success/PRG`.
 1) **Render (GET)** — Hidden mode calls `Security::mint_hidden_record()` and embeds its fields verbatim. Cookie mode emits deterministic slot metadata and embeds the `/eforms/prime` pixel so the helper-minted cookie becomes available before POST; the GET itself never calls `/eforms/prime`. See [Hidden-mode contract (§7.1.2)](#sec-hidden-mode) and [Cookie-mode contract (§7.1.3)](#sec-cookie-mode).
 2) **Persist** — Hidden-mode writes `tokens/{h2}/{sha256(token)}.json`; cookie mode persists `{mode:"cookie", form_id, eid, issued_at, expires, slots_allowed[], slot?}`. Both follow [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
-3) **POST → Security gate** — `Security::token_validate()` computes `{mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons[]}`. Interpret results via [Cookie policy outcomes (§26.5)](#sec-app-cookie-policy), [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle), and [Cookie/NCID reference (§26.7)](#sec-app-cookie-ncid).
+3) **POST → Security gate** — `Security::token_validate()` computes `{mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons[]}`. Use the [Cookie/NCID quick reference (§7.1.0.a)](#sec-cookie-ncid-quickref) for the at-a-glance handling outcomes across common flows; defer to [Cookie policy outcomes (§26.5)](#sec-app-cookie-policy), [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle), and [Cookie/NCID reference (§26.7)](#sec-app-cookie-ncid) for the canonical matrices.
 4) **Challenge (when required)** — Cookie-mode rerenders clear `eforms_eid_{form_id}` and re-prime per [Cookie-mode contract (§7.1.3)](#sec-cookie-mode). NCID pinning and rerender requirements live in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
 5) **Normalize → Validate → Coerce** — Apply deterministic processing in that order. Refer to §§8–11 for uploads, cross-field rules, and sanitization.
 6) **Ledger reservation** — Reserve `${uploads.dir}/…/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects. Treat `EEXIST`/IO failures as duplicates per [Ledger reservation contract (§7.1.1)](#sec-ledger-contract).
 7) **Success path** — Move uploads, send mail, log, then complete PRG via [Success behavior (§13)](#sec-success) (inline cookie vs. redirect verifier, including NCID-only flows in [§13.1](#sec-success-ncid)).
 9) **Rotation** — Hidden mode never rotates before success; cookie mode reissues the persisted record via `/eforms/prime` when an NCID/challenge rerender cleared the cookie, and remints only after expiry or a successful submission (PRG). See [Security invariants (§7.1.2)](#sec-security-invariants) for precedence and rotation exceptions. Definition — Rotation trigger = minted record replacement caused by expiry or post-success PRG.
+
+<a id="sec-cookie-ncid-quickref"></a>7.1.0.a Cookie/NCID quick reference (normative summary)
+This table condenses the most-referenced outcomes from [Appendix 26.5](#sec-app-cookie-policy) through [Appendix 26.7](#sec-app-cookie-ncid). Those appendices remain the canonical source for lifecycle semantics, slot policy, and identifier handling.
+| Scenario / policy | Identifier outcome | Required action | Canonical detail |
+|-------------------|--------------------|-----------------|------------------|
+| Cookie policy `hard` | — (`submission_id=null`) | Reject with `EFORMS_ERR_TOKEN`. | [Cookie policy outcomes (§26.5)](#sec-app-cookie-policy) |
+| Cookie policy `soft` | `submission_id = nc-…` (`is_ncid=true`) | Continue; add `cookie_missing`. | [Cookie policy outcomes (§26.5)](#sec-app-cookie-policy) |
+| Cookie policy `off` | `submission_id = nc-…` (`is_ncid=true`) | Continue; add `cookie_missing` only when a syntactically valid cookie lacked a record. | [Cookie policy outcomes (§26.5)](#sec-app-cookie-policy) |
+| Cookie policy `challenge` | `submission_id = nc-…`, `require_challenge=true` | Require verification before proceeding; remove `cookie_missing` only after success. | [Cookie policy outcomes (§26.5)](#sec-app-cookie-policy) |
+| GET render (slots disabled) | `eid` (no slot suffix) | Embed `/eforms/prime?f={form_id}` pixel; reuse markup verbatim. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| GET render (slots enabled) | `eid` + deterministic slot metadata when assigned | Emit `/eforms/prime?f={form_id}&s={slot}` when a slot is in play; omit `s` otherwise. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| `/eforms/prime` request | Persist `{ mode:"cookie", … }` record | Union slots; send `Set-Cookie` unless the request presented an identical unexpired cookie. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| Slots disabled globally | `submission_id = eid` | Reject any posted `eforms_slot`. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| POST from slotless render | `submission_id = eid` | Reject payloads containing `eforms_slot`. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| POST from slotted render | `submission_id = eid__slot{n}` | Require posted slot to match record’s allowed/assigned value. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| Error rerender after NCID fallback | `submission_id = same nc-…` | Clear cookie, re-prime via `/eforms/prime`, and keep NCID pinned. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| Challenge rerender (pre-verification) | `submission_id = same nc-…` | Clear cookie, re-prime via `/eforms/prime`, then render challenge UI. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| Challenge success response | `submission_id = same nc-…` | Reissue persisted cookie; continue with verification result. | [Cookie-mode lifecycle (§26.6)](#sec-app-cookie-lifecycle) |
+| Valid hidden record | `submission_id = token` | Embed `{token, instance_id, timestamp}` verbatim on rerender. | [Cookie/NCID reference (§26.7)](#sec-app-cookie-ncid) |
+| Hidden record missing/expired (optional token) | `submission_id = nc-…`, `token_ok=false` | Continue via NCID; preserve hidden-mode metadata. | [Cookie/NCID reference (§26.7)](#sec-app-cookie-ncid) |
+| NCID success handoff | `submission_id = nc-…` | Use redirect-only PRG; hand off to `/eforms/success-verify`. | [Cookie/NCID reference (§26.7)](#sec-app-cookie-ncid) |
 
 <a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
 - Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
