@@ -4,12 +4,371 @@
 import argparse
 import sys
 from pathlib import Path
+from typing import Any, Iterable
 
 import yaml
 
 SPEC_PATH = Path("docs/electronic_forms_SPEC.md")
 DATA_PATH = Path("tools/spec_sources/security_data.yaml")
 POINTER_TEXT = "**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**"
+SUPPORTED_SCHEMA_VERSION = 1
+
+POLICY_PATHS = {"hard", "soft", "off", "challenge"}
+SOFT_LABEL_KINDS = {"none", "labels", "conditional"}
+SOFT_LABEL_VALUES = {"cookie_missing"}
+DETAIL_STYLES = {"code", "text"}
+IDENTIFIER_KINDS = {"none", "ncid", "eid", "prime_record", "cookie_record", "submission_id"}
+COOKIE_PRESENT_CONDITIONS = {
+    "per_request_valid_header",
+    "valid_header_without_record",
+    "record_missing_only",
+}
+RICH_TEXT_TYPES = {"text", "link"}
+
+
+def load_data() -> dict:
+    if not DATA_PATH.exists():
+        raise SystemExit(f"Missing data file: {DATA_PATH}")
+    raw = yaml.safe_load(DATA_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise SystemExit("Security data must be a mapping at the top level")
+    validate_data(raw)
+    return raw
+
+
+def validate_data(data: dict) -> None:
+    version = data.get("version")
+    if version != SUPPORTED_SCHEMA_VERSION:
+        raise SystemExit(
+            f"Unsupported security data version: {version!r}; expected {SUPPORTED_SCHEMA_VERSION}"
+        )
+    schema_uri = data.get("$schema")
+    if schema_uri is not None and not isinstance(schema_uri, str):
+        raise SystemExit("$schema must be a string when provided")
+
+    row_ids: set[str] = set()
+
+    def ensure_row_id(row: dict, context: str) -> None:
+        row_id = row.get("id")
+        if not isinstance(row_id, str) or not row_id:
+            raise SystemExit(f"Row in {context} is missing a string 'id' field")
+        if row_id in row_ids:
+            raise SystemExit(f"Duplicate row id detected: {row_id}")
+        row_ids.add(row_id)
+
+    cookie_rows = data.get("cookie_policy_rows")
+    if not isinstance(cookie_rows, list):
+        raise SystemExit("cookie_policy_rows must be a list")
+    for row in cookie_rows:
+        if not isinstance(row, dict):
+            raise SystemExit("cookie_policy_rows entries must be mappings")
+        ensure_row_id(row, "cookie_policy_rows")
+        policy_path = row.get("policy_path")
+        if policy_path not in POLICY_PATHS:
+            raise SystemExit(f"Unknown policy_path {policy_path!r}")
+        handling = row.get("handling")
+        if not isinstance(handling, str):
+            raise SystemExit(f"Handling must be a string for policy {policy_path}")
+        if not isinstance(row.get("token_ok"), bool):
+            raise SystemExit(f"token_ok must be boolean for policy {policy_path}")
+        if not isinstance(row.get("require_challenge"), bool):
+            raise SystemExit(f"require_challenge must be boolean for policy {policy_path}")
+        notes = row.get("notes", "")
+        if not isinstance(notes, str):
+            raise SystemExit(f"Notes must be a string for policy {policy_path}")
+        row.setdefault("notes", notes)
+        validate_soft_labels(row.get("soft_labels"), policy_path)
+        validate_cookie_presence(row.get("cookie_present"), policy_path)
+        validate_identifier(row.get("identifier"), f"policy {policy_path}")
+        validate_references(row.get("references"), f"policy {policy_path}")
+
+    lifecycle_rows = data.get("cookie_lifecycle_rows")
+    if not isinstance(lifecycle_rows, list):
+        raise SystemExit("cookie_lifecycle_rows must be a list")
+    for row in lifecycle_rows:
+        if not isinstance(row, dict):
+            raise SystemExit("cookie_lifecycle_rows entries must be mappings")
+        ensure_row_id(row, "cookie_lifecycle_rows")
+        flow_trigger = row.get("flow_trigger")
+        if not isinstance(flow_trigger, str):
+            raise SystemExit("flow_trigger must be a string")
+        server_must = row.get("server_must")
+        validate_rich_text(server_must, f"server_must for {flow_trigger}")
+        validate_identifier(row.get("identifier"), f"lifecycle {flow_trigger}")
+        notes = row.get("notes", "")
+        if not isinstance(notes, str):
+            raise SystemExit(f"Notes must be a string for lifecycle {flow_trigger}")
+        row.setdefault("notes", notes)
+        validate_references(row.get("references"), f"lifecycle {flow_trigger}")
+
+    summary_rows = data.get("ncid_summary_rows")
+    if not isinstance(summary_rows, list):
+        raise SystemExit("ncid_summary_rows must be a list")
+    for row in summary_rows:
+        if not isinstance(row, dict):
+            raise SystemExit("ncid_summary_rows entries must be mappings")
+        ensure_row_id(row, "ncid_summary_rows")
+        scenario = row.get("scenario")
+        if not isinstance(scenario, str):
+            raise SystemExit("scenario must be a string")
+        validate_identifier(row.get("identifier_outcome"), f"summary {scenario}")
+        validate_rich_text(row.get("required_action"), f"required_action for {scenario}")
+        canonical = row.get("canonical_section")
+        if not isinstance(canonical, dict):
+            raise SystemExit(f"canonical_section must be a mapping for summary {scenario}")
+        anchor = canonical.get("anchor")
+        label = canonical.get("label")
+        if not isinstance(anchor, str) or not anchor:
+            raise SystemExit(f"canonical_section.anchor must be a non-empty string for {scenario}")
+        if anchor.startswith("#"):
+            raise SystemExit(f"canonical_section.anchor must not include '#': {anchor}")
+        if not isinstance(label, str) or not label:
+            raise SystemExit(f"canonical_section.label must be a non-empty string for {scenario}")
+
+
+def validate_soft_labels(value: Any, context: str) -> None:
+    if not isinstance(value, dict):
+        raise SystemExit(f"soft_labels must be a mapping for {context}")
+    kind = value.get("kind")
+    if kind not in SOFT_LABEL_KINDS:
+        raise SystemExit(f"Unknown soft label kind {kind!r} for {context}")
+    if kind == "labels":
+        labels = value.get("values")
+        if not isinstance(labels, list) or not labels:
+            raise SystemExit(f"soft_labels.values must be a non-empty list for {context}")
+        for label in labels:
+            if label not in SOFT_LABEL_VALUES:
+                raise SystemExit(f"Unsupported soft label {label!r} for {context}")
+    elif kind == "conditional":
+        detail = value.get("detail")
+        if detail is not None and not isinstance(detail, str):
+            raise SystemExit(f"soft_labels.detail must be a string for {context}")
+
+
+def validate_cookie_presence(value: Any, context: str) -> None:
+    if not isinstance(value, dict):
+        raise SystemExit(f"cookie_present must be a mapping for {context}")
+    condition = value.get("condition")
+    if condition not in COOKIE_PRESENT_CONDITIONS:
+        raise SystemExit(f"Unknown cookie_present condition {condition!r} for {context}")
+    notes = value.get("notes")
+    if notes is not None and not isinstance(notes, str):
+        raise SystemExit(f"cookie_present.notes must be a string for {context}")
+
+
+def validate_identifier(value: Any, context: str) -> None:
+    if not isinstance(value, dict):
+        raise SystemExit(f"identifier must be a mapping for {context}")
+    kind = value.get("kind")
+    if kind not in IDENTIFIER_KINDS:
+        raise SystemExit(f"Unknown identifier kind {kind!r} for {context}")
+    label = value.get("label")
+    if label is not None and not isinstance(label, str):
+        raise SystemExit(f"identifier.label must be a string for {context}")
+    text = value.get("text")
+    if text is not None and not isinstance(text, str):
+        raise SystemExit(f"identifier.text must be a string for {context}")
+    trailing = value.get("trailing_text")
+    if trailing is not None and not isinstance(trailing, str):
+        raise SystemExit(f"identifier.trailing_text must be a string for {context}")
+    code = value.get("code")
+    if code is not None:
+        if not isinstance(code, dict):
+            raise SystemExit(f"identifier.code must be a mapping for {context}")
+        code_value = code.get("value")
+        if not isinstance(code_value, str) or not code_value:
+            raise SystemExit(f"identifier.code.value must be a non-empty string for {context}")
+        for key in ("prefix", "suffix"):
+            if key in code and not isinstance(code[key], str):
+                raise SystemExit(f"identifier.code.{key} must be a string for {context}")
+    details = value.get("details")
+    if details is not None:
+        if not isinstance(details, list):
+            raise SystemExit(f"identifier.details must be a list for {context}")
+        for detail in details:
+            if not isinstance(detail, dict):
+                raise SystemExit(f"identifier detail must be a mapping for {context}")
+            style = detail.get("style")
+            if style not in DETAIL_STYLES:
+                raise SystemExit(f"Unknown identifier detail style {style!r} for {context}")
+            detail_value = detail.get("value")
+            if not isinstance(detail_value, str):
+                raise SystemExit(f"identifier detail value must be a string for {context}")
+
+
+def validate_rich_text(value: Any, context: str) -> None:
+    if isinstance(value, list):
+        if not value:
+            raise SystemExit(f"{context} must not be an empty list")
+        for segment in value:
+            if not isinstance(segment, dict):
+                raise SystemExit(f"{context} segments must be mappings")
+            kind = segment.get("type")
+            if kind not in RICH_TEXT_TYPES:
+                raise SystemExit(f"Unknown rich-text segment type {kind!r} in {context}")
+            if kind == "text":
+                if not isinstance(segment.get("value"), str):
+                    raise SystemExit(f"Text segment value must be a string in {context}")
+            else:
+                label = segment.get("label")
+                anchor = segment.get("anchor")
+                if not isinstance(label, str) or not label:
+                    raise SystemExit(f"Link label must be a non-empty string in {context}")
+                if not isinstance(anchor, str) or not anchor:
+                    raise SystemExit(f"Link anchor must be a non-empty string in {context}")
+                if anchor.startswith("#"):
+                    raise SystemExit(f"Link anchor must not include '#': {anchor}")
+    elif not isinstance(value, str):
+        raise SystemExit(f"{context} must be a string or a list of segments")
+
+
+def validate_references(value: Any, context: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, list):
+        raise SystemExit(f"references must be a list for {context}")
+    for anchor in value:
+        if not isinstance(anchor, str) or not anchor:
+            raise SystemExit(f"references must contain non-empty strings for {context}")
+        if anchor.startswith("#"):
+            raise SystemExit(f"references must omit leading '#': {anchor}")
+
+
+def format_inline_code(value: str) -> str:
+    return f"`{value}`"
+
+
+def format_bool(value: bool) -> str:
+    return f"`{str(value).lower()}`"
+
+
+def format_soft_labels(data: dict) -> str:
+    kind = data["kind"]
+    if kind == "none":
+        return "—"
+    if kind == "labels":
+        values = data.get("values", [])
+        formatted = [format_inline_code(label) for label in values]
+        return ", ".join(formatted) if formatted else "—"
+    detail = data.get("detail")
+    if detail:
+        return f"Conditional ({detail})"
+    return "Conditional"
+
+
+def format_cookie_present(data: dict) -> str:
+    base_map = {
+        "per_request_valid_header": "Per request; true only when a syntactically valid cookie header was present on this POST.",
+        "valid_header_without_record": "False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record.",
+        "record_missing_only": "False when the cookie was absent/malformed; true when only the record was missing/expired.",
+    }
+    base = base_map[data["condition"]]
+    notes = data.get("notes")
+    if notes:
+        base = f"{base} {notes}"
+    return base
+
+
+def format_code(code: dict) -> str:
+    prefix = code.get("prefix", "")
+    value = code["value"]
+    suffix = code.get("suffix", "")
+    return f"`{prefix}{value}{suffix}`"
+
+
+def format_identifier(identifier: dict) -> str:
+    text = identifier.get("text")
+    label = identifier.get("label")
+    code = identifier.get("code")
+    trailing = identifier.get("trailing_text", "")
+    parts: list[str] = []
+    if text:
+        result = text
+    else:
+        if label:
+            parts.append(label)
+        code_text = format_code(code) if code else ""
+        if code_text:
+            parts.append(code_text)
+        result = " ".join(part for part in parts if part)
+    details = identifier.get("details") or []
+    if details:
+        detail_parts = []
+        for detail in details:
+            style = detail["style"]
+            value = detail["value"]
+            detail_parts.append(f"`{value}`" if style == "code" else value)
+        detail_text = ", ".join(detail_parts)
+        if result:
+            result = f"{result} ({detail_text})"
+        else:
+            result = f"({detail_text})"
+    if trailing:
+        result = f"{result}{trailing}"
+    return result
+
+
+def format_rich_text(value: Any) -> str:
+    if isinstance(value, list):
+        rendered: list[str] = []
+        for segment in value:
+            if segment["type"] == "text":
+                rendered.append(segment["value"])
+            else:
+                rendered.append(f"[{segment['label']}](#{segment['anchor']})")
+        return "".join(rendered)
+    return value
+
+
+def format_link(link: dict) -> str:
+    return f"[{link['label']}](#{link['anchor']})"
+
+
+def format_cookie_policy_rows(rows: list[dict]) -> list[dict[str, str]]:
+    formatted = []
+    for row in rows:
+        formatted.append(
+            {
+                "policy_path": format_inline_code(row["policy_path"]),
+                "handling": row["handling"],
+                "token_ok": format_bool(row["token_ok"]),
+                "soft_labels": format_soft_labels(row["soft_labels"]),
+                "require_challenge": format_bool(row["require_challenge"]),
+                "identifier": format_identifier(row["identifier"]),
+                "cookie_present": format_cookie_present(row["cookie_present"]),
+                "notes": row.get("notes", ""),
+            }
+        )
+    return formatted
+
+
+def format_cookie_lifecycle_rows(rows: list[dict]) -> list[dict[str, str]]:
+    formatted = []
+    for row in rows:
+        formatted.append(
+            {
+                "flow_trigger": row["flow_trigger"],
+                "server_must": format_rich_text(row["server_must"]),
+                "identifier": format_identifier(row["identifier"]),
+                "notes": row.get("notes", ""),
+            }
+        )
+    return formatted
+
+
+def format_ncid_summary_rows(rows: list[dict]) -> list[dict[str, str]]:
+    formatted = []
+    for row in rows:
+        formatted.append(
+            {
+                "scenario": row["scenario"],
+                "identifier_outcome": format_identifier(row["identifier_outcome"]),
+                "required_action": format_rich_text(row["required_action"]),
+                "canonical_section": format_link(row["canonical_section"]),
+            }
+        )
+    return formatted
+
 
 TABLE_CONFIGS = [
     {
@@ -25,6 +384,7 @@ TABLE_CONFIGS = [
             ("identifier", "Identifier outcome"),
             ("notes", "Notes"),
         ],
+        "formatter": format_cookie_lifecycle_rows,
     },
     {
         "name": "cookie-policy-matrix",
@@ -42,6 +402,7 @@ TABLE_CONFIGS = [
             ("identifier", "Identifier returned"),
             ("cookie_present", "`cookie_present?`"),
         ],
+        "formatter": format_cookie_policy_rows,
     },
     {
         "name": "cookie-ncid-summary",
@@ -56,37 +417,22 @@ TABLE_CONFIGS = [
             ("required_action", "Required action"),
             ("canonical_section", "Canonical section"),
         ],
+        "formatter": format_ncid_summary_rows,
     },
 ]
 
 
-def load_data() -> dict:
-    if not DATA_PATH.exists():
-        raise SystemExit(f"Missing data file: {DATA_PATH}")
-    return yaml.safe_load(DATA_PATH.read_text(encoding="utf-8"))
-
-
 def ensure_references(data: dict, spec_text: str) -> None:
     """Basic smoke checks tying rows back to anchors and flows."""
-    anchors_required = set()
 
-    # Collect anchors directly referenced in the doc to confirm they exist.
     def check_anchor(anchor: str, context: str) -> None:
-        if anchor.startswith("#"):
-            target = anchor[1:]
-            patterns = [
-                anchor,
-                f"(#{target})",
-                f"id=\"{target}\"",
-            ]
-        else:
-            patterns = [anchor]
+        target = anchor[1:] if anchor.startswith("#") else anchor
+        patterns = [anchor, f"(#{target})", f'id="{target}"']
         if not any(token in spec_text for token in patterns):
             raise SystemExit(f"Anchor {anchor} referenced by {context} not found in spec")
 
-    # Cookie policy rows must cover the canonical policy paths and surface NCID usage.
     policy_rows = data.get("cookie_policy_rows", [])
-    expected_policies = {"`hard`", "`soft`", "`off`", "`challenge`"}
+    expected_policies = POLICY_PATHS
     actual_policies = {row["policy_path"] for row in policy_rows}
     if actual_policies != expected_policies:
         missing = expected_policies - actual_policies
@@ -97,18 +443,21 @@ def ensure_references(data: dict, spec_text: str) -> None:
         if extra:
             details.append(f"unexpected {sorted(extra)}")
         raise SystemExit(f"Cookie policy rows mismatch: {', '.join(details)}")
-    for row in policy_rows:
-        for anchor in row.get("references", []):
-            anchors_required.add((anchor, f"policy {row['policy_path']}") )
-        # Minimal semantic guardrails to keep data-first narrative intact.
-        if row["policy_path"] == "`hard`" and "nc-" in row["identifier"]:
-            raise SystemExit("Hard policy must not mint NCIDs")
-        if row["policy_path"] != "`hard`" and "nc-" not in row["identifier"]:
-            raise SystemExit(f"Policy {row['policy_path']} must reference NCID outcome")
-        if row["policy_path"] == "`challenge`" and "`true`" not in row["require_challenge"]:
-            raise SystemExit("Challenge policy must require challenge")
 
-    # Lifecycle rows: ensure coverage for nominal flows.
+    anchors_required: list[tuple[str, str]] = []
+
+    for row in policy_rows:
+        policy = row["policy_path"]
+        identifier_kind = row["identifier"]["kind"]
+        if policy == "hard" and identifier_kind == "ncid":
+            raise SystemExit("Hard policy must not mint NCIDs")
+        if policy != "hard" and identifier_kind != "ncid":
+            raise SystemExit(f"Policy {policy} must reference NCID outcome")
+        if policy == "challenge" and not row["require_challenge"]:
+            raise SystemExit("Challenge policy must require challenge")
+        for anchor in row.get("references", []):
+            anchors_required.append((f"#{anchor}", f"policy {policy}"))
+
     lifecycle_rows = data.get("cookie_lifecycle_rows", [])
     lifecycle_map = {row["flow_trigger"]: row for row in lifecycle_rows}
     lifecycle_sequences = [
@@ -126,22 +475,33 @@ def ensure_references(data: dict, spec_text: str) -> None:
     missing_triggers = set(lifecycle_map) - covered
     if missing_triggers:
         raise SystemExit(f"Lifecycle rows not exercised by smoke flows: {sorted(missing_triggers)}")
-    for row in lifecycle_rows:
-        for anchor in row.get("references", []):
-            anchors_required.add((anchor, f"lifecycle {row['flow_trigger']}") )
 
-    # Summary rows: ensure canonical anchors exist.
+    for row in lifecycle_rows:
+        flow = row["flow_trigger"]
+        for anchor in row.get("references", []):
+            anchors_required.append((f"#{anchor}", f"lifecycle {flow}"))
+        for anchor in extract_rich_text_anchors(row.get("server_must")):
+            anchors_required.append((anchor, f"server_must {flow}"))
+
     for row in data.get("ncid_summary_rows", []):
-        canonical = row.get("canonical_section", "")
-        if "(#" in canonical:
-            anchor = canonical.split("(#", 1)[1].split(")", 1)[0]
-            anchors_required.add((f"#{anchor}", f"summary {row['scenario']}") )
+        scenario = row["scenario"]
+        canonical_anchor = row["canonical_section"]["anchor"]
+        anchors_required.append((f"#{canonical_anchor}", f"summary {scenario}"))
+        for anchor in extract_rich_text_anchors(row.get("required_action")):
+            anchors_required.append((anchor, f"required_action {scenario}"))
 
     for anchor, context in anchors_required:
         check_anchor(anchor, context)
 
 
-def render_table(config: dict, rows: list[dict]) -> list[str]:
+def extract_rich_text_anchors(value: Any) -> Iterable[str]:
+    if isinstance(value, list):
+        for segment in value:
+            if segment.get("type") == "link":
+                yield f"#{segment['anchor']}"
+
+
+def render_table(config: dict, rows: list[dict[str, str]]) -> list[str]:
     lines = [config["header"], config["separator"]]
     column_order = [field for field, _ in config["columns"]]
     for row in rows:
@@ -163,7 +523,8 @@ def integrate_tables(data: dict, *, check: bool) -> bool:
     updated = lines[:]
 
     for config in TABLE_CONFIGS:
-        rows = data[config["data_key"]]
+        raw_rows = data[config["data_key"]]
+        rows = config["formatter"](raw_rows)
         rendered_block = render_table(config, rows)
         indent = " " * config["indent"]
         pointer_line = indent + POINTER_TEXT
@@ -171,7 +532,6 @@ def integrate_tables(data: dict, *, check: bool) -> bool:
         end_marker = indent + f"<!-- END GENERATED: {config['name']} -->"
 
         if begin_marker in spec_text:
-            # Replace from pointer line through end marker.
             start_idx = None
             end_idx = None
             for idx, line in enumerate(updated):
@@ -186,9 +546,8 @@ def integrate_tables(data: dict, *, check: bool) -> bool:
                     break
             if end_idx is None:
                 raise SystemExit(f"End marker for {config['name']} not found")
-            end_idx += 1  # include end marker line
+            end_idx += 1
         else:
-            # Locate the original table using the header token.
             header_token = config["header_token"].strip()
             start_idx = None
             for idx, line in enumerate(updated):

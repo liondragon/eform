@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import generate_spec_sections as spec_sections
+
 ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = ROOT / "docs" / "electronic_forms_SPEC.md"
 
@@ -13,6 +15,36 @@ TARGET_ANCHORS = [
     "sec-cookie-lifecycle-matrix",
     "sec-cookie-ncid-summary",
 ]
+EXPECTED_ROW_IDS = {
+    "cookie_policy_rows": {
+        "cookie-policy-hard",
+        "cookie-policy-soft",
+        "cookie-policy-off",
+        "cookie-policy-challenge",
+    },
+    "cookie_lifecycle_rows": {
+        "cookie-lifecycle-get-slotless",
+        "cookie-lifecycle-get-slotted",
+        "cookie-lifecycle-prime",
+        "cookie-lifecycle-slots-disabled-global",
+        "cookie-lifecycle-post-slotless",
+        "cookie-lifecycle-post-slotted",
+        "cookie-lifecycle-error-rerender",
+        "cookie-lifecycle-challenge-rerender",
+        "cookie-lifecycle-challenge-success",
+    },
+    "ncid_summary_rows": {
+        "ncid-summary-hidden-valid",
+        "ncid-summary-hidden-missing",
+        "ncid-summary-policy-hard",
+        "ncid-summary-policy-soft",
+        "ncid-summary-policy-off",
+        "ncid-summary-policy-challenge",
+        "ncid-summary-challenge-rerender",
+        "ncid-summary-challenge-success",
+        "ncid-summary-success-handoff",
+    },
+}
 TABLE_HEADERS = {
     "sec-cookie-policy-matrix": "| Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |",
     "sec-cookie-lifecycle-matrix": "| Flow trigger | Server MUST | Identifier outcome | Notes |",
@@ -80,9 +112,34 @@ def ensure_tables_within_section(lines: list[str]) -> list[str]:
     return errors
 
 
+def validate_security_data() -> list[str]:
+    errors: list[str] = []
+    try:
+        data = spec_sections.load_data()
+    except SystemExit as exc:  # surface schema issues as lint failures
+        errors.append(str(exc))
+        return errors
+
+    for key, expected in EXPECTED_ROW_IDS.items():
+        rows = data.get(key, [])
+        actual = {row.get("id") for row in rows}
+        missing = expected - actual
+        extra = actual - expected
+        if missing:
+            errors.append(
+                f"{key} missing row ids: {', '.join(sorted(missing))}"
+            )
+        if extra:
+            errors.append(
+                f"{key} contains unknown row ids: {', '.join(sorted(extra))}"
+            )
+    return errors
+
+
 def main() -> int:
     lines = read_spec()
     errors = []
+    errors.extend(validate_security_data())
     errors.extend(ensure_tables_within_section(lines))
 
     if errors:
