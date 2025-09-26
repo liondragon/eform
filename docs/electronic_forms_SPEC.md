@@ -106,22 +106,22 @@ electronic_forms - Spec
 
 ### 5.1 Field descriptors and namespacing {#sec-template-model-fields}
 > **Contract — TemplateValidator::validate_fields**
-> - Inputs:
+>	- Inputs:
 >	- Template field entries may declare `key`, `type`, `label?`, `placeholder?`, `required?`, `size?` (text-like only: `text`, `tel`, `url`, `email`), `autocomplete?`, `options?` (for radios/checkboxes/select), `class?`, `max_length?`, `min?`, `max?`, `step?`, `pattern?`, `before_html?`, and `after_html?`.
 >	- Each entry MUST include a `key` slug matching `/^[a-z0-9_-]{1,64}$/` (lowercase). Square brackets are prohibited to prevent PHP array collisions, and reserved keys remain disallowed.
 >	- `autocomplete` accepts exactly one token: `on`, `off`, or a WHATWG token such as `name`, `given-name`, `family-name`, `email`, `tel`, `postal-code`, `street-address`, `address-line1`, `address-line2`, or `organization`.
 >	- `size` ranges from 1–100 and only applies to text-like controls.
-> - Side-effects:
+>	- Side-effects:
 >	- TemplateValidator sanitizes `before_html` and `after_html` via `wp_kses_post`; the sanitized string becomes canonical, inline styles are forbidden, and fragments may not cross `row_group` boundaries.
 >	- Invalid `autocomplete` tokens are dropped during normalization, template-provided classes are preserved verbatim, and per-field upload overrides are merged into descriptor metadata.
 >	- TemplateValidator enforces the reserved-key list so authors cannot collide with `form_id`, `instance_id`, `submission_id`, `eforms_token`, `eforms_hp`, `eforms_mode`, `eforms_slot`, `timestamp`, `js_ok`, `ip`, or `submitted_at`.
-> - Returns:
+>	- Returns:
 >	- `FormRenderer` emits `<form class="eforms-form eforms-form-{form_id}">` with `eforms_mode` metadata and delegates hidden/cookie security fields to [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection).
 >	- Renderer-generated attributes follow the table below so markup mirrors validator bounds and deterministic slot metadata.
 >	- `include_fields` may reference template keys plus the meta keys `ip`, `submitted_at`, `form_id`, `instance_id` (hidden mode only), `submission_id`, and `slot` (email/logs only).
 >	- Upload descriptors (`type=file|files`) may override `accept[]`, `max_file_bytes`, `max_files` (for `files`), and `email_attach` (bool); overrides shadow global defaults without relaxing enforcement.
 >	- Client-side hints (inputmode, pattern, accept tokens, `enterkeyhint`) follow the descriptor defaults summarized in the hint table below.
-> - Failure modes:
+>	- Failure modes:
 >	- Slugs outside the allowed regex, duplicate keys, or reserved names produce deterministic TemplateValidator schema errors (e.g., `EFORMS_ERR_SCHEMA_DUP_KEY`, `EFORMS_ERR_SCHEMA_KEY`), preventing render.
 >	- HTML fragments that attempt inline styles or cross `row_group` boundaries are rejected during structural preflight.
 >	- Upload overrides whose `accept[]` tokens fall outside the global allow-list fail validation, triggering `EFORMS_ERR_ACCEPT_EMPTY` per [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens).
@@ -148,87 +148,87 @@ electronic_forms - Spec
 
 ### 5.2 Row groups (structured wrappers) {#sec-template-row-groups}
 > **Contract — TemplateValidator::validate_row_groups**
-> - Inputs:
+>	- Inputs:
 >	- Pseudo-fields use `type:"row_group"` with `{ mode:"start"|"end", tag:"div"|"section" (default `div`), class? }`.
 >	- Row-group objects omit `key`, carry no submission data, and may be nested.
-> - Side-effects:
+>	- Side-effects:
 >	- `FormRenderer` adds a base wrapper class (for example `eforms-row`) to each emitted group and maintains a stack so dangling opens are auto-closed at form end to keep the DOM valid.
 >	- TemplateValidator enforces `additionalProperties:false` for row-group objects to block unexpected keys.
-> - Returns:
+>	- Returns:
 >	- Row groups never count toward `validation.max_fields_per_form` and exist purely to organize markup.
-> - Failure modes:
+>	- Failure modes:
 >	- An unbalanced stack at EOF emits a single global config error `EFORMS_ERR_ROW_GROUP_UNBALANCED`; stray `end` entries with an empty stack are ignored and logged.
 
 ### 5.3 Template JSON {#sec-template-json}
 > **Contract — TemplateValidator::validate_template_envelope**
-> - Inputs:
+>	- Inputs:
 >	- Templates live in `/templates/forms/` with filenames matching `/^[a-z0-9-]+\.json$/`.
 >	- Authors may include a design-time schema pointer (recommended) using a stable URL or absolute path (avoid hard-coded `/wp-content/plugins/...` paths).
-> - Side-effects:
+>	- Side-effects:
 >	- None beyond normalization; runtime loads files lazily and never modifies them in place.
-> - Returns:
+>	- Returns:
 >	- Minimal shape includes `id` (slug), `version` (string), `title` (string), `success { mode:"inline"|"redirect", redirect_url?, message? }`, `email { to, subject, email_template, include_fields[], display_format_tel? }`, `fields[]` (see §5.1), `submit_button_text` (string), and bounded JSON `rules[]` (see §10).
-> - Failure modes:
+>	- Failure modes:
 >	- Filenames outside the allow-list are ignored. Malformed or incomplete JSON triggers a deterministic “Form configuration error” without a white screen.
 
 ### 5.4 display_format_tel tokens {#sec-display-format-tel}
 > **Contract — TemplateValidator::validate_display_format_tel**
-> - Inputs:
+>	- Inputs:
 >	- `email.display_format_tel` selects the formatting token applied to telephone values in email summaries.
-> - Side-effects:
+>	- Side-effects:
 >	- TemplateValidator enforces the enumerated list and retains the sanitized token in the TemplateContext.
-> - Returns:
+>	- Returns:
 >	- Allowed values: `"xxx-xxx-xxxx"` (default), `"(xxx) xxx-xxxx"`, and `"xxx.xxx.xxxx"`.
-> - Failure modes:
+>	- Failure modes:
 >	- Unknown tokens are flagged during preflight and revert to the default presentation at runtime.
 
 ### 5.5 Options shape {#sec-template-options}
 > **Contract — TemplateValidator::validate_field_options**
-> - Inputs:
+>	- Inputs:
 >	- `options` arrays contain objects `{ key, label, disabled? }` for radios, checkboxes, and selects.
-> - Side-effects:
+>	- Side-effects:
 >	- TemplateValidator ensures each option object matches the declared shape and preserves author-supplied ordering.
-> - Returns:
+>	- Returns:
 >	- Stored submission values equal the option `key`; `label` exists only for rendering.
-> - Failure modes:
+>	- Failure modes:
 >	- Options marked `disabled:true` MUST NOT be submitted; selecting one produces a validation error. Malformed option objects raise `EFORMS_ERR_SCHEMA_OBJECT`.
 
 ### 5.6 Versioning & cache keys {#sec-template-versioning}
 > **Contract — TemplateContext::normalize_version**
-> - Inputs:
+>	- Inputs:
 >	- Templates SHOULD provide an explicit `version` string; when omitted, runtime falls back to `filemtime()`.
-> - Side-effects:
+>	- Side-effects:
 >	- Version strings feed cache keys used by TemplateContext consumers; changes force downstream caches to invalidate.
-> - Returns:
+>	- Returns:
 >	- The normalized version value is stored in TemplateContext and mirrored into success/logging metadata.
-> - Failure modes:
+>	- Failure modes:
 >	- None; omission simply relies on `filemtime()` which may cache-bust less predictably.
 
 ### 5.7 Validation (design-time vs. runtime) {#sec-template-validation}
 > **Contract — SubmitHandler::validate_template_lifecycle**
-> - Inputs:
+>	- Inputs:
 >	- Runtime evaluation uses two phases: `(0)` structural preflight via `TemplateValidator`, then `(1)` normalize → validate → coerce via `Validator`.
 >	- `/schema/template.schema.json` exists for CI/docs only and is mechanically derived from `TEMPLATE_SPEC`.
-> - Side-effects:
+>	- Side-effects:
 >	- TemplateValidator rejects unknown keys, enum violations, malformed rule objects, and reports deterministic error codes.
 >	- CI MUST validate `/templates/forms/*.json` against the schema and assert parity with the PHP `TEMPLATE_SPEC` so dual sources do not drift.
-> - Returns:
+>	- Returns:
 >	- On failure, runtime surfaces a clear “Form configuration error” while continuing to render a fallback UX (no WSOD). Successful normalization yields canonical field arrays reused by Renderer, Security, and Validator.
-> - Failure modes:
+>	- Failure modes:
 >	- Unknown rule values or malformed JSON raise deterministic schema errors. File/file descriptors whose `accept[]` intersection with the global allow-list is empty trigger `EFORMS_ERR_ACCEPT_EMPTY`. Invalid `email.display_format_tel` tokens are flagged here and dropped before runtime use.
 
 ### 5.8 TemplateContext (internal) {#sec-template-context}
 > **Contract — TemplateContext::build**
-> - Inputs:
+>	- Inputs:
 >	- `TemplateValidator` resolves descriptors from `TEMPLATE_SPEC`, reading handler IDs (`validator_id`, `normalizer_id`, `renderer_id`), HTML traits, validation ranges, constants, and optional `alias_of` metadata.
 >	- Handler registries are private to their owning classes (see [Central Registries (Internal Only) (§6)](#sec-central-registries)) and expose `resolve()` helpers for deterministic lookup.
-> - Side-effects:
+>	- Side-effects:
 >	- Descriptor resolution is fail-fast: unknown handler IDs throw a deterministic `RuntimeException` containing `{ type, id, registry, spec_path }`, which CI surfaces immediately.
 >	- Alias hygiene runs during preflight, asserting that aliases share handler IDs with their target; violations fail CI.
-> - Returns:
+>	- Returns:
 >	- TemplateContext exposes `has_uploads` (bool), `descriptors[]` (resolved field descriptors), `version`, `id`, `email`, `success`, `rules`, normalized `fields`, and `max_input_vars_estimate` (advisory).
 >	- Each resolved descriptor includes `{ key, type, is_multivalue, name_tpl, id_prefix, html, validate, constants, attr_mirror, handlers: { v, n, r } }` and remains immutable for the request. Renderer and Validator reuse the same descriptor objects to avoid re-merging during POST.
-> - Failure modes:
+>	- Failure modes:
 >	- Attempting to resolve unknown handlers, mutate descriptors post-preflight, or violate alias invariants aborts template loading and is treated as a configuration error surfaced during CI or first render.
 
 <a id="sec-central-registries"></a>
@@ -300,6 +300,15 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 - **What:** `Security::token_validate()` evaluates submission tokens, cookie presence, NCIDs, slots, throttle/origin policy, and challenge requirements.
 - **Why:** Centralizing the gate keeps matrices authoritative per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality): the function outputs `{ token_ok, hard_fail, require_challenge, submission_id, slot?, cookie_present?, is_ncid?, soft_reasons[] }` so entry points avoid bespoke policy forks.
 - **How:** `SubmitHandler::handle()` (and challenge verifiers) consume the returned struct directly, interpreting cookie/NCID outcomes per the embedded status without additional database reads. Cookie-mode rerenders rely on `require_challenge` and `soft_reasons` to select challenge templates while preserving the minted record.
+> **Contract — Security::token_validate**
+>	- Inputs:
+>	- POST payload (`$_POST`), request cookies, and mode metadata emitted by Renderer. Reads the frozen configuration snapshot (`security.*`, `challenge.*`, `privacy.*`, `throttle.*`) and the persisted hidden-token/cookie records.
+>	- Side-effects:
+>	- None. The helper performs read-only lookups (filesystem reads, config access) and never mutates persisted records or headers.
+>	- Returns:
+>	- Structured result `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons[] }` consistent with [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix), [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix), and [NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid). `cookie_present?` reports syntactic cookie presence even when the record is missing.
+>	- Failure modes:
+>	- Hard tamper/expiry paths return `hard_fail=true`, `token_ok=false`, `require_challenge=false`, `is_ncid=false`, `submission_id=null`, and an empty `soft_reasons[]`; callers MUST abort before ledger reservation. IO/read errors bubble as hard failures. Challenge-required paths set `require_challenge=true` without mutating storage.
 
 ##### Challenge (conditional)
 - **What:** When `require_challenge=true`, cookie-mode rerenders must clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted record is reissued; NCID rerenders perform the same clear+prime even without challenge.
@@ -352,11 +361,17 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 				- Hidden-mode challenge never rotates the hidden token before success; the token/instance/timestamp trio is reused across rerenders until success or expiry.
 
 <a id="sec-hidden-mode"></a>2. Hidden-mode contract
-- **Minting helper (authority; see [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality))**:
-			- `Security::mint_hidden_record(form_id)`:
-				- Returns `{ token: UUIDv4, instance_id: base64url(16–24 bytes), issued_at: unix, expires: issued_at + security.token_ttl_seconds }`.
-				- Writes JSON record at `tokens/{h2}/{sha256(token)}.json` with `{ mode:"hidden", form_id, instance_id, issued_at, expires }` (never rewritten on rerender).
-			- `FormRenderer` must embed the returned `token`, `instance_id`, and `issued_at` (as `timestamp`) in HTML and **must not** generate or alter them (see [Security invariants (§7.1.2)](#sec-security-invariants)).
+> **Contract — Security::mint_hidden_record**
+>	- Inputs:
+>	- `form_id` (slug). Callers MUST invoke `Config::get()` first; the helper also calls it defensively so the snapshot and `security.token_ttl_seconds` are available.
+>	- Side-effects:
+>	- Atomically write `tokens/{h2}/{sha256(token)}.json` with `{ mode:"hidden", form_id, instance_id, issued_at, expires }`, using shared lifecycle sharding (`{h2}`) and permissions from [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
+>	- Persisted records never rewrite on rerender.
+>	- Returns:
+>	- `{ token: UUIDv4, instance_id: base64url(16–24 bytes), issued_at: unix, expires: issued_at + security.token_ttl_seconds }`.
+>	- Failure modes:
+>	- Propagate filesystem errors (create/write/fsync) to the caller as hard failures; helpers never swallow IO issues.
+- `FormRenderer` must embed the returned `token`, `instance_id`, and `issued_at` (as `timestamp`) in HTML and **must not** generate or alter them (see [Security invariants (§7.1.2)](#sec-security-invariants)).
 		- Markup: GET renders emit a CSPRNG `instance_id` (16–24 bytes → base64url `^[A-Za-z0-9_-]{22,32}$`), the persisted `timestamp`, and `<input type="hidden" name="eforms_token" value="…">` whose UUID matches `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Rerenders MUST reuse the exact `{token, instance_id, timestamp}` trio and send `Cache-Control: private, no-store`.
 		- Persisted record (`tokens/{h2}/{sha256(token)}.json`):
 			| Field		| Notes |
@@ -381,15 +396,16 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
 			- Dependencies: This contract assumes the shared requirements in [Security invariants (§7.1.2)](#sec-security-invariants) and the rerender rules in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender); the sub-blocks below call out cookie-mode specifics.
-			- **Minting helper (authority)**
-					- On first use, the helper MUST call `Config::get()` so the shared configuration snapshot is bootstrapped per [Security invariants (§7.1.2)](#sec-security-invariants) and [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).
-					- `Security::mint_cookie_record(form_id, slot?)` returns `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }` and never emits `Set-Cookie`.
-					- Status semantics (normative): `miss` when no record existed, `expired` when the persisted record was stale and got replaced, `hit` when an unexpired record already existed; all paths return the canonical record payload.
-					- Status output does not account for whether the request carried an unexpired cookie; `/eforms/prime` MUST obey [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) when emitting `Set-Cookie`, including sending it on cookie-less hits even when `status === "hit"`.
-					- Expired status (normative): `expired` iff `now >= record.expires`; helpers never refresh `issued_at`/`expires` on `hit`.
-- Persistence (normative): On `miss`/`expired`, persist `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`; on `hit`, leave the record untouched. All writes MUST follow the shared lifecycle contract: create `{h2}` directories with `0700` permissions and atomically write `0600` files per [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
-					- Record fields (normative): on `miss` and `expired`, the minted record starts with `slots_allowed:[]` and `slot:null`; on `hit`, return the persisted values as-is (possibly with non-empty `slots_allowed` and a derived `slot` written by `/eforms/prime`).
-					- Slot argument handling (normative): Validate the optional `slot?` against the allowed set (int 1–255 and configured allow-list). Invalid or disabled ⇒ treat as `null`. Apart from writing the initial record described above, the helper MUST NOT persist or union slot observations; it MAY normalize the argument for logging/metrics only. `/eforms/prime` alone loads the record, unions observed `s`, derives canonical `slot` when `|slots_allowed|==1`, and persists that update atomically.
+> **Contract — Security::mint_cookie_record**
+>	- Inputs:
+>	- `form_id` (slug) plus optional `slot?`. Callers MUST invoke `Config::get()` first; the helper redundantly calls it so the configuration snapshot, TTL, and slot policy are loaded.
+>	- Side-effects:
+>	- On `status in {miss, expired}` atomically write `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed:[], slot:null }` following [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
+>	- On `status === "hit"` leave the persisted record untouched. Helpers never emit `Set-Cookie` and never rewrite `issued_at`/`expires` on reuse.
+>	- Returns:
+>	- `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }`, where `expired` iff `now >= record.expires`. Slot unions remain the responsibility of `/eforms/prime`.
+>	- Failure modes:
+>	- Treat disabled/invalid `slot?` (not in the configured allow-list or outside 1–255) as `null` and continue. Propagate filesystem errors. Status semantics never account for cookie presence; `/eforms/prime` decides whether to emit `Set-Cookie` per [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix).
 - Header boundary (normative): `/eforms/prime` alone emits **positive** `Set-Cookie` (mint/refresh). POST rerenders emit the required deletion header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; HttpOnly; [Secure on HTTPS]`) only for the NCID/challenge rerenders defined below and in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
@@ -479,26 +495,25 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
  				- Definition — Post-success remint = the first `/eforms/prime` call after PRG that observes the missing record and mints a replacement.
 				- Ledger handling follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); HARD FAIL rows above surface `EFORMS_ERR_TOKEN`.
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
-- `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) or an NCID as directed by [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix).
-- Hard policy return: `Security::token_validate()` returns a structured result (it does not throw) with `hard_fail=true`, `token_ok=false`, `require_challenge=false`, `is_ncid=false`, `submission_id=null`, `soft_reasons=[]`, and `cookie_present?` set per the evaluated request. Callers MUST abort before ledger reservation.
+- Validation output follows [Security::token_validate’s contract](#sec-submission-protection): hidden mode returns the token, while cookie mode returns the EID (with slot suffix when present) or an NCID per [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix).
 - NCID post-verification rule: In all NCID flows (including challenge), `token_ok` remains false after verification; verification only clears `require_challenge` and removes the `cookie_missing` soft label. The `submission_id` stays the same NCID.
 - `cookie_present?` (boolean) is ALWAYS present. In cookie-mode validations, it is `true` iff the request carried a cookie named `eforms_eid_{form_id}` whose value matches `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`, regardless of whether a server record exists or is fresh. In hidden-mode validations, implementers MUST NOT consult or parse any `eforms_eid_*` cookie; `cookie_present?` MUST be `false`.
 				- Tampering remains reserved for regex/form/mode/slot violations; those are hard failures routed through [Security invariants (§7.1.2)](#sec-security-invariants).
 - <a id="sec-ncid-contract"></a>Deterministic NCID contract (normative):
-				- <a id="sec-ncid-hidden"></a>Hidden-mode NCID fallback: When `security.submission_token.required=false` and the hidden-token lookup fails (missing/expired/nonexistent record), emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, set `is_ncid=true`, and keep `cookie_present?=false`.
-				- Cookie-mode NCIDs follow the rows for `off`, `soft`, and `challenge` in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix). `hard` never issues an NCID; policy rows already define `token_ok`, `require_challenge`, `cookie_present?`, and soft-label behavior for both absent cookies and stale records.
-				- Deterministic NCID recipe (`Helpers::ncid`, normative):
-								- `canon_body` serialization contract:
-									- Start from the post-coercion canonical array emitted in [Validation & Sanitization Pipeline → Step 4: Coerce (§8)](#sec-validation-pipeline); never re-read raw POST payloads or pre-coercion structures.
-									- Recurse depth-first over the canonical array. Arrays with contiguous integer keys starting at `0` serialize as JSON lists in index order; all other arrays serialize as JSON maps.
-									- For maps, sort keys ascending by their UTF-8 byte sequence before encoding and apply the same recursion to each value.
-									- Scalars are already canonical after Step 4; emit them verbatim (strings remain strings, booleans remain booleans, `null` stays null, and numeric-looking strings MUST NOT be coerced to numbers).
-									- Encode the final structure with `json_encode(..., JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR)` and use the raw UTF-8 bytes (no added whitespace) as `canon_body`.
-								- Inputs: `form_id`, the throttle `client_key` from `Helpers::throttle_key()` (after privacy rules), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
-								- Concatenate `form_id . "\0" . client_key . "\0" . window_idx . "\0" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the ledger identifier.
-								- `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens. When the window rolls forward, mint a fresh NCID (and ledger reservation) automatically.
-				- Canonical soft-reason labels (deduplicated set): `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
-				- Slot metadata from cookie flows is governed by [Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`; slotted submissions embed `slot` in `submission_id` as `eid__slot{n}`.
+> **Contract — Helpers::ncid**
+>	- Inputs:
+>	- `form_id`, the throttle `client_key` from `Helpers::throttle_key()` after privacy rules, the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes) from [Validation & Sanitization Pipeline → Step 4: Coerce (§8)](#sec-validation-pipeline).
+>	- Pure behavior:
+>	- Traverse the canonical array depth-first: contiguous 0-indexed arrays serialize as JSON lists; other arrays serialize as JSON maps with keys sorted ascending by UTF-8 byte sequence. Scalars remain as emitted by Step 4.
+>	- Encode with `json_encode(..., JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR)` and use the raw UTF-8 bytes (no added whitespace) as `canon_body`.
+>	- Returns:
+>	- Ledger identifier `"nc-" . hash('sha256', form_id . "\0" . client_key . "\0" . window_idx . "\0" . canon_body)`. `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe aligns with hidden/cookie TTLs.
+>	- Failure modes:
+>	- Bubble JSON encoding exceptions; callers treat them as hard failures. Helpers::ncid is pure (no IO) and never mutates inputs.
+                                - <a id="sec-ncid-hidden"></a>Hidden-mode NCID fallback: When `security.submission_token.required=false` and the hidden-token lookup fails (missing/expired/nonexistent record), emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, set `is_ncid=true`, and keep `cookie_present?=false`.
+                                - Cookie-mode NCIDs follow the rows for `off`, `soft`, and `challenge` in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix). `hard` never issues an NCID; policy rows already define `token_ok`, `require_challenge`, `cookie_present?`, and soft-label behavior for both absent cookies and stale records.
+                                - Canonical soft-reason labels (deduplicated set): `min_fill`, `js_off`, `ua_missing`, `age_advisory`, `origin_soft`, `token_soft`, `throttle_soft`, `cookie_missing`, `challenge_unconfigured`.
+                                - Slot metadata from cookie flows is governed by [Cookie-mode contract (§7.1.3)](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`; slotted submissions embed `slot` in `submission_id` as `eid__slot{n}`.
 - Identifier pinning (challenge): If the policy path returns an NCID and `require_challenge=true`, that submission MUST continue to use the same NCID as its `submission_id` through verification and success. The reissued cookie header on the rerender is reserved for subsequent submissions and MUST NOT change the identifier mid-flow.
 				- Ledger behavior for NCIDs follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat `EEXIST` as spam, and continue with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based identifier.
 - <a id="sec-ncid-rerender"></a>NCID rerender and challenge lifecycle (normative):
