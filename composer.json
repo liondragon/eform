@@ -10,5 +10,12 @@
         "platform": {
             "php": "8.1"
         }
+    },
+    "scripts": {
+        "spec:lint": "python3 tools/check_cookie_tables.py",
+        "test": [
+            "@spec:lint",
+            "vendor/bin/phpunit -c phpunit.xml.dist --testdox"
+        ]
     }
 }
