@@ -352,8 +352,17 @@ Cookie and NCID matrices in this section are normative; [Appendix 26](#sec-appen
 					| `issued_at` / `expires` | TTL enforced server-side; never rewritten on reuse. |
 					| `slots_allowed` | Deduplicated union of observed slots; only `/eforms/prime` mutates it. Slotless installs keep `[]`. |
 					| `slot` | Derived: set to the single observed slot when and only when `|slots_allowed| == 1`; otherwise `null`. |
-                        - <a id="sec-cookie-lifecycle-matrix"></a>Lifecycle matrix (normative):
-                                        | Flow trigger | Server MUST | Identifier outcome | Notes |
+                       - <a id="sec-cookie-lifecycle-matrix"></a>Lifecycle matrix (normative):
+                                       Each row pairs a lifecycle trigger with the mandatory server reaction, the identifier that
+                                       continues the submission, and the notes that explain why the action is required. GET rows
+                                       describe the deterministic markup that keeps cached renders reusable; POST rows enforce
+                                       slot semantics and the `/eforms/prime` union logic; rerender rows restate the cookie-clear +
+                                       prime pixel requirements so implementers do not have to jump to other sections when wiring
+                                       NCID or challenge flows. When a rerender row says “follow the NCID rerender rules,” delete
+                                       `eforms_eid_{form_id}` with a matching Max-Age=0 Set-Cookie header and embed
+                                       `/eforms/prime?f={form_id}[&s={slot}]` so the persisted record is reissued before the next
+                                       POST without rotating identifiers.
+                                       | Flow trigger | Server MUST | Identifier outcome | Notes |
                                         |--------------|-------------|--------------------|-------|
                                         | GET render (slots disabled) | MUST omit `eforms_slot`; embed `/eforms/prime?f={form_id}` pixel; reuse markup verbatim on rerender. | `eid` rendered without slot suffix. | Slotless deployments omit the `s` query parameter entirely. |
                                         | GET render (slots enabled) | When a slot is assigned, MUST emit deterministic `eforms_slot` and `/eforms/prime?f={form_id}&s={slot}`; slotless surplus renders omit `eforms_slot` and prime without `s`. | `/eforms/prime` unions the slot into `slots_allowed`. | Deterministic assignment depends only on render-time inputs; clients cannot pick slots. |
@@ -364,8 +373,23 @@ Cookie and NCID matrices in this section are normative; [Appendix 26](#sec-appen
                                         | Error rerender after NCID fallback | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | `submission_id` stays pinned to the NCID from that section. | Applies when cookie policies fall back to NCID. |
                                         | Challenge rerender (before verification) | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Same NCID; follow-up GET mints the replacement cookie defined there. | Ensures verification runs with a cookie present while preserving NCID pinning. |
                                         | Challenge success response | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Persisted record reused per that contract. | Applies only to `cookie_missing_policy="challenge"`. |
-                        - <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
-                                        | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
+                       - <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
+                                       The policy rows below define how `Security::token_validate()` interprets a POST when the
+                                       browser lacked a valid cookie or the persisted record expired. Read them left to right:
+                                       pick the configured policy, apply the handling column verbatim, and then consume the
+                                       resulting `{ token_ok, soft_reasons, require_challenge, identifier, cookie_present? }`
+                                       values. `cookie_present?` reports whether the request carried a syntactically valid cookie
+                                       header, independent of record freshness, so tests can assert coverage for both presented and
+                                       absent cookies. The identifier column shows when an NCID replaces the cookie EID; every NCID
+                                       row keeps the submission pinned to that NCID through rerenders, challenge verification, and
+                                       success responses.
+                                       When a row sets `require_challenge=true`, immediately rerender using the NCID rerender
+                                       lifecycle: clear `eforms_eid_{form_id}` with a deletion header that matches the minted
+                                       attributes, embed the `/eforms/prime` pixel so the stored record is reissued before the next
+                                       POST, and keep the NCID as the authoritative `submission_id` until success. The challenge
+                                       success row reiterates that the cookie is reused—no extra rotation occurs after
+                                       verification.
+                                       | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
                                         |-------------|-----------------------------------------------------|-----------|-------------|--------------------|--------------------|-------------------|
                                         | `hard` | Reject with `EFORMS_ERR_TOKEN`. Return the structured result and abort before ledger reservation. | `false` | — | `false` | none (`submission_id=null`) | Per request; true only when a syntactically valid cookie header was present on this POST. |
                                         | `soft` | Continue via NCID; treat tampering separately; add `cookie_missing`. | `false` | `cookie_missing` | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
