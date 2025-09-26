@@ -330,33 +330,32 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 			- Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”); soft paths retain the original record for deterministic retries.
 
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
-			- **Minting helper (authority)**:
-				- `Security::mint_cookie_record(form_id, slot?)`:
-					- Returns `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }`.
-					- Status semantics (normative): `miss` when no record existed, `expired` when the persisted record was stale and got replaced, `hit` when an unexpired record already existed; all cases return the canonical record payload.
+			- Dependencies: This contract assumes the shared requirements in [Security invariants (§7.1.2)](#sec-security-invariants) and the rerender rules in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender); the sub-blocks below call out cookie-mode specifics.
+			- **Minting helper (authority)**
+					- `Security::mint_cookie_record(form_id, slot?)` returns `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }` and never emits `Set-Cookie`.
+					- Status semantics (normative): `miss` when no record existed, `expired` when the persisted record was stale and got replaced, `hit` when an unexpired record already existed; all paths return the canonical record payload.
 					- Expired status (normative): `expired` iff `now >= record.expires`; helpers never refresh `issued_at`/`expires` on `hit`.
-										- Record fields (normative): on `miss` and `expired`, the minted record starts with `slots_allowed:[]` and `slot:null`; on `hit`, return the persisted values as-is (possibly with non-empty `slots_allowed` and a derived `slot` written by `/eforms/prime`).
-					- Header boundary (normative): `Security::mint_cookie_record()` **never** emits `Set-Cookie`. `/eforms/prime` alone emits **positive** `Set-Cookie` (mint/refresh) per the carve-out below. POST rerenders governed by [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender) MUST emit a **deletion** header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; [Secure on HTTPS]`) to clear the cookie.
-					- On `miss`/`expired`, persist `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`; on `hit`, leave the record untouched.
-- Slot argument handling (normative): The helper MUST validate the optional `slot?` against the allowed set (int 1–255 and configured allow-list). Invalid or disabled ⇒ treat as `null`. Apart from writing the initial record described above, the helper MUST NOT persist or union slot observations; it MAY ignore/normalize the argument for logging/metrics only. The `/eforms/prime` endpoint is solely responsible for loading the record, unioning the observed `s`, deriving canonical `slot` when `|slots_allowed|==1`, and persisting that update atomically. Helpers MUST NOT rewrite `slots_allowed` or `slot`.
-					- Writes with atomic `{h2}` directory creation (`0700`) and `0600` file permissions; unions slot observations per `/eforms/prime` (no writes from POST).
-					- Helpers MUST call `Config::get()` on first use as a backstop. Entry points SHOULD call it up front; `/eforms/prime` MUST call it before delegating to the helper. Duplicate calls are idempotent. Helpers remain pure w.r.t. challenge/origin/throttle.
-			- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-			- Rerenders MUST reuse the minted `eid` and deterministic slot choice; see [Security invariants (§7.1.2)](#sec-security-invariants) for rotation exceptions. Exceptions (normative, sanctioned): When (a) an NCID fallback occurs or (b) a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` by sending a Set-Cookie **deletion** header whose attributes match the minted cookie: same Name and Path, `SameSite=Lax`, `Secure` on HTTPS, and `Max-Age=0` (or an `Expires` date in the past). Do not emit a positive Set-Cookie here. Embed `/eforms/prime` so it reissues the persisted cookie before the next POST (see [Security invariants (§7.1.2)](#sec-security-invariants) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender)). Even in those flows the rerendered markup MUST emit the deterministic `eforms_slot` (when applicable) and the `/eforms/prime` pixel so the submission stays NCID-pinned while reserving that reissued cookie for future posts.
-			- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
-				| Field | Notes |
-				|-----------------|-------|
-				| `mode` | Always `"cookie"`. |
-				| `form_id` | Authoritative binding for the EID. |
-				| `eid` | `i-<UUIDv4>` minted by `/eforms/prime`. |
-				| `issued_at` / `expires` | TTL enforced server-side; never rewritten on reuse. |
-				| `slots_allowed` | Deduplicated union of observed slots; only `/eforms/prime` mutates it. Slotless installs keep `[]`. |
-				| `slot` | Derived: set to the single observed slot when and only when `|slots_allowed| == 1`; otherwise `null`. |
-- <a id="sec-cookie-lifecycle-matrix"></a>Lifecycle matrix (normative): See [Appendix 26.6](#sec-app-cookie-lifecycle) for the full flow table. This stub retains the legacy anchor.
-			- <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative): See [Appendix 26.5](#sec-app-cookie-policy) for the authoritative matrix of `token_ok`, `require_challenge`, and identifier outcomes.
+					- Persistence (normative): On `miss`/`expired`, persist `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`; on `hit`, leave the record untouched.
+					- Record fields (normative): on `miss` and `expired`, the minted record starts with `slots_allowed:[]` and `slot:null`; on `hit`, return the persisted values as-is (possibly with non-empty `slots_allowed` and a derived `slot` written by `/eforms/prime`).
+					- Slot argument handling (normative): Validate the optional `slot?` against the allowed set (int 1–255 and configured allow-list). Invalid or disabled ⇒ treat as `null`. Apart from writing the initial record described above, the helper MUST NOT persist or union slot observations; it MAY normalize the argument for logging/metrics only. `/eforms/prime` alone loads the record, unions observed `s`, derives canonical `slot` when `|slots_allowed|==1`, and persists that update atomically.
+					- Header boundary (normative): `/eforms/prime` alone emits **positive** `Set-Cookie` (mint/refresh). POST rerenders emit only the required deletion header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; [Secure on HTTPS]`).
+			- **GET markup and rerendering**
+					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
+					- Rerenders MUST reuse the minted `eid` and deterministic slot choice. When an NCID fallback occurs or a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` by sending a Set-Cookie **deletion** header whose attributes match the minted cookie: same Name and Path, `SameSite=Lax`, `Secure` on HTTPS, and `Max-Age=0` (or an `Expires` date in the past). Do not emit a positive Set-Cookie during rerender. Embed `/eforms/prime` so it reissues the persisted cookie before the next POST while the markup continues to emit the deterministic `eforms_slot` (when applicable) and pixel.
+			- **Persisted record structure** (`eid_minted/{form_id}/{h2}/{eid}.json`):
+					| Field | Notes |
+					|-----------------|-------|
+					| `mode` | Always `"cookie"`. |
+					| `form_id` | Authoritative binding for the EID. |
+					| `eid` | `i-<UUIDv4>` minted by `/eforms/prime`. |
+					| `issued_at` / `expires` | TTL enforced server-side; never rewritten on reuse. |
+					| `slots_allowed` | Deduplicated union of observed slots; only `/eforms/prime` mutates it. Slotless installs keep `[]`. |
+					| `slot` | Derived: set to the single observed slot when and only when `|slots_allowed| == 1`; otherwise `null`. |
+			- <a id="sec-cookie-lifecycle-matrix"></a>Lifecycle matrix (normative): See [Appendix 26.6](#sec-app-cookie-lifecycle) for the full flow table. This stub retains the legacy anchor.
+					- <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative): See [Appendix 26.5](#sec-app-cookie-policy) for the authoritative matrix of `token_ok`, `require_challenge`, and identifier outcomes.
 - Identifier pinning (challenge): If the policy path returns an NCID and `require_challenge=true`, that submission MUST continue to use the same NCID as its `submission_id` through verification and success. The reissued cookie header on the rerender is reserved for subsequent submissions and MUST NOT change the identifier mid-flow.
-- Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`). See [Security invariants (§7.1.2)](#sec-security-invariants).
-			- <a id="sec-slot-selection"></a>Slot selection (deterministic):
+- Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`).
+- <a id="sec-slot-selection"></a>Slot selection (deterministic):
 				- When `cookie_mode_slots_enabled=true`, the renderer MUST choose `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender.
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
 				- Multiple instances on one page SHOULD consume distinct allowed slots in document order; surplus instances MUST be slotless (omit `eforms_slot` and prime without `s`).
