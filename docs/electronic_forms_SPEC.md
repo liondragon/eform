@@ -401,7 +401,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 >	- `form_id` (slug) plus optional `slot?`. Callers MUST invoke `Config::get()` first; the helper redundantly calls it so the configuration snapshot, TTL, and slot policy are loaded.
 >	- Side-effects:
 >	- On `status in {miss, expired}` atomically write `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed:[], slot:null }` following [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
->	- On `status === "hit"` leave the persisted record untouched. Helpers never emit `Set-Cookie` and never rewrite `issued_at`/`expires` on reuse.
+>	- On `status === "hit"` skip remint; when `/eforms/prime` unions a new slot it MUST persist only `slots_allowed`/`slot` while leaving `issued_at`/`expires` untouched. Helpers never emit `Set-Cookie`.
 >	- Returns:
 >	- `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }`, where `status` reports the pre-write lookup (`miss` = no prior record, `expired` = prior record existed but `now` had reached its `expires`, `hit` = reused record). The returned `record.expires` always reflects the persisted value after any remint. Slot unions remain the responsibility of `/eforms/prime`.
 >	- Failure modes:
