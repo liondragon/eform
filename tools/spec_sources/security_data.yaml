@@ -2,83 +2,57 @@ version: 1
 $schema: https://schemas.eforms.dev/security-data-v1.json
 cookie_policy_rows:
   - id: cookie-policy-hard
-    policy_path: 'hard'
+    policy_path: "hard"
     handling: "Reject with `EFORMS_ERR_TOKEN`. Return the structured result and abort before ledger reservation."
     token_ok: false
-    soft_labels:
-      kind: none
+    soft_labels: []
     require_challenge: false
     identifier:
       kind: none
-      label: 'none'
-      details:
-        - style: code
-          value: submission_id=null
-    cookie_present:
-      condition: per_request_valid_header
+      text: "— (`submission_id=null`)"
+    cookie_present: "Per request; true only when a syntactically valid cookie header was present on this POST."
     notes: ""
     references:
       - sec-cookie-policy-matrix
   - id: cookie-policy-soft
-    policy_path: 'soft'
+    policy_path: "soft"
     handling: "Continue via NCID; treat tampering separately; add `cookie_missing`."
     token_ok: false
     soft_labels:
-      kind: labels
-      values:
-        - cookie_missing
+      - cookie_missing
     require_challenge: false
     identifier:
       kind: ncid
-      code:
-        value: nc-…
-      details:
-        - style: code
-          value: is_ncid=true
-    cookie_present:
-      condition: valid_header_without_record
+      text: "NCID (`nc-…`, `is_ncid=true`)"
+    cookie_present: "False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record."
     notes: ""
     references:
       - sec-cookie-policy-matrix
       - sec-ncid-rerender
   - id: cookie-policy-off
-    policy_path: 'off'
+    policy_path: "off"
     handling: "Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record."
     token_ok: false
-    soft_labels:
-      kind: conditional
-      detail: see handling
+    soft_labels: conditional
     require_challenge: false
     identifier:
       kind: ncid
-      code:
-        value: nc-…
-      details:
-        - style: code
-          value: is_ncid=true
-    cookie_present:
-      condition: record_missing_only
+      text: "NCID (`nc-…`, `is_ncid=true`)"
+    cookie_present: "False when the cookie was absent/malformed; true when only the record was missing/expired."
     notes: ""
     references:
       - sec-cookie-policy-matrix
   - id: cookie-policy-challenge
-    policy_path: 'challenge'
+    policy_path: "challenge"
     handling: "Continue via NCID; require verification before proceeding; add `cookie_missing`."
     token_ok: false
     soft_labels:
-      kind: labels
-      values:
-        - cookie_missing
+      - cookie_missing
     require_challenge: true
     identifier:
       kind: ncid
-      code:
-        value: nc-…
-      details:
-        - style: code
-          value: is_ncid=true
-    cookie_present:
-      condition: valid_header_without_record
+      text: "NCID (`nc-…`, `is_ncid=true`)"
+    cookie_present: "False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record."
     notes: ""
     references:
       - sec-cookie-policy-matrix
@@ -90,9 +64,7 @@ cookie_lifecycle_rows:
     server_must: "MUST omit `eforms_slot`; embed `/eforms/prime?f={form_id}` pixel; reuse markup verbatim on rerender."
     identifier:
       kind: eid
-      code:
-        value: eid
-      trailing_text: " rendered without slot suffix."
+      text: "`submission_id` rendered without slot suffix."
     notes: "Slotless deployments omit the `s` query parameter entirely."
     references:
       - sec-cookie-mode
@@ -102,7 +74,7 @@ cookie_lifecycle_rows:
     server_must: "When a slot is assigned, MUST emit deterministic `eforms_slot` and `/eforms/prime?f={form_id}&s={slot}`; slotless surplus renders omit `eforms_slot` and prime without `s`."
     identifier:
       kind: prime_record
-      text: "`/eforms/prime` unions the slot into `slots_allowed`."
+      text: "Prime record — `/eforms/prime` unions the slot into `slots_allowed`."
     notes: "Deterministic assignment depends only on render-time inputs; clients cannot pick slots."
     references:
       - sec-cookie-mode
@@ -112,10 +84,7 @@ cookie_lifecycle_rows:
     server_must: "MUST call `Security::mint_cookie_record()`; union `s` (when allowed) into `slots_allowed`; derive canonical `slot` when the union size is one; load the record before deciding on `Set-Cookie`; MUST skip the positive header when the request presented an identical, unexpired cookie (same Name/Value/Path/SameSite/Secure)."
     identifier:
       kind: cookie_record
-      label: Persists
-      code:
-        value: '{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }'
-      trailing_text: "."
+      text: "Cookie record persists `{ mode:\"cookie\", form_id, eid, issued_at, expires, slots_allowed, slot }`."
     notes: "Missing/truncated/expired record **or a request lacking an unexpired match** ⇒ send `Set-Cookie`; otherwise MUST skip the header whenever that identical, unexpired cookie is present. Response: `204` + `Cache-Control: no-store`. Never rewrite TTLs on reuse."
     references:
       - sec-cookie-mode
@@ -125,10 +94,7 @@ cookie_lifecycle_rows:
     server_must: "MUST reject any posted `eforms_slot`."
     identifier:
       kind: submission_id
-      code:
-        prefix: 'submission_id = '
-        value: eid
-      trailing_text: "."
+      text: "`submission_id = eid`."
     notes: "Posted slot ⇒ HARD FAIL (`EFORMS_ERR_TOKEN`)."
     references:
       - sec-cookie-mode
@@ -139,10 +105,7 @@ cookie_lifecycle_rows:
     server_must: "MUST reject payloads containing `eforms_slot`."
     identifier:
       kind: submission_id
-      code:
-        prefix: 'submission_id = '
-        value: eid
-      trailing_text: "."
+      text: "`submission_id = eid`."
     notes: "Slotless renders stay valid even if other instances later union slots into the record."
     references:
       - sec-cookie-lifecycle-matrix
@@ -152,25 +115,14 @@ cookie_lifecycle_rows:
     server_must: "MUST require integer `eforms_slot` present in both `security.cookie_mode_slots_allowed` and the record’s `slots_allowed`; when `slot` is non-null, require equality; otherwise accept only enumerated values."
     identifier:
       kind: submission_id
-      code:
-        prefix: 'submission_id = '
-        value: eid
-        suffix: __slot{posted_slot}
-      trailing_text: "."
+      text: "`submission_id = eid__slot{posted_slot}`."
     notes: "Missing/mismatched slot ⇒ HARD FAIL (`EFORMS_ERR_TOKEN`)."
     references:
       - sec-cookie-lifecycle-matrix
       - sec-security-invariants
   - id: cookie-lifecycle-error-rerender
     flow_trigger: Error rerender after NCID fallback
-    server_must:
-      - type: text
-        value: "MUST follow "
-      - type: link
-        label: NCID rerender rules (§7.1.4.2)
-        anchor: sec-ncid-rerender
-      - type: text
-        value: "."
+    server_must: "MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
     identifier:
       kind: ncid
       text: "`submission_id` stays pinned to the NCID from that section."
@@ -180,14 +132,7 @@ cookie_lifecycle_rows:
       - sec-cookie-lifecycle-matrix
   - id: cookie-lifecycle-challenge-rerender
     flow_trigger: Challenge rerender (before verification)
-    server_must:
-      - type: text
-        value: "MUST follow "
-      - type: link
-        label: NCID rerender rules (§7.1.4.2)
-        anchor: sec-ncid-rerender
-      - type: text
-        value: "."
+    server_must: "MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
     identifier:
       kind: ncid
       text: "Same NCID; follow-up GET mints the replacement cookie defined there."
@@ -197,18 +142,11 @@ cookie_lifecycle_rows:
       - sec-cookie-lifecycle-matrix
   - id: cookie-lifecycle-challenge-success
     flow_trigger: Challenge success response
-    server_must:
-      - type: text
-        value: "MUST follow "
-      - type: link
-        label: NCID rerender rules (§7.1.4.2)
-        anchor: sec-ncid-rerender
-      - type: text
-        value: "."
+    server_must: "MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
     identifier:
       kind: ncid
       text: "Persisted record reused per that contract."
-    notes: 'Applies only to `cookie_missing_policy="challenge"`.'
+    notes: "Applies only to `cookie_missing_policy=\"challenge\"`."
     references:
       - sec-ncid-rerender
       - sec-cookie-lifecycle-matrix
@@ -218,12 +156,8 @@ ncid_summary_rows:
     scenario: Valid hidden record
     identifier_outcome:
       kind: submission_id
-      code:
-        prefix: 'submission_id = '
-        value: token
-    required_action:
-      - type: text
-        value: "Embed the helper’s `{token, instance_id, timestamp}` verbatim and reuse them on rerender."
+      text: "`submission_id = token`."
+    required_action: "Embed the helper’s `{token, instance_id, timestamp}` verbatim and reuse them on rerender."
     canonical_section:
       anchor: sec-hidden-mode
       label: Hidden-mode contract (§7.1.2)
@@ -231,19 +165,8 @@ ncid_summary_rows:
     scenario: Hidden record missing/expired with optional token
     identifier_outcome:
       kind: ncid
-      code:
-        prefix: 'submission_id = '
-        value: nc-…
-      details:
-        - style: code
-          value: is_ncid=true
-        - style: code
-          value: token_ok=false
-        - style: code
-          value: soft_reasons += token_soft
-    required_action:
-      - type: text
-        value: Continue via NCID and preserve hidden-mode metadata.
+      text: "`submission_id = nc-…` (`is_ncid=true`, `token_ok=false`, `soft_reasons += token_soft`)."
+    required_action: "Continue via NCID and preserve hidden-mode metadata."
     canonical_section:
       anchor: sec-ncid-hidden
       label: Hidden-mode NCID fallback (§7.1.4)
@@ -251,13 +174,8 @@ ncid_summary_rows:
     scenario: Cookie policy `hard`
     identifier_outcome:
       kind: none
-      label: "—"
-      details:
-        - style: text
-          value: submission rejected
-    required_action:
-      - type: text
-        value: "Fail with `EFORMS_ERR_TOKEN`; do not mint/retain NCIDs."
+      text: "— (submission rejected)."
+    required_action: "Fail with `EFORMS_ERR_TOKEN`; do not mint/retain NCIDs."
     canonical_section:
       anchor: sec-cookie-policy-matrix
       label: Cookie policy outcomes (§7.1.3.2)
@@ -265,15 +183,8 @@ ncid_summary_rows:
     scenario: Cookie policy `soft`
     identifier_outcome:
       kind: ncid
-      code:
-        prefix: 'submission_id = '
-        value: nc-…
-      details:
-        - style: code
-          value: is_ncid=true
-    required_action:
-      - type: text
-        value: Continue without challenge; add `cookie_missing`.
+      text: "`submission_id = nc-…` (`is_ncid=true`)."
+    required_action: "Continue without challenge; add `cookie_missing`."
     canonical_section:
       anchor: sec-cookie-policy-matrix
       label: Cookie policy outcomes (§7.1.3.2)
@@ -281,15 +192,8 @@ ncid_summary_rows:
     scenario: Cookie policy `off`
     identifier_outcome:
       kind: ncid
-      code:
-        prefix: 'submission_id = '
-        value: nc-…
-      details:
-        - style: code
-          value: is_ncid=true
-    required_action:
-      - type: text
-        value: Continue; add `cookie_missing` only when a syntactically valid cookie lacked a record.
+      text: "`submission_id = nc-…` (`is_ncid=true`)."
+    required_action: "Continue; add `cookie_missing` only when a syntactically valid cookie lacked a record."
     canonical_section:
       anchor: sec-cookie-policy-matrix
       label: Cookie policy outcomes (§7.1.3.2)
@@ -297,22 +201,8 @@ ncid_summary_rows:
     scenario: Cookie policy `challenge`
     identifier_outcome:
       kind: ncid
-      code:
-        prefix: 'submission_id = '
-        value: nc-…
-      details:
-        - style: code
-          value: is_ncid=true
-        - style: code
-          value: require_challenge=true
-    required_action:
-      - type: text
-        value: "Require verification before proceeding; follow "
-      - type: link
-        label: NCID rerender rules (§7.1.4.2)
-        anchor: sec-ncid-rerender
-      - type: text
-        value: .
+      text: "`submission_id = nc-…` (`is_ncid=true`, `require_challenge=true`)."
+    required_action: "Require verification before proceeding; follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
     canonical_section:
       anchor: sec-cookie-policy-matrix
       label: Cookie policy outcomes (§7.1.3.2)
@@ -320,17 +210,8 @@ ncid_summary_rows:
     scenario: Challenge rerender after NCID fallback
     identifier_outcome:
       kind: submission_id
-      code:
-        prefix: 'submission_id = '
-        value: same nc-…
-    required_action:
-      - type: text
-        value: "Follow "
-      - type: link
-        label: NCID rerender rules (§7.1.4.2)
-        anchor: sec-ncid-rerender
-      - type: text
-        value: .
+      text: "`submission_id = nc-…` (same value reused)."
+    required_action: "Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
     canonical_section:
       anchor: sec-cookie-lifecycle-matrix
       label: Cookie-mode lifecycle (§7.1.3.3)
@@ -338,17 +219,8 @@ ncid_summary_rows:
     scenario: Challenge success response
     identifier_outcome:
       kind: submission_id
-      code:
-        prefix: 'submission_id = '
-        value: same nc-…
-    required_action:
-      - type: text
-        value: "Follow "
-      - type: link
-        label: NCID rerender rules (§7.1.4.2)
-        anchor: sec-ncid-rerender
-      - type: text
-        value: .
+      text: "`submission_id = nc-…` (same value reused)."
+    required_action: "Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
     canonical_section:
       anchor: sec-cookie-lifecycle-matrix
       label: Cookie-mode lifecycle (§7.1.3.3)
@@ -356,17 +228,8 @@ ncid_summary_rows:
     scenario: NCID success handoff (no acceptable cookie)
     identifier_outcome:
       kind: ncid
-      code:
-        prefix: 'submission_id = '
-        value: nc-…
-    required_action:
-      - type: text
-        value: "See "
-      - type: link
-        label: Success → NCID-only handoff (§13.1)
-        anchor: sec-success-ncid
-      - type: text
-        value: .
+      text: "`submission_id = nc-…`."
+    required_action: "See [Success → NCID-only handoff (§13.1)](#sec-success-ncid)."
     canonical_section:
       anchor: sec-success-ncid
       label: Success → NCID-only handoff (§13.1)

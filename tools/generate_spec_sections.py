@@ -2,6 +2,7 @@
 """Generate security spec tables from YAML data."""
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Any, Iterable
@@ -14,16 +15,9 @@ POINTER_TEXT = "**Generated from `tools/spec_sources/security_data.yaml` — do 
 SUPPORTED_SCHEMA_VERSION = 1
 
 POLICY_PATHS = {"hard", "soft", "off", "challenge"}
-SOFT_LABEL_KINDS = {"none", "labels", "conditional"}
 SOFT_LABEL_VALUES = {"cookie_missing"}
-DETAIL_STYLES = {"code", "text"}
 IDENTIFIER_KINDS = {"none", "ncid", "eid", "prime_record", "cookie_record", "submission_id"}
-COOKIE_PRESENT_CONDITIONS = {
-    "per_request_valid_header",
-    "valid_header_without_record",
-    "record_missing_only",
-}
-RICH_TEXT_TYPES = {"text", "link"}
+ANCHOR_PATTERN = re.compile(r"\]\(#([^)]+)\)")
 
 
 def load_data() -> dict:
@@ -78,7 +72,7 @@ def validate_data(data: dict) -> None:
             raise SystemExit(f"Notes must be a string for policy {policy_path}")
         row.setdefault("notes", notes)
         validate_soft_labels(row.get("soft_labels"), policy_path)
-        validate_cookie_presence(row.get("cookie_present"), policy_path)
+        validate_cookie_presence(row.get("cookie_present"), policy_path, policy_path)
         validate_identifier(row.get("identifier"), f"policy {policy_path}")
         validate_references(row.get("references"), f"policy {policy_path}")
 
@@ -93,7 +87,8 @@ def validate_data(data: dict) -> None:
         if not isinstance(flow_trigger, str):
             raise SystemExit("flow_trigger must be a string")
         server_must = row.get("server_must")
-        validate_rich_text(server_must, f"server_must for {flow_trigger}")
+        if not isinstance(server_must, str) or not server_must:
+            raise SystemExit(f"server_must must be a non-empty string for {flow_trigger}")
         validate_identifier(row.get("identifier"), f"lifecycle {flow_trigger}")
         notes = row.get("notes", "")
         if not isinstance(notes, str):
@@ -112,7 +107,9 @@ def validate_data(data: dict) -> None:
         if not isinstance(scenario, str):
             raise SystemExit("scenario must be a string")
         validate_identifier(row.get("identifier_outcome"), f"summary {scenario}")
-        validate_rich_text(row.get("required_action"), f"required_action for {scenario}")
+        required_action = row.get("required_action")
+        if not isinstance(required_action, str) or not required_action:
+            raise SystemExit(f"required_action must be a non-empty string for {scenario}")
         canonical = row.get("canonical_section")
         if not isinstance(canonical, dict):
             raise SystemExit(f"canonical_section must be a mapping for summary {scenario}")
@@ -127,99 +124,35 @@ def validate_data(data: dict) -> None:
 
 
 def validate_soft_labels(value: Any, context: str) -> None:
-    if not isinstance(value, dict):
-        raise SystemExit(f"soft_labels must be a mapping for {context}")
-    kind = value.get("kind")
-    if kind not in SOFT_LABEL_KINDS:
-        raise SystemExit(f"Unknown soft label kind {kind!r} for {context}")
-    if kind == "labels":
-        labels = value.get("values")
-        if not isinstance(labels, list) or not labels:
-            raise SystemExit(f"soft_labels.values must be a non-empty list for {context}")
-        for label in labels:
+    if isinstance(value, list):
+        for label in value:
             if label not in SOFT_LABEL_VALUES:
                 raise SystemExit(f"Unsupported soft label {label!r} for {context}")
-    elif kind == "conditional":
-        detail = value.get("detail")
-        if detail is not None and not isinstance(detail, str):
-            raise SystemExit(f"soft_labels.detail must be a string for {context}")
+        return
+    if value == "conditional":
+        return
+    if value != []:
+        raise SystemExit(
+            f"soft_labels must be an empty list, ['cookie_missing'], or 'conditional' for {context}"
+        )
 
 
-def validate_cookie_presence(value: Any, context: str) -> None:
-    if not isinstance(value, dict):
-        raise SystemExit(f"cookie_present must be a mapping for {context}")
-    condition = value.get("condition")
-    if condition not in COOKIE_PRESENT_CONDITIONS:
-        raise SystemExit(f"Unknown cookie_present condition {condition!r} for {context}")
-    notes = value.get("notes")
-    if notes is not None and not isinstance(notes, str):
-        raise SystemExit(f"cookie_present.notes must be a string for {context}")
+def validate_cookie_presence(value: Any, context: str, policy_path: str) -> None:
+    if not isinstance(value, str):
+        raise SystemExit(f"cookie_present must be a string for {context}")
+    if policy_path != "hard" and not value.strip():
+        raise SystemExit(f"cookie_present must be non-empty for {context}")
 
 
 def validate_identifier(value: Any, context: str) -> None:
     if not isinstance(value, dict):
         raise SystemExit(f"identifier must be a mapping for {context}")
-    kind = value.get("kind")
-    if kind not in IDENTIFIER_KINDS:
-        raise SystemExit(f"Unknown identifier kind {kind!r} for {context}")
-    label = value.get("label")
-    if label is not None and not isinstance(label, str):
-        raise SystemExit(f"identifier.label must be a string for {context}")
     text = value.get("text")
-    if text is not None and not isinstance(text, str):
-        raise SystemExit(f"identifier.text must be a string for {context}")
-    trailing = value.get("trailing_text")
-    if trailing is not None and not isinstance(trailing, str):
-        raise SystemExit(f"identifier.trailing_text must be a string for {context}")
-    code = value.get("code")
-    if code is not None:
-        if not isinstance(code, dict):
-            raise SystemExit(f"identifier.code must be a mapping for {context}")
-        code_value = code.get("value")
-        if not isinstance(code_value, str) or not code_value:
-            raise SystemExit(f"identifier.code.value must be a non-empty string for {context}")
-        for key in ("prefix", "suffix"):
-            if key in code and not isinstance(code[key], str):
-                raise SystemExit(f"identifier.code.{key} must be a string for {context}")
-    details = value.get("details")
-    if details is not None:
-        if not isinstance(details, list):
-            raise SystemExit(f"identifier.details must be a list for {context}")
-        for detail in details:
-            if not isinstance(detail, dict):
-                raise SystemExit(f"identifier detail must be a mapping for {context}")
-            style = detail.get("style")
-            if style not in DETAIL_STYLES:
-                raise SystemExit(f"Unknown identifier detail style {style!r} for {context}")
-            detail_value = detail.get("value")
-            if not isinstance(detail_value, str):
-                raise SystemExit(f"identifier detail value must be a string for {context}")
-
-
-def validate_rich_text(value: Any, context: str) -> None:
-    if isinstance(value, list):
-        if not value:
-            raise SystemExit(f"{context} must not be an empty list")
-        for segment in value:
-            if not isinstance(segment, dict):
-                raise SystemExit(f"{context} segments must be mappings")
-            kind = segment.get("type")
-            if kind not in RICH_TEXT_TYPES:
-                raise SystemExit(f"Unknown rich-text segment type {kind!r} in {context}")
-            if kind == "text":
-                if not isinstance(segment.get("value"), str):
-                    raise SystemExit(f"Text segment value must be a string in {context}")
-            else:
-                label = segment.get("label")
-                anchor = segment.get("anchor")
-                if not isinstance(label, str) or not label:
-                    raise SystemExit(f"Link label must be a non-empty string in {context}")
-                if not isinstance(anchor, str) or not anchor:
-                    raise SystemExit(f"Link anchor must be a non-empty string in {context}")
-                if anchor.startswith("#"):
-                    raise SystemExit(f"Link anchor must not include '#': {anchor}")
-    elif not isinstance(value, str):
-        raise SystemExit(f"{context} must be a string or a list of segments")
+    if not isinstance(text, str) or not text:
+        raise SystemExit(f"identifier.text must be a non-empty string for {context}")
+    kind = value.get("kind")
+    if kind is not None and kind not in IDENTIFIER_KINDS:
+        raise SystemExit(f"Unknown identifier kind {kind!r} for {context}")
 
 
 def validate_references(value: Any, context: str) -> None:
@@ -242,82 +175,22 @@ def format_bool(value: bool) -> str:
     return f"`{str(value).lower()}`"
 
 
-def format_soft_labels(data: dict) -> str:
-    kind = data["kind"]
-    if kind == "none":
-        return "—"
-    if kind == "labels":
-        values = data.get("values", [])
-        formatted = [format_inline_code(label) for label in values]
-        return ", ".join(formatted) if formatted else "—"
-    detail = data.get("detail")
-    if detail:
-        return f"Conditional ({detail})"
-    return "Conditional"
+def format_soft_labels(value: Any) -> str:
+    if value == "conditional":
+        return "Conditional"
+    if isinstance(value, list):
+        if not value:
+            return "—"
+        return ", ".join(format_inline_code(label) for label in value)
+    return "—"
 
 
-def format_cookie_present(data: dict) -> str:
-    base_map = {
-        "per_request_valid_header": "Per request; true only when a syntactically valid cookie header was present on this POST.",
-        "valid_header_without_record": "False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record.",
-        "record_missing_only": "False when the cookie was absent/malformed; true when only the record was missing/expired.",
-    }
-    base = base_map[data["condition"]]
-    notes = data.get("notes")
-    if notes:
-        base = f"{base} {notes}"
-    return base
-
-
-def format_code(code: dict) -> str:
-    prefix = code.get("prefix", "")
-    value = code["value"]
-    suffix = code.get("suffix", "")
-    return f"`{prefix}{value}{suffix}`"
+def format_cookie_present(value: str) -> str:
+    return value
 
 
 def format_identifier(identifier: dict) -> str:
-    text = identifier.get("text")
-    label = identifier.get("label")
-    code = identifier.get("code")
-    trailing = identifier.get("trailing_text", "")
-    parts: list[str] = []
-    if text:
-        result = text
-    else:
-        if label:
-            parts.append(label)
-        code_text = format_code(code) if code else ""
-        if code_text:
-            parts.append(code_text)
-        result = " ".join(part for part in parts if part)
-    details = identifier.get("details") or []
-    if details:
-        detail_parts = []
-        for detail in details:
-            style = detail["style"]
-            value = detail["value"]
-            detail_parts.append(f"`{value}`" if style == "code" else value)
-        detail_text = ", ".join(detail_parts)
-        if result:
-            result = f"{result} ({detail_text})"
-        else:
-            result = f"({detail_text})"
-    if trailing:
-        result = f"{result}{trailing}"
-    return result
-
-
-def format_rich_text(value: Any) -> str:
-    if isinstance(value, list):
-        rendered: list[str] = []
-        for segment in value:
-            if segment["type"] == "text":
-                rendered.append(segment["value"])
-            else:
-                rendered.append(f"[{segment['label']}](#{segment['anchor']})")
-        return "".join(rendered)
-    return value
+    return identifier["text"]
 
 
 def format_link(link: dict) -> str:
@@ -348,7 +221,7 @@ def format_cookie_lifecycle_rows(rows: list[dict]) -> list[dict[str, str]]:
         formatted.append(
             {
                 "flow_trigger": row["flow_trigger"],
-                "server_must": format_rich_text(row["server_must"]),
+                "server_must": row["server_must"],
                 "identifier": format_identifier(row["identifier"]),
                 "notes": row.get("notes", ""),
             }
@@ -363,7 +236,7 @@ def format_ncid_summary_rows(rows: list[dict]) -> list[dict[str, str]]:
             {
                 "scenario": row["scenario"],
                 "identifier_outcome": format_identifier(row["identifier_outcome"]),
-                "required_action": format_rich_text(row["required_action"]),
+                "required_action": row["required_action"],
                 "canonical_section": format_link(row["canonical_section"]),
             }
         )
@@ -480,25 +353,24 @@ def ensure_references(data: dict, spec_text: str) -> None:
         flow = row["flow_trigger"]
         for anchor in row.get("references", []):
             anchors_required.append((f"#{anchor}", f"lifecycle {flow}"))
-        for anchor in extract_rich_text_anchors(row.get("server_must")):
+        for anchor in extract_markdown_anchors(row.get("server_must")):
             anchors_required.append((anchor, f"server_must {flow}"))
 
     for row in data.get("ncid_summary_rows", []):
         scenario = row["scenario"]
         canonical_anchor = row["canonical_section"]["anchor"]
         anchors_required.append((f"#{canonical_anchor}", f"summary {scenario}"))
-        for anchor in extract_rich_text_anchors(row.get("required_action")):
+        for anchor in extract_markdown_anchors(row.get("required_action")):
             anchors_required.append((anchor, f"required_action {scenario}"))
 
     for anchor, context in anchors_required:
         check_anchor(anchor, context)
 
 
-def extract_rich_text_anchors(value: Any) -> Iterable[str]:
-    if isinstance(value, list):
-        for segment in value:
-            if segment.get("type") == "link":
-                yield f"#{segment['anchor']}"
+def extract_markdown_anchors(value: Any) -> Iterable[str]:
+    if not isinstance(value, str):
+        return []
+    return [f"#{match.group(1)}" for match in ANCHOR_PATTERN.finditer(value)]
 
 
 def render_table(config: dict, rows: list[dict[str, str]]) -> list[str]:
