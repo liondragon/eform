@@ -280,7 +280,7 @@ Cookie and NCID matrices in this section are normative; [Appendix 26](#sec-appen
 ##### Render (GET)
 - **What:** Renderers delegate all minting to helpers: hidden mode calls `Security::mint_hidden_record(form_id)`; cookie mode renders deterministic slot markup and embeds `/eforms/prime?f={form_id}[&s={slot}]` so `/eforms/prime` alone mints and refreshes `eforms_eid_{form_id}`.
 - **Why:** Delegation keeps UUID/TTL policy centralized, guarantees the persisted record matches the rendered fields, and prevents ad-hoc client minting.
-- **How:** `FormRenderer` embeds the helper payload verbatim (`token`, `instance_id`, `timestamp`) in hidden mode, or `{ eid?, slot metadata, js_ok, honeypot }` plus the prime pixel in cookie mode. No GET path may invoke `/eforms/prime` directly; the pixel handles minting before POST.
+- **How:** `FormRenderer` embeds the helper payload verbatim (`token`, `instance_id`, `timestamp`) in hidden mode, or `{ slot metadata, js_ok, honeypot }` plus the prime pixel in cookie mode. The renderer MUST NOT synchronously call `/eforms/prime`; the embedded pixel triggers the request.
 
 ##### Persist
 - **What:** Hidden mode writes `tokens/{h2}/{sha256(token)}.json`; cookie mode persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ issued_at, expires, slots_allowed, slot }`.
@@ -311,6 +311,7 @@ Cookie and NCID matrices in this section are normative; [Appendix 26](#sec-appen
 - **What:** Successful submissions move uploads, send notifications, log, and complete PRG (inline cookie or redirect verifier) per [Success behavior (§13)](#sec-success).
 - **Why:** PRG finalizes the NCID pin, enables success-ticket verification, and is the sole time cookie mode may rotate (apart from expiry-driven remint).
 - **How:** Execute side effects only after ledger reservation, then emit the success response (`/eforms/success-verify` ticket or redirect). Cookie rotation occurs only on PRG completion or when `/eforms/prime` detects expiry; hidden mode never rotates before success.
+Definition — Rotation trigger = minted record replacement caused by expiry or post-success PRG.
 <!-- END GENERATED: lifecycle-pipeline-quickstart -->
 
 <a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
