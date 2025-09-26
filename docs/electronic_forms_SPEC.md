@@ -413,7 +413,9 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                        `eforms_eid_{form_id}` with a matching Max-Age=0 Set-Cookie header and embed
                                        `/eforms/prime?f={form_id}[&s={slot}]` so the persisted record is reissued before the next
                                        POST without rotating identifiers.
-                                       | Flow trigger | Server MUST | Identifier outcome | Notes |
+                                        **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+                                        <!-- BEGIN GENERATED: cookie-lifecycle-matrix -->
+                                        | Flow trigger | Server MUST | Identifier outcome | Notes |
                                         |--------------|-------------|--------------------|-------|
                                         | GET render (slots disabled) | MUST omit `eforms_slot`; embed `/eforms/prime?f={form_id}` pixel; reuse markup verbatim on rerender. | `eid` rendered without slot suffix. | Slotless deployments omit the `s` query parameter entirely. |
                                         | GET render (slots enabled) | When a slot is assigned, MUST emit deterministic `eforms_slot` and `/eforms/prime?f={form_id}&s={slot}`; slotless surplus renders omit `eforms_slot` and prime without `s`. | `/eforms/prime` unions the slot into `slots_allowed`. | Deterministic assignment depends only on render-time inputs; clients cannot pick slots. |
@@ -424,6 +426,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                         | Error rerender after NCID fallback | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | `submission_id` stays pinned to the NCID from that section. | Applies when cookie policies fall back to NCID. |
                                         | Challenge rerender (before verification) | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Same NCID; follow-up GET mints the replacement cookie defined there. | Ensures verification runs with a cookie present while preserving NCID pinning. |
                                         | Challenge success response | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Persisted record reused per that contract. | Applies only to `cookie_missing_policy="challenge"`. |
+                                        <!-- END GENERATED: cookie-lifecycle-matrix -->
                        - <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
                                        The policy rows below define how `Security::token_validate()` interprets a POST when the
                                        browser lacked a valid cookie or the persisted record expired. Read them left to right:
@@ -440,12 +443,15 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                        POST, and keep the NCID as the authoritative `submission_id` until success. The challenge
                                        success row reiterates that the cookie is reused—no extra rotation occurs after
                                        verification.
-                                       | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
+                                        **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+                                        <!-- BEGIN GENERATED: cookie-policy-matrix -->
+                                        | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
                                         |-------------|-----------------------------------------------------|-----------|-------------|--------------------|--------------------|-------------------|
                                         | `hard` | Reject with `EFORMS_ERR_TOKEN`. Return the structured result and abort before ledger reservation. | `false` | — | `false` | none (`submission_id=null`) | Per request; true only when a syntactically valid cookie header was present on this POST. |
                                         | `soft` | Continue via NCID; treat tampering separately; add `cookie_missing`. | `false` | `cookie_missing` | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
                                         | `off` | Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record. | `false` | Conditional (see handling) | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when only the record was missing/expired. |
-  										| `challenge` | Continue via NCID; require verification before proceeding; add `cookie_missing`. | `false` | `cookie_missing` | `true` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
+                                        | `challenge` | Continue via NCID; require verification before proceeding; add `cookie_missing`. | `false` | `cookie_missing` | `true` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
+                                        <!-- END GENERATED: cookie-policy-matrix -->
 - Identifier pinning (challenge): See [Security → NCIDs, slots, and validation output (§7.1.4)](#sec-ncid) for the canonical challenge pinning rules.
 - Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`) (see [Security invariants (§7.1.2)](#sec-security-invariants)).
 - <a id="sec-slot-selection"></a>Slot selection (deterministic):
@@ -502,6 +508,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 				- Challenge success response: reuse the just-verified cookie; do not remint inside the success response. Subsequent submissions receive fresh cookies via `/eforms/prime`.
 - <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, the `eforms_submission` query flag, and verifier requirements are defined in [Success Behavior (PRG) (§13)](#sec-success) (see [NCID-only handoff (§13.1)](#sec-success-ncid)).
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
+**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+<!-- BEGIN GENERATED: cookie-ncid-summary -->
 | Scenario | Identifier outcome | Required action | Canonical section |
 |----------|--------------------|-----------------|-------------------|
 | Valid hidden record | `submission_id = token` | Embed the helper’s `{token, instance_id, timestamp}` verbatim and reuse them on rerender. | [Hidden-mode contract (§7.1.2)](#sec-hidden-mode) |
@@ -513,6 +521,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 | Challenge rerender after NCID fallback | `submission_id = same nc-…` | Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) |
 | Challenge success response | `submission_id = same nc-…` | Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) |
 | NCID success handoff (no acceptable cookie) | `submission_id = nc-…` | See [Success → NCID-only handoff (§13.1)](#sec-success-ncid). | [Success → NCID-only handoff (§13.1)](#sec-success-ncid) |
+<!-- END GENERATED: cookie-ncid-summary -->
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.
