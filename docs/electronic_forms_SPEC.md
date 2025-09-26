@@ -232,7 +232,7 @@ electronic_forms - Spec
 			- Renderer: private const HANDLERS = ['text' => [self::class,'emitInput'], 'textarea' => [...], ...]
 			- public static function resolve(string $id): callable { if (!isset(self::HANDLERS[$id])) throw RuntimeException(...); return self::HANDLERS[$id]; }
 	- Uploads registry settings: token->mime/ext expansions; image sanity; caps
-        - Accept token map lives in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens). Default tokens remain image and pdf; do not add new tokens without explicit review.
+        - Accept token map lives in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens); default tokens and the review gate are summarized in [Default accept tokens callout (§18)](#sec-uploads-accept-defaults).
 	- Upload registry loads on demand when a template with file/files is rendered or posted.
 	- Structural registry (TEMPLATE_SPEC) defines allowed keys, required combos, enums (implements additionalProperties:false).
 	- Escaping map (per sink) to be used consistently:
@@ -790,12 +790,12 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 
 <a id="sec-uploads"></a>
 18. UPLOADS (IMPLEMENTATION DETAILS)
-				- <a id="sec-uploads-accept-tokens"></a>Accept-token policy (normative):
-								- image → `image/jpeg`, `image/png`, `image/gif`, `image/webp` (SVG excluded).
-								- pdf → `application/pdf`.
-								- Explicit exclusions by default: `image/svg+xml`, `image/heic`, `image/heif`, `image/tiff`.
-								- Default tokens remain `{image, pdf}`. Adding tokens requires explicit review and MUST update this list.
-								- Applies to both `file` and `files` field types. Email attachment policy inherits the same mappings and is further constrained by [Email Delivery (§14)](#sec-email).
+                                - <a id="sec-uploads-accept-tokens"></a>Accept-token policy (normative):
+                                                                - image → `image/jpeg`, `image/png`, `image/gif`, `image/webp` (SVG excluded).
+                                                                - pdf → `application/pdf`.
+                                                                - Explicit exclusions by default: `image/svg+xml`, `image/heic`, `image/heif`, `image/tiff`.
+												> <a id="sec-uploads-accept-defaults"></a>**Callout — Default accept tokens (informative):** The default accept tokens remain `{image, pdf}`. Adding tokens requires explicit review and MUST update this policy. The MIME and extension mapping stays authoritative in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens).
+                                                                - Applies to both `file` and `files` field types. Email attachment policy inherits the same mappings and is further constrained by [Email Delivery (§14)](#sec-email).
 				- <a id="sec-uploads-filenames"></a>Filename policy (display vs storage, normative):
 								- Start from the client-supplied name; strip paths; NFC normalize.
 								- Run `sanitize_file_name()`, remove control characters, and collapse redundant whitespace or dots.
