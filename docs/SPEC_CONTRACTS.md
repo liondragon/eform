@@ -18,7 +18,7 @@
 ## 3) CI/Verifier Rules (summary)
 - Every “MUST/SHOULD/MAY” sentence **SHOULD** include a condition (`when|if|unless`) unless it’s a global invariant.
 - Every helper contract in §7.1.x contains **Inputs / Side-effects / Returns** blocks.
-- Changes in the **Security §7.1 matrices** (and the Appendix 26 pointer stubs) require a corresponding change in at least one anchored narrative/helper section (and vice-versa).
+- Changes in the **Security §7.1 matrices** require a corresponding change in at least one anchored narrative/helper section (and vice-versa).
 
 ## 4) Anchors used by the Verifier
 - Matrices: `#sec-cookie-policy-matrix`, `#sec-cookie-lifecycle-matrix`, `#sec-cookie-ncid-summary`

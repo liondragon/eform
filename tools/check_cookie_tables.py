@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that cookie-related matrices stay in §7.1 and appendix stubs stay pointers."""
+"""Validate cookie-related matrices live solely in §7.1."""
 from __future__ import annotations
 
 import sys
@@ -18,13 +18,6 @@ TABLE_HEADERS = {
     "sec-cookie-lifecycle-matrix": "| Flow trigger | Server MUST | Identifier outcome | Notes |",
     "sec-cookie-ncid-summary": "| Scenario | Identifier outcome | Required action | Canonical section |",
 }
-APPENDIX_STUBS = [
-    "sec-app-cookie-policy",
-    "sec-app-cookie-lifecycle",
-    "sec-app-cookie-ncid",
-]
-APPENDIX_TERMINATOR = "sec-past-decisions"
-
 
 def read_spec() -> list[str]:
     try:
@@ -66,39 +59,24 @@ def ensure_tables_within_section(lines: list[str]) -> list[str]:
 
         header = TABLE_HEADERS.get(anchor)
         if header:
-            for idx, raw_line in enumerate(lines):
-                stripped = raw_line.strip()
-                if stripped.startswith(header):
-                    if not (section_start <= idx < section_end):
-                        errors.append(
-                            f"Table for #{anchor} (detected at line {idx + 1}) is outside §7.1"
-                        )
-    return errors
-
-
-def ensure_appendix_stubs_are_pointers(lines: list[str]) -> list[str]:
-    errors: list[str] = []
-    appendix_bounds: dict[str, tuple[int, int]] = {}
-
-    ordered_anchors = APPENDIX_STUBS + [APPENDIX_TERMINATOR]
-    for i, anchor in enumerate(ordered_anchors[:-1]):
-        start = require_single_anchor(lines, anchor)
-        end_anchor = ordered_anchors[i + 1]
-        end = require_single_anchor(lines, end_anchor)
-        if end <= start:
-            errors.append(
-                f"Appendix section #{anchor} overlaps or is out of order with #{end_anchor}"
-            )
-            continue
-        appendix_bounds[anchor] = (start + 1, end)
-
-    for anchor, (start, end) in appendix_bounds.items():
-        for idx in range(start, end):
-            stripped = lines[idx].strip()
-            if stripped.startswith("|"):
+            header_matches = [
+                idx
+                for idx, raw_line in enumerate(lines)
+                if raw_line.strip().startswith(header)
+            ]
+            if not header_matches:
+                errors.append(f"Expected table header for #{anchor} not found")
+                continue
+            if len(header_matches) > 1:
+                human_lines = ", ".join(str(idx + 1) for idx in header_matches)
                 errors.append(
-                    f"Appendix stub #{anchor} must not contain tables (found table row at line {idx + 1})"
+                    f"Table header for #{anchor} appears multiple times (lines {human_lines}); §7.1 must remain canonical"
                 )
+            for idx in header_matches:
+                if not (section_start <= idx < section_end):
+                    errors.append(
+                        f"Table for #{anchor} (detected at line {idx + 1}) is outside §7.1"
+                    )
     return errors
 
 
@@ -106,7 +84,6 @@ def main() -> int:
     lines = read_spec()
     errors = []
     errors.extend(ensure_tables_within_section(lines))
-    errors.extend(ensure_appendix_stubs_are_pointers(lines))
 
     if errors:
         for message in errors:
