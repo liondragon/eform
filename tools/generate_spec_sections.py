@@ -2,10 +2,16 @@
 """Generate security spec tables from YAML data."""
 
 import argparse
+import importlib.util
 import re
 import sys
 from pathlib import Path
 from typing import Any, Iterable
+
+if importlib.util.find_spec("yaml") is None:
+    raise SystemExit(
+        "PyYAML is required to generate spec tables. Install it via 'pip install PyYAML' and rerun."
+    )
 
 import yaml
 
