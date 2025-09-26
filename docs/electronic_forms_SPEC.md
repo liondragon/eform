@@ -477,6 +477,12 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 				- <a id="sec-ncid-hidden"></a>Hidden-mode NCID fallback: When `security.submission_token.required=false` and the hidden-token lookup fails (missing/expired/nonexistent record), emit an NCID with `token_ok=false`, add `token_soft` to `soft_reasons`, set `is_ncid=true`, and keep `cookie_present?=false`.
 				- Cookie-mode NCIDs follow the rows for `off`, `soft`, and `challenge` in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix). `hard` never issues an NCID; policy rows already define `token_ok`, `require_challenge`, `cookie_present?`, and soft-label behavior for both absent cookies and stale records.
 				- Deterministic NCID recipe (`Helpers::ncid`, normative):
+								- `canon_body` serialization contract:
+									- Start from the post-coercion canonical array emitted in [Validation & Sanitization Pipeline → Step 4: Coerce (§8)](#sec-validation-pipeline); never re-read raw POST payloads or pre-coercion structures.
+									- Recurse depth-first over the canonical array. Arrays with contiguous integer keys starting at `0` serialize as JSON lists in index order; all other arrays serialize as JSON maps.
+									- For maps, sort keys ascending by their UTF-8 byte sequence before encoding and apply the same recursion to each value.
+									- Scalars are already canonical after Step 4; emit them verbatim (strings remain strings, booleans remain booleans, `null` stays null, and numeric-looking strings MUST NOT be coerced to numbers).
+									- Encode the final structure with `json_encode(..., JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR)` and use the raw UTF-8 bytes (no added whitespace) as `canon_body`.
 								- Inputs: `form_id`, the throttle `client_key` from `Helpers::throttle_key()` (after privacy rules), the rolling `window_idx`, and the normalized POST body serialized as `canon_body` (stable key ordering, UTF-8 bytes).
 								- Concatenate `form_id . "\0" . client_key . "\0" . window_idx . "\0" . canon_body`, compute the SHA-256 digest, and prefix the hex output with `"nc-"` to form the ledger identifier.
 								- `window_idx` advances once per `security.token_ttl_seconds` horizon so NCID dedupe shares the same TTL boundary as hidden/cookie tokens. When the window rolls forward, mint a fresh NCID (and ledger reservation) automatically.
