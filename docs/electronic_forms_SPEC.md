@@ -105,7 +105,7 @@ electronic_forms - Spec
 5. TEMPLATE MODEL
 
 ### 5.1 Field descriptors and namespacing {#sec-template-model-fields}
-> **Contract — Field descriptors and namespacing**
+> **Contract — TemplateValidator::validate_fields**
 > - Inputs:
 >	- Template field entries may declare `key`, `type`, `label?`, `placeholder?`, `required?`, `size?` (text-like only: `text`, `tel`, `url`, `email`), `autocomplete?`, `options?` (for radios/checkboxes/select), `class?`, `max_length?`, `min?`, `max?`, `step?`, `pattern?`, `before_html?`, and `after_html?`.
 >	- Each entry MUST include a `key` slug matching `/^[a-z0-9_-]{1,64}$/` (lowercase). Square brackets are prohibited to prevent PHP array collisions, and reserved keys remain disallowed.
@@ -147,7 +147,7 @@ electronic_forms - Spec
 | UX niceties | `enterkeyhint="send"` marks the final text-like control or `<textarea>`; other renderer-managed classes mirror template-provided `class` values. | All hints are advisory and never weaken validation. |
 
 ### 5.2 Row groups (structured wrappers) {#sec-template-row-groups}
-> **Contract — Row groups**
+> **Contract — TemplateValidator::validate_row_groups**
 > - Inputs:
 >	- Pseudo-fields use `type:"row_group"` with `{ mode:"start"|"end", tag:"div"|"section" (default `div`), class? }`.
 >	- Row-group objects omit `key`, carry no submission data, and may be nested.
@@ -160,7 +160,7 @@ electronic_forms - Spec
 >	- An unbalanced stack at EOF emits a single global config error `EFORMS_ERR_ROW_GROUP_UNBALANCED`; stray `end` entries with an empty stack are ignored and logged.
 
 ### 5.3 Template JSON {#sec-template-json}
-> **Contract — Template JSON envelope**
+> **Contract — TemplateValidator::validate_template_envelope**
 > - Inputs:
 >	- Templates live in `/templates/forms/` with filenames matching `/^[a-z0-9-]+\.json$/`.
 >	- Authors may include a design-time schema pointer (recommended) using a stable URL or absolute path (avoid hard-coded `/wp-content/plugins/...` paths).
@@ -172,7 +172,7 @@ electronic_forms - Spec
 >	- Filenames outside the allow-list are ignored. Malformed or incomplete JSON triggers a deterministic “Form configuration error” without a white screen.
 
 ### 5.4 display_format_tel tokens {#sec-display-format-tel}
-> **Contract — `display_format_tel` formatting**
+> **Contract — TemplateValidator::validate_display_format_tel**
 > - Inputs:
 >	- `email.display_format_tel` selects the formatting token applied to telephone values in email summaries.
 > - Side-effects:
@@ -183,7 +183,7 @@ electronic_forms - Spec
 >	- Unknown tokens are flagged during preflight and revert to the default presentation at runtime.
 
 ### 5.5 Options shape {#sec-template-options}
-> **Contract — Field options**
+> **Contract — TemplateValidator::validate_field_options**
 > - Inputs:
 >	- `options` arrays contain objects `{ key, label, disabled? }` for radios, checkboxes, and selects.
 > - Side-effects:
@@ -194,7 +194,7 @@ electronic_forms - Spec
 >	- Options marked `disabled:true` MUST NOT be submitted; selecting one produces a validation error. Malformed option objects raise `EFORMS_ERR_SCHEMA_OBJECT`.
 
 ### 5.6 Versioning & cache keys {#sec-template-versioning}
-> **Contract — Template versioning**
+> **Contract — TemplateContext::normalize_version**
 > - Inputs:
 >	- Templates SHOULD provide an explicit `version` string; when omitted, runtime falls back to `filemtime()`.
 > - Side-effects:
@@ -205,7 +205,7 @@ electronic_forms - Spec
 >	- None; omission simply relies on `filemtime()` which may cache-bust less predictably.
 
 ### 5.7 Validation (design-time vs. runtime) {#sec-template-validation}
-> **Contract — Template validation lifecycle**
+> **Contract — SubmitHandler::validate_template_lifecycle**
 > - Inputs:
 >	- Runtime evaluation uses two phases: `(0)` structural preflight via `TemplateValidator`, then `(1)` normalize → validate → coerce via `Validator`.
 >	- `/schema/template.schema.json` exists for CI/docs only and is mechanically derived from `TEMPLATE_SPEC`.
@@ -218,7 +218,7 @@ electronic_forms - Spec
 >	- Unknown rule values or malformed JSON raise deterministic schema errors. File/file descriptors whose `accept[]` intersection with the global allow-list is empty trigger `EFORMS_ERR_ACCEPT_EMPTY`. Invalid `email.display_format_tel` tokens are flagged here and dropped before runtime use.
 
 ### 5.8 TemplateContext (internal) {#sec-template-context}
-> **Contract — TemplateContext output**
+> **Contract — TemplateContext::build**
 > - Inputs:
 >	- `TemplateValidator` resolves descriptors from `TEMPLATE_SPEC`, reading handler IDs (`validator_id`, `normalizer_id`, `renderer_id`), HTML traits, validation ranges, constants, and optional `alias_of` metadata.
 >	- Handler registries are private to their owning classes (see [Central Registries (Internal Only) (§6)](#sec-central-registries)) and expose `resolve()` helpers for deterministic lookup.
@@ -304,7 +304,7 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 ##### Challenge (conditional)
 - **What:** When `require_challenge=true`, cookie-mode rerenders must clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted record is reissued; NCID rerenders perform the same clear+prime even without challenge.
 - **Why:** Clearing ensures the next GET re-primes against the same persisted record while keeping submissions pinned to their NCID, satisfying the “no rotation before success” invariant.
-- **How:** Rerenders emit the deletion header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; [Secure]`) and re-include the deterministic slot markup plus prime pixel. Hidden-mode challenge rerenders reuse the original token without rotation.
+- **How:** Rerenders emit the deletion header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; HttpOnly; [Secure]`) and re-include the deterministic slot markup plus prime pixel. Hidden-mode challenge rerenders reuse the original token without rotation.
 
 ##### Normalize
 - **What:** Every POST runs normalize → validate → coerce before side effects.
@@ -390,10 +390,10 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - Persistence (normative): On `miss`/`expired`, persist `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`; on `hit`, leave the record untouched. All writes MUST follow the shared lifecycle contract: create `{h2}` directories with `0700` permissions and atomically write `0600` files per [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
 					- Record fields (normative): on `miss` and `expired`, the minted record starts with `slots_allowed:[]` and `slot:null`; on `hit`, return the persisted values as-is (possibly with non-empty `slots_allowed` and a derived `slot` written by `/eforms/prime`).
 					- Slot argument handling (normative): Validate the optional `slot?` against the allowed set (int 1–255 and configured allow-list). Invalid or disabled ⇒ treat as `null`. Apart from writing the initial record described above, the helper MUST NOT persist or union slot observations; it MAY normalize the argument for logging/metrics only. `/eforms/prime` alone loads the record, unions observed `s`, derives canonical `slot` when `|slots_allowed|==1`, and persists that update atomically.
-- Header boundary (normative): `/eforms/prime` alone emits **positive** `Set-Cookie` (mint/refresh). POST rerenders emit the required deletion header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; [Secure on HTTPS]`) only for the NCID/challenge rerenders defined below and in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
+- Header boundary (normative): `/eforms/prime` alone emits **positive** `Set-Cookie` (mint/refresh). POST rerenders emit the required deletion header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; HttpOnly; [Secure on HTTPS]`) only for the NCID/challenge rerenders defined below and in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-					- Rerenders MUST reuse the minted `eid` and deterministic slot choice. When an NCID fallback occurs or a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` by sending a Set-Cookie **deletion** header whose attributes match the minted cookie: same Name and Path, `SameSite=Lax`, `Secure` on HTTPS, and `Max-Age=0` (or an `Expires` date in the past). Do not emit a positive Set-Cookie during rerender. Embed `/eforms/prime` so it reissues the persisted cookie before the next POST while the markup continues to emit the deterministic `eforms_slot` (when applicable) and pixel.
+                                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice. When an NCID fallback occurs or a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` by sending a Set-Cookie **deletion** header whose attributes match the minted cookie: same Name and Path, `SameSite=Lax`, `HttpOnly`, `Secure` on HTTPS, and `Max-Age=0` (or an `Expires` date in the past). Do not emit a positive Set-Cookie during rerender. Embed `/eforms/prime` so it reissues the persisted cookie before the next POST while the markup continues to emit the deterministic `eforms_slot` (when applicable) and pixel.
 			- **Persisted record structure** (`eid_minted/{form_id}/{h2}/{eid}.json`):
 					| Field | Notes |
 					|-----------------|-------|
