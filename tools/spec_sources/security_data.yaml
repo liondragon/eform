@@ -229,7 +229,7 @@ ncid_summary_rows:
     identifier_outcome:
       kind: ncid
       text: "`submission_id = nc-…`."
-    required_action: "See [Success → NCID-only handoff (§13.1)](#sec-success-ncid)."
+    required_action: 'Force Redirect-only PRG even when `success.mode="inline"`; use `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (required for NCID).'
     canonical_section:
       anchor: sec-success-ncid
       label: Success → NCID-only handoff (§13.1)
