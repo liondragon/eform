@@ -2,9 +2,17 @@ electronic_forms - Spec
 ================================================================
 
 <a id="sec-normative-note"></a>Normative vs. Non-normative
-	- Narrative text, tables, and matrices are normative unless explicitly marked otherwise.
-	- Diagrams and callouts are non-normative references only; they illustrate the normative rules above.
-        - **Conflict resolution (normative):** This narrative defers to [Spec Contracts → Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality) for the authoritative hierarchy across matrices, helper contracts, and narrative updates.
+This front matter summarizes the single canonical hierarchy defined in [Spec Contracts → Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality). Update that section first, then link to it from any new mandates instead of restating hierarchy in full.
+
+| Scope | Authoritative source | Notes |
+|-------|----------------------|-------|
+| Runtime behavior (code paths, fixtures) | PHP implementation, helper fixtures, and verifier scripts | Runtime sources remain the ground truth for execution details; this spec references them without overriding behavior. |
+| Spec constraints (matrices, helper contracts, narrative) | `docs/SPEC_CONTRACTS.md#sec-canonicality`, Security §7 matrices, anchored helper contracts | These define normative outcomes, inputs/outputs, ranges, and precedence rules. Narrative changes must stay aligned with the matrices and helper contracts they summarize. |
+| Informative material | Appendices, diagrams, explanatory callouts | Marked non-normative; they illustrate behavior but do not change requirements. |
+
+- Narrative text, tables, and matrices are normative unless explicitly marked otherwise.
+- Diagrams and callouts are non-normative references only; they illustrate the normative rules above.
+- **Conflict resolution (normative):** Follow the hierarchy above when sources disagree, and keep [Spec Contracts → Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality) and this hub in sync so verifiers have a single entry point.
 
 <a id="sec-objective"></a>
 1. OBJECTIVE
@@ -259,10 +267,10 @@ electronic_forms - Spec
  	
 <a id="sec-security"></a>
 7. SECURITY
-Cookie and NCID matrices in this section are normative; §7 is the sole canonical location.
+Cookie and NCID matrices in this section are normative; per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality) §7 remains the canonical location for these policies.
 <a id="sec-submission-protection"></a>1. Submission Protection for Public Forms (hidden vs cookie)
 - See [Lifecycle quickstart (§7.1.0)](#sec-lifecycle-quickstart) for the canonical render → persist → POST → rerender/success contract that governs both modes.
-- Detailed matrices live in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix), [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix), and [Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary); this section keeps the authoritative mode invariants and shared storage rules.
+- Detailed matrices live in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix), [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix), and [Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary); this section keeps the authoritative mode invariants and shared storage rules while pointing back to [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality).
 <a id="sec-lifecycle-quickstart"></a>7.1.0 Lifecycle quickstart (normative)
 <!-- BEGIN GENERATED: lifecycle-pipeline-quickstart -->
 **Pipeline-first outline (render → persist → POST → challenge → normalization → ledger → success)**
@@ -289,7 +297,7 @@ Cookie and NCID matrices in this section are normative; §7 is the sole canonica
 
 ##### POST → Security gate
 - **What:** `Security::token_validate()` evaluates submission tokens, cookie presence, NCIDs, slots, throttle/origin policy, and challenge requirements.
-- **Why:** Centralizing the gate keeps matrices authoritative: the function outputs `{ token_ok, hard_fail, require_challenge, submission_id, slot?, cookie_present?, is_ncid?, soft_reasons[] }` so entry points avoid bespoke policy forks.
+- **Why:** Centralizing the gate keeps matrices authoritative per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality): the function outputs `{ token_ok, hard_fail, require_challenge, submission_id, slot?, cookie_present?, is_ncid?, soft_reasons[] }` so entry points avoid bespoke policy forks.
 - **How:** `SubmitHandler::handle()` (and challenge verifiers) consume the returned struct directly, interpreting cookie/NCID outcomes per the embedded status without additional database reads. Cookie-mode rerenders rely on `require_challenge` and `soft_reasons` to select challenge templates while preserving the minted record.
 
 ##### Challenge (conditional)
@@ -324,7 +332,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 			- Honeypot short-circuits burn the same ledger entry, and submission IDs for all modes remain colon-free.
 
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/cookie/NCID):
-			- Minting helpers are authoritative: they return canonical metadata and persist records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed). Only `/eforms/prime` may **mint/refresh** cookie identifiers; other endpoints may **only delete** the cookie as specified in §7.1.4.2.
+				- Minting helpers (see [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality)) are authoritative: they return canonical metadata and persist records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed). Only `/eforms/prime` may **mint/refresh** cookie identifiers; other endpoints may **only delete** the cookie as specified in §7.1.4.2.
 			- Minting helpers never evaluate challenge, throttle, or origin policy; they only consult the configuration snapshot for TTLs/paths and slot policy, and entry points embed the returned fields verbatim.
 			- Config read scope: The preceding restriction applies only to minting helpers. Validation (`Security::token_validate()`) may read any policy keys required (e.g., `security.*`, `challenge.*`, `privacy.*`) to compute `{token_ok, require_challenge, soft_reasons, cookie_present?}`.
 			- Minting/verification helpers MUST ensure a configuration snapshot exists by calling `Config::get()` on first use.
@@ -342,7 +350,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 				- Hidden-mode challenge never rotates the hidden token before success; the token/instance/timestamp trio is reused across rerenders until success or expiry.
 
 <a id="sec-hidden-mode"></a>2. Hidden-mode contract
-		- **Minting helper (authority)**:
+- **Minting helper (authority; see [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality))**:
 			- `Security::mint_hidden_record(form_id)`:
 				- Returns `{ token: UUIDv4, instance_id: base64url(16–24 bytes), issued_at: unix, expires: issued_at + security.token_ttl_seconds }`.
 				- Writes JSON record at `tokens/{h2}/{sha256(token)}.json` with `{ mode:"hidden", form_id, instance_id, issued_at, expires }` (never rewritten on rerender).
