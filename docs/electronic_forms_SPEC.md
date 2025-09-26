@@ -355,7 +355,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 			- <a id="sec-cookie-lifecycle-matrix"></a>Lifecycle matrix (normative): See [Appendix 26.6](#sec-app-cookie-lifecycle) for the full flow table. This stub retains the legacy anchor.
 					- <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative): See [Appendix 26.5](#sec-app-cookie-policy) for the authoritative matrix of `token_ok`, `require_challenge`, and identifier outcomes.
 - Identifier pinning (challenge): If the policy path returns an NCID and `require_challenge=true`, that submission MUST continue to use the same NCID as its `submission_id` through verification and success. The reissued cookie header on the rerender is reserved for subsequent submissions and MUST NOT change the identifier mid-flow.
-- Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`).
+- Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`) (see [Security invariants (§7.1.2)](#sec-security-invariants)).
 - <a id="sec-slot-selection"></a>Slot selection (deterministic):
 				- When `cookie_mode_slots_enabled=true`, the renderer MUST choose `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender.
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
