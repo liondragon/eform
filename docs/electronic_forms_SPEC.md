@@ -466,7 +466,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 			- Dedup + retention:
 				- `submission_id` equals the EID with optional `__slot{n}` suffix when slots are active; NCID fallbacks reuse the deterministic NCID recipe in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
 				- NCID fallbacks leave previously minted cookie records untouched until natural expiry. `/eforms/prime` reuses the persisted record on a `hit` (even when the request lacked a cookie). When the submission succeeded with `token_ok=true` (cookie-mode success), `SubmitHandler::handle()` MUST delete the minted record before PRG so the next `/eforms/prime` call observes a `miss` and remints a fresh identifier; orphaned records simply age out without being rewritten.
-				- Definition — Successful rotation trigger = cookie-mode success with `token_ok=true` that deletes the minted record before redirect.
+				- Definition — Successful rotation trigger = the post-success `/eforms/prime` remint that replaces the record after PRG; the pre-PRG delete above exists only to force that rotation path.
+ 				- Definition — Post-success remint = the first `/eforms/prime` call after PRG that observes the missing record and mints a replacement.
 				- Ledger handling follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); HARD FAIL rows above surface `EFORMS_ERR_TOKEN`.
 <a id="sec-ncid"></a>4. NCIDs, slots, and validation output
 - `Security::token_validate()` exposes `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons? }` to downstream handlers. Hidden mode normally reports the token; cookie mode reports the EID (with slot suffix when present) or an NCID as directed by [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix).
