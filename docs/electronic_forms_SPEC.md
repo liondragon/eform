@@ -791,12 +791,13 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 
 <a id="sec-uploads"></a>
 18. UPLOADS (IMPLEMENTATION DETAILS)
-                                - <a id="sec-uploads-accept-tokens"></a>Accept-token policy (normative):
-                                                                - image → `image/jpeg`, `image/png`, `image/gif`, `image/webp` (SVG excluded).
-                                                                - pdf → `application/pdf`.
-                                                                - Explicit exclusions by default: `image/svg+xml`, `image/heic`, `image/heif`, `image/tiff`.
-												> <a id="sec-uploads-accept-defaults"></a>**Callout — Default accept tokens (informative):** The default accept tokens remain `{image, pdf}`. Adding tokens requires explicit review and MUST update this policy. The MIME and extension mapping stays authoritative in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens).
-                                                                - Applies to both `file` and `files` field types. Email attachment policy inherits the same mappings and is further constrained by [Email Delivery (§14)](#sec-email).
+	- <a id="sec-uploads-accept-tokens"></a>Accept-token policy (normative):
+		- image → `image/jpeg`, `image/png`, `image/gif`, `image/webp` (SVG excluded).
+		- pdf → `application/pdf`.
+		- Explicit exclusions by default: `image/svg+xml`, `image/heic`, `image/heif`, `image/tiff`.
+	- <a id="sec-uploads-accept-defaults"></a>
+		Callout — Default accept tokens (informative): The default accept tokens remain `{image, pdf}`. Adding tokens requires explicit review and MUST update this policy. The MIME and extension mapping stays authoritative in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens).
+	- Applies to both `file` and `files` field types. Email attachment policy inherits the same mappings and is further constrained by [Email Delivery (§14)](#sec-email).
 				- <a id="sec-uploads-filenames"></a>Filename policy (display vs storage, normative):
 								- Start from the client-supplied name; strip paths; NFC normalize.
 								- Run `sanitize_file_name()`, remove control characters, and collapse redundant whitespace or dots.
