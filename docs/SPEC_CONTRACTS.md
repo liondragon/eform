@@ -5,7 +5,7 @@
 
 <!--8<-- [start:sec-normative-note] -->
 <a id="sec-normative-note"></a>Normative vs. Non-normative
-This section summarizes the single canonical hierarchy defined in [Spec Contracts → Canonicality & Precedence (§1)](#sec-canonicality). Update that section first, then link to it from any new mandates instead of restating hierarchy in full.
+This section summarizes the single canonical hierarchy defined in [Spec Contracts → Canonicality & Precedence (§1)](docs/SPEC_CONTRACTS.md#sec-canonicality). Update that section first, then link to it from any new mandates instead of restating hierarchy in full.
 
 | Scope | Authoritative source | Notes |
 |-------|----------------------|-------|
