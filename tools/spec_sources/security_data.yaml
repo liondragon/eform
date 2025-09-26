@@ -85,7 +85,7 @@ cookie_lifecycle_rows:
     identifier:
       kind: cookie_record
       text: "Cookie record persists `{ mode:\"cookie\", form_id, eid, issued_at, expires, slots_allowed, slot }`."
-    notes: "Missing/truncated/expired record **or a request lacking an unexpired match** ⇒ send `Set-Cookie`; otherwise MUST skip the header whenever that identical, unexpired cookie is present. Response: `204` + `Cache-Control: no-store`. Never rewrite TTLs on reuse."
+    notes: "Missing/truncated/expired record **or a request lacking an unexpired match** ⇒ send `Set-Cookie`; otherwise MUST skip the header whenever that identical, unexpired cookie is present. Response: `204` + `Cache-Control: no-store`. Never rewrite TTLs on reuse. Status reports the pre-write lookup; returned `expires` reflects the persisted record after any remint."
     references:
       - sec-cookie-mode
       - sec-cookie-lifecycle-matrix
