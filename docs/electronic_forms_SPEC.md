@@ -2,9 +2,9 @@ electronic_forms - Spec
 ================================================================
 
 <a id="sec-normative-note"></a>Normative vs. Non-normative
-        - Narrative text, tables, and matrices are normative unless explicitly marked otherwise.
-        - Diagrams and callouts are non-normative references only; they illustrate the normative rules above.
-        - **Conflict resolution (normative):** This narrative defers to [Spec Contracts → Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality) for the authoritative hierarchy across matrices, helper contracts, and narrative updates. (Stubs that “retain the legacy anchor” are informative unless they restate matrix rows verbatim.)
+	- Narrative text, tables, and matrices are normative unless explicitly marked otherwise.
+	- Diagrams and callouts are non-normative references only; they illustrate the normative rules above.
+	- **Conflict resolution (normative):** This narrative defers to [Spec Contracts → Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality) for the authoritative hierarchy across matrices, helper contracts, and narrative updates. (Stubs that “retain the legacy anchor” are informative unless they restate matrix rows verbatim.)
 
 <a id="sec-objective"></a>
 1. OBJECTIVE
@@ -113,7 +113,7 @@ electronic_forms - Spec
 	- size: 1-100; honored only for text-like controls (text, tel, url, email).
 	- Renderer injects security metadata per the active submission mode. See [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) for the canonical hidden-token and cookie-mode contract (required hidden fields, cookie/EID minting, rerender reuse rules, and POST expectations).
 	- Form tag classes: <form class="eforms-form eforms-form-{form_id}"> (template id slug)
-        - Renderer-generated attributes:
+	- Renderer-generated attributes:
 		| Attribute(s) | Emission rule | Notes |
 		|--------------|---------------|-------|
 		| `id` | Hidden mode: `{form_id}-{field_key}-{instance_id}`. Cookie mode: `{form_id}-{field_key}-s{slot}` when slots are active; omit the suffix when no slot is assigned. | Slot suffix mirrors the deterministic renderer assignment; slotless instances remain suffix-free. |
@@ -126,14 +126,14 @@ electronic_forms - Spec
 		| `multiple` | Added when the descriptor reports `is_multivalue=true`. | Ensures DOM/UI affordances align with array POST bodies. |
 		| `accept` | Mirrors descriptor/token-driven MIME allow-lists. | `image` token → `image/jpeg,image/png,image/gif,image/webp`; `pdf` token → `application/pdf`. |
 		| `enterkeyhint` | `"send"` on the last text-like control or `<textarea>` in DOM order. | Best-effort UX affordance; does not affect validation or submission flow. |
-        - Reserved field keys (templates must not use): form_id, instance_id, submission_id, eforms_token, eforms_hp, eforms_mode, eforms_slot, timestamp, js_ok, ip, submitted_at.
+	- Reserved field keys (templates must not use): form_id, instance_id, submission_id, eforms_token, eforms_hp, eforms_mode, eforms_slot, timestamp, js_ok, ip, submitted_at.
 	- include_fields accepts template keys and meta keys:
 		- allowed meta keys: ip, submitted_at, form_id, instance_id (hidden-mode only), submission_id, slot (available for email/logs only)
 	- Template fragments (before_html / after_html):
 		- Sanitized via wp_kses_post (same as textarea_html); sanitized result is canonical.
 		- No inline styles. May not cross row_group boundaries.
 	- Upload field options: for type=file/files, optional accept[], max_file_bytes, max_files (files only), email_attach (bool). Per-field values override global limits.
-        - Client-side hints (summary):
+	- Client-side hints (summary):
 		| Hint | Emission rule | Notes |
 		|------|---------------|-------|
 		| Attribute mirrors | Renderer copies validator bounds to HTML attributes (`max_length` → `maxlength`, numeric/date bounds → `min`/`max`/`step`, `min_length` → `minlength`). | Keeps UX hints aligned with server policy; the validator remains canonical. |
@@ -154,13 +154,13 @@ electronic_forms - Spec
 	- Location: /templates/forms/
 	- Filename allow-list: /^[a-z0-9-]+\.json$/
 	- Design-time schema pointer (optional but recommended): use a stable web URL to the schema in your repo (e.g., "${SCHEMA_URL}/template.schema.json") or a local absolute path. Avoid hard-coded /wp-content/plugins/... paths.
-        - Minimal shape:
-                - id (slug), version (string), title (string)
-                - success { mode:"inline"|"redirect", redirect_url?, message? }
+	- Minimal shape:
+		- id (slug), version (string), title (string)
+		- success { mode:"inline"|"redirect", redirect_url?, message? }
 				- email { to, subject, email_template ("foo" -> templates/email/foo.*), include_fields[], display_format_tel? (see [display_format_tel tokens (§5.3)](#sec-display-format-tel)) }
-                - fields[] of field objects (see 5.1)
-                - submit_button_text (string)
-                - rules[] of bounded JSON rules (see 10)
+		- fields[] of field objects (see 5.1)
+		- submit_button_text (string)
+		- rules[] of bounded JSON rules (see 10)
 
 ### display_format_tel tokens {#sec-display-format-tel}
 		- Allowed values:
@@ -232,7 +232,7 @@ electronic_forms - Spec
 			- Renderer: private const HANDLERS = ['text' => [self::class,'emitInput'], 'textarea' => [...], ...]
 			- public static function resolve(string $id): callable { if (!isset(self::HANDLERS[$id])) throw RuntimeException(...); return self::HANDLERS[$id]; }
 	- Uploads registry settings: token->mime/ext expansions; image sanity; caps
-        - Accept token map lives in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens); default tokens and the review gate are summarized in [Default accept tokens callout (§18)](#sec-uploads-accept-defaults).
+	- Accept token map lives in [Uploads → Accept-token policy (§18)](#sec-uploads-accept-tokens); default tokens and the review gate are summarized in [Default accept tokens callout (§18)](#sec-uploads-accept-defaults).
 	- Upload registry loads on demand when a template with file/files is rendered or posted.
 	- Structural registry (TEMPLATE_SPEC) defines allowed keys, required combos, enums (implements additionalProperties:false).
 	- Escaping map (per sink) to be used consistently:
@@ -245,7 +245,7 @@ electronic_forms - Spec
 	-	<a id="sec-lazy-load-matrix"></a>Lazy-load lifecycle (components & triggers):
 		| Component		| Init policy | Trigger(s) (first use) | Notes |
 		|------------------|------------:|-------------------------|-------|
-               | Config snapshot | Lazy | First `Config::get()` call (entry points such as `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, and **`/eforms/success-verify`** invoke it before helpers; `/eforms/prime` MUST call `Config::get()` before delegating to `Security::mint_cookie_record()`—the helper still no-ops repeat calls) | Idempotent (per request); entry points decide when to create the snapshot; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
+	       | Config snapshot | Lazy | First `Config::get()` call (entry points such as `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, and **`/eforms/success-verify`** invoke it before helpers; `/eforms/prime` MUST call `Config::get()` before delegating to `Security::mint_cookie_record()`—the helper still no-ops repeat calls) | Idempotent (per request); entry points decide when to create the snapshot; see [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration) for bootstrap timing. |
 		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; memoizes per request (no global scans). |
 		| Static registries (`HANDLERS` maps) | Lazy | First call to `resolve()` / class autoload | Autoloading counts as lazy; classes hold only const maps; derived caches compute on demand. |
 		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
@@ -254,7 +254,7 @@ electronic_forms - Spec
 		| Emailer | Lazy | After validation succeeds (just before send) | SMTP/DKIM init only on send; skipped on failures. |
 		| Logging | Lazy | First log write when `logging.mode != "off"` | Opens/rotates file on demand. |
 		| Throttle | Lazy | When `throttle.enable=true` and key present | File created on first check. |
-               | Challenge | Lazy | Only inside entry points: (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a POST re-render when `require_challenge=true`; or (3) verification step when a provider response is present (`cf-turnstile-response` / `h-captcha-response` / `g-recaptcha-response`). | Provider script enqueued only when rendered. Even when `challenge.mode="always"`, challenge MUST NOT initialize on the initial GET; it loads only on: (a) POST rerender after `Security::token_validate()` sets `require_challenge=true`, or (b) the verification step when a provider response is present. |
+	       | Challenge | Lazy | Only inside entry points: (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a POST re-render when `require_challenge=true`; or (3) verification step when a provider response is present (`cf-turnstile-response` / `h-captcha-response` / `g-recaptcha-response`). | Provider script enqueued only when rendered. Even when `challenge.mode="always"`, challenge MUST NOT initialize on the initial GET; it loads only on: (a) POST rerender after `Security::token_validate()` sets `require_challenge=true`, or (b) the verification step when a provider response is present. |
 		| Assets (CSS/JS) | Lazy | When a form is rendered on the page | Version via filemtime; opt-out honored. |
  	
 <a id="sec-security"></a>
@@ -276,12 +276,12 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 
 <a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
 - Mode selection stays server-owned: `[eform id=\"slug\" cacheable=\"false\"]` (default) renders in hidden-token mode; `cacheable=\"true\"` renders in cookie mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
-                - Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, minted cookies, ledger entries, throttles, and success tickets.
-                - Regex guards (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` hidden tokens, `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` cookie EIDs, `^[A-Za-z0-9_-]{22,32}$` instance IDs) run before disk access to weed out obvious tampering.
-                - <a id="sec-ledger-contract"></a>Ledger reservation contract
-                        - Duplicate suppression reserves `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (or equivalent) immediately before side effects.
-                        - Treat `EEXIST` or any filesystem failure as a duplicate and log `EFORMS_LEDGER_IO` on unexpected IO errors.
-                        - Honeypot short-circuits burn the same ledger entry, and submission IDs for all modes remain colon-free.
+		- Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, minted cookies, ledger entries, throttles, and success tickets.
+		- Regex guards (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` hidden tokens, `/^i-[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` cookie EIDs, `^[A-Za-z0-9_-]{22,32}$` instance IDs) run before disk access to weed out obvious tampering.
+		- <a id="sec-ledger-contract"></a>Ledger reservation contract
+			- Duplicate suppression reserves `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (or equivalent) immediately before side effects.
+			- Treat `EEXIST` or any filesystem failure as a duplicate and log `EFORMS_LEDGER_IO` on unexpected IO errors.
+			- Honeypot short-circuits burn the same ledger entry, and submission IDs for all modes remain colon-free.
 
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/cookie/NCID):
 			- Minting helpers are authoritative: they return canonical metadata and persist records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed). Only `/eforms/prime` may **mint/refresh** cookie identifiers; other endpoints may **only delete** the cookie as specified in §7.1.4.2.
@@ -295,8 +295,8 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 			- Precedence & rotation exceptions:
 				- Order of rules (highest → lowest):
 					- Hard failures (honeypot, tamper, hard throttle, hard origin/cookie policy) stop processing immediately.
-                                       - Challenge pre-verification (cookie mode only, when `require_challenge=true`): the rerender MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted EID is reissued via `Set-Cookie` before the next POST.
-                                       - NCID rerender in cookie mode (non-challenge): the rerender MUST clear `eforms_eid_{form_id}` to ensure `/eforms/prime` reissues the persisted EID on the follow-up GET.
+				       - Challenge pre-verification (cookie mode only, when `require_challenge=true`): the rerender MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted EID is reissued via `Set-Cookie` before the next POST.
+				       - NCID rerender in cookie mode (non-challenge): the rerender MUST clear `eforms_eid_{form_id}` to ensure `/eforms/prime` reissues the persisted EID on the follow-up GET.
 					- Otherwise: “no rotation before success” holds; rotation happens only on expiry or after a successful submission (PRG).
   					- Explicit carve-out (normative): The cookie clear + re-prime required by (a) NCID fallbacks and (b) pre-verification challenge rerenders is NOT considered a violation of “no rotation before success.” The submission stays pinned to the NCID; the reissued cookie header is reserved for subsequent submissions.
 				- Hidden-mode challenge never rotates the hidden token before success; the token/instance/timestamp trio is reused across rerenders until success or expiry.
@@ -331,18 +331,18 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
 			- **Minting helper (authority)**:
-                                - `Security::mint_cookie_record(form_id, slot?)`:
-                                        - Returns `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }`.
-                                        - Status semantics (normative): `miss` when no record existed, `expired` when the persisted record was stale and got replaced, `hit` when an unexpired record already existed; all cases return the canonical record payload.
-                                        - Expired status (normative): `expired` iff `now >= record.expires`; helpers never refresh `issued_at`/`expires` on `hit`.
+				- `Security::mint_cookie_record(form_id, slot?)`:
+					- Returns `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }`.
+					- Status semantics (normative): `miss` when no record existed, `expired` when the persisted record was stale and got replaced, `hit` when an unexpired record already existed; all cases return the canonical record payload.
+					- Expired status (normative): `expired` iff `now >= record.expires`; helpers never refresh `issued_at`/`expires` on `hit`.
 										- Record fields (normative): on `miss` and `expired`, the minted record starts with `slots_allowed:[]` and `slot:null`; on `hit`, return the persisted values as-is (possibly with non-empty `slots_allowed` and a derived `slot` written by `/eforms/prime`).
-                                        - Header boundary (normative): `Security::mint_cookie_record()` **never** emits `Set-Cookie`. `/eforms/prime` alone emits **positive** `Set-Cookie` (mint/refresh) per the carve-out below. POST rerenders governed by [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender) MUST emit a **deletion** header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; [Secure on HTTPS]`) to clear the cookie.
-                                        - On `miss`/`expired`, persist `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`; on `hit`, leave the record untouched.
+					- Header boundary (normative): `Security::mint_cookie_record()` **never** emits `Set-Cookie`. `/eforms/prime` alone emits **positive** `Set-Cookie` (mint/refresh) per the carve-out below. POST rerenders governed by [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender) MUST emit a **deletion** header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; [Secure on HTTPS]`) to clear the cookie.
+					- On `miss`/`expired`, persist `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed, slot }`; on `hit`, leave the record untouched.
 - Slot argument handling (normative): The helper MUST validate the optional `slot?` against the allowed set (int 1–255 and configured allow-list). Invalid or disabled ⇒ treat as `null`. Apart from writing the initial record described above, the helper MUST NOT persist or union slot observations; it MAY ignore/normalize the argument for logging/metrics only. The `/eforms/prime` endpoint is solely responsible for loading the record, unioning the observed `s`, deriving canonical `slot` when `|slots_allowed|==1`, and persisting that update atomically. Helpers MUST NOT rewrite `slots_allowed` or `slot`.
 					- Writes with atomic `{h2}` directory creation (`0700`) and `0600` file permissions; unions slot observations per `/eforms/prime` (no writes from POST).
 					- Helpers MUST call `Config::get()` on first use as a backstop. Entry points SHOULD call it up front; `/eforms/prime` MUST call it before delegating to the helper. Duplicate calls are idempotent. Helpers remain pure w.r.t. challenge/origin/throttle.
 			- Markup (GET): deterministic output embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice; see [Security invariants (§7.1.2)](#sec-security-invariants) for rotation exceptions. Exceptions (normative, sanctioned): When (a) an NCID fallback occurs or (b) a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` by sending a Set-Cookie **deletion** header whose attributes match the minted cookie: same Name and Path, `SameSite=Lax`, `Secure` on HTTPS, and `Max-Age=0` (or an `Expires` date in the past). Do not emit a positive Set-Cookie here. Embed `/eforms/prime` so it reissues the persisted cookie before the next POST (see [Security invariants (§7.1.2)](#sec-security-invariants) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender)). Even in those flows the rerendered markup MUST emit the deterministic `eforms_slot` (when applicable) and the `/eforms/prime` pixel so the submission stays NCID-pinned while reserving that reissued cookie for future posts.
+			- Rerenders MUST reuse the minted `eid` and deterministic slot choice; see [Security invariants (§7.1.2)](#sec-security-invariants) for rotation exceptions. Exceptions (normative, sanctioned): When (a) an NCID fallback occurs or (b) a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` by sending a Set-Cookie **deletion** header whose attributes match the minted cookie: same Name and Path, `SameSite=Lax`, `Secure` on HTTPS, and `Max-Age=0` (or an `Expires` date in the past). Do not emit a positive Set-Cookie here. Embed `/eforms/prime` so it reissues the persisted cookie before the next POST (see [Security invariants (§7.1.2)](#sec-security-invariants) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender)). Even in those flows the rerendered markup MUST emit the deterministic `eforms_slot` (when applicable) and the `/eforms/prime` pixel so the submission stays NCID-pinned while reserving that reissued cookie for future posts.
 			- Persisted record (`eid_minted/{form_id}/{h2}/{eid}.json`):
 				| Field | Notes |
 				|-----------------|-------|
@@ -638,7 +638,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 				|------|------------|--------------|----------------|
 				| Inline | `303` back to the same URL with `?eforms_success={form_id}`. | Renderer shows the banner only in the first instance in source order; suppress subsequent duplicates. | Works on cached pages only when paired with the verifier flow below. |
 				| Redirect | `wp_safe_redirect(redirect_url, 303)` (append `&eforms_submission=…` only when following the NCID handoff). | Destination renders its own success UX. | Cookie-mode deployments SHOULD prefer redirect targets that are not cached. |
-                       - Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff) **and the submission retained a cookie-mode identifier (not an NCID)**, continue to use inline success on cached pages as the graceful fallback.
+		       - Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff) **and the submission retained a cookie-mode identifier (not an NCID)**, continue to use inline success on cached pages as the graceful fallback.
 			- <a id="sec-success-flow"></a>Canonical inline verifier flow (normative):
 				1. On successful POST, create `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{ form_id, submission_id, issued_at }` (short TTL, e.g., 5 minutes). Derive `{h2}` from the `submission_id` per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
 				2. Set `eforms_s_{form_id}={submission_id}` with `SameSite=Lax`, `Secure` on HTTPS, HttpOnly=false, `Path=/` (so `/eforms/success-verify` can read and clear it), and `Max-Age≈300` seconds.
@@ -670,7 +670,7 @@ Appendix 26 matrices are normative; see [Appendix 26](#sec-appendices).
 	- email.policy:
 	- strict: RFC-compliant parsing; trim; single @; reject otherwise.
 	- autocorrect: do strict parsing, then trim/collapse spaces, lowercase domain, normalize common domain typos in display only (.con→.com, .c0m→.com); canonical stays strict; log [corrected] note when applied.
-        - display_format_tel follows [Template Model → display_format_tel tokens](#sec-display-format-tel); formatting affects email presentation only.
+	- display_format_tel follows [Template Model → display_format_tel tokens](#sec-display-format-tel); formatting affects email presentation only.
 
 <a id="sec-logging"></a>
 15. LOGGING
@@ -836,7 +836,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 		- Cookie handling (present/valid vs. invalid/expired) follows [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for identifier outcomes plus the canonical `cookie_present?`, `token_ok`, and `soft_reasons` labels.
 	- Mode, hidden-field reuse, and rerender behavior follow the canonical contract in [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection); lifecycle logic never swaps modes mid-flow.
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
-        - Error rerenders and duplicate handling follow [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` or other IO failures as duplicates (logging `EFORMS_LEDGER_IO`), and sequences normalization, validation, email, and logging around that contract with the colon-free `submission_id` supplied by Security.
+	- Error rerenders and duplicate handling follow [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` or other IO failures as duplicates (logging `EFORMS_LEDGER_IO`), and sequences normalization, validation, email, and logging around that contract with the colon-free `submission_id` supplied by Security.
 	- Hidden-mode NCID fallback: when continuation is permitted without a hidden record, rely on [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for the NCID metadata while rerenders keep the persisted `{instance_id, timestamp}` from [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode).
 	- On success: move stored uploads; send email; log; PRG/redirect; cleanup per retention.
 	- Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
@@ -945,17 +945,17 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 
 <a id="sec-templates-to-include"></a>
 25. TEMPLATES TO INCLUDE
-        1. [`templates/forms/quote-request.json`](../templates/forms/quote-request.json)
-                - Canonical “Quote Request” flow with `success.mode="redirect"` to illustrate post-submit navigation.
-                - Demonstrates row-group wrappers for a temporary two-column layout (`row_group` start/end with `class="columns_nomargins"`).
-                - Shows required `tel_us` and `zip_us` fields with autocomplete hints alongside standard `name`/`email` inputs.
-                - Email block includes `include_fields` that capture the submitter IP and applies `display_format_tel="xxx-xxx-xxxx"`.
-        2. [`templates/forms/contact.json`](../templates/forms/contact.json)
-                - Inline-success contact form (`success.mode="inline"`) that thanks the user without redirecting.
-                - Example of injecting sanitized template fragments via `before_html` on the first field.
-                - Highlights placeholder usage, explicit `size` for the email control, and subject templating (`"Contact Form - {{field.name}}"`).
-        3. eforms.css
-                - Keep your existing CSS file as-is. Not reproduced here to keep this text plain.
+	1. [`templates/forms/quote-request.json`](../templates/forms/quote-request.json)
+		- Canonical “Quote Request” flow with `success.mode="redirect"` to illustrate post-submit navigation.
+		- Demonstrates row-group wrappers for a temporary two-column layout (`row_group` start/end with `class="columns_nomargins"`).
+		- Shows required `tel_us` and `zip_us` fields with autocomplete hints alongside standard `name`/`email` inputs.
+		- Email block includes `include_fields` that capture the submitter IP and applies `display_format_tel="xxx-xxx-xxxx"`.
+	2. [`templates/forms/contact.json`](../templates/forms/contact.json)
+		- Inline-success contact form (`success.mode="inline"`) that thanks the user without redirecting.
+		- Example of injecting sanitized template fragments via `before_html` on the first field.
+		- Highlights placeholder usage, explicit `size` for the email control, and subject templating (`"Contact Form - {{field.name}}"`).
+	3. eforms.css
+		- Keep your existing CSS file as-is. Not reproduced here to keep this text plain.
 
 <a id="sec-appendices"></a>
 26. APPENDICES
@@ -989,12 +989,12 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Canonical rules live in [Uploads → Filename policy (§18)](#sec-uploads-filenames). This appendix reiterates the current behavior for orientation only.
 	- Highlights: sanitize and normalize client names, enforce a single lowercase extension, block reserved Windows names, respect `uploads.original_maxlen`, transliterate when configured, de-duplicate per email scope, and persist files under `{Ymd}/{original_slug}-{sha16}-{seq}.{ext}` with private permissions.
 
-        4. Schema Source of Truth
-        - PHP TEMPLATE_SPEC is authoritative at runtime
-        - JSON Schema is documentation/CI lint only; enforce parity in CI
+	4. Schema Source of Truth
+	- PHP TEMPLATE_SPEC is authoritative at runtime
+	- JSON Schema is documentation/CI lint only; enforce parity in CI
 
-        5. <a id="sec-app-cookie-policy"></a>Cookie policy outcomes (normative matrix)
-        - Canonical policy semantics for `security.cookie_missing_policy`; referenced by [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) and [Lifecycle quickstart (§7.1.0)](#sec-lifecycle-quickstart).
+	5. <a id="sec-app-cookie-policy"></a>Cookie policy outcomes (normative matrix)
+	- Canonical policy semantics for `security.cookie_missing_policy`; referenced by [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) and [Lifecycle quickstart (§7.1.0)](#sec-lifecycle-quickstart).
 | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
 |-------------|-----------------------------------------------------|-----------|-------------|--------------------|--------------------|-------------------|
 | `hard` | Reject with `EFORMS_ERR_TOKEN`. Return the structured result and abort before ledger reservation. | `false` | — | `false` | none (`submission_id=null`) | Per request; true only when a syntactically valid cookie header was present on this POST. |
@@ -1002,8 +1002,8 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 | `off` | Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record. | `false` | Conditional (see handling) | `false` | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true when only the record was missing/expired. |
 | `challenge` | Continue via NCID, set `require_challenge=true`, and add `cookie_missing`. Remove only that label after successful verification; if no provider is configured, override to `require_challenge=false`, add `challenge_unconfigured`, and continue as `soft` per [Adaptive challenge (§12)](#sec-adaptive-challenge). | `false` (unchanged after verification) | `cookie_missing` (removed on success) | `true` until provider success (or `false` during the fallback) | `nc-…` (`is_ncid=true`) | False when the cookie was absent/malformed; true while a syntactically valid cookie lacks a record. |
 
-        6. <a id="sec-app-cookie-lifecycle"></a>Cookie-mode lifecycle matrix (normative)
-        - Mirrors the authoritative flow table for cached renders, `/eforms/prime`, and NCID/challenge rerenders.
+	6. <a id="sec-app-cookie-lifecycle"></a>Cookie-mode lifecycle matrix (normative)
+	- Mirrors the authoritative flow table for cached renders, `/eforms/prime`, and NCID/challenge rerenders.
 | Flow trigger | Server MUST | Identifier outcome | Notes |
 |--------------|-------------|--------------------|-------|
 | GET render (slots disabled) | MUST omit `eforms_slot`; embed `/eforms/prime?f={form_id}` pixel; reuse markup verbatim on rerender. | `eid` rendered without slot suffix. | Slotless deployments omit the `s` query parameter entirely. |
@@ -1016,8 +1016,8 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 | Challenge rerender (before verification) | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Same NCID; follow-up GET mints the replacement cookie defined there. | Ensures verification runs with a cookie present while preserving NCID pinning. |
 | Challenge success response | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Persisted record reused per that contract. | Applies only to `cookie_missing_policy="challenge"`. |
 
-        7. <a id="sec-app-cookie-ncid"></a>Cookie/NCID reference (normative)
-        - Summarizes identifier outcomes, NCID pinning, and success handoffs for lifecycle decisions across hidden and cookie modes.
+	7. <a id="sec-app-cookie-ncid"></a>Cookie/NCID reference (normative)
+	- Summarizes identifier outcomes, NCID pinning, and success handoffs for lifecycle decisions across hidden and cookie modes.
 | Scenario | Identifier outcome | Required action | Canonical section |
 |----------|--------------------|-----------------|-------------------|
 | Valid hidden record | `submission_id = token` | Embed the helper’s `{token, instance_id, timestamp}` verbatim and reuse them on rerender. | [Hidden-mode contract (§7.1.2)](#sec-hidden-mode) |
