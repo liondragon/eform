@@ -18,12 +18,21 @@ import yaml
 SPEC_PATH = Path("docs/electronic_forms_SPEC.md")
 DATA_PATH = Path("tools/spec_sources/security_data.yaml")
 INCLUDE_PATH = Path("docs/generated/security/ncid_rerender.md")
+COOKIE_HEADERS_INCLUDE_PATH = Path("docs/generated/security/cookie_headers.md")
 POINTER_TEXT = "**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**"
 SUPPORTED_SCHEMA_VERSION = 1
 
 POLICY_PATHS = {"hard", "soft", "off", "challenge"}
 SOFT_LABEL_VALUES = {"cookie_missing"}
 IDENTIFIER_KINDS = {"none", "ncid", "eid", "prime_record", "cookie_record", "submission_id"}
+HEADER_ACTION_VALUES = {"positive", "deletion", "skip"}
+EXPECTED_HEADER_FLOWS = {
+    "GET render",
+    "`/eforms/prime` request",
+    "POST rerender (NCID or challenge)",
+    "Challenge verification success",
+    "PRG redirect (success handoff)",
+}
 ANCHOR_PATTERN = re.compile(r"\]\(#([^)]+)\)")
 
 
@@ -143,6 +152,59 @@ def validate_data(data: dict) -> None:
         if not isinstance(action, str) or not action.strip():
             raise SystemExit(f"ncid_rerender_step '{title}' must include a non-empty string action")
 
+    header_rows = data.get("cookie_header_actions_rows")
+    if not isinstance(header_rows, list) or not header_rows:
+        raise SystemExit("cookie_header_actions_rows must be a non-empty list")
+    seen_anchors: set[str] = set()
+    actual_flows: set[str] = set()
+    for row in header_rows:
+        if not isinstance(row, dict):
+            raise SystemExit("cookie_header_actions_rows entries must be mappings")
+        ensure_row_id(row, "cookie_header_actions_rows")
+        flow_trigger = row.get("flow_trigger")
+        if not isinstance(flow_trigger, str) or not flow_trigger:
+            raise SystemExit("cookie_header_actions_rows entries require a non-empty flow_trigger")
+        actual_flows.add(flow_trigger)
+        header_action = row.get("header_action")
+        if header_action not in HEADER_ACTION_VALUES:
+            raise SystemExit(
+                "header_action must be one of {'positive', 'deletion', 'skip'} for cookie_header_actions_rows"
+            )
+        invariants = row.get("invariants")
+        if not isinstance(invariants, str) or not invariants.strip():
+            raise SystemExit(
+                f"cookie_header_actions_rows entry '{flow_trigger}' must include non-empty invariants"
+            )
+        anchor = row.get("anchor")
+        if not isinstance(anchor, str) or not anchor:
+            raise SystemExit(
+                f"cookie_header_actions_rows entry '{flow_trigger}' must include a non-empty anchor"
+            )
+        if anchor.startswith("#"):
+            raise SystemExit(
+                f"cookie_header_actions_rows entry '{flow_trigger}' anchor must not include '#': {anchor}"
+            )
+        if not anchor.startswith("sec-"):
+            raise SystemExit(
+                f"cookie_header_actions_rows entry '{flow_trigger}' anchor must start with 'sec-': {anchor}"
+            )
+        if anchor in seen_anchors:
+            raise SystemExit(f"Duplicate cookie header anchor detected: {anchor}")
+        seen_anchors.add(anchor)
+        validate_references(row.get("references"), f"cookie_header_action {flow_trigger}")
+
+    if actual_flows != EXPECTED_HEADER_FLOWS:
+        missing = EXPECTED_HEADER_FLOWS - actual_flows
+        extra = actual_flows - EXPECTED_HEADER_FLOWS
+        details = []
+        if missing:
+            details.append(f"missing {sorted(missing)}")
+        if extra:
+            details.append(f"unexpected {sorted(extra)}")
+        raise SystemExit(
+            "cookie_header_actions_rows flows mismatch: " + ", ".join(details)
+        )
+
 
 def validate_soft_labels(value: Any, context: str) -> None:
     if isinstance(value, list):
@@ -250,6 +312,21 @@ def format_cookie_lifecycle_rows(rows: list[dict]) -> list[dict[str, str]]:
     return formatted
 
 
+def format_cookie_header_actions_rows(rows: list[dict]) -> list[dict[str, str]]:
+    formatted = []
+    for row in rows:
+        anchor = row["anchor"]
+        flow_trigger = row["flow_trigger"]
+        formatted.append(
+            {
+                "flow_trigger": f"<a id=\"{anchor}\"></a>{flow_trigger}",
+                "header_action": format_inline_code(row["header_action"]),
+                "invariants": row["invariants"],
+            }
+        )
+    return formatted
+
+
 def format_ncid_summary_rows(rows: list[dict]) -> list[dict[str, str]]:
     formatted = []
     for row in rows:
@@ -328,6 +405,21 @@ TABLE_CONFIGS = [
     },
 ]
 
+COOKIE_HEADER_TABLE_CONFIG = {
+    "name": "cookie-header-actions",
+    "data_key": "cookie_header_actions_rows",
+    "indent": 0,
+    "header_token": "| Flow trigger | Header action | Invariants |",
+    "header": "| Flow trigger | Header action | Invariants |",
+    "separator": "|--------------|---------------|------------|",
+    "columns": [
+        ("flow_trigger", "Flow trigger"),
+        ("header_action", "Header action"),
+        ("invariants", "Invariants"),
+    ],
+    "formatter": format_cookie_header_actions_rows,
+}
+
 
 def ensure_references(data: dict, spec_text: str) -> None:
     """Basic smoke checks tying rows back to anchors and flows."""
@@ -396,6 +488,13 @@ def ensure_references(data: dict, spec_text: str) -> None:
         anchors_required.append((f"#{canonical_anchor}", f"summary {scenario}"))
         for anchor in extract_markdown_anchors(row.get("required_action")):
             anchors_required.append((anchor, f"required_action {scenario}"))
+
+    for row in data.get("cookie_header_actions_rows", []):
+        flow = row["flow_trigger"]
+        for anchor in row.get("references", []):
+            anchors_required.append((f"#{anchor}", f"cookie_header_action {flow}"))
+        for anchor in extract_markdown_anchors(row.get("invariants")):
+            anchors_required.append((anchor, f"cookie_header_invariants {flow}"))
 
     for anchor, context in anchors_required:
         check_anchor(anchor, context)
@@ -491,6 +590,25 @@ def write_ncid_rerender_include(data: dict, *, check: bool) -> bool:
     return True
 
 
+def write_cookie_header_include(data: dict, *, check: bool) -> bool:
+    config = COOKIE_HEADER_TABLE_CONFIG
+    rows = config["formatter"](data[config["data_key"]])
+    rendered_lines = render_table(config, rows)
+    content = "\n".join(rendered_lines) + "\n"
+    if check:
+        if not COOKIE_HEADERS_INCLUDE_PATH.exists() or COOKIE_HEADERS_INCLUDE_PATH.read_text(
+            encoding="utf-8"
+        ) != content:
+            sys.stderr.write(
+                "Cookie header actions include is stale. Run tools/generate_spec_sections.py to update.\n"
+            )
+            return False
+        return True
+    COOKIE_HEADERS_INCLUDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    COOKIE_HEADERS_INCLUDE_PATH.write_text(content, encoding="utf-8")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate security spec matrices")
     parser.add_argument("--check", action="store_true", help="Verify spec matches generated tables")
@@ -498,8 +616,9 @@ def main() -> int:
 
     data = load_data()
     include_ok = write_ncid_rerender_include(data, check=args.check)
+    header_include_ok = write_cookie_header_include(data, check=args.check)
     tables_ok = integrate_tables(data, check=args.check)
-    ok = include_ok and tables_ok
+    ok = include_ok and header_include_ok and tables_ok
     return 0 if ok else 1
 
 

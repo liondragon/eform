@@ -151,6 +151,44 @@ cookie_lifecycle_rows:
       - sec-ncid-rerender
       - sec-cookie-lifecycle-matrix
 
+cookie_header_actions_rows:
+  - id: cookie-header-get-render
+    flow_trigger: GET render
+    anchor: sec-cookie-header-get-render
+    header_action: skip
+    invariants: "Renderer MUST NOT emit `Set-Cookie`; embed `/eforms/prime?f={form_id}[&s={slot}]` so `/eforms/prime` alone mints or refreshes the cookie before POST."
+    references:
+      - sec-cookie-mode
+  - id: cookie-header-prime
+    flow_trigger: "`/eforms/prime` request"
+    anchor: sec-cookie-header-prime
+    header_action: positive
+    invariants: "Only flow permitted to emit a positive `Set-Cookie` for `eforms_eid_{form_id}`; send it when minting or when no unexpired match was presented, and skip it when an identical unexpired cookie arrived."
+    references:
+      - sec-cookie-mode
+  - id: cookie-header-post-rerender
+    flow_trigger: POST rerender (NCID or challenge)
+    anchor: sec-cookie-header-post-rerender
+    header_action: deletion
+    invariants: "Error rerenders that proceed via NCID/challenge MUST delete `eforms_eid_{form_id}` with a matching Max-Age=0 header and embed `/eforms/prime` on the follow-up GET; the rerender itself MUST NOT emit a positive header."
+    references:
+      - sec-ncid-rerender
+  - id: cookie-header-challenge-success
+    flow_trigger: Challenge verification success
+    anchor: sec-cookie-header-challenge-success
+    header_action: deletion
+    invariants: "Verifier success response clears the cookie via deletion header and relies on the PRG redirect GET to embed `/eforms/prime`; NCID stays pinned per the rerender lifecycle."
+    references:
+      - sec-ncid-rerender
+  - id: cookie-header-prg-redirect
+    flow_trigger: PRG redirect (success handoff)
+    anchor: sec-cookie-header-prg-redirect
+    header_action: deletion
+    invariants: "Success redirect for NCID/challenge flows MUST send the deletion header before issuing the 303 so the follow-up GET reprovisions the cookie; no positive header is permitted in PRG."
+    references:
+      - sec-success
+      - sec-ncid-rerender
+
 ncid_summary_rows:
   - id: ncid-summary-hidden-valid
     scenario: Valid hidden record
