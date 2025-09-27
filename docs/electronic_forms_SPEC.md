@@ -313,7 +313,9 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 ##### Challenge (conditional)
 - **What:** When `require_challenge=true`, cookie-mode rerenders must clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted record is reissued; NCID rerenders perform the same clear+prime even without challenge.
 - **Why:** Clearing ensures the next GET re-primes against the same persisted record while keeping submissions pinned to their NCID, satisfying the “no rotation before success” invariant.
-- **How:** Rerenders emit the deletion header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; HttpOnly; [Secure]`) and re-include the deterministic slot markup plus prime pixel. Hidden-mode challenge rerenders reuse the original token without rotation.
+- **How:** Follow the NCID rerender lifecycle (generated contract below) whenever NCID fallback or challenge flows rerender.
+--8<-- "generated/security/ncid_rerender.md"
+- Hidden-mode challenge rerenders reuse the original token without rotation.
 
 ##### Normalize
 - **What:** Every POST runs normalize → validate → coerce before side effects.
@@ -354,11 +356,9 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 			- Precedence & rotation exceptions:
 				- Order of rules (highest → lowest):
 					- Hard failures (honeypot, tamper, hard throttle, hard origin/cookie policy) stop processing immediately.
-				       - Challenge pre-verification (cookie mode only, when `require_challenge=true`): the rerender MUST clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted EID is reissued via `Set-Cookie` before the next POST.
-				       - NCID rerender in cookie mode (non-challenge): the rerender MUST clear `eforms_eid_{form_id}` to ensure `/eforms/prime` reissues the persisted EID on the follow-up GET.
-					- Otherwise: “no rotation before success” holds; rotation happens only on expiry or after a successful submission (PRG).
-  					- Explicit carve-out (normative): The cookie clear + re-prime required by (a) NCID fallbacks and (b) pre-verification challenge rerenders is NOT considered a violation of “no rotation before success.” The submission stays pinned to the NCID; the reissued cookie header keeps the rerender/verification flow cookie-present while remaining available for subsequent submissions.
-					- Definition — Rerender cookie reuse: The reissued header only preserves cookie presence for the ongoing rerender/verification while the submission remains NCID-pinned.
+                                       - NCID rerender lifecycle (challenge + NCID fallback) follows the generated contract below.
+--8<-- "generated/security/ncid_rerender.md"
+                                        - Otherwise: “no rotation before success” holds; rotation happens only on expiry or after a successful submission (PRG).
 				- Hidden-mode challenge never rotates the hidden token before success; the token/instance/timestamp trio is reused across rerenders until success or expiry.
 
 <a id="sec-hidden-mode"></a>2. Hidden-mode contract
@@ -434,7 +434,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - POST rerenders and PRG success redirects MAY emit only the **deletion** header (`Max-Age=0; Path=/; SameSite=Lax; HttpOnly; Secure on HTTPS`) for NCID/challenge flows (§7.1.4.2); they MUST NOT emit a positive `Set-Cookie`.
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-                                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice. When an NCID fallback occurs or a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` by sending a Set-Cookie **deletion** header whose attributes match the minted cookie: same Name and Path, `SameSite=Lax`, `HttpOnly`, `Secure` on HTTPS, and `Max-Age=0` (or an `Expires` date in the past). Do not emit a positive Set-Cookie during rerender. Embed `/eforms/prime` so it reissues the persisted cookie before the next POST while the markup continues to emit the deterministic `eforms_slot` (when applicable) and pixel.
+                                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice. Follow the NCID rerender lifecycle (generated contract below) whenever NCID fallback or challenge flows rerender so the cookie delete/re-prime cycle happens without rotating identifiers.
+--8<-- "generated/security/ncid_rerender.md"
 			- **Persisted record structure** (`eid_minted/{form_id}/{h2}/{eid}.json`):
 					| Field | Notes |
 					|-----------------|-------|
@@ -478,12 +479,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                        absent cookies. The identifier column shows when an NCID replaces the cookie EID; every NCID
                                        row keeps the submission pinned to that NCID through rerenders, challenge verification, and
                                        success responses.
-                                       When a row sets `require_challenge=true`, immediately rerender using the NCID rerender
-                                       lifecycle: clear `eforms_eid_{form_id}` with a deletion header that matches the minted
-                                       attributes, embed the `/eforms/prime` pixel so the stored record is reissued before the next
-                                       POST, and keep the NCID as the authoritative `submission_id` until success. The challenge
-                                       success row reiterates that the cookie is reused—no extra rotation occurs after
-                                       verification.
+                                       When a row sets `require_challenge=true`, immediately apply the NCID rerender lifecycle (generated contract below) so rerenders clear the cookie, embed `/eforms/prime`, and keep the NCID pinned through verification and success.
+--8<-- "generated/security/ncid_rerender.md"
                                         **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
                                         <!-- BEGIN GENERATED: cookie-policy-matrix -->
                                         | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
@@ -546,10 +543,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - Identifier pinning (challenge): If the policy path returns an NCID and `require_challenge=true`, that submission MUST continue to use the same NCID as its `submission_id` through verification and success. The reissued cookie header on the rerender is reserved for subsequent submissions and MUST NOT change the identifier mid-flow.
 				- Ledger behavior for NCIDs follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat `EEXIST` as spam, and continue with [Success Behavior (PRG) (§13)](#sec-success) using the NCID-based identifier.
 - <a id="sec-ncid-rerender"></a>NCID rerender and challenge lifecycle (normative):
-				- Error rerender after NCID fallback: delete `eforms_eid_{form_id}` (Set-Cookie: deleted) and embed `/eforms/prime` before rendering. The next GET reissues the persisted cookie record while the flow remains pinned to the NCID above.
-				- Definition — Reissue = send `Set-Cookie` for the existing record without changing `eid`, `issued_at`, or `expires`.
-				- Challenge rerender before verification: when `require_challenge=true`, delete `eforms_eid_{form_id}`, embed `/eforms/prime?f={form_id}[&s={slot}]`, and keep the NCID as the authoritative `submission_id` until verification succeeds.
-- Challenge success response: send the `eforms_eid_{form_id}` deletion header with the PRG redirect and rely on the PRG follow-up GET (the redirect target) to embed `/eforms/prime?f={form_id}[&s={slot}]` so the just-verified record is reused. Do not remint inside the redirect; the renderer reissues the persisted cookie on the subsequent GET.
+                                - The generated contract below governs NCID fallback rerenders, pre-verification challenge rerenders, and challenge success responses.
+--8<-- "generated/security/ncid_rerender.md"
 Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge flows succeed, the success redirect carries the deletion header and the next GET emits the deterministic prime pixel before the next POST.
 - <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, the `eforms_submission` query flag, and verifier requirements are defined in [Success Behavior (PRG) (§13)](#sec-success) (see [NCID-only handoff (§13.1)](#sec-success-ncid)).
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
@@ -671,10 +666,10 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 		- No eager checks at plugin load. Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
 		- `challenge.mode` is read only when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in [Template Model (§5)](#sec-template-model)/[Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).
 - Render only on POST re-render when required (including `challenge.mode="always"`) or during verification; never on the initial GET.
-		- In cookie mode:
-			- **Before verification** (when `require_challenge=true`), the challenge rerender MUST clear `eforms_eid_{form_id}` and embed the `/eforms/prime?f={form_id}[&s={slot}]` pixel so it reissues the persisted cookie before the next POST (see [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode)).
-                        - **After successful verification** for `cookie_missing_policy="challenge"`, do **not** mint a new EID on that success response; send the NCID rerender deletion header and rely on the PRG follow-up GET (the redirect target) to embed `/eforms/prime` per [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender) so the existing record is reissued before the next POST.
-			- Definition — Challenge success reuse = deletion header on the redirect + the follow-up `/eforms/prime` reissuing the persisted record without reminting.
+                - In cookie mode:
+                        - Challenge rerenders before verification and the subsequent success redirect follow the NCID rerender lifecycle (generated contract below); see [Security → Cookie-mode contract (§7.1.3)](#sec-cookie-mode) for markup context.
+--8<-- "generated/security/ncid_rerender.md"
+                        - Definition — Challenge success reuse = deletion header on the redirect + the follow-up `/eforms/prime` reissuing the persisted record without reminting.
 	- Turnstile → cf-turnstile-response; hCaptcha → h-captcha-response; reCAPTCHA v2 → g-recaptcha-response.
 
 <a id="sec-validation-pipeline"></a>
