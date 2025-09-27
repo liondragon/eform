@@ -419,7 +419,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 **Definitions (normative):**
 - **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record with `now < record.expires`.
 - **Cookie-less hit** = `status:"hit"` from storage even though the request lacked `eforms_eid_{form_id}`.
-- **Header boundary (normative)** = Only `/eforms/prime` MAY emit the **positive** `Set-Cookie` (mint/refresh). POST rerenders and PRG success redirects MAY emit the **deletion** header **only** for NCID/challenge flows per §7.1.4.2; they MUST NOT emit a positive `Set-Cookie`.
+- **Header boundary (normative)** = Only `/eforms/prime` MAY emit a positive `Set-Cookie` (mint/refresh) for the anti-duplication cookie `eforms_eid_{form_id}`. POST rerenders and PRG success redirects MAY emit the **deletion** header **only** for NCID/challenge flows per §7.1.4.2; they MUST NOT emit a positive `Set-Cookie` for the anti-duplication cookie `eforms_eid_{form_id}`.
+- Definition — Positive cookie scope = These header limits apply solely to `eforms_eid_{form_id}`; success cookies follow [Success Behavior (§13)](#sec-success).
 
 **Slot handling:**
 - `mint_cookie_record` never unions slots.  
