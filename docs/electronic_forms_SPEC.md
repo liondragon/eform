@@ -398,7 +398,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 			- Dependencies: This contract assumes the shared requirements in [Security invariants (§7.1.2)](#sec-security-invariants) and the rerender rules in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender); the sub-blocks below call out cookie-mode specifics.
 **Contract — Security::mint_cookie_record**
 - Inputs:
-  - `form_id` (slug) and optional `slot?` (int 1–255). Callers invoke `Config::get()`; the helper also calls it defensively so TTL/paths/slot policy are loaded.
+- `form_id` (slug) and optional `slot?` (int 1–255). Callers MUST invoke `Config::get()` before calling this helper; the helper also calls it defensively so TTL/paths/slot policy are loaded and header emission stays reserved for `/eforms/prime` per the header boundary.
 - Side-effects:
   - On `status ∈ {miss, expired}`: atomically write `eid_minted/{form_id}/{h2}/{eid}.json` with  
     `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed:[], slot:null }` using the shared sharding/permissions contract (§7.1.1).
@@ -510,8 +510,9 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                 - Definition: “sends `Set-Cookie`” refers to the positive header emitted under the carve-out below; deletion headers on rerender are governed by [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
   				- Definition — **unexpired match**: the request presents `eforms_eid_{form_id}` matching the EID regex and a server record exists for that EID with `now < record.expires`. HTTP requests do not echo Path/SameSite/Secure, so equality is inferred from minting with the configured attributes.
                                 - Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match. It MUST NOT emit a positive `Set-Cookie` when an unexpired match is present; the endpoint MUST skip the header whenever an identical, unexpired cookie (same Name, Value, Path, SameSite, Secure) was presented. No alternate positive header is permitted while that match exists.
-				- Calls `Security::mint_cookie_record(form_id, slot?)` to mint when missing or expired, then loads the current record, unions `s`, derives `slot`, and persists the update atomically (`write-temp+rename` or `flock()`+fsync). Whether to skip `Set-Cookie` is decided after this load/update.
-				- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
+- Calls `Security::mint_cookie_record(form_id, slot?)` to mint when missing or expired, then loads the current record, unions `s`, derives `slot`, and persists the update atomically (`write-temp+rename` or `flock()`+fsync). Whether to skip `Set-Cookie` is decided after this load/update.
+- Call `Config::get()` before invoking the helper so the lazy snapshot exists; `/eforms/prime` remains the only component permitted to emit the positive `Set-Cookie` per the header boundary.
+- Parse `s` as integer 1–255; values outside the allow-list (or when slots are disabled) are treated as `null` (no union).
 				- Update `slots_allowed` atomically (write-temp + rename or `flock()` + fsync) without rewriting `issued_at` / `expires`.
 				- Respond `204` with `Cache-Control: no-store`.
 			- Dedup + retention:
