@@ -44,6 +44,12 @@ EXPECTED_ROW_IDS = {
         "ncid-summary-challenge-success",
         "ncid-summary-success-handoff",
     },
+    "ncid_rerender_steps": {
+        "ncid-rerender-delete-cookie",
+        "ncid-rerender-reprime",
+        "ncid-rerender-pinned-submission",
+        "ncid-rerender-challenge-verify",
+    },
 }
 TABLE_HEADERS = {
     "sec-cookie-policy-matrix": "| Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |",

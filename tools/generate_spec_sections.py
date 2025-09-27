@@ -17,6 +17,7 @@ import yaml
 
 SPEC_PATH = Path("docs/electronic_forms_SPEC.md")
 DATA_PATH = Path("tools/spec_sources/security_data.yaml")
+INCLUDE_PATH = Path("docs/generated/security/ncid_rerender.md")
 POINTER_TEXT = "**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**"
 SUPPORTED_SCHEMA_VERSION = 1
 
@@ -127,6 +128,20 @@ def validate_data(data: dict) -> None:
             raise SystemExit(f"canonical_section.anchor must not include '#': {anchor}")
         if not isinstance(label, str) or not label:
             raise SystemExit(f"canonical_section.label must be a non-empty string for {scenario}")
+
+    rerender_steps = data.get("ncid_rerender_steps")
+    if not isinstance(rerender_steps, list) or not rerender_steps:
+        raise SystemExit("ncid_rerender_steps must be a non-empty list")
+    for step in rerender_steps:
+        if not isinstance(step, dict):
+            raise SystemExit("ncid_rerender_steps entries must be mappings")
+        ensure_row_id(step, "ncid_rerender_steps")
+        title = step.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise SystemExit("Each ncid_rerender_step must include a non-empty string title")
+        action = step.get("action")
+        if not isinstance(action, str) or not action.strip():
+            raise SystemExit(f"ncid_rerender_step '{title}' must include a non-empty string action")
 
 
 def validate_soft_labels(value: Any, context: str) -> None:
@@ -247,6 +262,19 @@ def format_ncid_summary_rows(rows: list[dict]) -> list[dict[str, str]]:
             }
         )
     return formatted
+
+
+def render_ncid_rerender_steps(steps: list[dict]) -> str:
+    lines = [
+        POINTER_TEXT,
+        "<!-- BEGIN GENERATED: ncid-rerender-steps -->",
+    ]
+    for step in steps:
+        title = step["title"].strip()
+        action = step["action"].strip()
+        lines.append(f"- **{title}** — {action}")
+    lines.append("<!-- END GENERATED: ncid-rerender-steps -->")
+    return "\n".join(lines) + "\n"
 
 
 TABLE_CONFIGS = [
@@ -449,13 +477,29 @@ def integrate_tables(data: dict, *, check: bool) -> bool:
     return True
 
 
+def write_ncid_rerender_include(data: dict, *, check: bool) -> bool:
+    content = render_ncid_rerender_steps(data["ncid_rerender_steps"])
+    if check:
+        if not INCLUDE_PATH.exists() or INCLUDE_PATH.read_text(encoding="utf-8") != content:
+            sys.stderr.write(
+                "NCID rerender include is stale. Run tools/generate_spec_sections.py to update.\n"
+            )
+            return False
+        return True
+    INCLUDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    INCLUDE_PATH.write_text(content, encoding="utf-8")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate security spec matrices")
     parser.add_argument("--check", action="store_true", help="Verify spec matches generated tables")
     args = parser.parse_args()
 
     data = load_data()
-    ok = integrate_tables(data, check=args.check)
+    include_ok = write_ncid_rerender_include(data, check=args.check)
+    tables_ok = integrate_tables(data, check=args.check)
+    ok = include_ok and tables_ok
     return 0 if ok else 1
 
 
