@@ -422,9 +422,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record with `now < record.expires`.
 - Definition — Presented cookie = the request supplies `eforms_eid_{form_id}` matching the EID regex.
 - **Header boundary (normative)** — [Cookie header actions matrix (§7.1.3.3)](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
-- Definition — Positive cookie scope = These header limits apply solely to `eforms_eid_{form_id}`; success cookies follow [Success Behavior (§13)](#sec-success).
-
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
+			This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior (§13)](#sec-success).
 			The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, NCID/challenge rerenders, verifier success, and the PRG redirect so implementations reference a single canonical source.
 --8<-- "generated/security/cookie_headers.md"
 

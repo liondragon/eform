@@ -9,11 +9,13 @@ import generate_spec_sections as spec_sections
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = ROOT / "docs" / "electronic_forms_SPEC.md"
+COOKIE_HEADERS_INCLUDE_PATH = ROOT / "docs" / "generated" / "security" / "cookie_headers.md"
 
 TARGET_ANCHORS = [
     "sec-cookie-policy-matrix",
     "sec-cookie-lifecycle-matrix",
     "sec-cookie-ncid-summary",
+    "sec-cookie-header-actions",
 ]
 EXPECTED_ROW_IDS = {
     "cookie_policy_rows": {
@@ -50,11 +52,19 @@ EXPECTED_ROW_IDS = {
         "ncid-rerender-pinned-submission",
         "ncid-rerender-challenge-verify",
     },
+    "cookie_header_actions_rows": {
+        "cookie-header-get-render",
+        "cookie-header-prime",
+        "cookie-header-post-rerender",
+        "cookie-header-challenge-success",
+        "cookie-header-prg-redirect",
+    },
 }
 TABLE_HEADERS = {
-    "sec-cookie-policy-matrix": "| Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |",
-    "sec-cookie-lifecycle-matrix": "| Flow trigger | Server MUST | Identifier outcome | Notes |",
-    "sec-cookie-ncid-summary": "| Scenario | Identifier outcome | Required action | Canonical section |",
+    "sec-cookie-policy-matrix": (SPEC_PATH, "| Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |"),
+    "sec-cookie-lifecycle-matrix": (SPEC_PATH, "| Flow trigger | Server MUST | Identifier outcome | Notes |"),
+    "sec-cookie-ncid-summary": (SPEC_PATH, "| Scenario | Identifier outcome | Required action | Canonical section |"),
+    "sec-cookie-header-actions": (COOKIE_HEADERS_INCLUDE_PATH, "| Flow trigger | Header action | Invariants |"),
 }
 
 def read_spec() -> list[str]:
@@ -95,26 +105,43 @@ def ensure_tables_within_section(lines: list[str]) -> list[str]:
                 f"Anchor #{anchor} is outside §7.1 (line {anchor_line + 1}); matrices must live under Submission Protection"
             )
 
-        header = TABLE_HEADERS.get(anchor)
-        if header:
+        header_info = TABLE_HEADERS.get(anchor)
+        if header_info:
+            header_path, header = header_info
+            if header_path == SPEC_PATH:
+                search_lines = lines
+            else:
+                try:
+                    include_text = header_path.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    errors.append(f"Table file not found: {header_path}")
+                    continue
+                search_lines = include_text.splitlines()
             header_matches = [
                 idx
-                for idx, raw_line in enumerate(lines)
+                for idx, raw_line in enumerate(search_lines)
                 if raw_line.strip().startswith(header)
             ]
             if not header_matches:
-                errors.append(f"Expected table header for #{anchor} not found")
+                try:
+                    display_path = header_path.relative_to(ROOT)
+                except ValueError:
+                    display_path = header_path
+                errors.append(
+                    f"Expected table header for #{anchor} not found in {display_path}"
+                )
                 continue
             if len(header_matches) > 1:
                 human_lines = ", ".join(str(idx + 1) for idx in header_matches)
                 errors.append(
-                    f"Table header for #{anchor} appears multiple times (lines {human_lines}); §7.1 must remain canonical"
+                    f"Table header for #{anchor} appears multiple times (lines {human_lines})"
                 )
-            for idx in header_matches:
-                if not (section_start <= idx < section_end):
-                    errors.append(
-                        f"Table for #{anchor} (detected at line {idx + 1}) is outside §7.1"
-                    )
+            if header_path == SPEC_PATH:
+                for idx in header_matches:
+                    if not (section_start <= idx < section_end):
+                        errors.append(
+                            f"Table for #{anchor} (detected at line {idx + 1}) is outside §7.1"
+                        )
     return errors
 
 
