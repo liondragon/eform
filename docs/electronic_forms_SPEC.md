@@ -415,11 +415,11 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
   - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; continue.  
   - Filesystem errors propagate (hard fail).  
   - Status computation is independent of cookie header presence.
-  - `status:"hit"` alone does not guarantee an unexpired match; a cookie-less hit still obligates `/eforms/prime` to send the positive header per the boundary below.
+  - `status:"hit"` reports that storage already holds an unexpired record for the presented cookie; callers MUST still apply the unexpired-match test before skipping the header described below.
 
 **Definitions (normative):**
 - **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record with `now < record.expires`.
-- **Cookie-less hit** = `status:"hit"` from storage even though the request lacked `eforms_eid_{form_id}`.
+- Definition — Presented cookie = the request supplies `eforms_eid_{form_id}` matching the EID regex.
 - **Header boundary (normative)** = Only `/eforms/prime` MAY emit a positive `Set-Cookie` (mint/refresh) for the anti-duplication cookie `eforms_eid_{form_id}`. POST rerenders and PRG success redirects MAY emit the **deletion** header **only** for NCID/challenge flows per §7.1.4.2; they MUST NOT emit a positive `Set-Cookie` for the anti-duplication cookie `eforms_eid_{form_id}`.
 - Definition — Positive cookie scope = These header limits apply solely to `eforms_eid_{form_id}`; success cookies follow [Success Behavior (§13)](#sec-success).
 
@@ -428,7 +428,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - `/eforms/prime` performs `slots_allowed ∪ {s}` (when allowed) and derives `slot` when `|slots_allowed| == 1`, persisting only those fields; it MUST NOT rewrite `issued_at`/`expires`.
 
 **Header decision (at `/eforms/prime`):**
-- Send **positive** `Set-Cookie` when minting a new record **or** when the request lacked an **unexpired match** (including cookie-less hits).  
+- Send **positive** `Set-Cookie` when minting a new record **or** when the request lacked an **unexpired match**.
 - Skip the positive header when an **unexpired match** is present.  
 - POST rerenders and PRG success redirects MAY emit only the **deletion** header (`Max-Age=0; Path=/; SameSite=Lax; HttpOnly; Secure on HTTPS`) for NCID/challenge flows (§7.1.4.2); they MUST NOT emit a positive `Set-Cookie`.
 			- **GET markup and rerendering**
@@ -518,7 +518,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 				- Respond `204` with `Cache-Control: no-store`.
 			- Dedup + retention:
 				- `submission_id` equals the EID with optional `__slot{n}` suffix when slots are active; NCID fallbacks reuse the deterministic NCID recipe in [Security → NCIDs, Slots, and Validation Output (§7.1.4)](#sec-ncid).
-				- NCID fallbacks leave previously minted cookie records untouched until natural expiry. `/eforms/prime` reuses the persisted record on a `hit` (even when the request lacked a cookie). When the submission succeeded with `token_ok=true` (cookie-mode success), `SubmitHandler::handle()` MUST delete the minted record before PRG so the next `/eforms/prime` call observes a `miss` and remints a fresh identifier; orphaned records simply age out without being rewritten.
+                                - NCID fallbacks leave previously minted cookie records untouched until natural expiry. `/eforms/prime` reuses the persisted record on a `hit`. When the submission succeeded with `token_ok=true` (cookie-mode success), `SubmitHandler::handle()` MUST delete the minted record before PRG so the next `/eforms/prime` call observes a `miss` and remints a fresh identifier; orphaned records simply age out without being rewritten.
 				- Definition — Successful rotation trigger = the post-success `/eforms/prime` remint that replaces the record after PRG; the pre-PRG delete above exists only to force that rotation path.
  				- Definition — Post-success remint = the first `/eforms/prime` call after PRG that observes the missing record and mints a replacement.
 				- Ledger handling follows [Security invariants (§7.1.2)](#sec-security-invariants) and [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract); HARD FAIL rows above surface `EFORMS_ERR_TOKEN`.
