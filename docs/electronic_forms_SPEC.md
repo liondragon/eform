@@ -415,7 +415,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - Failure modes:
   - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; the helper otherwise ignores `slot?` and always persists `{ slots_allowed:[], slot:null }`, leaving `/eforms/prime` to union slots after it returns.
   - Filesystem errors propagate (hard fail).
-  - Status computation is independent of cookie header presence.
+  - Status computation keys off the presented cookie; when the request omits or malforms it, report `status:"miss"`.
   - `status:"hit"` reports that storage already holds an unexpired record for the presented cookie; callers MUST still apply the unexpired-match test before skipping the header described below.
 
 **Definitions (normative):**
