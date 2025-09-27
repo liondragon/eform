@@ -407,7 +407,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - Returns:
   - `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }`.
   - **Status semantics (pre-write lookup):**  
-    - `miss` = no prior record  
+    - `miss` = no prior record
     - `expired` = prior record exists and `now >= prior.expires`  
     - `hit` = prior record exists and `now < prior.expires`  
   - After any remint (miss/expired), `record.expires` reflects the newly persisted value.
@@ -419,7 +419,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 **Definitions (normative):**
 - **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record with `now < record.expires`.
 - **Cookie-less hit** = `status:"hit"` from storage even though the request lacked `eforms_eid_{form_id}`.
-- **Header boundary** = header decisions are made only by `/eforms/prime`.
+- **Header boundary (normative)** = Only `/eforms/prime` MAY emit the **positive** `Set-Cookie` (mint/refresh). POST rerenders and PRG success redirects MAY emit the **deletion** header **only** for NCID/challenge flows per §7.1.4.2; they MUST NOT emit a positive `Set-Cookie`.
 
 **Slot handling:**
 - `mint_cookie_record` never unions slots.  
