@@ -421,20 +421,21 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 **Definitions (normative):**
 - **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record with `now < record.expires`.
 - Definition — Presented cookie = the request supplies `eforms_eid_{form_id}` matching the EID regex.
-- **Header boundary (normative)** = Only `/eforms/prime` MAY emit a positive `Set-Cookie` (mint/refresh) for the anti-duplication cookie `eforms_eid_{form_id}`. POST rerenders and PRG success redirects MAY emit the **deletion** header **only** for NCID/challenge flows per §7.1.4.2; they MUST NOT emit a positive `Set-Cookie` for the anti-duplication cookie `eforms_eid_{form_id}`.
-- Definition — Positive cookie scope = These header limits apply solely to `eforms_eid_{form_id}`; success cookies follow [Success Behavior (§13)](#sec-success).
+- **Header boundary (normative)** — [Cookie header actions matrix (§7.1.3.3)](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
+- <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
+			This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior (§13)](#sec-success).
+			The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, NCID/challenge rerenders, verifier success, and the PRG redirect so implementations reference a single canonical source.
+--8<-- "generated/security/cookie_headers.md"
 
 **Slot handling:**
 - `mint_cookie_record` never unions slots.  
 - `/eforms/prime` performs `slots_allowed ∪ {s}` (when allowed) and derives `slot` when `|slots_allowed| == 1`, persisting only those fields; it MUST NOT rewrite `issued_at`/`expires`.
 
 **Header decision (at `/eforms/prime`):**
-- Send **positive** `Set-Cookie` when minting a new record **or** when the request lacked an **unexpired match**.
-- Skip the positive header when an **unexpired match** is present.  
-- POST rerenders and PRG success redirects MAY emit only the **deletion** header (`Max-Age=0; Path=/; SameSite=Lax; HttpOnly; Secure on HTTPS`) for NCID/challenge flows (§7.1.4.2); they MUST NOT emit a positive `Set-Cookie`.
+- Apply the `/eforms/prime` row from [Cookie header actions (§7.1.3.3)](#sec-cookie-header-actions) after loading the record: mint when required, otherwise skip the positive header while an unexpired match exists.
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-                                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice. Follow the NCID rerender lifecycle (generated contract below) whenever NCID fallback or challenge flows rerender so the cookie delete/re-prime cycle happens without rotating identifiers.
+                                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice; follow [Cookie header actions (§7.1.3.3)](#sec-cookie-header-actions) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender) for the delete + re-prime contract.
 --8<-- "generated/security/ncid_rerender.md"
 			- **Persisted record structure** (`eid_minted/{form_id}/{h2}/{eid}.json`):
 					| Field | Notes |
@@ -470,16 +471,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                         | Challenge success response | MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | Persisted record reused per that contract. | Applies only to `cookie_missing_policy="challenge"`. |
                                         <!-- END GENERATED: cookie-lifecycle-matrix -->
                        - <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
-                                       The policy rows below define how `Security::token_validate()` interprets a POST when the
-                                       browser lacked a valid cookie or the persisted record expired. Read them left to right:
-                                       pick the configured policy, apply the handling column verbatim, and then consume the
-                                       resulting `{ token_ok, soft_reasons, require_challenge, identifier, cookie_present? }`
-                                       values. `cookie_present?` reports whether the request carried a syntactically valid cookie
-                                       header, independent of record freshness, so tests can assert coverage for both presented and
-                                       absent cookies. The identifier column shows when an NCID replaces the cookie EID; every NCID
-                                       row keeps the submission pinned to that NCID through rerenders, challenge verification, and
-                                       success responses.
-                                       When a row sets `require_challenge=true`, immediately apply the NCID rerender lifecycle (generated contract below) so rerenders clear the cookie, embed `/eforms/prime`, and keep the NCID pinned through verification and success.
+				Pick the configured policy, consume the row’s `{ token_ok, soft_reasons, require_challenge, identifier, cookie_present? }`, and defer NCID/challenge rerender + header handling to [Cookie header actions (§7.1.3.3)](#sec-cookie-header-actions) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
 --8<-- "generated/security/ncid_rerender.md"
                                         **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
                                         <!-- BEGIN GENERATED: cookie-policy-matrix -->

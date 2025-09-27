@@ -18,12 +18,21 @@ import yaml
 SPEC_PATH = Path("docs/electronic_forms_SPEC.md")
 DATA_PATH = Path("tools/spec_sources/security_data.yaml")
 INCLUDE_PATH = Path("docs/generated/security/ncid_rerender.md")
+COOKIE_HEADERS_INCLUDE_PATH = Path("docs/generated/security/cookie_headers.md")
 POINTER_TEXT = "**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**"
 SUPPORTED_SCHEMA_VERSION = 1
 
 POLICY_PATHS = {"hard", "soft", "off", "challenge"}
 SOFT_LABEL_VALUES = {"cookie_missing"}
 IDENTIFIER_KINDS = {"none", "ncid", "eid", "prime_record", "cookie_record", "submission_id"}
+HEADER_ACTION_VALUES = {"positive", "deletion", "skip"}
+EXPECTED_HEADER_FLOWS = {
+    "GET render",
+    "`/eforms/prime` request",
+    "POST rerender (NCID or challenge)",
+    "Challenge verification success",
+    "PRG redirect (success handoff)",
+}
 ANCHOR_PATTERN = re.compile(r"\]\(#([^)]+)\)")
 
 
@@ -143,6 +152,59 @@ def validate_data(data: dict) -> None:
         if not isinstance(action, str) or not action.strip():
             raise SystemExit(f"ncid_rerender_step '{title}' must include a non-empty string action")
 
+    header_rows = data.get("cookie_header_actions_rows")
+    if not isinstance(header_rows, list) or not header_rows:
+        raise SystemExit("cookie_header_actions_rows must be a non-empty list")
+    seen_anchors: set[str] = set()
+    actual_flows: set[str] = set()
+    for row in header_rows:
+        if not isinstance(row, dict):
+            raise SystemExit("cookie_header_actions_rows entries must be mappings")
+        ensure_row_id(row, "cookie_header_actions_rows")
+        flow_trigger = row.get("flow_trigger")
+        if not isinstance(flow_trigger, str) or not flow_trigger:
+            raise SystemExit("cookie_header_actions_rows entries require a non-empty flow_trigger")
+        actual_flows.add(flow_trigger)
+        header_action = row.get("header_action")
+        if header_action not in HEADER_ACTION_VALUES:
+            raise SystemExit(
+                "header_action must be one of {'positive', 'deletion', 'skip'} for cookie_header_actions_rows"
+            )
+        invariants = row.get("invariants")
+        if not isinstance(invariants, str) or not invariants.strip():
+            raise SystemExit(
+                f"cookie_header_actions_rows entry '{flow_trigger}' must include non-empty invariants"
+            )
+        anchor = row.get("anchor")
+        if not isinstance(anchor, str) or not anchor:
+            raise SystemExit(
+                f"cookie_header_actions_rows entry '{flow_trigger}' must include a non-empty anchor"
+            )
+        if anchor.startswith("#"):
+            raise SystemExit(
+                f"cookie_header_actions_rows entry '{flow_trigger}' anchor must not include '#': {anchor}"
+            )
+        if not anchor.startswith("sec-"):
+            raise SystemExit(
+                f"cookie_header_actions_rows entry '{flow_trigger}' anchor must start with 'sec-': {anchor}"
+            )
+        if anchor in seen_anchors:
+            raise SystemExit(f"Duplicate cookie header anchor detected: {anchor}")
+        seen_anchors.add(anchor)
+        validate_references(row.get("references"), f"cookie_header_action {flow_trigger}")
+
+    if actual_flows != EXPECTED_HEADER_FLOWS:
+        missing = EXPECTED_HEADER_FLOWS - actual_flows
+        extra = actual_flows - EXPECTED_HEADER_FLOWS
+        details = []
+        if missing:
+            details.append(f"missing {sorted(missing)}")
+        if extra:
+            details.append(f"unexpected {sorted(extra)}")
+        raise SystemExit(
+            "cookie_header_actions_rows flows mismatch: " + ", ".join(details)
+        )
+
 
 def validate_soft_labels(value: Any, context: str) -> None:
     if isinstance(value, list):
@@ -250,6 +312,21 @@ def format_cookie_lifecycle_rows(rows: list[dict]) -> list[dict[str, str]]:
     return formatted
 
 
+def format_cookie_header_actions_rows(rows: list[dict]) -> list[dict[str, str]]:
+    formatted = []
+    for row in rows:
+        anchor = row["anchor"]
+        flow_trigger = row["flow_trigger"]
+        formatted.append(
+            {
+                "flow_trigger": f"<a id=\"{anchor}\"></a>{flow_trigger}",
+                "header_action": format_inline_code(row["header_action"]),
+                "invariants": row["invariants"],
+            }
+        )
+    return formatted
+
+
 def format_ncid_summary_rows(rows: list[dict]) -> list[dict[str, str]]:
     formatted = []
     for row in rows:
@@ -326,6 +403,21 @@ TABLE_CONFIGS = [
         ],
         "formatter": format_ncid_summary_rows,
     },
+    {
+        "name": "cookie-header-actions",
+        "data_key": "cookie_header_actions_rows",
+        "indent": 0,
+        "header_token": "| Flow trigger | Header action | Invariants |",
+        "header": "| Flow trigger | Header action | Invariants |",
+        "separator": "|--------------|---------------|------------|",
+        "columns": [
+            ("flow_trigger", "Flow trigger"),
+            ("header_action", "Header action"),
+            ("invariants", "Invariants"),
+        ],
+        "formatter": format_cookie_header_actions_rows,
+        "path": COOKIE_HEADERS_INCLUDE_PATH,
+    },
 ]
 
 
@@ -397,6 +489,16 @@ def ensure_references(data: dict, spec_text: str) -> None:
         for anchor in extract_markdown_anchors(row.get("required_action")):
             anchors_required.append((anchor, f"required_action {scenario}"))
 
+    for row in data.get("cookie_header_actions_rows", []):
+        flow = row["flow_trigger"]
+        anchor = row.get("anchor")
+        if anchor:
+            anchors_required.append((f"#{anchor}", f"cookie_header_anchor {flow}"))
+        for anchor in row.get("references", []):
+            anchors_required.append((f"#{anchor}", f"cookie_header_action {flow}"))
+        for anchor in extract_markdown_anchors(row.get("invariants")):
+            anchors_required.append((anchor, f"cookie_header_invariants {flow}"))
+
     for anchor, context in anchors_required:
         check_anchor(anchor, context)
 
@@ -423,58 +525,88 @@ def render_table(config: dict, rows: list[dict[str, str]]) -> list[str]:
 
 
 def integrate_tables(data: dict, *, check: bool) -> bool:
-    spec_text = SPEC_PATH.read_text(encoding="utf-8")
-    ensure_references(data, spec_text)
-    lines = spec_text.splitlines()
-    updated = lines[:]
-
+    configs_by_path: dict[Path, list[dict]] = {}
     for config in TABLE_CONFIGS:
-        raw_rows = data[config["data_key"]]
-        rows = config["formatter"](raw_rows)
-        rendered_block = render_table(config, rows)
-        indent = " " * config["indent"]
-        pointer_line = indent + POINTER_TEXT
-        begin_marker = indent + f"<!-- BEGIN GENERATED: {config['name']} -->"
-        end_marker = indent + f"<!-- END GENERATED: {config['name']} -->"
+        target_path = Path(config.get("path", SPEC_PATH))
+        configs_by_path.setdefault(target_path, []).append(config)
 
-        if begin_marker in spec_text:
-            start_idx = None
-            end_idx = None
-            for idx, line in enumerate(updated):
-                if line == pointer_line and updated[idx + 1] == begin_marker:
-                    start_idx = idx
-                    break
-            if start_idx is None:
-                raise SystemExit(f"Pointer line for {config['name']} not found")
-            for idx in range(start_idx, len(updated)):
-                if updated[idx] == end_marker:
-                    end_idx = idx
-                    break
-            if end_idx is None:
-                raise SystemExit(f"End marker for {config['name']} not found")
-            end_idx += 1
+    file_texts: dict[Path, str] = {}
+    for path in configs_by_path:
+        if path.exists():
+            file_texts[path] = path.read_text(encoding="utf-8")
         else:
-            header_token = config["header_token"].strip()
-            start_idx = None
-            for idx, line in enumerate(updated):
-                if line.strip() == header_token:
-                    start_idx = idx
-                    break
-            if start_idx is None:
-                raise SystemExit(f"Table header for {config['name']} not found")
-            end_idx = start_idx
-            while end_idx < len(updated) and updated[end_idx].strip().startswith("|"):
-                end_idx += 1
-        updated[start_idx:end_idx] = rendered_block
+            file_texts[path] = ""
 
-    new_text = "\n".join(updated) + "\n"
     if check:
-        if new_text != spec_text:
-            sys.stderr.write("Spec sections are stale. Run tools/generate_spec_sections.py to update.\n")
-            return False
-        return True
-    SPEC_PATH.write_text(new_text, encoding="utf-8")
-    return True
+        combined_text = "\n".join(file_texts.values())
+        ensure_references(data, combined_text)
+
+    ok = True
+    new_texts: dict[Path, str] = {}
+    for path, configs in configs_by_path.items():
+        original_text = file_texts[path]
+        lines = original_text.splitlines()
+        updated = lines[:]
+
+        for config in configs:
+            raw_rows = data[config["data_key"]]
+            rows = config["formatter"](raw_rows)
+            rendered_block = render_table(config, rows)
+            indent = " " * config["indent"]
+            pointer_line = indent + POINTER_TEXT
+            begin_marker = indent + f"<!-- BEGIN GENERATED: {config['name']} -->"
+            end_marker = indent + f"<!-- END GENERATED: {config['name']} -->"
+
+            if begin_marker in original_text:
+                start_idx = None
+                end_idx = None
+                for idx, line in enumerate(updated):
+                    if line == pointer_line and updated[idx + 1] == begin_marker:
+                        start_idx = idx
+                        break
+                if start_idx is None:
+                    raise SystemExit(f"Pointer line for {config['name']} not found in {path}")
+                for idx in range(start_idx, len(updated)):
+                    if updated[idx] == end_marker:
+                        end_idx = idx
+                        break
+                if end_idx is None:
+                    raise SystemExit(f"End marker for {config['name']} not found in {path}")
+                end_idx += 1
+            else:
+                header_token = config["header_token"].strip()
+                start_idx = None
+                for idx, line in enumerate(updated):
+                    if line.strip() == header_token:
+                        start_idx = idx
+                        break
+                if start_idx is None:
+                    raise SystemExit(f"Table header for {config['name']} not found in {path}")
+                end_idx = start_idx
+                while end_idx < len(updated) and updated[end_idx].strip().startswith("|"):
+                    end_idx += 1
+            updated[start_idx:end_idx] = rendered_block
+
+        new_text = "\n".join(updated)
+        if updated:
+            new_text += "\n"
+
+        new_texts[path] = new_text
+        if check:
+            if new_text != original_text:
+                sys.stderr.write(
+                    f"{path.as_posix()} is stale. Run tools/generate_spec_sections.py to update.\n"
+                )
+                ok = False
+
+    if not check:
+        combined_new_text = "\n".join(new_texts.values())
+        ensure_references(data, combined_new_text)
+        for path, new_text in new_texts.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(new_text, encoding="utf-8")
+
+    return ok
 
 
 def write_ncid_rerender_include(data: dict, *, check: bool) -> bool:

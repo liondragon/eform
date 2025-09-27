@@ -106,6 +106,11 @@ def lint_files(files: Sequence[Path]) -> int:
             error_count += len(ncid_errors)
             for message in ncid_errors:
                 print(message)
+        header_errors = check_cookie_header_include(path, lines)
+        if header_errors:
+            error_count += len(header_errors)
+            for message in header_errors:
+                print(message)
     return error_count
 
 
@@ -149,6 +154,53 @@ def check_ncid_rerender_include(path: Path, lines: Sequence[str]) -> List[str]:
         if include_token in line:
             section_has_include = True
         if not in_generated_block and "#sec-ncid-rerender" in line:
+            section_has_reference = True
+
+    flush_section()
+    return errors
+
+
+def check_cookie_header_include(path: Path, lines: Sequence[str]) -> List[str]:
+    """Ensure sections referencing #sec-cookie-header-actions include the generated header matrix."""
+
+    include_token = '--8<-- "generated/security/cookie_headers.md"'
+    anchor_token = "#sec-cookie-header-actions"
+    errors: List[str] = []
+    section_start_line = 1
+    section_has_reference = False
+    section_has_include = False
+    in_generated_block = False
+    in_code_block = False
+
+    def flush_section() -> None:
+        nonlocal section_has_reference, section_has_include, section_start_line
+        if section_has_reference and not section_has_include:
+            errors.append(
+                f"{path}:{section_start_line}: sections referencing {anchor_token} must include {include_token}"
+            )
+        section_has_reference = False
+        section_has_include = False
+
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+
+        if stripped.startswith("<!-- BEGIN GENERATED:"):
+            in_generated_block = True
+        elif stripped.startswith("<!-- END GENERATED:"):
+            in_generated_block = False
+            continue
+
+        if in_code_block:
+            continue
+
+        if stripped.startswith("#") or stripped.startswith("<a id="):
+            flush_section()
+            section_start_line = idx + 1
+        if include_token in line:
+            section_has_include = True
+        if not in_generated_block and anchor_token in line:
             section_has_reference = True
 
     flush_section()
