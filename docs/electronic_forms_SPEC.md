@@ -413,8 +413,8 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
     - `hit` = prior record exists and `now < prior.expires`  
   - After any remint (miss/expired), `record.expires` reflects the newly persisted value.
 - Failure modes:
-  - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; continue.  
-  - Filesystem errors propagate (hard fail).  
+  - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; the helper otherwise ignores `slot?` and always persists `{ slots_allowed:[], slot:null }`, leaving `/eforms/prime` to union slots after it returns.
+  - Filesystem errors propagate (hard fail).
   - Status computation is independent of cookie header presence.
   - `status:"hit"` reports that storage already holds an unexpired record for the presented cookie; callers MUST still apply the unexpired-match test before skipping the header described below.
 
@@ -895,7 +895,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints) invokes `Config::bootstrap()`; within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
 	- Bootstrap ownership (normative):
 		- Entry points MUST call `Config::get()` before invoking helpers (see [Lazy-load Matrix (§6)](#sec-lazy-load-matrix) for trigger ownership).
-		- Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly.
+- Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly, but skipping the caller-side invocation remains a contract violation for entry points.
 		- When adding a new public endpoint, that endpoint owns calling `Config::get()` up front; do not call `Config::bootstrap()` directly.
 		- Call order (illustrative): Endpoint → `Config::get()` → Helper (which internally no-ops `Config::get()` again) → …
 	- Migration behavior: unknown keys MUST be rejected; missing keys fall back to defaults before clamping; invalid enums/ranges/booleans MUST trigger validation errors rather than coercion; POST handlers MUST continue to enforce constraints after bootstrap.
