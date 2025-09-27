@@ -118,6 +118,7 @@ def check_ncid_rerender_include(path: Path, lines: Sequence[str]) -> List[str]:
     section_has_reference = False
     section_has_include = False
     in_generated_block = False
+    in_code_block = False
 
     def flush_section() -> None:
         nonlocal section_has_reference, section_has_include, section_start_line
@@ -130,10 +131,16 @@ def check_ncid_rerender_include(path: Path, lines: Sequence[str]) -> List[str]:
 
     for idx, line in enumerate(lines):
         stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+
         if stripped.startswith("<!-- BEGIN GENERATED:"):
             in_generated_block = True
         elif stripped.startswith("<!-- END GENERATED:"):
             in_generated_block = False
+            continue
+
+        if in_code_block:
             continue
 
         if stripped.startswith("#") or stripped.startswith("<a id="):
