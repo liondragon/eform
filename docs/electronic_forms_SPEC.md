@@ -294,7 +294,7 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 ##### Persist
 - **What:** Hidden mode writes `tokens/{h2}/{sha256(token)}.json`; cookie mode persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ issued_at, expires, slots_allowed, slot }`.
 - **Why:** Shared sharding and permission rules (`{h2}` derived via `Helpers::h2()`, dirs `0700`, files `0600`) prevent leakage and ensure atomic rotation across modes.
-- **How:** Minting helpers perform the writes, never refreshing timestamps on `hit`, never evaluating challenge/throttle, and always calling `Config::get()` to ensure the configuration snapshot exists (see [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle)).
+- **How:** Minting helpers perform the writes for hidden tokens and the initial cookie mint; `/eforms/prime` then persists the slot union after calling `Security::mint_cookie_record()`, never refreshing timestamps on `hit`, never evaluating challenge/throttle, and always calling `Config::get()` to ensure the configuration snapshot exists (see [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle)).
 
 ##### POST → Security gate
 - **What:** `Security::token_validate()` evaluates submission tokens, cookie presence, NCIDs, slots, throttle/origin policy, and challenge requirements.
