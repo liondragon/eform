@@ -396,20 +396,39 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 
 <a id="sec-cookie-mode"></a>3. Cookie-mode contract
 			- Dependencies: This contract assumes the shared requirements in [Security invariants (§7.1.2)](#sec-security-invariants) and the rerender rules in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender); the sub-blocks below call out cookie-mode specifics.
-> **Contract — Security::mint_cookie_record**
->	- Inputs:
->	- `form_id` (slug) plus optional `slot?`. Callers MUST invoke `Config::get()` first; the helper redundantly calls it so the configuration snapshot, TTL, and slot policy are loaded.
->	- Side-effects:
->	- On `status in {miss, expired}` atomically write `eid_minted/{form_id}/{h2}/{eid}.json` with `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed:[], slot:null }` following [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
->	- On `status === "hit"` skip remint; when `/eforms/prime` unions a new slot it MUST persist only `slots_allowed`/`slot` while leaving `issued_at`/`expires` untouched. Helpers never emit `Set-Cookie`.
->	- Returns:
->	- `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }`, where `status` reports the pre-write lookup (`miss` = no prior record, `expired` = prior record existed but `now` had reached its `expires`, `hit` = reused record). The returned `record.expires` always reflects the persisted value after any remint. Slot unions remain the responsibility of `/eforms/prime`.
->	- Failure modes:
->	- Treat disabled/invalid `slot?` (not in the configured allow-list or outside 1–255) as `null` and continue. Propagate filesystem errors. Status semantics never account for cookie presence; `/eforms/prime` decides whether to emit `Set-Cookie` per [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix). Return `status:"hit"` with the persisted record even when the request omitted `eforms_eid_{form_id}` so the endpoint can reissue the identifier without minting a new one.
-- Definition — Cookie-less hit = the persisted cookie record for the form remains unexpired even though the request lacked `eforms_eid_{form_id}`.
-- Header boundary (normative): For the anti-duplication cookie (`eforms_eid_{form_id}`), `/eforms/prime` alone emits **positive** `Set-Cookie` (mint/refresh). POST rerenders and PRG success redirects emit the required deletion header (`Set-Cookie: eforms_eid_{form_id}=deleted; Max-Age=0; Path=/; SameSite=Lax; HttpOnly; [Secure on HTTPS]`) only for the NCID/challenge flows defined below and in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
-- Definition — Success deletion header = the Max-Age=0 `Set-Cookie` emitted on NCID/challenge success per [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender).
-	- Definition — Anti-duplication cookie = the `eforms_eid_{form_id}` identifier minted via `/eforms/prime`.
+**Contract — Security::mint_cookie_record**
+- Inputs:
+  - `form_id` (slug) and optional `slot?` (int 1–255). Callers invoke `Config::get()`; the helper also calls it defensively so TTL/paths/slot policy are loaded.
+- Side-effects:
+  - On `status ∈ {miss, expired}`: atomically write `eid_minted/{form_id}/{h2}/{eid}.json` with  
+    `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed:[], slot:null }` using the shared sharding/permissions contract (§7.1.1).
+  - On `status === "hit"`: **do not** remint or rewrite `issued_at`/`expires`.  
+  - This helper never emits headers.
+- Returns:
+  - `{ status: "miss"|"hit"|"expired", record: { eid: i-<UUIDv4>, issued_at, expires, slots_allowed, slot } }`.
+  - **Status semantics (pre-write lookup):**  
+    - `miss` = no prior record  
+    - `expired` = prior record exists and `now >= prior.expires`  
+    - `hit` = prior record exists and `now < prior.expires`  
+  - After any remint (miss/expired), `record.expires` reflects the newly persisted value.
+- Failure modes:
+  - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; continue.  
+  - Filesystem errors propagate (hard fail).  
+  - Status computation is independent of cookie header presence.
+
+**Definitions (normative):**
+- **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record with `now < record.expires`.
+- **Cookie-less hit** = `status:"hit"` from storage even though the request lacked `eforms_eid_{form_id}`.
+- **Header boundary** = header decisions are made only by `/eforms/prime`.
+
+**Slot handling:**
+- `mint_cookie_record` never unions slots.  
+- `/eforms/prime` performs `slots_allowed ∪ {s}` (when allowed) and derives `slot` when `|slots_allowed| == 1`, persisting only those fields; it MUST NOT rewrite `issued_at`/`expires`.
+
+**Header decision (at `/eforms/prime`):**
+- Send **positive** `Set-Cookie` when minting a new record **or** when the request lacked an **unexpired match** (including cookie-less hits).  
+- Skip the positive header when an **unexpired match** is present.  
+- POST rerenders and PRG success redirects MAY emit only the **deletion** header (`Max-Age=0; Path=/; SameSite=Lax; HttpOnly; Secure on HTTPS`) for NCID/challenge flows (§7.1.4.2); they MUST NOT emit a positive `Set-Cookie`.
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
                                         - Rerenders MUST reuse the minted `eid` and deterministic slot choice. When an NCID fallback occurs or a pre-verification challenge is required, the rerender MUST delete `eforms_eid_{form_id}` by sending a Set-Cookie **deletion** header whose attributes match the minted cookie: same Name and Path, `SameSite=Lax`, `HttpOnly`, `Secure` on HTTPS, and `Max-Age=0` (or an `Expires` date in the past). Do not emit a positive Set-Cookie during rerender. Embed `/eforms/prime` so it reissues the persisted cookie before the next POST while the markup continues to emit the deterministic `eforms_slot` (when applicable) and pixel.
