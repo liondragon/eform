@@ -652,7 +652,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
         - Cookie-mode scenarios → follow [Security → Cookie-mode lifecycle matrix](#sec-cookie-lifecycle-matrix) and [Security → Cookie policy outcomes](#sec-cookie-policy-matrix) for minted-record reuse, TTL re-priming, slot handling, and challenge flows, with lifecycle storage details from [Security → Shared Lifecycle and Storage Contract](#sec-shared-lifecycle).
 	- NCID and ledger scenarios → follow [Security → Ledger reservation contract](#sec-ledger-contract) and [Security → NCIDs, Slots, and Validation Output](#sec-ncid) for cookie-loss policies, dedupe behavior, and redirect-only PRG handoffs.
 	- Honeypot scenarios → follow [Security → Honeypot](#sec-honeypot) for both response modes.
-	- Success-ticket scenarios → follow [Success Behavior (PRG)](#sec-success-flow) for one-time banner display, verifier requirements, and TTL enforcement.
+	- Success-ticket scenarios → follow [Success → Canonical inline verifier flow](#sec-success-flow) for one-time banner display, verifier requirements, and TTL enforcement.
 <a id="sec-spam-decision"></a>8. Spam Decision
 	- Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
 	- `soft_reasons`: a deduplicated set of labels from the canonical list above.
