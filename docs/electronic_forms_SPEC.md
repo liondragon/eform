@@ -416,7 +416,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
   - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; the helper otherwise ignores `slot?` and always persists `{ slots_allowed:[], slot:null }`, leaving `/eforms/prime` to union slots after it returns.
   - Filesystem errors propagate (hard fail).
   - Status computation is independent of cookie header presence.
-  - `status:"hit"` reports that storage already holds an unexpired record for the presented cookie; callers MUST still apply the unexpired-match test before skipping the header described below.
+  - `status:"hit"` means storage already holds an unexpired record for this form; it **does not** imply the request presented that cookie. Callers MUST still apply the **unexpired-match** test before deciding to skip the positive header.
 
 **Definitions (normative):**
 - **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record with `now < record.expires`.
