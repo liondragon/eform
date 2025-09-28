@@ -35,6 +35,15 @@ EXPECTED_ROW_IDS = {
         "cookie-lifecycle-challenge-rerender",
         "cookie-lifecycle-challenge-success",
     },
+    "lifecycle_quickstart_rows": {
+        "quickstart-render",
+        "quickstart-persist",
+        "quickstart-post-gate",
+        "quickstart-challenge",
+        "quickstart-normalize",
+        "quickstart-ledger",
+        "quickstart-success",
+    },
     "ncid_summary_rows": {
         "ncid-summary-hidden-valid",
         "ncid-summary-hidden-missing",

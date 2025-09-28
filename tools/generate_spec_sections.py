@@ -112,6 +112,20 @@ def validate_data(data: dict) -> None:
         row.setdefault("notes", notes)
         validate_references(row.get("references"), f"lifecycle {flow_trigger}")
 
+    quickstart_rows = data.get("lifecycle_quickstart_rows")
+    if not isinstance(quickstart_rows, list):
+        raise SystemExit("lifecycle_quickstart_rows must be a list")
+    for row in quickstart_rows:
+        if not isinstance(row, dict):
+            raise SystemExit("lifecycle_quickstart_rows entries must be mappings")
+        ensure_row_id(row, "lifecycle_quickstart_rows")
+        stage = row.get("stage")
+        if not isinstance(stage, str) or not stage:
+            raise SystemExit("lifecycle_quickstart_rows entries require a non-empty stage")
+        overview = row.get("overview")
+        if not isinstance(overview, str) or not overview.strip():
+            raise SystemExit(f"lifecycle_quickstart_rows entry '{stage}' must include an overview")
+
     summary_rows = data.get("ncid_summary_rows")
     if not isinstance(summary_rows, list):
         raise SystemExit("ncid_summary_rows must be a list")
@@ -312,6 +326,18 @@ def format_cookie_lifecycle_rows(rows: list[dict]) -> list[dict[str, str]]:
     return formatted
 
 
+def format_lifecycle_quickstart_rows(rows: list[dict]) -> list[dict[str, str]]:
+    formatted = []
+    for row in rows:
+        formatted.append(
+            {
+                "stage": row["stage"],
+                "overview": row["overview"],
+            }
+        )
+    return formatted
+
+
 def format_cookie_header_actions_rows(rows: list[dict]) -> list[dict[str, str]]:
     formatted = []
     for row in rows:
@@ -355,6 +381,19 @@ def render_ncid_rerender_steps(steps: list[dict]) -> str:
 
 
 TABLE_CONFIGS = [
+    {
+        "name": "lifecycle-quickstart",
+        "data_key": "lifecycle_quickstart_rows",
+        "indent": 0,
+        "header_token": "| Stage | Overview |",
+        "header": "| Stage | Overview |",
+        "separator": "|-------|----------|",
+        "columns": [
+            ("stage", "Stage"),
+            ("overview", "Overview"),
+        ],
+        "formatter": format_lifecycle_quickstart_rows,
+    },
     {
         "name": "cookie-lifecycle-matrix",
         "data_key": "cookie_lifecycle_rows",
@@ -498,6 +537,11 @@ def ensure_references(data: dict, spec_text: str) -> None:
             anchors_required.append((f"#{anchor}", f"cookie_header_action {flow}"))
         for anchor in extract_markdown_anchors(row.get("invariants")):
             anchors_required.append((anchor, f"cookie_header_invariants {flow}"))
+
+    for row in data.get("lifecycle_quickstart_rows", []):
+        stage = row.get("stage", "")
+        for anchor in extract_markdown_anchors(row.get("overview")):
+            anchors_required.append((anchor, f"quickstart {stage}"))
 
     for anchor, context in anchors_required:
         check_anchor(anchor, context)

@@ -276,30 +276,33 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 <!-- BEGIN BLOCK: lifecycle-pipeline-quickstart -->
 **Pipeline-first outline (render → persist → POST → challenge → normalization → ledger → success)**
 
-| Stage | Canonical invariants |
-|-------|---------------------|
-| Render (GET) | Hidden mode always delegates to `Security::mint_hidden_record()` and embeds `{ token, instance_id, issued_at }` verbatim; cookie mode emits deterministic slot metadata and embeds the `/eforms/prime` pixel so minting happens server-side before POST. The GET itself never calls `/eforms/prime` directly. |
-| Persist | Hidden mode stores `tokens/{h2}/{sha256(token)}.json`; cookie mode persists `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed[], slot? }`. Both obey the shared lifecycle contract for sharding, permissions, and atomic writes. |
-| POST → Security gate | `Security::token_validate()` is the single source for `{ mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons[] }`, applying cookie policy matrices and NCID rules inline with its return payload. Entry points consume those fields without reinterpreting policy. |
-| Challenge (conditional) | When `require_challenge=true`, rerenders clear `eforms_eid_{form_id}`, embed `/eforms/prime`, and keep the persisted record pinned to the NCID. Hidden mode never rotates before success. |
-| Normalize | Deterministic normalize → validate → coerce runs before side effects, honoring upload, sanitization, and cross-field policies from §§8–11. |
-| Ledger | `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` is reserved via `fopen('xb')` (or equivalent) immediately before side effects; IO failure or `EEXIST` is treated as a duplicate. |
-| Success | Success flows move uploads, send mail, log, and finish PRG via [Success behavior (§13)](#sec-success), keeping NCID pinning intact and allowing cookie rotation only after PRG or expiry. |
+**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+<!-- BEGIN GENERATED: lifecycle-quickstart -->
+| Stage | Overview |
+|-------|----------|
+| Render (GET) | Hidden mode embeds the payload from `Security::mint_hidden_record()` and cookie mode follows the GET rows in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) plus [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions) so `/eforms/prime` handles mint and refresh. |
+| Persist | Hidden tokens and cookie records reuse the shared storage rules in [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle); cookie mode persists via the `/eforms/prime` row in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix). |
+| POST → Security gate | `Security::token_validate()` centralizes cookie policy outcomes and NCID transitions per [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) and [Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary). |
+| Challenge (conditional) | Challenge and NCID rerenders track the rerender entries in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender contract (§7.1.4.2)](#sec-ncid-rerender) for delete + re-prime behavior. |
+| Normalize | Normalization precedes side effects and applies the pipelines documented in §§8–11 so cookie and hidden submissions share consistent validation. |
+| Ledger | Ledger reservation uses the submission ID chosen by `Security::token_validate()` and follows [Ledger reservation contract (§7.1.1)](#sec-ledger-contract) before any side effects. |
+| Success | Success flows rely on [Success behavior (§13)](#sec-success) and the PRG-related header rules in [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions) for NCID/challenge continuations. |
+<!-- END GENERATED: lifecycle-quickstart -->
 
 ##### Render (GET)
-- **What:** Renderers delegate all minting to helpers: hidden mode calls `Security::mint_hidden_record(form_id)`; cookie mode renders deterministic slot markup and embeds `/eforms/prime?f={form_id}[&s={slot}]` so `/eforms/prime` alone mints and refreshes `eforms_eid_{form_id}`.
+- **What:** Renderers delegate minting to helpers: hidden mode calls `Security::mint_hidden_record(form_id)`, while cookie mode emits deterministic slot metadata that `/eforms/prime` consumes before POST.
 - **Why:** Delegation keeps UUID/TTL policy centralized, guarantees the persisted record matches the rendered fields, and prevents ad-hoc client minting.
-- **How:** `FormRenderer` embeds the helper payload verbatim (`token`, `instance_id`, `timestamp`) in hidden mode, or `{ slot metadata, js_ok, honeypot }` plus the prime pixel in cookie mode. The renderer MUST NOT synchronously call `/eforms/prime`; the embedded pixel triggers the request.
+- **How:** The generated matrices cover GET render flows, `/eforms/prime`, and header usage; see [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
 
 ##### Persist
 - **What:** Hidden mode writes `tokens/{h2}/{sha256(token)}.json`; cookie mode persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ issued_at, expires, slots_allowed, slot }`.
 - **Why:** Shared sharding and permission rules (`{h2}` derived via `Helpers::h2()`, dirs `0700`, files `0600`) prevent leakage and ensure atomic rotation across modes.
-- **How:** Minting helpers perform the writes for hidden tokens and the initial cookie mint; `/eforms/prime` then persists the slot union after calling `Security::mint_cookie_record()`, never refreshing timestamps on `hit`, never evaluating challenge/throttle, and always calling `Config::get()` to ensure the configuration snapshot exists (see [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle)).
+- **How:** Persistence details come from the `/eforms/prime` flow in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
 
 ##### POST → Security gate
 - **What:** `Security::token_validate()` evaluates submission tokens, cookie presence, NCIDs, slots, throttle/origin policy, and challenge requirements.
 - **Why:** Centralizing the gate keeps matrices authoritative per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality): the function outputs `{ token_ok, hard_fail, require_challenge, submission_id, slot?, cookie_present?, is_ncid?, soft_reasons[] }` so entry points avoid bespoke policy forks.
-- **How:** `SubmitHandler::handle()` (and challenge verifiers) consume the returned struct directly, interpreting cookie/NCID outcomes per the embedded status without additional database reads. Cookie-mode rerenders rely on `require_challenge` and `soft_reasons` to select challenge templates while preserving the minted record.
+- **How:** Entry points consume the returned struct directly, aligning their behavior with the generated cookie policy and NCID summary tables.
 > **Contract — Security::token_validate**
 >	- Inputs:
 >	- POST payload (`$_POST`), request cookies, and mode metadata emitted by Renderer. Reads the frozen configuration snapshot (`security.*`, `challenge.*`, `privacy.*`, `throttle.*`) and the persisted hidden-token/cookie records.
@@ -311,16 +314,16 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 >	- Hard tamper/expiry paths return `hard_fail=true`, `token_ok=false`, `require_challenge=false`, `is_ncid=false`, `submission_id=null`, and an empty `soft_reasons[]`; callers MUST abort before ledger reservation. IO/read errors bubble as hard failures. Challenge-required paths set `require_challenge=true` without mutating storage.
 
 ##### Challenge (conditional)
-- **What:** When `require_challenge=true`, cookie-mode rerenders must clear `eforms_eid_{form_id}` and embed `/eforms/prime` so the persisted record is reissued; NCID rerenders perform the same clear+prime even without challenge.
-- **Why:** Clearing ensures the next GET re-primes against the same persisted record while keeping submissions pinned to their NCID, satisfying the “no rotation before success” invariant.
-- **How:** Follow the NCID rerender lifecycle (generated contract below) whenever NCID fallback or challenge flows rerender.
+- **What:** Challenge and NCID rerenders reuse the existing persisted record while the generated rerender contract governs deletion headers and priming.
+- **Why:** This keeps submissions pinned to their NCID until success, satisfying the “no rotation before success” invariant.
+- **How:** Reference the rerender entries in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender contract (§7.1.4.2)](#sec-ncid-rerender).
 --8<-- "generated/security/ncid_rerender.md"
 - Hidden-mode challenge rerenders reuse the original token without rotation.
 
 ##### Normalize
 - **What:** Every POST runs normalize → validate → coerce before side effects.
 - **Why:** Deterministic ordering keeps uploads, sanitization, and cross-field rules consistent across retries and NCID continuations.
-- **How:** Apply the documented pipelines in §§8–11, ensuring hidden/cookie submissions share the same validation behavior and logging outcomes.
+- **How:** The pipelines in §§8–11 document how hidden and cookie submissions share the same validation behavior and logging outcomes.
 
 ##### Ledger
 - **What:** Reserve the ledger entry `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects.
@@ -329,8 +332,8 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 
 ##### Success
 - **What:** Successful submissions move uploads, send notifications, log, and complete PRG (inline cookie or redirect verifier) per [Success behavior (§13)](#sec-success).
-- **Why:** PRG finalizes the NCID pin, enables success-ticket verification, and is the sole time cookie mode may rotate (apart from expiry-driven remint).
-- **How:** Execute side effects only after ledger reservation, then emit the success response (`/eforms/success-verify` ticket or redirect). Cookie rotation occurs only on PRG completion or when `/eforms/prime` detects expiry; hidden mode never rotates before success.
+- **Why:** PRG finalizes the NCID pin, enables success-ticket verification, and lets cookie mode rotate at the documented post-success points.
+- **How:** Follow [Success behavior (§13)](#sec-success) for side effects and rely on [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions) for PRG deletion headers and rotation timing; hidden mode continues using the original token until success.
 Definition — Rotation trigger = minted record replacement caused by expiry or post-success PRG.
 <!-- END BLOCK: lifecycle-pipeline-quickstart -->
 
