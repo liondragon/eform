@@ -435,6 +435,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 --8<-- "generated/security/cookie_headers.md"
 
 **Slot handling:**
+
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
 <!-- BEGIN GENERATED: slot-handling-summary -->
 - `Security::mint_cookie_record()` never unions slots.
@@ -499,6 +500,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
 				- Multiple instances on one page SHOULD consume distinct allowed slots in document order; surplus instances MUST be slotless (omit `eforms_slot` and prime without `s`).
 			- Prime endpoint semantics (`/eforms/prime`):
+
 				**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
 				<!-- BEGIN GENERATED: prime-set-cookie-guidance -->
 				- Set-Cookie attributes (normative): When `/eforms/prime` sends `Set-Cookie`, it MUST set `eforms_eid_{form_id}` with:
@@ -554,8 +556,6 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 - <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, redirect target selection, and verifier requirements are defined by [NCID success handoff (Cookie/NCID reference (§7.1.5))](#sec-cookie-ncid-summary). [Success Behavior (PRG) (§13)](#sec-success) repeats the rules informatively.
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
 				**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
-<!-- BEGIN GENERATED: cookie-ncid-summary -->
-				**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
 				<!-- BEGIN GENERATED: cookie-ncid-summary -->
 				| Scenario | Identifier outcome | Required action | Canonical section |
 				|----------|--------------------|-----------------|-------------------|
@@ -569,7 +569,6 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 				| Challenge success response | `submission_id = nc-…` (same value reused). | Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) |
 				| NCID success handoff (no acceptable cookie) | `submission_id = nc-…`. | Force Redirect-only PRG even when `success.mode="inline"`; append `&eforms_submission={submission_id}` and send the NCID deletion header before the 303 (per [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success Behavior (PRG) (§13)](#sec-success) for narrative bullets. | [Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) |
 				<!-- END GENERATED: cookie-ncid-summary -->
-<!-- END GENERATED: cookie-ncid-summary -->
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
 	- Stealth logging: JSONL { code:"EFORMS_ERR_HONEYPOT", severity:"warning", meta:{ stealth:true } }, header X-EForms-Stealth: 1. Do not emit "success" info log.

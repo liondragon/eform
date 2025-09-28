@@ -570,6 +570,7 @@ GENERATED_CONFIGS = [
         "indent": "",
         "render": render_bullet_block_config,
         "insertion_token": "**Slot handling:**",
+        "leading_blank_line": True,
     },
     {
         "name": "prime-set-cookie-guidance",
@@ -577,6 +578,7 @@ GENERATED_CONFIGS = [
         "indent": "\t\t\t\t",
         "render": render_bullet_block_config,
         "insertion_token": "- Prime endpoint semantics (`/eforms/prime`):",
+        "leading_blank_line": True,
     },
 ]
 
@@ -735,12 +737,25 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
         lines = original_text.splitlines()
         updated = lines[:]
 
+        def ensure_leading_blank_line(lines: list[str], pointer_idx: int) -> None:
+            if pointer_idx < 0 or pointer_idx > len(lines):
+                return
+            idx = pointer_idx
+            while idx > 1 and lines[idx - 1] == "" and lines[idx - 2] == "":
+                del lines[idx - 1]
+                idx -= 1
+            if idx == 0:
+                lines.insert(0, "")
+            elif lines[idx - 1] != "":
+                lines.insert(idx, "")
+
         for config in configs:
             rendered_block = config["render"](config, data)
             indent = get_indent_string(config)
             pointer_line = indent + POINTER_TEXT
             begin_marker = indent + f"<!-- BEGIN GENERATED: {config['name']} -->"
             end_marker = indent + f"<!-- END GENERATED: {config['name']} -->"
+            leading_blank = bool(config.get("leading_blank_line"))
 
             if begin_marker in original_text:
                 start_idx = None
@@ -751,6 +766,13 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
                         break
                 if start_idx is None:
                     raise SystemExit(f"Pointer line for {config['name']} not found in {path}")
+                pointer = POINTER_TEXT.strip()
+                legacy_begin = f"<!-- BEGIN GENERATED: {config['name']} -->"
+                while start_idx > 0 and updated[start_idx - 1].strip() in {
+                    pointer,
+                    legacy_begin,
+                }:
+                    start_idx -= 1
                 for idx in range(start_idx, len(updated)):
                     if updated[idx] == end_marker:
                         end_idx = idx
@@ -758,7 +780,16 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
                 if end_idx is None:
                     raise SystemExit(f"End marker for {config['name']} not found in {path}")
                 end_idx += 1
+                legacy_end = f"<!-- END GENERATED: {config['name']} -->"
+                while end_idx < len(updated) and updated[end_idx].strip() in {
+                    pointer,
+                    legacy_begin,
+                    legacy_end,
+                }:
+                    end_idx += 1
                 updated[start_idx:end_idx] = rendered_block
+                if leading_blank:
+                    ensure_leading_blank_line(updated, start_idx)
             else:
                 header_token = config.get("header_token")
                 insertion_token = config.get("insertion_token")
@@ -771,10 +802,29 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
                             break
                     if start_idx is None:
                         raise SystemExit(f"Table header for {config['name']} not found in {path}")
+                    # Capture any legacy pointer lines or markers that may precede the
+                    # header so we replace the entire generated block on regeneration.
+                    pointer = POINTER_TEXT.strip()
+                    legacy_begin = f"<!-- BEGIN GENERATED: {config['name']} -->"
+                    while start_idx > 0 and updated[start_idx - 1].strip() in {
+                        pointer,
+                        legacy_begin,
+                    }:
+                        start_idx -= 1
+
                     end_idx = start_idx
                     while end_idx < len(updated) and updated[end_idx].strip().startswith("|"):
                         end_idx += 1
+                    legacy_end = f"<!-- END GENERATED: {config['name']} -->"
+                    while end_idx < len(updated) and updated[end_idx].strip() in {
+                        pointer,
+                        legacy_begin,
+                        legacy_end,
+                    }:
+                        end_idx += 1
                     updated[start_idx:end_idx] = rendered_block
+                    if leading_blank:
+                        ensure_leading_blank_line(updated, start_idx)
                 elif insertion_token is not None:
                     insertion_idx = None
                     needle = insertion_token.strip()
@@ -787,6 +837,8 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
                             f"Insertion token for {config['name']} not found in {path}"
                         )
                     updated[insertion_idx:insertion_idx] = rendered_block
+                    if leading_blank:
+                        ensure_leading_blank_line(updated, insertion_idx)
                 else:
                     raise SystemExit(
                         f"Begin marker for {config['name']} not found in {path}"
