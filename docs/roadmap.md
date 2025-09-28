@@ -11,11 +11,13 @@
 - Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`.
 - Defensive `Config::get()` calls inside helpers (normative lazy backstop).
 - CI/lint hooks to assert all entry points (`Renderer`, `SubmitHandler`, `/eforms/prime`, `/eforms/success-verify`, challenge verifiers, `Emailer`) call `Config::get()` up front.
+- `uninstall.php` implements and exercises the guard/Config bootstrap/purge-flag contract defined in [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture), including operational toggles for uploads/log retention.
 
 **Acceptance**
 
 - Multiple `Config::get()` calls in a request are safe; first triggers bootstrap only.
 - Unit tests: snapshot immutability across components; default resolution; missing keys handled per spec.
+- Uninstall integration tests assert the `defined('WP_UNINSTALL_PLUGIN')` guard, require the Config bootstrap, and respect purge-flag decisions per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 
 ---
 
