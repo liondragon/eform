@@ -167,10 +167,10 @@
 	- Soft-fail when providers are misconfigured or unreachable by setting `challenge_unconfigured`, clearing `require_challenge`, and continuing via the soft-cookie path as required by [Adaptive challenge (§12)](#sec-adaptive-challenge).
 	- Triggered only when `require_challenge=true`; rerenders & success follow generated NCID rerender contract; hidden token never rotates before success.
 - **Success (PRG)**
-	- Always `303`, `Cache-Control: private, no-store, max-age=0`.
-	- **Inline**: success ticket persisted; set `eforms_s_{form_id}`; follow-up GET calls `/eforms/success-verify?eforms_submission={submission_id}` while `?eforms_success={form_id}` flag is present; verifier clears ticket & cookie, strips query.
+	- Always `303`, `Cache-Control: private, no-store, max-age=0`. Success tickets mint `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, `Secure` only on HTTPS, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds` per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
+	- **Inline**: success ticket persisted; set `eforms_s_{form_id}` with the normative attributes above; follow-up GET calls `/eforms/success-verify?eforms_submission={submission_id}` while `?eforms_success={form_id}` flag is present; verifier clears ticket & cookie, strips query.
 	- **Redirect**: `wp_safe_redirect(…, 303)`.
-	- **PRG deletion row**: PRG responses **delete** `eforms_eid_{form_id}` (all success handoffs) so the follow-up GET re-primes. No positive header in PRG.
+	- **PRG deletion row**: PRG responses **delete** `eforms_eid_{form_id}` by emitting the `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` success deletion header before the 303 so the follow-up GET re-primes, per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow). No positive header in PRG.
 - Success and rerender responses advertise caching guidance via `Vary: Cookie` scoped to `eforms_s_{form_id}` per the request lifecycle contract so intermediaries respect user-specific outcomes.
 
 **Acceptance**
@@ -179,6 +179,8 @@
 - NCID-only completions enforce redirect/verifier requirement; inline forbidden when `is_ncid=true`.
 - Verifier-only success path (no redirect) clears ticket/cookie and strips query params.
 - Verifier MUST invalidate the ticket on first success and clear `eforms_s_{form_id}`.
+- Success-cookie fixtures assert `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds` per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
+- Verifier fixtures assert `Cache-Control: no-store` while consuming success tickets per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
 - PRG deletion row covered for both cookie-mode and NCID/challenge completions.
 - Origin check enforced; Referer not required.
 - Acceptance suite covers challenge provider outcomes (success, failure, unconfigured, provider error) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
