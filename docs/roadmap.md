@@ -7,7 +7,7 @@
 **Delivers**
 
 - `Config::get()` (idempotent, per-request snapshot) + `bootstrap()` called exactly-once per request.
-- Snapshot covers `security.*`, `challenge.*`, `privacy.*`, `throttle.*`, `uploads.*`, `email.*`, `logging.*`, defaults (per §17).
+- Snapshot covers `security.*`, `spam.*`, `challenge.*`, `email.*`, `logging.*`, `privacy.*`, `throttle.*`, `validation.*`, `uploads.*`, `assets.*`, `install.*`, defaults (authoritative table in [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration)).
 - Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`.
 - Defensive `Config::get()` calls inside helpers (normative lazy backstop).
 - CI/lint hooks to assert all entry points (`Renderer`, `SubmitHandler`, `/eforms/prime`, `/eforms/success-verify`, challenge verifiers, `Emailer`) call `Config::get()` up front.
