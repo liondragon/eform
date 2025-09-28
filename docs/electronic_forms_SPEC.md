@@ -285,7 +285,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 | Render (GET) | Hidden mode embeds the payload from `Security::mint_hidden_record()` and cookie mode follows the GET rows in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) plus [Cookie header actions](#sec-cookie-header-actions) so `/eforms/prime` handles mint and refresh. |
 | Persist | Hidden tokens and cookie records reuse the shared storage rules in [Shared lifecycle and storage](#sec-shared-lifecycle); cookie mode persists via the `/eforms/prime` row in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix). |
 | POST → Security gate | `Security::token_validate()` centralizes cookie policy outcomes and NCID transitions per [Cookie policy outcomes](#sec-cookie-policy-matrix) and [Cookie/NCID reference](#sec-cookie-ncid-summary). |
-| Challenge (conditional) | Challenge and NCID rerenders track the rerender entries in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender contract](#sec-ncid-rerender) for delete + re-prime behavior. |
+| Challenge (conditional) | Challenge and NCID rerenders track the rerender entries in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender and challenge lifecycle](#sec-ncid-rerender) for delete + re-prime behavior. |
 | Normalize | Normalization precedes side effects and applies the pipelines documented in the [Validation & Sanitization Pipeline](#sec-validation-pipeline), [Redirect Safety](#sec-redirect-safety), [Suspect Handling](#sec-suspect-handling), and [Throttling](#sec-throttling) so cookie and hidden submissions share consistent validation. |
 | Ledger | Ledger reservation uses the submission ID chosen by `Security::token_validate()` and follows [Ledger reservation contract](#sec-ledger-contract) before any side effects. |
 | Success | Success flows rely on [Success behavior](#sec-success) and the PRG-related header rules in [Cookie header actions](#sec-cookie-header-actions) for NCID/challenge continuations. |
@@ -318,9 +318,9 @@ This table routes each lifecycle stage to the normative matrices that govern its
 >	- Hard tamper/expiry paths return `hard_fail=true`, `token_ok=false`, `require_challenge=false`, `is_ncid=false`, `submission_id=null`, and an empty `soft_reasons[]`; callers MUST abort before ledger reservation. IO/read errors bubble as hard failures. Challenge-required paths set `require_challenge=true` without mutating storage.
 
 ##### Challenge (conditional)
-- **What:** Challenge and NCID rerenders reuse the existing persisted record while the generated rerender contract governs deletion headers and priming.
+- **What:** Challenge and NCID rerenders reuse the existing persisted record while the generated [NCID rerender and challenge lifecycle](#sec-ncid-rerender) governs deletion headers and priming.
 - **Why:** This keeps submissions pinned to their NCID until success, satisfying the “no rotation before success” invariant.
-- **How:** Reference the rerender entries in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender contract](#sec-ncid-rerender).
+- **How:** Reference the rerender entries in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender and challenge lifecycle](#sec-ncid-rerender).
 --8<-- "generated/security/ncid_rerender.md"
 - Hidden-mode challenge rerenders reuse the original token without rotation.
 
@@ -826,7 +826,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 			- Downstream consumers MUST treat `submission_id` values as colon-free strings and rely on separate slot metadata when disambiguating multi-instance submissions.
 - <a id="sec-success-ncid"></a>NCID-only handoff (informative summary): The generated [Cookie/NCID reference](#sec-cookie-ncid-summary) row is canonical for redirect-only completions when no acceptable cookie is present. Implementations following it will:
 	- Force Redirect-only PRG even when `success.mode="inline"`, appending `&eforms_submission={submission_id}` to the 303.
-	- Send the `eforms_eid_{form_id}` deletion header before issuing the redirect (per the NCID rerender contract).
+        - Send the `eforms_eid_{form_id}` deletion header before issuing the redirect (per the NCID rerender and challenge lifecycle).
 	- Definition — NCID success deletion header = `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` per [Cookie header actions](#sec-cookie-header-actions).
 	- Redirect to `success.redirect_url` when provided; otherwise rely on `/eforms/success-verify?eforms_submission={submission_id}`, which MUST remain enabled and accept the identifier via cookie or query.
 	- Fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID` when inline success is configured but neither a redirect URL nor the verifier endpoint is available.
