@@ -450,7 +450,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - Definition — Cookie-less hit = the request omits `eforms_eid_{form_id}`; since no unexpired match exists, `/eforms/prime` MUST reissue the positive header.
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-                                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice; follow [Cookie header actions (§7.1.3.3)](#sec-cookie-header-actions) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender) for the delete + re-prime contract.
+                                       - Rerenders MUST reuse the minted `eid` and deterministic slot choice. NCID/challenge rerenders follow [Cookie header actions (§7.1.3.3)](#sec-cookie-header-actions) and [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender) for the delete + re-prime contract.
 --8<-- "generated/security/ncid_rerender.md"
 			- **Persisted record structure** (`eid_minted/{form_id}/{h2}/{eid}.json`):
 					| Field | Notes |
