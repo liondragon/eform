@@ -25,12 +25,12 @@
 
 **Delivers**
 
-- `Security::mint_hidden_record(form_id)`  
+- `Security::mint_hidden_record(form_id)`
   - Persist `tokens/{h2}/{sha256(token)}.json` `{mode:"hidden", form_id, instance_id, issued_at, expires}`.
-  - Never re-write on rerender; base64url `instance_id` (16–24 bytes).
-- `Security::mint_cookie_record(form_id, slot?)` (header-agnostic)  
-  - Miss/expired → mint `eid_minted/{form_id}/{h2}/{eid}.json` with `{issued_at, expires, slots_allowed:[], slot:null}`.  
-  - Hit → never re-write `issued_at`/`expires`.
+  - Never rewrite on rerender; base64url `instance_id` (16–24 bytes).
+- `Security::mint_cookie_record(form_id, slot?)` (header-agnostic)
+  - Miss/expired → mint `eid_minted/{form_id}/{h2}/{eid}.json` with `{issued_at, expires, slots_allowed:[], slot:null}`.
+  - Hit → never rewrite `issued_at`/`expires`.
   - Status (`hit|miss|expired`) computed from storage (not headers).
 - **Definitions enforced**  
   - **Unexpired match**: request presents syntactically valid `eforms_eid_{form_id}` AND matching record exists with `now < expires`.
@@ -58,7 +58,7 @@
 **Delivers**
 
 - `TemplateValidator` preflight covering field definitions, row-group constraints, and envelope rules.
-- Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows.
+- Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows; runtime uses the preflighted manifest only.
 - CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
 - Developer ergonomics: actionable diagnostics, anchor links back to spec sections, fixtures for regression tests.
 
@@ -72,13 +72,14 @@
 
 ## Phase 4: Uploads subsystem (policy, finfo, retention)
 
-**Goal:** Implement the uploads pipeline end-to-end so token minting, MIME sniffing, retention, and GCap enforcement match the normative uploads spec before POST orchestration depends on it.
+**Goal:** Implement the uploads pipeline end-to-end so token minting, MIME sniffing, retention, and GC/retention enforcement match the normative uploads spec before POST orchestration depends on it.
 
 **Delivers**
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
-- `finfo`/MIME validation and extension whitelisting prior to disk persistence; reject on mismatch.
+- `finfo`/MIME validation and extension allow-list prior to disk persistence; reject on mismatch.
 - Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and garbage-collection cron hooks.
+  - `finfo`, extension, and accept-token metadata must agree before persistence (uploads tri-agreement).
 - Upload-specific logging and throttling hooks surfaced to the validation pipeline.
 
 **Acceptance**
@@ -125,7 +126,9 @@
 **Acceptance**
 
 - Matrix-conformant behavior for cookie-less hits.
-- Never re-write `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
+  - Cookie-less hit reissues positive `Set-Cookie`.
+  - Identical, unexpired cookie ⇒ skip header emission.
+- Never rewrite `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
 - Tests for attribute equality & remaining-lifetime logic.
 
 ---
@@ -142,7 +145,8 @@
   - Never call `/eforms/prime` synchronously; priming via pixel on follow-up nav.
 - **SubmitHandler (POST)**
   - Orchestrates: Security gate → Normalize → Validate → Coerce → Ledger → Side effects.
-  - Cookie handling and NCID transitions per matrices; no mid-flow mode swaps.
+  - **Ledger reservation runs immediately before side effects.**
+  - Cookie handling and NCID transitions per matrices; **no mid-flow mode swaps**.
   - Error rerenders reuse persisted record; follow NCID rerender contract (delete + re-prime) where required.
   - Throttling & redirect-safety & suspect handling (per §§9–11).
 - **Challenge**
@@ -157,6 +161,7 @@
 
 - Matrix-driven integration tests: GET rows, POST rows, rerender rows, success handoff.
 - NCID-only completions enforce redirect/verifier requirement; inline forbidden when `is_ncid=true`.
+- PRG deletion row covered for both cookie-mode and NCID/challenge completions.
 
 ---
 
@@ -201,6 +206,7 @@
 
 - Snapshot of logs in each mode; PII redaction verified.
 - Throttle thresholds; suspect flags; redirect allow-list.
+- `request_id` asserted in JSONL and minimal outputs.
 - A11y tests for focus/error summary.
 
 ---
@@ -221,6 +227,7 @@
 - Multi-instance page tests: deterministic, non-overlapping slots; surplus slotless.
 - POST with wrong/missing slot → `EFORMS_ERR_TOKEN`.
 - Rerender rows preserve deterministic slot & follow delete+re-prime contract.
+- Global slots disabled ⇒ posted `eforms_slot` hard-fails.
 
 ---
 
