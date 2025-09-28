@@ -431,6 +431,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 **Definitions (normative):**
 - **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record for that EID with `now < record.expires`; equality is evaluated against that record's `eid`.
 - Definition — Presented cookie = the request supplies `eforms_eid_{form_id}` matching the EID regex.
+- Definition — Hit without match = `status:"hit"` but no unexpired match; `/eforms/prime` MUST still send the positive header per [Cookie header actions](#sec-cookie-header-actions).
 - **Header boundary (normative)** — [Cookie header actions matrix](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
 			This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior](#sec-success).
@@ -817,9 +818,10 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 				2. Set `eforms_s_{form_id}={submission_id}` with `SameSite=Lax`, `Secure` on HTTPS, HttpOnly=false, `Path=/` (so `/eforms/success-verify` can read and clear it), and `Max-Age = security.success_ticket_ttl_seconds`.
 					- Definition: Success-cookie TTL = `security.success_ticket_ttl_seconds` from [Configuration](#sec-configuration).
 					- Definition: Success-cookie Path `/` keeps `/eforms/success-verify` eligible to receive and clear the ticket.
-                                3. Send the `eforms_eid_{form_id}` deletion header (Max-Age=0) then redirect with `?eforms_success={form_id}` (303).
+                               3. Send the `eforms_eid_{form_id}` deletion header (Max-Age=0) then redirect with `?eforms_success={form_id}` (303).
                                         - Definition — Success PRG deletion header = the `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` emitted before the 303 per [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
                                4. On the follow-up GET, the renderer (or lightweight JS helper) calls `/eforms/success-verify?eforms_submission={submission_id}` (`Cache-Control: no-store`) while the `?eforms_success={form_id}` flag and `eforms_s_{form_id}` cookie remain present. Render the success banner only when both the query flag and verifier response succeed. The verifier MUST immediately invalidate the ticket so subsequent calls for the same `{form_id, submission_id}` pair return false, then clear the cookie and strip the query parameter. Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}` cookie.
+                                        - Definition — Success re-prime = that follow-up GET MUST embed `/eforms/prime?f={form_id}[&s={slot}]` per [Cookie header actions](#sec-cookie-header-actions) so the deleted cookie is reprovisioned before the next POST.
 			- Downstream consumers MUST treat `submission_id` values as colon-free strings and rely on separate slot metadata when disambiguating multi-instance submissions.
 - <a id="sec-success-ncid"></a>NCID-only handoff (informative summary): The generated [Cookie/NCID reference](#sec-cookie-ncid-summary) row is canonical for redirect-only completions when no acceptable cookie is present. Implementations following it will:
 	- Force Redirect-only PRG even when `success.mode="inline"`, appending `&eforms_submission={submission_id}` to the 303.
