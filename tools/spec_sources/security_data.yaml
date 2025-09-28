@@ -234,7 +234,7 @@ cookie_header_actions_rows:
     flow_trigger: PRG redirect (success handoff)
     anchor: sec-cookie-header-prg-redirect
     header_action: deletion
-    invariants: "Success redirect for NCID/challenge flows MUST send the deletion header before issuing the 303 so the follow-up GET reprovisions the cookie; no positive header is permitted in PRG."
+    invariants: "All success PRG responses MUST delete `eforms_eid_{form_id}` before issuing the 303 so the follow-up GET reprovisions the cookie; NCID/challenge flows rely on that redirect GET to re-prime, and no positive header is permitted in PRG."
     references:
       - sec-success
       - sec-ncid-rerender
