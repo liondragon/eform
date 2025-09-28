@@ -51,7 +51,45 @@
 
 ---
 
-## Phase 3: Ledger reservation (exclusive-create) + error semantics
+## Phase 3: Template preflight & schema tooling
+
+**Goal:** Make template validation deterministic before runtime so deployments catch schema mismatches, missing row groups, and envelope violations during CI instead of in production flows.
+
+**Delivers**
+
+- `TemplateValidator` preflight covering field definitions, row-group constraints, and envelope rules.
+- Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows.
+- CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
+- Developer ergonomics: actionable diagnostics, anchor links back to spec sections, fixtures for regression tests.
+
+**Acceptance**
+
+- Golden fixtures for representative templates (hidden, cookie, NCID, uploads) pass preflight.
+- Schema drift or missing sections produce stable error codes/messages.
+- Renderer/SubmitHandler rely exclusively on the validated manifest (no ad-hoc template parsing at runtime).
+
+---
+
+## Phase 4: Uploads subsystem (policy, finfo, retention)
+
+**Goal:** Implement the uploads pipeline end-to-end so token minting, MIME sniffing, retention, and GCap enforcement match the normative uploads spec before POST orchestration depends on it.
+
+**Delivers**
+
+- Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
+- `finfo`/MIME validation and extension whitelisting prior to disk persistence; reject on mismatch.
+- Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and garbage-collection cron hooks.
+- Upload-specific logging and throttling hooks surfaced to the validation pipeline.
+
+**Acceptance**
+
+- Fixtures covering allowed/blocked MIME types, oversize payloads, expired tokens, and retention expiry.
+- Garbage-collection tooling deletes expired assets without touching active submissions.
+- Upload POST paths integrate with `Security::token_validate()` outputs without bypassing snapshot/config rules.
+
+---
+
+## Phase 5: Ledger reservation (exclusive-create) + error semantics
 
 **Goal:** Canonical duplicate suppression across all flows with strict sequencing before side effects.
 
@@ -60,7 +98,7 @@
 - Exclusive-create `…/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')`.
 - On `EEXIST` or any filesystem failure → treat as duplicate; log `EFORMS_LEDGER_IO`; abort side effects.
 - Reservation happens **immediately before side effects** (email, moves), after normalization/validation.
-- Email failure carve-out (see Phase 6): rollback (`unlink` the `.used`) so retry with same identifier is allowed.
+- Email failure carve-out (see Phase 8): rollback (`unlink` the `.used`) so retry with same identifier is allowed.
 
 **Acceptance**
 
@@ -70,7 +108,7 @@
 
 ---
 
-## Phase 4: `/eforms/prime` endpoint (single source of positive `Set-Cookie`)
+## Phase 6: `/eforms/prime` endpoint (single source of positive `Set-Cookie`)
 
 **Goal:** Own mint/refresh and the positive `Set-Cookie` decision using the **unexpired match** rule; keep helpers header-agnostic.
 
@@ -87,12 +125,12 @@
 **Acceptance**
 
 - Matrix-conformant behavior for cookie-less hits.
-- Never re-write `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 8).
+- Never re-write `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
 - Tests for attribute equality & remaining-lifetime logic.
 
 ---
 
-## Phase 5: Renderer → SubmitHandler → challenge → success (PRG)
+## Phase 7: Renderer → SubmitHandler → challenge → success (PRG)
 
 **Goal:** Implement the canonical lifecycle: render → persist → POST → challenge/NCID rerender → normalization/validation → ledger → success, strictly following generated tables and invariants.
 
@@ -122,7 +160,7 @@
 
 ---
 
-## Phase 6: Emailer (fatal-on-send-failure semantics)
+## Phase 8: Emailer (fatal-on-send-failure semantics)
 
 **Goal:** Deliver mail reliably and make send failures fatal in a user-friendly, deterministic way that preserves dedupe correctness.
 
@@ -142,7 +180,7 @@
 
 ---
 
-## Phase 7: Logging, Privacy, Error handling, Assets, Throttling & Validation pipeline
+## Phase 9: Logging, Privacy, Error handling, Assets, Throttling & Validation pipeline
 
 **Goal:** Cross-cutting correctness, observability, and user experience consistent with §§8–11, 14–16, 20, 22.
 
@@ -167,7 +205,7 @@
 
 ---
 
-## Phase 8: Slots (unioning & enforcement)
+## Phase 10: Slots (unioning & enforcement)
 
 **Goal:** Add slot semantics **after** core cookie flow is stable; keep unioning isolated to `/eforms/prime` and validation to POST.
 
