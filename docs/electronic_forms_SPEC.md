@@ -45,7 +45,8 @@ electronic_forms - Spec
 		- Fail2ban emission
 		- Rejected-submission logging → set logging.mode="jsonl" (or "minimal") and logging.level>=1
 		- Header logging, PII logging, SMTP debug
-	- Operational profile: Cookie mode is intended for cached pages; hidden-token mode is recommended elsewhere. On cached pages, /eforms/prime is the canonical way to mint/refresh the anti-duplication cookie; setting it on the main GET is not supported.
+       - Operational profile: Cookie mode is intended for cached pages; hidden-token mode is recommended elsewhere. On cached pages, `/eforms/prime` is the canonical mint/remint endpoint (and the only component permitted to emit the positive `Set-Cookie`), and it issues that header only when no unexpired match exists; setting it on the main GET is not supported.
+       - Definition — Mint/remint trigger = `/eforms/prime` sends the positive `Set-Cookie` only when the request lacks an unexpired match per [Cookie header actions](#sec-cookie-header-actions).
 <a id="sec-architecture"></a>
 3. ARCHITECTURE AND FILE LAYOUT
 	- /electronic_forms/
