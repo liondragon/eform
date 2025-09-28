@@ -154,7 +154,12 @@
   - Error rerenders reuse persisted record; follow NCID rerender contract (delete + re-prime) where required.
   - Throttling & redirect-safety & suspect handling (per §§9–11).
 - **Challenge**
-  - Triggered only when `require_challenge=true`; rerenders & success follow generated NCID rerender contract; hidden token never rotates before success.
+	- Implement `challenge.mode` states (`off`/`auto`/`always`) and align `require_challenge` evaluation with [Adaptive challenge (§12)](#sec-adaptive-challenge).
+	- Provider selection supports `turnstile`, `hcaptcha`, and `recaptcha` with server-side verification via the WP HTTP API, request parameter mapping, and timeout handling per [Adaptive challenge (§12)](#sec-adaptive-challenge).
+	- Honor lazy-load boundaries: render widgets only during POST rerenders or verification passes and defer configuration reads until after the snapshot is primed (see [Adaptive challenge (§12)](#sec-adaptive-challenge) and [Lazy-load lifecycle (components & triggers) (§6.1)](#sec-lazy-load-matrix)).
+	- Wire verification hooks so rerenders consume provider responses, update `require_challenge`, and flow into the NCID rerender contract without rotating hidden tokens before success (see [Adaptive challenge (§12)](#sec-adaptive-challenge)).
+	- Soft-fail when providers are misconfigured or unreachable by setting `challenge_unconfigured`, clearing `require_challenge`, and continuing via the soft-cookie path as required by [Adaptive challenge (§12)](#sec-adaptive-challenge).
+	- Triggered only when `require_challenge=true`; rerenders & success follow generated NCID rerender contract; hidden token never rotates before success.
 - **Success (PRG)**
   - Always `303`, `Cache-Control: private, no-store, max-age=0`.  
   - **Inline**: success ticket persisted; set `eforms_s_{form_id}`; follow-up GET calls `/eforms/success-verify?eforms_submission={submission_id}` while `?eforms_success={form_id}` flag is present; verifier clears ticket & cookie, strips query.  
@@ -169,6 +174,7 @@
 - Verifier MUST invalidate the ticket on first success and clear `eforms_s_{form_id}`.
 - PRG deletion row covered for both cookie-mode and NCID/challenge completions.
 - Origin check enforced; Referer not required.
+- Acceptance suite covers challenge provider outcomes (success, failure, unconfigured, provider error) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
 
 ---
 
