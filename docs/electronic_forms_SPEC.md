@@ -518,7 +518,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 						- `security.token_ttl_seconds` when minting a new record, or
 						- `record.expires - now` when reissuing an existing record so the client countdown never exceeds the server record.
 				- Definition — Remaining lifetime = `max(0, record.expires - now)` (seconds).
-				- Definition: “sends `Set-Cookie`” refers to the positive header emitted under the carve-out below; deletion headers on rerender are governed by [NCID rerender lifecycle](#sec-ncid-rerender).
+                            - Definition — “sends `Set-Cookie`” refers to the positive header emitted under the carve-out below; deletion headers on rerender are governed by [NCID rerender lifecycle](#sec-ncid-rerender).
 				- Definition — **unexpired match**: the request presents `eforms_eid_{form_id}` matching the EID regex and a server record exists for that EID with `now < record.expires`. HTTP requests do not echo Path/SameSite/Secure, so equality is inferred from minting with the configured attributes.
 				- Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match. It MUST NOT emit a positive `Set-Cookie` when an unexpired match is present; the endpoint MUST skip the header whenever an identical, unexpired cookie (same Name, Value, Path, SameSite, Secure) was presented. No alternate positive header is permitted while that match exists.
 				<!-- END GENERATED: prime-set-cookie-guidance -->
@@ -817,8 +817,8 @@ This table routes each lifecycle stage to the normative matrices that govern its
 			- <a id="sec-success-flow"></a>Canonical inline verifier flow (normative):
 				1. On successful POST, create `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{ form_id, submission_id, issued_at }` (short TTL, e.g., 5 minutes). Derive `{h2}` from the `submission_id` per [Security → Shared Lifecycle and Storage Contract](#sec-shared-lifecycle).
 				2. Set `eforms_s_{form_id}={submission_id}` with `SameSite=Lax`, `Secure` on HTTPS, HttpOnly=false, `Path=/` (so `/eforms/success-verify` can read and clear it), and `Max-Age = security.success_ticket_ttl_seconds`.
-					- Definition: Success-cookie TTL = `security.success_ticket_ttl_seconds` from [Configuration](#sec-configuration).
-					- Definition: Success-cookie Path `/` keeps `/eforms/success-verify` eligible to receive and clear the ticket.
+                                    - Definition — Success-cookie TTL = `security.success_ticket_ttl_seconds` from [Configuration](#sec-configuration).
+                                    - Definition — Success-cookie Path `/` keeps `/eforms/success-verify` eligible to receive and clear the ticket.
                                3. Send the `eforms_eid_{form_id}` deletion header (Max-Age=0) then redirect with `?eforms_success={form_id}` (303).
                                         - Definition — Success PRG deletion header = the `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` emitted before the 303 per [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
                                4. On the follow-up GET, the renderer (or lightweight JS helper) calls `/eforms/success-verify?eforms_submission={submission_id}` (`Cache-Control: no-store`) while the `?eforms_success={form_id}` flag and `eforms_s_{form_id}` cookie remain present. Render the success banner only when both the query flag and verifier response succeed. The verifier MUST immediately invalidate the ticket so subsequent calls for the same `{form_id, submission_id}` pair return false, then clear the cookie and strip the query parameter. Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}` cookie.
