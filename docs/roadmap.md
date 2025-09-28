@@ -158,7 +158,7 @@
 - **SubmitHandler (POST)**
 	- Orchestrates Security → Normalize → Validate → Coerce → Ledger before any side effects.
 	- Enforces cookie handling and NCID transitions per matrices; **no mid-flow mode swaps**.
-	- Error rerenders reuse persisted records and honor the NCID rerender contract (delete + re-prime when specified).
+	- Error rerenders reuse persisted records, emit `Cache-Control: private, no-store`, and honor the NCID rerender contract (delete + re-prime when specified).
 	- Wires spam headers (`X-EForms-Soft-Fails`, `X-EForms-Suspect`) and subject tagging while respecting `spam.soft_fail_threshold` outcomes.
 - Anti-abuse helpers: honeypot modes, minimum-fill timers, `js_ok`, and `max_form_age` soft enforcement with explicit helper contracts and fixtures.
 - Success placeholder: temporary no-op banner that defers PRG semantics to [Phase 7B](#phase-7b).
@@ -210,14 +210,14 @@
 - Email template selection pipeline matches [`email_template`] JSON keys to `/templates/email/{name}.txt.php` and `{name}.html.php`, enforces the token set/slot handling defined in [Email Templates (Registry) (§24)](#sec-email-templates), and constrains template inputs to the canonical fields/meta/uploads summary.
 - Staging safety (`email.disable_send`, `email.staging_redirect_to`, `X-EForms-Env: staging`, `[STAGING]` subject).
 - **Failure semantics (normative):**
-- If `send()` returns false/throws: abort success PRG, surface `_global` error **“We couldn't send your message. Please try again later.”**, respond **HTTP 500**, log at `error`, **do not** mutate cookie/hidden records, **do not** emit any Set-Cookie, keep original identifier for rerender, **rollback ledger reservation** so user can retry.
+	- If `send()` returns false/throws: abort success PRG, surface `_global` error **“We couldn't send your message. Please try again later.”**, respond **HTTP 500**, log at `error`, **do not** mutate cookie/hidden records, **skip positive Set-Cookie**, continue emitting NCID/challenge deletion headers when matrices require them, keep original identifier for rerender, **rollback ledger reservation** so user can retry.
 - Error code: `EFORMS_ERR_EMAIL_SEND`.
 - Success logs at `info`.
 
 **Acceptance**
 
 - Transport failure tests: retries/backoff (per config), error surfaced, 500 status, ledger unreserved, no cookie changes.
-- No Set-Cookie (positive or deletion) emitted on email-failure rerender.
+- No positive Set-Cookie emitted on email-failure rerender; NCID/challenge deletion headers still fire when required by matrices.
 - Fixtures/tests cover supported template inputs (fields/meta/uploads summary), token expansion for `{{field.key}}`/`{{submitted_at}}`/`{{ip}}`/`{{form_id}}`/`{{submission_id}}`/`{{slot}}`, and escape rules for text (CR/LF normalization) and HTML contexts per [Email Templates (Registry) (§24)](#sec-email-templates).
 
 ---
