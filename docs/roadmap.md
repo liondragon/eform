@@ -61,6 +61,7 @@
 - `TemplateValidator` preflight covering field definitions, row-group constraints, and envelope rules.
 - Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows; runtime uses the preflighted manifest only.
 - CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
+- Ship default template assets in `/templates/forms/` and `/templates/email/` so deployments have ready-to-use form and email examples.
 - Developer ergonomics: actionable diagnostics, anchor links back to spec sections, fixtures for regression tests.
 
 **Acceptance**
