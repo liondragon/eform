@@ -931,7 +931,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	| Spam		| `spam.*`			 | Soft-fail thresholds and spam heuristics						 |
 	| Challenge | `challenge.*`		| CAPTCHA/Turnstile providers and HTTP timeouts					|
 	| Email	 | `email.*`			| Transport policy, SMTP tuning, DKIM, debug hooks				 |
-	| Logging	 | `logging.*`			| Mode/level/PII policy, retention, fail2ban emission				|
+	| Logging	 | `logging.*`			| Mode/level/PII policy, retention, Fail2ban emission				|
 	| Privacy	 | `privacy.*`			| IP handling, salts, proxy trust									|
 	| Throttle	| `throttle.*`		 | Per-IP rate limits, cooldowns, hard-fail multipliers			 |
 	| Validation| `validation.*`		 | Form shape guardrails (field/option caps, HTML size)			 |
