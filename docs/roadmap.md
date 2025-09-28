@@ -147,7 +147,7 @@
 	- Hidden-mode: embed payload from `mint_hidden_record()`.
 	- Cookie-mode: deterministic markup + prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
 	- Never call `/eforms/prime` synchronously; priming via pixel on follow-up nav.
-	- Provide the WordPress shortcode/template tag entry points required by the request lifecycle, bootstrap them through the frozen configuration snapshot, and document caching guidance (including `Vary: Cookie`) alongside renderer bootstrap behaviors.
+- Provide the WordPress shortcode/template tag entry points required by the request lifecycle, bootstrap them through the frozen configuration snapshot, and document caching guidance (including `Vary: Cookie` scoped to `eforms_s_{form_id}`) alongside renderer bootstrap behaviors.
 - **SubmitHandler (POST)**
 	- Orchestrates: Security gate → Normalize → Validate → Coerce → Ledger → Side effects.
 	- **Ledger reservation runs immediately before side effects.**
@@ -168,7 +168,7 @@
 	- **Inline**: success ticket persisted; set `eforms_s_{form_id}`; follow-up GET calls `/eforms/success-verify?eforms_submission={submission_id}` while `?eforms_success={form_id}` flag is present; verifier clears ticket & cookie, strips query.
 	- **Redirect**: `wp_safe_redirect(…, 303)`.
 	- **PRG deletion row**: PRG responses **delete** `eforms_eid_{form_id}` (all success handoffs) so the follow-up GET re-primes. No positive header in PRG.
-	- Success and rerender responses advertise caching guidance via `Vary: Cookie` per the request lifecycle contract so intermediaries respect user-specific outcomes.
+- Success and rerender responses advertise caching guidance via `Vary: Cookie` scoped to `eforms_s_{form_id}` per the request lifecycle contract so intermediaries respect user-specific outcomes.
 
 **Acceptance**
 
@@ -219,7 +219,7 @@
   - Optional Fail2ban emission.
 - **Privacy & IP (§16)**: `none|masked|hash|full`; trusted proxy handling; consistent email/log presentation.
 - **Validation pipeline (§8)**: normalize → validate → coerce; consistent across modes; stable error codes.
-- Runtime size-cap enforcement (`RuntimeCap`) clamps POST bodies per `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides; guards `CONTENT_LENGTH` and coordinates with upload slot validation.
+- Runtime size-cap enforcement (`RuntimeCap`) clamps POST bodies per `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides; guards `CONTENT_LENGTH` and coordinates with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
 - **Redirect safety (§9)**, **Suspect handling (§10)**, **Throttling (§11)** with headers (e.g., `Retry-After`) & soft/hard outcomes.
 - **Error handling (§20)**: `_global` + per-field; stable codes; NCID/hidden metadata returned for rerenders.
 - **Assets (§22)**: enqueue only when rendering; JS usability helpers; accessibility focus guidance.
