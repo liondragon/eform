@@ -273,6 +273,7 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 - See [Lifecycle quickstart (§7.1.0)](#sec-lifecycle-quickstart) for the canonical render → persist → POST → rerender/success contract that governs both modes.
 - Detailed matrices live in [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix), [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix), and [Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary) per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality).
 <a id="sec-lifecycle-quickstart"></a>7.1.0 Lifecycle quickstart (normative)
+This table routes each lifecycle stage to the normative matrices that govern its behavior.
 <!-- BEGIN BLOCK: lifecycle-pipeline-quickstart -->
 **Pipeline-first outline (render → persist → POST → challenge → normalization → ledger → success)**
 
