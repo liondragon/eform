@@ -348,6 +348,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 		- <a id="sec-ledger-contract"></a>Ledger reservation contract
 			- Duplicate suppression reserves `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (or equivalent) immediately before side effects.
 			- Treat `EEXIST` or any filesystem failure as a duplicate and log `EFORMS_LEDGER_IO` on unexpected IO errors.
+			- Normative carve-out: If [Request Lifecycle → POST (§19.2)](#sec-request-lifecycle-post) hits the email-failure clause after validation, SubmitHandler MAY roll back `${submission_id}.used`; no other path may undo the reservation.
 			- Honeypot short-circuits burn the same ledger entry, and submission IDs for all modes remain colon-free.
 
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/cookie/NCID):
