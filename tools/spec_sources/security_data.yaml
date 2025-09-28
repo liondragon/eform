@@ -122,7 +122,7 @@ cookie_lifecycle_rows:
       - sec-security-invariants
   - id: cookie-lifecycle-error-rerender
     flow_trigger: Error rerender after NCID fallback
-    server_must: "MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
+    server_must: "MUST follow [NCID rerender rules](#sec-ncid-rerender)."
     identifier:
       kind: ncid
       text: "`submission_id` stays pinned to the NCID from that section."
@@ -132,7 +132,7 @@ cookie_lifecycle_rows:
       - sec-cookie-lifecycle-matrix
   - id: cookie-lifecycle-challenge-rerender
     flow_trigger: Challenge rerender (before verification)
-    server_must: "MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
+    server_must: "MUST follow [NCID rerender rules](#sec-ncid-rerender)."
     identifier:
       kind: ncid
       text: "Same NCID; follow-up GET mints the replacement cookie defined there."
@@ -142,7 +142,7 @@ cookie_lifecycle_rows:
       - sec-cookie-lifecycle-matrix
   - id: cookie-lifecycle-challenge-success
     flow_trigger: Challenge success response
-    server_must: "MUST follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
+    server_must: "MUST follow [NCID rerender rules](#sec-ncid-rerender)."
     identifier:
       kind: ncid
       text: "Persisted record reused per that contract."
@@ -172,7 +172,7 @@ prime_set_cookie_guidance_rows:
   - id: prime-remaining-lifetime
     text: "Definition — Remaining lifetime = `max(0, record.expires - now)` (seconds)."
   - id: prime-sends-set-cookie-definition
-    text: "Definition: “sends `Set-Cookie`” refers to the positive header emitted under the carve-out below; deletion headers on rerender are governed by [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender)."
+    text: "Definition: “sends `Set-Cookie`” refers to the positive header emitted under the carve-out below; deletion headers on rerender are governed by [NCID rerender lifecycle](#sec-ncid-rerender)."
   - id: prime-unexpired-match
     text: "Definition — **unexpired match**: the request presents `eforms_eid_{form_id}` matching the EID regex and a server record exists for that EID with `now < record.expires`. HTTP requests do not echo Path/SameSite/Secure, so equality is inferred from minting with the configured attributes."
   - id: prime-set-cookie-carve-out
@@ -181,25 +181,25 @@ prime_set_cookie_guidance_rows:
 lifecycle_quickstart_rows:
   - id: quickstart-render
     stage: "Render (GET)"
-    overview: "Hidden mode embeds the payload from `Security::mint_hidden_record()` and cookie mode follows the GET rows in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) plus [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions) so `/eforms/prime` handles mint and refresh."
+    overview: "Hidden mode embeds the payload from `Security::mint_hidden_record()` and cookie mode follows the GET rows in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) plus [Cookie header actions](#sec-cookie-header-actions) so `/eforms/prime` handles mint and refresh."
   - id: quickstart-persist
     stage: "Persist"
-    overview: "Hidden tokens and cookie records reuse the shared storage rules in [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle); cookie mode persists via the `/eforms/prime` row in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix)."
+    overview: "Hidden tokens and cookie records reuse the shared storage rules in [Shared lifecycle and storage](#sec-shared-lifecycle); cookie mode persists via the `/eforms/prime` row in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix)."
   - id: quickstart-post-gate
     stage: "POST → Security gate"
-    overview: "`Security::token_validate()` centralizes cookie policy outcomes and NCID transitions per [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) and [Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary)."
+    overview: "`Security::token_validate()` centralizes cookie policy outcomes and NCID transitions per [Cookie policy outcomes](#sec-cookie-policy-matrix) and [Cookie/NCID reference](#sec-cookie-ncid-summary)."
   - id: quickstart-challenge
     stage: "Challenge (conditional)"
-    overview: "Challenge and NCID rerenders track the rerender entries in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender contract (§7.1.4.2)](#sec-ncid-rerender) for delete + re-prime behavior."
+    overview: "Challenge and NCID rerenders track the rerender entries in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender contract](#sec-ncid-rerender) for delete + re-prime behavior."
   - id: quickstart-normalize
     stage: "Normalize"
-    overview: "Normalization precedes side effects and applies the pipelines documented in the [Validation & Sanitization Pipeline (§8)](#sec-validation-pipeline), [Redirect Safety (§9)](#sec-redirect-safety), [Suspect Handling (§10)](#sec-suspect-handling), and [Throttling (§11)](#sec-throttling) so cookie and hidden submissions share consistent validation."
+    overview: "Normalization precedes side effects and applies the pipelines documented in the [Validation & Sanitization Pipeline](#sec-validation-pipeline), [Redirect Safety](#sec-redirect-safety), [Suspect Handling](#sec-suspect-handling), and [Throttling](#sec-throttling) so cookie and hidden submissions share consistent validation."
   - id: quickstart-ledger
     stage: "Ledger"
-    overview: "Ledger reservation uses the submission ID chosen by `Security::token_validate()` and follows [Ledger reservation contract (§7.1.1)](#sec-ledger-contract) before any side effects."
+    overview: "Ledger reservation uses the submission ID chosen by `Security::token_validate()` and follows [Ledger reservation contract](#sec-ledger-contract) before any side effects."
   - id: quickstart-success
     stage: "Success"
-    overview: "Success flows rely on [Success behavior (§13)](#sec-success) and the PRG-related header rules in [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions) for NCID/challenge continuations."
+    overview: "Success flows rely on [Success behavior](#sec-success) and the PRG-related header rules in [Cookie header actions](#sec-cookie-header-actions) for NCID/challenge continuations."
 
 cookie_header_actions_rows:
   - id: cookie-header-get-render
@@ -248,7 +248,7 @@ ncid_summary_rows:
     required_action: "Embed the helper’s `{token, instance_id, timestamp}` verbatim and reuse them on rerender."
     canonical_section:
       anchor: sec-hidden-mode
-      label: Hidden-mode contract (§7.1.2)
+      label: Hidden-mode contract
   - id: ncid-summary-hidden-missing
     scenario: Hidden record missing/expired with optional token
     identifier_outcome:
@@ -257,7 +257,7 @@ ncid_summary_rows:
     required_action: "Continue via NCID and preserve hidden-mode metadata."
     canonical_section:
       anchor: sec-ncid-hidden
-      label: Hidden-mode NCID fallback (§7.1.4)
+      label: Hidden-mode NCID fallback
   - id: ncid-summary-policy-hard
     scenario: Cookie policy `hard`
     identifier_outcome:
@@ -266,7 +266,7 @@ ncid_summary_rows:
     required_action: "Fail with `EFORMS_ERR_TOKEN`; do not mint/retain NCIDs."
     canonical_section:
       anchor: sec-cookie-policy-matrix
-      label: Cookie policy outcomes (§7.1.3.2)
+      label: Cookie policy outcomes
   - id: ncid-summary-policy-soft
     scenario: Cookie policy `soft`
     identifier_outcome:
@@ -275,7 +275,7 @@ ncid_summary_rows:
     required_action: "Continue without challenge; add `cookie_missing`."
     canonical_section:
       anchor: sec-cookie-policy-matrix
-      label: Cookie policy outcomes (§7.1.3.2)
+      label: Cookie policy outcomes
   - id: ncid-summary-policy-off
     scenario: Cookie policy `off`
     identifier_outcome:
@@ -284,43 +284,43 @@ ncid_summary_rows:
     required_action: "Continue; add `cookie_missing` only when a syntactically valid cookie lacked a record."
     canonical_section:
       anchor: sec-cookie-policy-matrix
-      label: Cookie policy outcomes (§7.1.3.2)
+      label: Cookie policy outcomes
   - id: ncid-summary-policy-challenge
     scenario: Cookie policy `challenge`
     identifier_outcome:
       kind: ncid
       text: "`submission_id = nc-…` (`is_ncid=true`, `require_challenge=true`)."
-    required_action: "Require verification before proceeding; follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
+    required_action: "Require verification before proceeding; follow [NCID rerender rules](#sec-ncid-rerender)."
     canonical_section:
       anchor: sec-cookie-policy-matrix
-      label: Cookie policy outcomes (§7.1.3.2)
+      label: Cookie policy outcomes
   - id: ncid-summary-challenge-rerender
     scenario: Challenge rerender after NCID fallback
     identifier_outcome:
       kind: submission_id
       text: "`submission_id = nc-…` (same value reused)."
-    required_action: "Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
+    required_action: "Follow [NCID rerender rules](#sec-ncid-rerender)."
     canonical_section:
       anchor: sec-cookie-lifecycle-matrix
-      label: Cookie-mode lifecycle (§7.1.3.3)
+      label: Cookie-mode lifecycle
   - id: ncid-summary-challenge-success
     scenario: Challenge success response
     identifier_outcome:
       kind: submission_id
       text: "`submission_id = nc-…` (same value reused)."
-    required_action: "Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)."
+    required_action: "Follow [NCID rerender rules](#sec-ncid-rerender)."
     canonical_section:
       anchor: sec-cookie-lifecycle-matrix
-      label: Cookie-mode lifecycle (§7.1.3.3)
+      label: Cookie-mode lifecycle
   - id: ncid-summary-success-handoff
     scenario: NCID success handoff (no acceptable cookie)
     identifier_outcome:
       kind: ncid
       text: "`submission_id = nc-…`."
-    required_action: "Force Redirect-only PRG even when `success.mode=\"inline\"`; append `&eforms_submission={submission_id}` and send the NCID deletion header before the 303 (per [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success Behavior (PRG) (§13)](#sec-success) for narrative bullets."
+    required_action: "Force Redirect-only PRG even when `success.mode=\"inline\"`; append `&eforms_submission={submission_id}` and send the NCID deletion header before the 303 (per [NCID rerender rules](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success Behavior (PRG)](#sec-success) for narrative bullets."
     canonical_section:
       anchor: sec-cookie-ncid-summary
-      label: Cookie/NCID reference (§7.1.5)
+      label: Cookie/NCID reference
 
 ncid_rerender_steps:
   - id: ncid-rerender-delete-cookie
