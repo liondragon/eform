@@ -264,7 +264,7 @@ electronic_forms - Spec
 		| Emailer | Lazy | After validation succeeds (just before send) | SMTP/DKIM init only on send; skipped on failures. |
 		| Logging | Lazy | First log write when `logging.mode != "off"` | Opens/rotates file on demand. |
 		| Throttle | Lazy | When `throttle.enable=true` and key present | File created on first check. |
-	       | Challenge | Lazy | Only inside entry points: (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a POST re-render when `require_challenge=true`; or (3) verification step when a provider response is present (`cf-turnstile-response` / `h-captcha-response` / `g-recaptcha-response`). | Provider script enqueued only when rendered. Even when `challenge.mode="always"`, challenge MUST NOT initialize on the initial GET; it loads only on: (a) POST rerender after `Security::token_validate()` sets `require_challenge=true`, or (b) the verification step when a provider response is present. |
+	       | Challenge | Lazy | Only inside entry points: (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a POST rerender when `require_challenge=true`; or (3) verification step when a provider response is present (`cf-turnstile-response` / `h-captcha-response` / `g-recaptcha-response`). | Provider script enqueued only when rendered. Even when `challenge.mode="always"`, challenge MUST NOT initialize on the initial GET; it loads only on: (a) POST rerender after `Security::token_validate()` sets `require_challenge=true`, or (b) the verification step when a provider response is present. |
 		| Assets (CSS/JS) | Lazy | When a form is rendered on the page | Version via filemtime; opt-out honored. |
  	
 <a id="sec-security"></a>
@@ -589,11 +589,11 @@ This table routes each lifecycle stage to the normative matrices that govern its
 		- UX: mimic success (inline PRG cookie + 303, or redirect).
 		- Logging: do not count as real successes; log stealth:true.
 	- "hard_fail":
-		- UX: re-render with generic global error (HTTP 200) and no field-level hints.
+		- UX: rerender with generic global error (HTTP 200) and no field-level hints.
 		- Logging: emit no success log.
 
 <a id="sec-timing-checks"></a>3. Timing Checks
-- min_fill_time (soft; configurable). Hidden-mode measures from the original hidden timestamp (reused on re-render). Cookie-mode measures from the minted record’s `issued_at` (prime pixel time) and ignores client timestamps entirely. Default: see §17 Defaults note.
+- min_fill_time (soft; configurable). Hidden-mode measures from the original hidden timestamp (reused on rerender). Cookie-mode measures from the minted record’s `issued_at` (prime pixel time) and ignores client timestamps entirely. Default: see §17 Defaults note.
 	- Max form age:
 		- Cookie mode: enforce via minted record `expires`. Expired → treat as missing cookie and apply `security.cookie_missing_policy`. Because `/eforms/prime` never refreshes `issued_at`/`expires` for a still-valid record, the server-side countdown stays monotonic when an unexpired cookie is presented: QA fixtures and POST handlers can assert that a re-primed request with that cookie continues to age out on the original schedule, while an expired record prompts a full remint (new timestamps + Set-Cookie). When the browser omitted the cookie, the required `Set-Cookie` reissues the same identifier without altering the stored expiry.
 		- Hidden-mode: posted timestamp is best-effort; over `security.max_form_age_seconds` → +1 soft (never hard on age alone).
@@ -677,9 +677,9 @@ This table routes each lifecycle stage to the normative matrices that govern its
 	- Providers: turnstile | hcaptcha | recaptcha v2. Verify via WP HTTP API (short timeouts). Unconfigured required challenge adds `"challenge_unconfigured"` to `soft_reasons` and logs `EFORMS_CHALLENGE_UNCONFIGURED`.
 	- If a challenge is required (by `challenge.mode` or `cookie_missing_policy="challenge"`) but no provider is correctly configured, set `challenge_unconfigured` in `soft_reasons`, set `require_challenge=false`, and continue as if the cookie policy were soft (proceed via NCID when applicable). Do not hard-fail solely because the provider is unavailable.
 	- Bootstrap boundaries & where checks happen:
-		- No eager checks at plugin load. Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST re-render when `require_challenge=true`, or during verification when a provider response is present.
-		- `challenge.mode` is read only when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent re-render). This preserves lazy config bootstrap semantics in [Template Model](#sec-template-model)/[Configuration: Domains, Constraints, and Defaults](#sec-configuration).
-- Render only on POST re-render when required (including `challenge.mode="always"`) or during verification; never on the initial GET.
+		- No eager checks at plugin load. Whether challenge is needed is determined inside `SubmitHandler::handle()` after `Security::token_validate()` sets `require_challenge`, or during a POST rerender when `require_challenge=true`, or during verification when a provider response is present.
+		- `challenge.mode` is read only when an entry point has already required the configuration snapshot (e.g., during POST handling or the subsequent rerender). This preserves lazy config bootstrap semantics in [Template Model](#sec-template-model)/[Configuration: Domains, Constraints, and Defaults](#sec-configuration).
+- Render only on POST rerender when required (including `challenge.mode="always"`) or during verification; never on the initial GET.
                 - In cookie mode:
                         - Challenge rerenders before verification and the subsequent success redirect follow the NCID rerender lifecycle (generated contract below); see [Security → Cookie-mode contract](#sec-cookie-mode) for markup context.
 --8<-- "generated/security/ncid_rerender.md"
@@ -1066,7 +1066,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- assets.css_disable=true lets themes opt out
 	- On submit failure, focus the first control with an error
 	- Focus styling (a11y): do not remove outlines unless visible replacement is provided. For inside-the-box focus: outline: 1px solid #b8b8b8 !important; outline-offset: -1px;
-	- html5.client_validation=true: do not suppress native validation UI; skip pre-submit summary focus to avoid double-focus; after server re-render with errors, still focus first invalid control.
+	- html5.client_validation=true: do not suppress native validation UI; skip pre-submit summary focus to avoid double-focus; after server rerender with errors, still focus first invalid control.
 	- Only enqueue provider script when the challenge is rendered:
 	- Turnstile: https://challenges.cloudflare.com/turnstile/v0/api.js (defer, crossorigin=anonymous)
 	- hCaptcha: https://hcaptcha.com/1/api.js (defer)
