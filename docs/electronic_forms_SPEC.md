@@ -339,7 +339,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - **Why:** PRG finalizes the NCID pin, enables success-ticket verification, and lets cookie mode rotate at the documented post-success points.
 - **How:** Follow [Success behavior](#sec-success) for side effects and rely on [Cookie header actions](#sec-cookie-header-actions) for PRG deletion headers and rotation timing; hidden mode continues using the original token until success.
 
-Definition — Rotation trigger = minted record replacement caused by expiry or post-success PRG.
+- Definition — Rotation trigger = minted record replacement caused by expiry or post-success PRG.
 <!-- END BLOCK: lifecycle-pipeline-quickstart -->
 
 <a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
@@ -559,7 +559,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - <a id="sec-ncid-rerender"></a>NCID rerender and challenge lifecycle (normative):
                                 - The generated contract below governs NCID fallback rerenders, pre-verification challenge rerenders, and challenge success responses.
 --8<-- "generated/security/ncid_rerender.md"
-Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge flows succeed, the success redirect carries the deletion header and the next GET emits the deterministic prime pixel before the next POST.
+- Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge flows succeed, the success redirect carries the deletion header and the next GET emits the deterministic prime pixel before the next POST.
 - <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, redirect target selection, and verifier requirements are defined by [NCID success handoff (Cookie/NCID reference)](#sec-cookie-ncid-summary). [Success Behavior (PRG)](#sec-success) repeats the rules informatively.
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
