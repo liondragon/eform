@@ -171,6 +171,7 @@ def check_cookie_header_include(path: Path, lines: Sequence[str]) -> List[str]:
     section_has_include = False
     in_generated_block = False
     in_code_block = False
+    in_lifecycle_quickstart_block = False
 
     def flush_section() -> None:
         nonlocal section_has_reference, section_has_include, section_start_line
@@ -186,6 +187,11 @@ def check_cookie_header_include(path: Path, lines: Sequence[str]) -> List[str]:
         if stripped.startswith("```"):
             in_code_block = not in_code_block
 
+        if stripped == "<!-- BEGIN BLOCK: lifecycle-pipeline-quickstart -->":
+            in_lifecycle_quickstart_block = True
+        elif stripped == "<!-- END BLOCK: lifecycle-pipeline-quickstart -->":
+            in_lifecycle_quickstart_block = False
+
         if stripped.startswith("<!-- BEGIN GENERATED:"):
             in_generated_block = True
         elif stripped.startswith("<!-- END GENERATED:"):
@@ -200,7 +206,11 @@ def check_cookie_header_include(path: Path, lines: Sequence[str]) -> List[str]:
             section_start_line = idx + 1
         if include_token in line:
             section_has_include = True
-        if not in_generated_block and anchor_token in line:
+        if (
+            not in_generated_block
+            and not in_lifecycle_quickstart_block
+            and anchor_token in line
+        ):
             section_has_reference = True
 
     flush_section()
