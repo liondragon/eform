@@ -1,0 +1,196 @@
+# Product Roadmap
+
+## Phase 1: `Config::get()` snapshot + lazy bootstrap.
+
+**Goal:** Every public entry point primes the frozen configuration via `Config::get()`; helpers defensively re-check it. Establishing lazy bootstrap up front prevents downstream components from solving bootstrapping piecemeal and guarantees a consistent snapshot for all security and lifecycle decisions.
+
+**Delivers**
+
+- `Config::get()` (idempotent, per-request snapshot) + `bootstrap()` called exactly-once per request.
+- Snapshot covers `security.*`, `challenge.*`, `privacy.*`, `throttle.*`, `uploads.*`, `email.*`, `logging.*`, defaults (per §17).
+- Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`.
+- Defensive `Config::get()` calls inside helpers (normative lazy backstop).
+- CI/lint hooks to assert all entry points (`Renderer`, `SubmitHandler`, `/eforms/prime`, `/eforms/success-verify`, challenge verifiers, `Emailer`) call `Config::get()` up front.
+
+**Acceptance**
+
+- Multiple `Config::get()` calls in a request are safe; first triggers bootstrap only.
+- Unit tests: snapshot immutability across components; default resolution; missing keys handled per spec.
+
+---
+
+## Phase 2: Security helpers (`mint_hidden_record`, `mint_cookie_record`, `token_validate`)
+
+**Goal:** Make helpers the single source of truth for identifiers, TTL, persistence, and policy evaluation. Keep them header-agnostic (except explicit inputs), pure (no side effects except documented writes), and aligned to generated matrices.
+
+**Delivers**
+
+- `Security::mint_hidden_record(form_id)`  
+  - Persist `tokens/{h2}/{sha256(token)}.json` `{mode:"hidden", form_id, instance_id, issued_at, expires}`.
+  - Never re-write on rerender; base64url `instance_id` (16–24 bytes).
+- `Security::mint_cookie_record(form_id, slot?)` (header-agnostic)  
+  - Miss/expired → mint `eid_minted/{form_id}/{h2}/{eid}.json` with `{issued_at, expires, slots_allowed:[], slot:null}`.  
+  - Hit → never re-write `issued_at`/`expires`.
+  - Status (`hit|miss|expired`) computed from storage (not headers).
+- **Definitions enforced**  
+  - **Unexpired match**: request presents syntactically valid `eforms_eid_{form_id}` AND matching record exists with `now < expires`.
+  - Malformed/absent cookie **≠ tamper**; follow policy rows. True tamper (mode/form mismatch, cross-mode payloads, slot violations) → hard fail.
+- `Security::token_validate()` (pure)  
+  - Inputs: POST payload, cookies, rendered metadata; reads snapshot & storage only.  
+  - Returns struct: `{mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons[]}` consistent with:
+    - Cookie policy outcomes (matrix, §7.1.3.2)
+    - Cookie-mode lifecycle (matrix, §7.1.3.3)
+    - NCID rules (§7.1.4)
+- Error semantics: IO bubbles as hard failures; no header emission here.
+
+**Acceptance**
+
+- Golden tests mirroring matrix rows (hard/soft/off/challenge).
+- Hidden-mode NCID fallback when allowed; no rotation before success.
+- Regex guards for tokens/EIDs run before disk.
+
+---
+
+## Phase 3: Ledger reservation (exclusive-create) + error semantics
+
+**Goal:** Canonical duplicate suppression across all flows with strict sequencing before side effects.
+
+**Delivers**
+
+- Exclusive-create `…/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')`.
+- On `EEXIST` or any filesystem failure → treat as duplicate; log `EFORMS_LEDGER_IO`; abort side effects.
+- Reservation happens **immediately before side effects** (email, moves), after normalization/validation.
+- Email failure carve-out (see Phase 6): rollback (`unlink` the `.used`) so retry with same identifier is allowed.
+
+**Acceptance**
+
+- Race tests for duplicate POSTs.
+- Honeypot burns reserve identical ledger entry.
+- Submission IDs are colon-free.
+
+---
+
+## Phase 4: `/eforms/prime` endpoint (single source of positive `Set-Cookie`)
+
+**Goal:** Own mint/refresh and the positive `Set-Cookie` decision using the **unexpired match** rule; keep helpers header-agnostic.
+
+**Delivers**
+
+- Calls `Config::get()` then `mint_cookie_record(form_id, slot?)`.
+- Load/update record; **Set-Cookie decision**:
+  - **Send** positive `Set-Cookie` when request **lacks an unexpired match** (mint/remint; expired/missing record; cookie omitted/malformed/mismatched).
+  - **Skip** only when an identical, unexpired cookie is present (same Name/Value/Path/SameSite/Secure).
+- Set-Cookie attrs (normative): `Path=/`, `Secure` (on HTTPS), `HttpOnly`, `SameSite=Lax`, `Max-Age` = full TTL on mint, or `record.expires - now` on reissue.
+- Response: `204` + `Cache-Control: no-store`.
+- No header emission elsewhere except deletion per matrices (rerender/PRG).
+
+**Acceptance**
+
+- Matrix-conformant behavior for cookie-less hits.
+- Never re-write `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 8).
+- Tests for attribute equality & remaining-lifetime logic.
+
+---
+
+## Phase 5: Renderer → SubmitHandler → challenge → success (PRG)
+
+**Goal:** Implement the canonical lifecycle: render → persist → POST → challenge/NCID rerender → normalization/validation → ledger → success, strictly following generated tables and invariants.
+
+**Delivers**
+
+- **Renderer (GET)**
+  - Hidden-mode: embed payload from `mint_hidden_record()`.
+  - Cookie-mode: deterministic markup + prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
+  - Never call `/eforms/prime` synchronously; priming via pixel on follow-up nav.
+- **SubmitHandler (POST)**
+  - Orchestrates: Security gate → Normalize → Validate → Coerce → Ledger → Side effects.
+  - Cookie handling and NCID transitions per matrices; no mid-flow mode swaps.
+  - Error rerenders reuse persisted record; follow NCID rerender contract (delete + re-prime) where required.
+  - Throttling & redirect-safety & suspect handling (per §§9–11).
+- **Challenge**
+  - Triggered only when `require_challenge=true`; rerenders & success follow generated NCID rerender contract; hidden token never rotates before success.
+- **Success (PRG)**
+  - Always `303`, `Cache-Control: private, no-store, max-age=0`.  
+  - **Inline**: success ticket persisted; set `eforms_s_{form_id}`; follow-up GET calls `/eforms/success-verify?eforms_submission={submission_id}` while `?eforms_success={form_id}` flag is present; verifier clears ticket & cookie, strips query.  
+  - **Redirect**: `wp_safe_redirect(…, 303)`.  
+  - **PRG deletion row**: PRG responses **delete** `eforms_eid_{form_id}` (all success handoffs) so the follow-up GET re-primes. No positive header in PRG.
+
+**Acceptance**
+
+- Matrix-driven integration tests: GET rows, POST rows, rerender rows, success handoff.
+- NCID-only completions enforce redirect/verifier requirement; inline forbidden when `is_ncid=true`.
+
+---
+
+## Phase 6: Emailer (fatal-on-send-failure semantics)
+
+**Goal:** Deliver mail reliably and make send failures fatal in a user-friendly, deterministic way that preserves dedupe correctness.
+
+**Delivers**
+
+- SMTP/PHPMailer integration; DKIM optional; strict header sanitation; plain text default; HTML allowed via config.
+- Attachments policy; enforce size/count caps before send.
+- Staging safety (`email.disable_send`, `email.staging_redirect_to`, `X-EForms-Env: staging`, `[STAGING]` subject).
+- **Failure semantics (normative):**
+  - If `send()` returns false/throws: abort success PRG, surface `_global` error **“We couldn't send your message. Please try again later.”**, respond **HTTP 500**, log at `error`, **do not** mutate cookie/hidden records, **do not** emit any Set-Cookie, keep original identifier for rerender, **rollback ledger reservation** so user can retry.
+  - Error code: `EFORMS_ERR_EMAIL_SEND`.
+- Success logs at `info`.
+
+**Acceptance**
+
+- Transport failure tests: retries/backoff (per config), error surfaced, 500 status, ledger unreserved, no cookie changes.
+
+---
+
+## Phase 7: Logging, Privacy, Error handling, Assets, Throttling & Validation pipeline
+
+**Goal:** Cross-cutting correctness, observability, and user experience consistent with §§8–11, 14–16, 20, 22.
+
+**Delivers**
+
+- **Logging (§15)**
+  - Modes: `jsonl` / `minimal` / `off`; rotation/retention; `logging.level` (0/1/2); `logging.pii`, `logging.headers`.
+  - Required fields: timestamp, severity, code, `form_id`, `submission_id`, `slot?`, `uri (eforms_*)`, privacy-processed IP, spam signals summary, SMTP failure reason.
+  - **Request correlation id** `request_id` (filter → headers → UUIDv4); included in all events; email-failure logs must include it.
+  - Optional Fail2ban emission.
+- **Privacy & IP (§16)**: `none|masked|hash|full`; trusted proxy handling; consistent email/log presentation.
+- **Validation pipeline (§8)**: normalize → validate → coerce; consistent across modes; stable error codes.
+- **Redirect safety (§9)**, **Suspect handling (§10)**, **Throttling (§11)** with headers (e.g., `Retry-After`) & soft/hard outcomes.
+- **Error handling (§20)**: `_global` + per-field; stable codes; NCID/hidden metadata returned for rerenders.
+- **Assets (§22)**: enqueue only when rendering; JS usability helpers; accessibility focus guidance.
+
+**Acceptance**
+
+- Snapshot of logs in each mode; PII redaction verified.
+- Throttle thresholds; suspect flags; redirect allow-list.
+- A11y tests for focus/error summary.
+
+---
+
+## Phase 8: Slots (unioning & enforcement)
+
+**Goal:** Add slot semantics **after** core cookie flow is stable; keep unioning isolated to `/eforms/prime` and validation to POST.
+
+**Delivers**
+
+- `/eforms/prime`: `slots_allowed ∪ {s}` (when allowed), derive `slot` when union size is 1; **do not** rewrite `issued_at/expires`.
+- Renderer: deterministic slot selection per GET; surplus instances slotless.
+- POST enforcement: when slotted, require posted integer slot ∈ allowed set and consistent with record; otherwise hard fail; slotless deployments reject posted slot.
+- Submission ID shape in cookie mode when slotted: `eid__slot{n}`.
+
+**Acceptance**
+
+- Multi-instance page tests: deterministic, non-overlapping slots; surplus slotless.
+- POST with wrong/missing slot → `EFORMS_ERR_TOKEN`.
+- Rerender rows preserve deterministic slot & follow delete+re-prime contract.
+
+---
+
+## Cross-phase Guarantees & Matrices Conformance
+
+- **Canonical sources:**  
+  - Cookie policy outcomes (§7.1.3.2), Cookie-mode lifecycle (§7.1.3.3), Cookie header actions (§7.1.3.5), NCID rerender lifecycle (§7.1.4.2).  
+  - Implementation and tests must treat generated tables as higher authority than narrative.
+- **Header boundary:** Only `/eforms/prime` emits positive `Set-Cookie`; deletion headers occur on rerender & PRG rows as specified; no positive header in PRG.
+- **No rotation before success:** Identifiers (hidden/cookie/NCID) remain pinned until the success path triggers documented rotations.
+- **Security invariants:** Regex guards before disk; tamper paths hard-fail; error rerenders reuse persisted records; NCID fallbacks preserve dedupe semantics.
