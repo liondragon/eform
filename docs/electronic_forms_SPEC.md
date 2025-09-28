@@ -336,6 +336,7 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 - **What:** Successful submissions move uploads, send notifications, log, and complete PRG (inline cookie or redirect verifier) per [Success behavior (§13)](#sec-success).
 - **Why:** PRG finalizes the NCID pin, enables success-ticket verification, and lets cookie mode rotate at the documented post-success points.
 - **How:** Follow [Success behavior (§13)](#sec-success) for side effects and rely on [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions) for PRG deletion headers and rotation timing; hidden mode continues using the original token until success.
+
 Definition — Rotation trigger = minted record replacement caused by expiry or post-success PRG.
 <!-- END BLOCK: lifecycle-pipeline-quickstart -->
 
