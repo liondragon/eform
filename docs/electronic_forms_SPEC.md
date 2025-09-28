@@ -424,12 +424,12 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - Failure modes:
   - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; the helper otherwise ignores `slot?` and always persists `{ slots_allowed:[], slot:null }`, leaving `/eforms/prime` to union slots after it returns.
   - Filesystem errors propagate (hard fail).
-  - Status computation is independent of cookie header presence.
-  - `status:"hit"` means storage already holds an unexpired record for this form; it **does not** imply the request presented that cookie. Callers MUST still apply the **unexpired-match** test before deciding to skip the positive header.
+	- Status computation inspects only the persisted record keyed by the minted `record.eid` and does not read request cookies.
+	- `status:"hit"` means storage already holds that unexpired record; `/eforms/prime` MUST compare the presented cookie (when any) against `record.eid` to apply the **unexpired-match** test before deciding to skip the positive header.
+	- Definition — Status lookup scope = helper loads the persisted record by `record.eid`; cookie headers participate only in the unexpired-match test.
 
 **Definitions (normative):**
 - **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record for that EID with `now < record.expires`.
-- Definition — Matching record = lookup is keyed by the presented cookie value; other EIDs for the form do not satisfy the match.
 - Definition — Presented cookie = the request supplies `eforms_eid_{form_id}` matching the EID regex.
 - **Header boundary (normative)** — [Cookie header actions matrix (§7.1.3.3)](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
