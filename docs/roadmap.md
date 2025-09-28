@@ -218,8 +218,8 @@
 - **Logging (§15)**
   - Modes: `jsonl` / `minimal` / `off`; rotation/retention; `logging.level` (0/1/2); `logging.pii`, `logging.headers`.
   - Required fields: timestamp, severity, code, `form_id`, `submission_id`, `slot?`, `uri (eforms_*)`, privacy-processed IP, spam signals summary, SMTP failure reason.
-- **Request correlation id** `request_id` (filter → headers → UUIDv4); included in all events; email-failure logs MUST include it.
-  - Optional Fail2ban emission.
+  - **Request correlation id** `request_id` (filter → headers → UUIDv4); included in all events; email-failure logs MUST include it.
+  - Optional Fail2ban emission writes to the configured `logging.fail2ban.file` (relative paths resolve under `${uploads.dir}`) and rotates with the same timestamped scheme as JSONL while remaining independent of `logging.mode`.
 - **Privacy & IP (§16)**: `none|masked|hash|full`; trusted proxy handling; consistent email/log presentation.
 - **Validation pipeline (§8)**: normalize → validate → coerce; consistent across modes; stable error codes.
 - Runtime size-cap enforcement (`RuntimeCap`) clamps POST bodies per `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides; guards `CONTENT_LENGTH` and coordinates with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
@@ -230,6 +230,7 @@
 **Acceptance**
 
 - Snapshot of logs in each mode; PII redaction verified.
+ - Fixtures enable Fail2ban and assert emission/rotation for the configured channel.
 - Throttle thresholds; suspect flags; redirect allow-list.
 - `request_id` asserted in JSONL and minimal outputs (meta blob).
 - A11y tests for focus/error summary.
