@@ -1013,7 +1013,8 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
 	- Error rerenders and duplicate handling follow [Security → Ledger reservation contract (§7.1.1)](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` or other IO failures as duplicates (logging `EFORMS_LEDGER_IO`), and sequences normalization, validation, email, and logging around that contract with the colon-free `submission_id` supplied by Security.
 	- Hidden-mode NCID fallback: when continuation is permitted without a hidden record, rely on [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for the NCID metadata while rerenders keep the persisted `{instance_id, timestamp}` from [Security → Hidden-mode contract (§7.1.2)](#sec-hidden-mode).
-	- On success: move stored uploads; send email; log; PRG/redirect; cleanup per retention.
+	- On success: after reserving the ledger entry (the `.used` marker stays committed), move stored uploads; send email; log; PRG/redirect; cleanup per retention.
+- Email send failure (Emailer::send() returns false or throws) is fatal: abort the success PRG, reuse the canonical rerender path, surface a `_global` error, skip redirect/cookie emission, log the event at `error` severity, and return HTTP 500. On email-send failure, do not delete, rotate, or otherwise mutate the persisted cookie/hidden record, do not emit any Set-Cookie headers, and keep the submission on its original identifier for the rerender per the error path. SubmitHandler MUST roll back the ledger reservation (`.used` marker) on this failure so the next POST attempt with the same token is processed instead of treated as a duplicate.
 	- Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
 	- throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
 	- Challenge hook: if required (always/auto or cookie policy), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
@@ -1022,6 +1023,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 20. ERROR HANDLING
 	- Errors stored by field_key; global errors under _global
 	- Renderer prints global summary + per-field messages
+- Email send failures MUST surface `_global` ⇒ "We couldn't send your message. Please try again later.", respond with HTTP 500, and tag the error as `EFORMS_ERR_EMAIL_SEND`. The log entry for this failure MUST include `form_id`, the transport/provider identifier, any exception class/message, and the correlation/request identifier.
 	- Upload user-facing messages:
 	- "This file exceeds the size limit."
 	- "Too many files."
@@ -1147,6 +1149,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- EFORMS_ERR_SCHEMA_OBJECT - "Form configuration error: invalid object shape."
 	- EFORMS_ERR_UPLOAD_TYPE - "This file type isn't allowed."
 	- EFORMS_ERR_HTML_TOO_LARGE - "This content is too large."
+	- EFORMS_ERR_EMAIL_SEND - "We couldn't send your message. Please try again later."
 	- EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID - "Success redirect or verifier required for NCID completions."
 	- EFORMS_ERR_THROTTLED - "Please wait a moment and try again."
 	- EFORMS_ERR_CHALLENGE_FAILED - "Please complete the verification and submit again."
