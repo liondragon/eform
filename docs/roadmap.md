@@ -29,7 +29,7 @@
   - Persist `tokens/{h2}/{sha256(token)}.json` `{mode:"hidden", form_id, instance_id, issued_at, expires}`.
   - Never rewrite on rerender; base64url `instance_id` (16–24 bytes).
 - `Security::mint_cookie_record(form_id, slot?)` (header-agnostic)
-  - Miss/expired → mint `eid_minted/{form_id}/{h2}/{eid}.json` with `{issued_at, expires, slots_allowed:[], slot:null}`.
+  - Miss/expired → mint `eid_minted/{form_id}/{h2}/{eid}.json` with `{mode:"cookie", form_id, eid, issued_at, expires, slots_allowed:[], slot:null}`.
   - Hit → never rewrite `issued_at`/`expires`.
   - Status (`hit|miss|expired`) computed from storage (not headers).
 - **Definitions enforced**  
