@@ -569,12 +569,14 @@ GENERATED_CONFIGS = [
         "data_key": "slot_handling_summary_rows",
         "indent": "",
         "render": render_bullet_block_config,
+        "insertion_token": "**Slot handling:**",
     },
     {
         "name": "prime-set-cookie-guidance",
         "data_key": "prime_set_cookie_guidance_rows",
         "indent": "\t\t\t\t",
         "render": render_bullet_block_config,
+        "insertion_token": "- Prime endpoint semantics (`/eforms/prime`):",
     },
 ]
 
@@ -756,24 +758,39 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
                 if end_idx is None:
                     raise SystemExit(f"End marker for {config['name']} not found in {path}")
                 end_idx += 1
+                updated[start_idx:end_idx] = rendered_block
             else:
                 header_token = config.get("header_token")
-                if header_token is None:
+                insertion_token = config.get("insertion_token")
+                if header_token is not None:
+                    start_idx = None
+                    needle = header_token.strip()
+                    for idx, line in enumerate(updated):
+                        if line.strip() == needle:
+                            start_idx = idx
+                            break
+                    if start_idx is None:
+                        raise SystemExit(f"Table header for {config['name']} not found in {path}")
+                    end_idx = start_idx
+                    while end_idx < len(updated) and updated[end_idx].strip().startswith("|"):
+                        end_idx += 1
+                    updated[start_idx:end_idx] = rendered_block
+                elif insertion_token is not None:
+                    insertion_idx = None
+                    needle = insertion_token.strip()
+                    for idx, line in enumerate(updated):
+                        if line.strip() == needle:
+                            insertion_idx = idx + 1
+                            break
+                    if insertion_idx is None:
+                        raise SystemExit(
+                            f"Insertion token for {config['name']} not found in {path}"
+                        )
+                    updated[insertion_idx:insertion_idx] = rendered_block
+                else:
                     raise SystemExit(
                         f"Begin marker for {config['name']} not found in {path}"
                     )
-                start_idx = None
-                needle = header_token.strip()
-                for idx, line in enumerate(updated):
-                    if line.strip() == needle:
-                        start_idx = idx
-                        break
-                if start_idx is None:
-                    raise SystemExit(f"Table header for {config['name']} not found in {path}")
-                end_idx = start_idx
-                while end_idx < len(updated) and updated[end_idx].strip().startswith("|"):
-                    end_idx += 1
-            updated[start_idx:end_idx] = rendered_block
 
         new_text = "\n".join(updated)
         if updated:
