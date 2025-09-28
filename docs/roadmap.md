@@ -37,17 +37,19 @@
 - **Definitions enforced**  
   - **Unexpired match**: request presents syntactically valid `eforms_eid_{form_id}` AND matching record exists with `now < expires`.
   - Malformed/absent cookie **≠ tamper**; follow policy rows. True tamper (mode/form mismatch, cross-mode payloads, slot violations) → hard fail.
-- `Security::token_validate()` (pure)  
-  - Inputs: POST payload, cookies, rendered metadata; reads snapshot & storage only.  
-  - Returns struct: `{mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons[]}` consistent with:
-    - Cookie policy outcomes (matrix, §7.1.3.2)
-    - Cookie-mode lifecycle (matrix, §7.1.3.3)
-    - NCID rules (§7.1.4)
+- `Security::token_validate()` (pure)
+	- Inputs: POST payload, cookies, rendered metadata; reads snapshot & storage only.
+	- Returns struct: `{mode, submission_id, slot?, token_ok, hard_fail, require_challenge, cookie_present?, is_ncid?, soft_reasons[]}` consistent with:
+		- Cookie policy outcomes (matrix, §7.1.3.2)
+		- Cookie-mode lifecycle (matrix, §7.1.3.3)
+		- NCID rules (§7.1.4)
+	- Evaluates throttle/origin policy state machine (soft labels, hard-fail paths, missing-origin carve-outs) per [Security (§7) → Helper contracts](electronic_forms_SPEC.md#sec-security-helpers) covering the `Security::token_validate()` origin policy.
 - Error semantics: IO bubbles as hard failures; no header emission here.
 
 **Acceptance**
 
 - Golden tests mirroring matrix rows (hard/soft/off/challenge).
+- Acceptance tests mirror `security.origin_mode` outcomes (soft vs. hard, missing-origin carve-outs) to validate origin policy contracts.
 - Hidden-mode NCID fallback when allowed; no rotation before success.
 - Regex guards for tokens/EIDs run before disk.
 - Changing YAML regenerates matrices and breaks tests until helper behavior matches.
