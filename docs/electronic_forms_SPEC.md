@@ -496,7 +496,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                         | `challenge` | Continue via NCID; require verification before proceeding; add `cookie_missing`. | `false` | `cookie_missing` | `true` | NCID (`nc-…`, `is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
                                         <!-- END GENERATED: cookie-policy-matrix -->
 - Identifier pinning (challenge): See [Security → NCIDs, slots, and validation output (§7.1.4)](#sec-ncid) for the canonical challenge pinning rules.
-- Any tampering (mode/form mismatch, forged/malformed EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`) (see [Security invariants (§7.1.2)](#sec-security-invariants)).
+- Any tampering (mode/form mismatch, forged EID, cross-mode payloads, slot violations) is a HARD FAIL (`EFORMS_ERR_TOKEN`) (see [Security invariants (§7.1.2)](#sec-security-invariants)); syntactically invalid or absent `eforms_eid_{form_id}` cookies follow the policy rows above instead of triggering the tamper path.
 - <a id="sec-slot-selection"></a>Slot selection (deterministic):
 				- When `cookie_mode_slots_enabled=true`, the renderer MUST choose `eforms_slot` deterministically per GET render and MUST reuse that choice on rerender.
 				- Determinism relies only on render-time inputs (e.g., `form_id`, allowed-slot set, document order). Implementations MAY expose author overrides to pin a slot; invalid overrides fall back to deterministic selection.
