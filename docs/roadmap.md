@@ -126,8 +126,9 @@
 **Acceptance**
 
 - Matrix-conformant behavior for cookie-less hits.
-  - Cookie-less hit reissues positive `Set-Cookie`.
-  - Identical, unexpired cookie ⇒ skip header emission.
+- Cookie-less hit reissues positive `Set-Cookie`.
+- Identical, unexpired cookie ⇒ skip header emission.
+- Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET.
 - Never rewrite `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
 - Tests for attribute equality & remaining-lifetime logic.
 
@@ -161,6 +162,7 @@
 
 - Matrix-driven integration tests: GET rows, POST rows, rerender rows, success handoff.
 - NCID-only completions enforce redirect/verifier requirement; inline forbidden when `is_ncid=true`.
+- Verifier-only success path (no redirect) clears ticket/cookie and strips query params.
 - PRG deletion row covered for both cookie-mode and NCID/challenge completions.
 
 ---
@@ -206,7 +208,7 @@
 
 - Snapshot of logs in each mode; PII redaction verified.
 - Throttle thresholds; suspect flags; redirect allow-list.
-- `request_id` asserted in JSONL and minimal outputs.
+- `request_id` asserted in JSONL and minimal outputs (meta blob).
 - A11y tests for focus/error summary.
 
 ---
@@ -228,14 +230,16 @@
 - POST with wrong/missing slot → `EFORMS_ERR_TOKEN`.
 - Rerender rows preserve deterministic slot & follow delete+re-prime contract.
 - Global slots disabled ⇒ posted `eforms_slot` hard-fails.
+- Posted slot must exist in config allow-list and the record's `slots_allowed`.
 
 ---
 
 ## Cross-phase Guarantees & Matrices Conformance
 
-- **Canonical sources:**  
-  - Cookie policy outcomes (§7.1.3.2), Cookie-mode lifecycle (§7.1.3.3), Cookie header actions (§7.1.3.5), NCID rerender lifecycle (§7.1.4.2).  
-  - Implementation and tests must treat generated tables as higher authority than narrative.
+- **Canonical sources:**
+- Cookie policy outcomes (§7.1.3.2), Cookie-mode lifecycle (§7.1.3.3), Cookie header actions (§7.1.3.5), NCID rerender lifecycle (§7.1.4.2).
+- Implementation and tests must treat generated tables as higher authority than narrative.
+- **Matrices conformance harness:** CI tests load generated tables and assert behavior so spec/YAML changes fail when implementations drift.
 - **Header boundary:** Only `/eforms/prime` emits positive `Set-Cookie`; deletion headers occur on rerender & PRG rows as specified; no positive header in PRG.
 - **No rotation before success:** Identifiers (hidden/cookie/NCID) remain pinned until the success path triggers documented rotations.
-- **Security invariants:** Regex guards before disk; tamper paths hard-fail; error rerenders reuse persisted records; NCID fallbacks preserve dedupe semantics.
+- **Security invariants:** Regex guards before disk; tamper paths hard-fail; error rerenders reuse persisted records; NCID fallbacks preserve dedupe semantics; enforce origin-only CSRF boundary; audit cookie attributes (Path=/, SameSite=Lax, Secure on HTTPS, HttpOnly).
