@@ -1017,7 +1017,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- "This file type isn't allowed."
 	- "File upload failed. Please try again."
 	- Re-render after errors passes the mode-specific security metadata defined in [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) back to Renderer (hidden: token/instance/timestamp; cookie: `{eid, slot}`).
-	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_HTML_TOO_LARGE).
+	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_HTML_TOO_LARGE, EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID).
 	- Large form advisory via logs and optional HTML comment (WP_DEBUG only).
 	- "This content is too long." maps to EFORMS_ERR_HTML_TOO_LARGE.
 	- "This form was already submitted or has expired - please reload the page." maps to EFORMS_ERR_TOKEN.
@@ -1136,6 +1136,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- EFORMS_ERR_SCHEMA_OBJECT - "Form configuration error: invalid object shape."
 	- EFORMS_ERR_UPLOAD_TYPE - "This file type isn't allowed."
 	- EFORMS_ERR_HTML_TOO_LARGE - "This content is too large."
+	- EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID - "Success redirect or verifier required for NCID completions."
 	- EFORMS_ERR_THROTTLED - "Please wait a moment and try again."
 	- EFORMS_ERR_CHALLENGE_FAILED - "Please complete the verification and submit again."
 	- EFORMS_CHALLENGE_UNCONFIGURED – "Verification unavailable; please try again."
