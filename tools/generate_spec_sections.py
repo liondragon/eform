@@ -219,6 +219,24 @@ def validate_data(data: dict) -> None:
             "cookie_header_actions_rows flows mismatch: " + ", ".join(details)
         )
 
+    slot_summary_rows = data.get("slot_handling_summary_rows")
+    if slot_summary_rows is None:
+        raise SystemExit("slot_handling_summary_rows must be provided")
+    validate_bullet_rows(
+        slot_summary_rows,
+        "slot_handling_summary_rows",
+        require_id=True,
+    )
+
+    prime_guidance_rows = data.get("prime_set_cookie_guidance_rows")
+    if prime_guidance_rows is None:
+        raise SystemExit("prime_set_cookie_guidance_rows must be provided")
+    validate_bullet_rows(
+        prime_guidance_rows,
+        "prime_set_cookie_guidance_rows",
+        require_id=True,
+    )
+
 
 def validate_soft_labels(value: Any, context: str) -> None:
     if isinstance(value, list):
@@ -262,6 +280,24 @@ def validate_references(value: Any, context: str) -> None:
             raise SystemExit(f"references must contain non-empty strings for {context}")
         if anchor.startswith("#"):
             raise SystemExit(f"references must omit leading '#': {anchor}")
+
+
+def validate_bullet_rows(rows: Any, context: str, *, require_id: bool) -> None:
+    if not isinstance(rows, list):
+        raise SystemExit(f"{context} must be a list")
+    for row in rows:
+        if not isinstance(row, dict):
+            raise SystemExit(f"{context} entries must be mappings")
+        row_id = row.get("id")
+        if require_id:
+            if not isinstance(row_id, str) or not row_id:
+                raise SystemExit(f"{context} entries must include a non-empty string id")
+        text = row.get("text")
+        if not isinstance(text, str) or not text:
+            raise SystemExit(f"{context} entries must include non-empty text")
+        children = row.get("children")
+        if children is not None:
+            validate_bullet_rows(children, f"{context} child of {row.get('id', '<item>')}", require_id=False)
 
 
 def format_inline_code(value: str) -> str:
@@ -380,7 +416,73 @@ def render_ncid_rerender_steps(steps: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-TABLE_CONFIGS = [
+def get_indent_string(config: dict) -> str:
+    indent_value = config.get("indent", 0)
+    if isinstance(indent_value, int):
+        if indent_value < 0:
+            raise SystemExit("indent must be non-negative")
+        return " " * indent_value
+    if isinstance(indent_value, str):
+        return indent_value
+    raise SystemExit("indent must be an integer or string")
+
+
+def render_bullet_rows(
+    rows: list[dict],
+    *,
+    base_indent: str,
+    indent_unit: str = "\t",
+) -> list[str]:
+    lines: list[str] = []
+
+    def emit(node: dict, depth: int) -> None:
+        indent = base_indent + indent_unit * depth
+        lines.append(f"{indent}- {node['text']}")
+        children = node.get("children")
+        if isinstance(children, list):
+            for child in children:
+                emit(child, depth + 1)
+
+    for node in rows:
+        emit(node, 0)
+    return lines
+
+
+def render_bullet_block(
+    name: str,
+    rows: list[dict],
+    *,
+    base_indent: str,
+    indent_unit: str = "\t",
+) -> list[str]:
+    lines = [
+        base_indent + POINTER_TEXT,
+        base_indent + f"<!-- BEGIN GENERATED: {name} -->",
+    ]
+    lines.extend(render_bullet_rows(rows, base_indent=base_indent, indent_unit=indent_unit))
+    lines.append(base_indent + f"<!-- END GENERATED: {name} -->")
+    return lines
+
+
+def render_table_block(config: dict, data: dict) -> list[str]:
+    raw_rows = data[config["data_key"]]
+    rows = config["formatter"](raw_rows)
+    return render_table(config, rows)
+
+
+def render_bullet_block_config(config: dict, data: dict) -> list[str]:
+    rows = data[config["data_key"]]
+    base_indent = get_indent_string(config)
+    indent_unit = config.get("indent_unit", "\t")
+    return render_bullet_block(
+        config["name"],
+        rows,
+        base_indent=base_indent,
+        indent_unit=indent_unit,
+    )
+
+
+GENERATED_CONFIGS = [
     {
         "name": "lifecycle-quickstart",
         "data_key": "lifecycle_quickstart_rows",
@@ -393,6 +495,7 @@ TABLE_CONFIGS = [
             ("overview", "Overview"),
         ],
         "formatter": format_lifecycle_quickstart_rows,
+        "render": render_table_block,
     },
     {
         "name": "cookie-lifecycle-matrix",
@@ -408,6 +511,7 @@ TABLE_CONFIGS = [
             ("notes", "Notes"),
         ],
         "formatter": format_cookie_lifecycle_rows,
+        "render": render_table_block,
     },
     {
         "name": "cookie-policy-matrix",
@@ -426,6 +530,7 @@ TABLE_CONFIGS = [
             ("cookie_present", "`cookie_present?`"),
         ],
         "formatter": format_cookie_policy_rows,
+        "render": render_table_block,
     },
     {
         "name": "cookie-ncid-summary",
@@ -441,6 +546,7 @@ TABLE_CONFIGS = [
             ("canonical_section", "Canonical section"),
         ],
         "formatter": format_ncid_summary_rows,
+        "render": render_table_block,
     },
     {
         "name": "cookie-header-actions",
@@ -456,6 +562,23 @@ TABLE_CONFIGS = [
         ],
         "formatter": format_cookie_header_actions_rows,
         "path": COOKIE_HEADERS_INCLUDE_PATH,
+        "render": render_table_block,
+    },
+    {
+        "name": "slot-handling-summary",
+        "data_key": "slot_handling_summary_rows",
+        "indent": "",
+        "render": render_bullet_block_config,
+        "insertion_token": "**Slot handling:**",
+        "leading_blank_line": True,
+    },
+    {
+        "name": "prime-set-cookie-guidance",
+        "data_key": "prime_set_cookie_guidance_rows",
+        "indent": "\t\t\t\t",
+        "render": render_bullet_block_config,
+        "insertion_token": "- Prime endpoint semantics (`/eforms/prime`):",
+        "leading_blank_line": True,
     },
 ]
 
@@ -543,6 +666,17 @@ def ensure_references(data: dict, spec_text: str) -> None:
         for anchor in extract_markdown_anchors(row.get("overview")):
             anchors_required.append((anchor, f"quickstart {stage}"))
 
+    collect_bullet_anchors(
+        data.get("slot_handling_summary_rows", []),
+        "slot_handling_summary",
+        anchors_required,
+    )
+    collect_bullet_anchors(
+        data.get("prime_set_cookie_guidance_rows", []),
+        "prime_set_cookie_guidance",
+        anchors_required,
+    )
+
     for anchor, context in anchors_required:
         check_anchor(anchor, context)
 
@@ -553,6 +687,17 @@ def extract_markdown_anchors(value: Any) -> Iterable[str]:
     return [f"#{match.group(1)}" for match in ANCHOR_PATTERN.finditer(value)]
 
 
+def collect_bullet_anchors(rows: list[dict], context: str, bucket: list[tuple[str, str]]) -> None:
+    for row in rows or []:
+        text = row.get("text", "")
+        row_context = f"{context} {row.get('id', text)}"
+        for anchor in extract_markdown_anchors(text):
+            bucket.append((anchor, row_context))
+        children = row.get("children")
+        if isinstance(children, list):
+            collect_bullet_anchors(children, row_context, bucket)
+
+
 def render_table(config: dict, rows: list[dict[str, str]]) -> list[str]:
     lines = [config["header"], config["separator"]]
     column_order = [field for field, _ in config["columns"]]
@@ -560,7 +705,7 @@ def render_table(config: dict, rows: list[dict[str, str]]) -> list[str]:
         cells = [row[field] for field in column_order]
         line = "| " + " | ".join(cells) + " |"
         lines.append(line)
-    indent = " " * config["indent"]
+    indent = get_indent_string(config)
     prefixed = [indent + line if line else line for line in lines]
     block = [indent + POINTER_TEXT, indent + f"<!-- BEGIN GENERATED: {config['name']} -->"]
     block.extend(prefixed)
@@ -568,9 +713,9 @@ def render_table(config: dict, rows: list[dict[str, str]]) -> list[str]:
     return block
 
 
-def integrate_tables(data: dict, *, check: bool) -> bool:
+def integrate_generated_content(data: dict, *, check: bool) -> bool:
     configs_by_path: dict[Path, list[dict]] = {}
-    for config in TABLE_CONFIGS:
+    for config in GENERATED_CONFIGS:
         target_path = Path(config.get("path", SPEC_PATH))
         configs_by_path.setdefault(target_path, []).append(config)
 
@@ -592,44 +737,124 @@ def integrate_tables(data: dict, *, check: bool) -> bool:
         lines = original_text.splitlines()
         updated = lines[:]
 
+        def ensure_leading_blank_line(lines: list[str], pointer_idx: int) -> None:
+            if pointer_idx < 0 or pointer_idx > len(lines):
+                return
+            idx = pointer_idx
+            while idx > 1 and lines[idx - 1] == "" and lines[idx - 2] == "":
+                del lines[idx - 1]
+                idx -= 1
+            if idx == 0:
+                lines.insert(0, "")
+            elif lines[idx - 1] != "":
+                lines.insert(idx, "")
+
         for config in configs:
-            raw_rows = data[config["data_key"]]
-            rows = config["formatter"](raw_rows)
-            rendered_block = render_table(config, rows)
-            indent = " " * config["indent"]
+            rendered_block = config["render"](config, data)
+            indent = get_indent_string(config)
             pointer_line = indent + POINTER_TEXT
             begin_marker = indent + f"<!-- BEGIN GENERATED: {config['name']} -->"
             end_marker = indent + f"<!-- END GENERATED: {config['name']} -->"
+            leading_blank = bool(config.get("leading_blank_line"))
 
             if begin_marker in original_text:
                 start_idx = None
                 end_idx = None
                 for idx, line in enumerate(updated):
+                    if idx + 1 >= len(updated):
+                        continue
                     if line == pointer_line and updated[idx + 1] == begin_marker:
                         start_idx = idx
                         break
                 if start_idx is None:
+                    trimmed_pointer = POINTER_TEXT.strip()
+                    trimmed_begin = begin_marker.strip()
+                    for idx, line in enumerate(updated):
+                        if idx + 1 >= len(updated):
+                            continue
+                        if line.strip() == trimmed_pointer and updated[idx + 1].strip() == trimmed_begin:
+                            start_idx = idx
+                            break
+                if start_idx is None:
                     raise SystemExit(f"Pointer line for {config['name']} not found in {path}")
+                pointer = POINTER_TEXT.strip()
+                legacy_begin = f"<!-- BEGIN GENERATED: {config['name']} -->"
+                while start_idx > 0 and updated[start_idx - 1].strip() in {
+                    pointer,
+                    legacy_begin,
+                }:
+                    start_idx -= 1
+                trimmed_end = end_marker.strip()
                 for idx in range(start_idx, len(updated)):
-                    if updated[idx] == end_marker:
+                    if updated[idx] == end_marker or updated[idx].strip() == trimmed_end:
                         end_idx = idx
                         break
                 if end_idx is None:
                     raise SystemExit(f"End marker for {config['name']} not found in {path}")
                 end_idx += 1
-            else:
-                header_token = config["header_token"].strip()
-                start_idx = None
-                for idx, line in enumerate(updated):
-                    if line.strip() == header_token:
-                        start_idx = idx
-                        break
-                if start_idx is None:
-                    raise SystemExit(f"Table header for {config['name']} not found in {path}")
-                end_idx = start_idx
-                while end_idx < len(updated) and updated[end_idx].strip().startswith("|"):
+                legacy_end = f"<!-- END GENERATED: {config['name']} -->"
+                while end_idx < len(updated) and updated[end_idx].strip() in {
+                    pointer,
+                    legacy_begin,
+                    legacy_end,
+                }:
                     end_idx += 1
-            updated[start_idx:end_idx] = rendered_block
+                updated[start_idx:end_idx] = rendered_block
+                if leading_blank:
+                    ensure_leading_blank_line(updated, start_idx)
+            else:
+                header_token = config.get("header_token")
+                insertion_token = config.get("insertion_token")
+                if header_token is not None:
+                    start_idx = None
+                    needle = header_token.strip()
+                    for idx, line in enumerate(updated):
+                        if line.strip() == needle:
+                            start_idx = idx
+                            break
+                    if start_idx is None:
+                        raise SystemExit(f"Table header for {config['name']} not found in {path}")
+                    # Capture any legacy pointer lines or markers that may precede the
+                    # header so we replace the entire generated block on regeneration.
+                    pointer = POINTER_TEXT.strip()
+                    legacy_begin = f"<!-- BEGIN GENERATED: {config['name']} -->"
+                    while start_idx > 0 and updated[start_idx - 1].strip() in {
+                        pointer,
+                        legacy_begin,
+                    }:
+                        start_idx -= 1
+
+                    end_idx = start_idx
+                    while end_idx < len(updated) and updated[end_idx].strip().startswith("|"):
+                        end_idx += 1
+                    legacy_end = f"<!-- END GENERATED: {config['name']} -->"
+                    while end_idx < len(updated) and updated[end_idx].strip() in {
+                        pointer,
+                        legacy_begin,
+                        legacy_end,
+                    }:
+                        end_idx += 1
+                    updated[start_idx:end_idx] = rendered_block
+                    if leading_blank:
+                        ensure_leading_blank_line(updated, start_idx)
+                elif insertion_token is not None:
+                    insertion_idx = None
+                    needle = insertion_token.strip()
+                    for idx, line in enumerate(updated):
+                        if line.strip() == needle:
+                            insertion_idx = idx + 1
+                            break
+                    if insertion_idx is None:
+                        raise SystemExit(
+                            f"Insertion token for {config['name']} not found in {path}"
+                        )
+                    updated[insertion_idx:insertion_idx] = rendered_block
+                    if leading_blank:
+                        ensure_leading_blank_line(updated, insertion_idx)
+                else:
+                    raise SystemExit(
+                        f"Begin marker for {config['name']} not found in {path}"
+                    )
 
         new_text = "\n".join(updated)
         if updated:
@@ -674,8 +899,8 @@ def main() -> int:
 
     data = load_data()
     include_ok = write_ncid_rerender_include(data, check=args.check)
-    tables_ok = integrate_tables(data, check=args.check)
-    ok = include_ok and tables_ok
+    content_ok = integrate_generated_content(data, check=args.check)
+    ok = include_ok and content_ok
     return 0 if ok else 1
 
 
