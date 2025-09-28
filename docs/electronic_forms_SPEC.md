@@ -80,9 +80,9 @@ electronic_forms - Spec
 	- /schema/
 		- template.schema.json	// design-time only (editor/CI lint); kept in sync with PHP spec
 	- /templates/
-		- forms/
+		- forms/		// default JSON templates that ship with the plugin
 			- contact.json		// kebab-case filenames only
-	- email/
+		- email/		// default email bodies that ship with the plugin
 	- /assets/
 		- forms.css	 // namespaced styles
 		- forms.js		// JS marker (js_ok), error-summary/first-invalid focus, submit lock, spinner
