@@ -424,12 +424,12 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 - Failure modes:
   - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; the helper otherwise ignores `slot?` and always persists `{ slots_allowed:[], slot:null }`, leaving `/eforms/prime` to union slots after it returns.
   - Filesystem errors propagate (hard fail).
-- Status computation inspects only the persisted record for the form's active minted `eid` and does not read request cookies.
+- Status computation inspects only the form's persisted active minted record and does not read request cookies.
 - `status:"hit"` means storage already holds that unexpired record; `/eforms/prime` MUST compare the presented cookie (when any) against `record.eid` to apply the **unexpired-match** test before deciding to skip the positive header.
-- Definition — Status lookup scope = helper loads the persisted record for the form's active minted `eid`; cookie headers participate only in the unexpired-match test.
+- Definition — Status lookup scope = helper loads the form's persisted active minted record; cookie headers participate only in the unexpired-match test.
 
 **Definitions (normative):**
-- **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record for that EID with `now < record.expires`; equality is evaluated against `record.eid`.
+- **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record for that EID with `now < record.expires`; equality is evaluated against that record's `eid`.
 - Definition — Presented cookie = the request supplies `eforms_eid_{form_id}` matching the EID regex.
 - **Header boundary (normative)** — [Cookie header actions matrix (§7.1.3.3)](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
