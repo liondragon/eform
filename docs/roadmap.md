@@ -144,9 +144,10 @@
 **Delivers**
 
 - **Renderer (GET)**
-  - Hidden-mode: embed payload from `mint_hidden_record()`.
-  - Cookie-mode: deterministic markup + prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
-  - Never call `/eforms/prime` synchronously; priming via pixel on follow-up nav.
+	- Hidden-mode: embed payload from `mint_hidden_record()`.
+	- Cookie-mode: deterministic markup + prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
+	- Never call `/eforms/prime` synchronously; priming via pixel on follow-up nav.
+	- Provide the WordPress shortcode/template tag entry points required by the request lifecycle, bootstrap them through the frozen configuration snapshot, and document caching guidance (including `Vary: Cookie`) alongside renderer bootstrap behaviors.
 - **SubmitHandler (POST)**
 	- Orchestrates: Security gate → Normalize → Validate → Coerce → Ledger → Side effects.
 	- **Ledger reservation runs immediately before side effects.**
@@ -154,6 +155,7 @@
 	- Error rerenders reuse persisted record; follow NCID rerender contract (delete + re-prime) where required.
 	- Throttling & redirect-safety & suspect handling (per §§9–11).
 	- Spam decision flow enforced per [Validation & Sanitization Pipeline → Spam Decision (§8)](#sec-spam-decision): hard-fail checks fire before soft-fail scoring, `soft_reasons` are deduplicated before counting, and suspect signals wire `X-EForms-Soft-Fails`/`X-EForms-Suspect` headers plus subject tagging from the `spam.*` config (`spam.soft_fail_threshold`, header/subject toggles) alongside throttle/challenge paths. Challenge clears only the documented labels (e.g., removing the `"cookie_missing"` soft reason on success) before recomputing.
+	- Honeypot modes, minimum fill timing, max-form-age soft enforcement, and JS gating (`js_ok` plus `security.js_hard_mode`) run through dedicated helpers with golden tests so anti-abuse behavior is explicit rather than implied.
 - **Challenge**
 	- Implement `challenge.mode` states (`off`/`auto`/`always`) and align `require_challenge` evaluation with [Adaptive challenge (§12)](#sec-adaptive-challenge).
 	- Provider selection supports `turnstile`, `hcaptcha`, and `recaptcha` with server-side verification via the WP HTTP API, request parameter mapping, and timeout handling per [Adaptive challenge (§12)](#sec-adaptive-challenge).
@@ -162,10 +164,11 @@
 	- Soft-fail when providers are misconfigured or unreachable by setting `challenge_unconfigured`, clearing `require_challenge`, and continuing via the soft-cookie path as required by [Adaptive challenge (§12)](#sec-adaptive-challenge).
 	- Triggered only when `require_challenge=true`; rerenders & success follow generated NCID rerender contract; hidden token never rotates before success.
 - **Success (PRG)**
-  - Always `303`, `Cache-Control: private, no-store, max-age=0`.  
-  - **Inline**: success ticket persisted; set `eforms_s_{form_id}`; follow-up GET calls `/eforms/success-verify?eforms_submission={submission_id}` while `?eforms_success={form_id}` flag is present; verifier clears ticket & cookie, strips query.  
-  - **Redirect**: `wp_safe_redirect(…, 303)`.  
-  - **PRG deletion row**: PRG responses **delete** `eforms_eid_{form_id}` (all success handoffs) so the follow-up GET re-primes. No positive header in PRG.
+	- Always `303`, `Cache-Control: private, no-store, max-age=0`.
+	- **Inline**: success ticket persisted; set `eforms_s_{form_id}`; follow-up GET calls `/eforms/success-verify?eforms_submission={submission_id}` while `?eforms_success={form_id}` flag is present; verifier clears ticket & cookie, strips query.
+	- **Redirect**: `wp_safe_redirect(…, 303)`.
+	- **PRG deletion row**: PRG responses **delete** `eforms_eid_{form_id}` (all success handoffs) so the follow-up GET re-primes. No positive header in PRG.
+	- Success and rerender responses advertise caching guidance via `Vary: Cookie` per the request lifecycle contract so intermediaries respect user-specific outcomes.
 
 **Acceptance**
 
@@ -177,6 +180,8 @@
 - Origin check enforced; Referer not required.
 - Acceptance suite covers challenge provider outcomes (success, failure, unconfigured, provider error) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
 - Spam decision tests cover `soft_fail_count` = 0/1/≥`spam.soft_fail_threshold`, assert `X-EForms-Soft-Fails`/`X-EForms-Suspect` headers and subject tagging per `spam.*`, and ensure challenge success removes only the documented labels from `soft_reasons` before recomputing outcomes.
+- Anti-abuse coverage asserts honeypot triggers, minimum-fill timing thresholds, `max_form_age` soft enforcement, and JS gating (`js_ok`, `security.js_hard_mode`) across GET/POST/success paths.
+- Success/PRG responses set `Vary: Cookie` and surface the documented shortcode/template tag caching guidance in fixtures mirroring the request lifecycle.
 
 ---
 
@@ -214,6 +219,7 @@
   - Optional Fail2ban emission.
 - **Privacy & IP (§16)**: `none|masked|hash|full`; trusted proxy handling; consistent email/log presentation.
 - **Validation pipeline (§8)**: normalize → validate → coerce; consistent across modes; stable error codes.
+- Runtime size-cap enforcement (`RuntimeCap`) clamps POST bodies per `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides; guards `CONTENT_LENGTH` and coordinates with upload slot validation.
 - **Redirect safety (§9)**, **Suspect handling (§10)**, **Throttling (§11)** with headers (e.g., `Retry-After`) & soft/hard outcomes.
 - **Error handling (§20)**: `_global` + per-field; stable codes; NCID/hidden metadata returned for rerenders.
 - **Assets (§22)**: enqueue only when rendering; JS usability helpers; accessibility focus guidance.
@@ -224,6 +230,7 @@
 - Throttle thresholds; suspect flags; redirect allow-list.
 - `request_id` asserted in JSONL and minimal outputs (meta blob).
 - A11y tests for focus/error summary.
+- RuntimeCap fixtures simulate oversized payloads, boundary values, and upload interactions to confirm clamps, validation errors, and `CONTENT_LENGTH` guards align with the authoritative spec calculations.
 
 ---
 
