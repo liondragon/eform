@@ -12,7 +12,7 @@ electronic_forms - Spec
 - Out of scope for this project: any multi-step or multi-page questionnaires/wizards, or flows that depend on persistent user identity beyond a single submission.
 - No admin UI.
 - Focus on simplicity and efficiency; avoid overengineering. Easy to maintain and performant for intended use.
-- Lazy by design: the configuration snapshot is bootstrapped lazily on first access. Entry points (Renderer/SubmitHandler/Emailer/`/eforms/prime`) call `Config::get()` before delegating, and Security helpers re-call it as a backstop, so modules initialize only when their triggers occur (see [Central Registries → Lazy-load Matrix (§6)](#sec-lazy-load-matrix) and [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).)
+- Lazy by design: the configuration snapshot is bootstrapped lazily on first access. Entry points (Renderer/SubmitHandler/challenge verifiers/Emailer/`/eforms/success-verify`/`/eforms/prime`) call `Config::get()` before delegating, and Security helpers re-call it as a backstop, so modules initialize only when their triggers occur (see [Central Registries → Lazy-load Matrix (§6)](#sec-lazy-load-matrix) and [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration).)
 - No database writes; file-backed one-time token ledger for duplicate-submit prevention (no Redis/queues).
 - Clear boundaries: render vs. validate vs. send vs. log vs. upload.
 - Deterministic pipeline and schema parity: big win for testability.
