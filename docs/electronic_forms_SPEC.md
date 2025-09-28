@@ -295,6 +295,8 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 - **How:** The generated matrices cover GET render flows, `/eforms/prime`, and header usage; see [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
 - **Normative** — The renderer **MUST NOT** synchronously call `/eforms/prime` during GET; priming occurs via the embedded pixel on follow-up navigation per [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
 
+--8<-- "generated/security/cookie_headers.md"
+
 ##### Persist
 - **What:** Hidden mode writes `tokens/{h2}/{sha256(token)}.json`; cookie mode persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ issued_at, expires, slots_allowed, slot }`.
 - **Why:** Shared sharding and permission rules (`{h2}` derived via `Helpers::h2()`, dirs `0700`, files `0600`) prevent leakage and ensure atomic rotation across modes.
@@ -336,6 +338,8 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 - **What:** Successful submissions move uploads, send notifications, log, and complete PRG (inline cookie or redirect verifier) per [Success behavior (§13)](#sec-success).
 - **Why:** PRG finalizes the NCID pin, enables success-ticket verification, and lets cookie mode rotate at the documented post-success points.
 - **How:** Follow [Success behavior (§13)](#sec-success) for side effects and rely on [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions) for PRG deletion headers and rotation timing; hidden mode continues using the original token until success.
+
+--8<-- "generated/security/cookie_headers.md"
 Definition — Rotation trigger = minted record replacement caused by expiry or post-success PRG.
 <!-- END BLOCK: lifecycle-pipeline-quickstart -->
 
