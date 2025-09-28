@@ -572,7 +572,7 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 | Cookie policy `challenge` | `submission_id = nc-…` (`is_ncid=true`, `require_challenge=true`). | Require verification before proceeding; follow [NCID rerender rules](#sec-ncid-rerender). | [Cookie policy outcomes](#sec-cookie-policy-matrix) |
 | Challenge rerender after NCID fallback | `submission_id = nc-…` (same value reused). | Follow [NCID rerender rules](#sec-ncid-rerender). | [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) |
 | Challenge success response | `submission_id = nc-…` (same value reused). | Follow [NCID rerender rules](#sec-ncid-rerender). | [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) |
-| NCID success handoff (no acceptable cookie) | `submission_id = nc-…`. | Force Redirect-only PRG even when `success.mode="inline"`; append `&eforms_submission={submission_id}` and send the NCID deletion header before the 303 (per [NCID rerender rules](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success Behavior (PRG)](#sec-success) for narrative bullets. | [Cookie/NCID reference](#sec-cookie-ncid-summary) |
+| NCID success handoff (no acceptable cookie) | `submission_id = nc-…`. | Force Redirect-only PRG even when `success.mode="inline"`; append `&eforms_submission={submission_id}` and send the `eforms_eid_{form_id}` deletion header before the 303 (per [NCID rerender rules](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success Behavior (PRG)](#sec-success) for narrative bullets. | [Cookie/NCID reference](#sec-cookie-ncid-summary) |
 <!-- END GENERATED: cookie-ncid-summary -->
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
@@ -823,7 +823,8 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 			- Downstream consumers MUST treat `submission_id` values as colon-free strings and rely on separate slot metadata when disambiguating multi-instance submissions.
 - <a id="sec-success-ncid"></a>NCID-only handoff (informative summary): The generated [Cookie/NCID reference](#sec-cookie-ncid-summary) row is canonical for redirect-only completions when no acceptable cookie is present. Implementations following it will:
 	- Force Redirect-only PRG even when `success.mode="inline"`, appending `&eforms_submission={submission_id}` to the 303.
-	- Send the NCID deletion header before issuing the redirect (per the NCID rerender contract).
+	- Send the `eforms_eid_{form_id}` deletion header before issuing the redirect (per the NCID rerender contract).
+	- Definition — NCID success deletion header = `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` per [Cookie header actions](#sec-cookie-header-actions).
 	- Redirect to `success.redirect_url` when provided; otherwise rely on `/eforms/success-verify?eforms_submission={submission_id}`, which MUST remain enabled and accept the identifier via cookie or query.
 	- Fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID` when inline success is configured but neither a redirect URL nor the verifier endpoint is available.
 <a id="sec-email"></a>
