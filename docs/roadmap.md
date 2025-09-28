@@ -267,3 +267,9 @@
 - **Header boundary:** Only `/eforms/prime` emits positive `Set-Cookie`; deletion headers occur on rerender & PRG rows as specified; no positive header in PRG.
 - **No rotation before success:** Identifiers (hidden/cookie/NCID) remain pinned until the success path triggers documented rotations.
 - **Security invariants:** Regex guards before disk; tamper paths hard-fail; error rerenders reuse persisted records; NCID fallbacks preserve dedupe semantics; enforce origin-only CSRF boundary; audit cookie attributes (Path=/, SameSite=Lax, Secure on HTTPS, HttpOnly).
+- **WP-CLI smoke coverage:** Enumerate the commands required to exercise the Origin policy and RuntimeCap checks so CI can invoke them directly, matching the §23 CI scaffolding guidance for WP-CLI smoke tests.【F:docs/electronic_forms_SPEC.md†L1117-L1119】
+
+**Acceptance**
+
+- Documented WP-CLI command issues a POST without an `Origin` header and asserts the hard/missing Origin policy response (non-zero exit plus the documented error code/message).
+- Documented WP-CLI command submits an oversized payload and asserts RuntimeCap enforcement (non-zero exit, clamped request reported, and the expected RuntimeCap error surface).
