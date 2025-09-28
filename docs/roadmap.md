@@ -29,9 +29,11 @@
 
 - `Security::mint_hidden_record(form_id)`
   - Persist `tokens/{h2}/{sha256(token)}.json` `{mode:"hidden", form_id, instance_id, issued_at, expires}`.
+  - Persistence honors the atomic write contract for `tokens/…` (write-temp+rename or `flock()`+fsync) per [Security → Shared lifecycle and storage contract](electronic_forms_SPEC.md#sec-shared-lifecycle).
   - Never rewrite on rerender; base64url `instance_id` (16–24 bytes).
 - `Security::mint_cookie_record(form_id, slot?)` (header-agnostic)
   - Miss/expired → mint `eid_minted/{form_id}/{h2}/{eid}.json` with `{mode:"cookie", form_id, eid, issued_at, expires, slots_allowed:[], slot:null}`.
+  - `eid_minted/…` persistence uses the same atomic write guarantees as hidden tokens so partial or concurrent writes cannot surface truncated JSON per [Security → Shared lifecycle and storage contract](electronic_forms_SPEC.md#sec-shared-lifecycle).
   - Hit → never rewrite `issued_at`/`expires`.
   - Status (`hit|miss|expired`) computed from storage (not headers).
 - **Definitions enforced**  
@@ -53,6 +55,7 @@
 - Hidden-mode NCID fallback when allowed; no rotation before success.
 - Regex guards for tokens/EIDs run before disk.
 - Changing YAML regenerates matrices and breaks tests until helper behavior matches.
+- Storage integration tests simulate partial writes and concurrent mint attempts to prove non-atomic persistence fails (e.g., leave truncated JSON) and therefore enforce the atomic write contracts above.
 
 ---
 
@@ -131,6 +134,7 @@
 - Set-Cookie attrs (normative): `Path=/`, `Secure` (HTTPS only), `HttpOnly`, `SameSite=Lax`, `Max-Age` = TTL on mint, or remaining lifetime on reissue.
 - Response: `204` + `Cache-Control: no-store`.
 - No header emission elsewhere except deletion per matrices (rerender/PRG).
+- Slot unioning persists `slots_allowed`/`slot` using the same atomic write contract (no `issued_at/expires` rewrite) per [Security → Cookie-mode contract → Prime endpoint semantics](electronic_forms_SPEC.md#sec-cookie-mode).
 
 **Acceptance**
 
@@ -141,6 +145,7 @@
 - Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET.
 - Never rewrite `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
 - Tests for attribute equality & remaining-lifetime logic.
+- Concurrency tests for `/eforms/prime` simulate partial slot unions and concurrent updates to ensure atomic persistence prevents truncated or reverted `slots_allowed` state.
 
 ---
 
