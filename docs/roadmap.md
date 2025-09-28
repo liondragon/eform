@@ -192,16 +192,16 @@
 	- Provide verification hooks that update `require_challenge`, respect the NCID rerender contract, and avoid hidden-token rotation before success.
 	- Soft-fail when providers are misconfigured or unreachable by setting `challenge_unconfigured`, clearing `require_challenge`, and continuing via the documented soft-cookie path.
 - **Success (PRG)**
-	- Always `303` with `Cache-Control: private, no-store, max-age=0` and success tickets minted as `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds` per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
+	- Always `303` with `Cache-Control: private, no-store, max-age=0`, success tickets minted as `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds`, and a server-side ticket file created at `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{form_id, submission_id, issued_at}` before redirecting, all per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
 	- Follow-up GETs hit `/eforms/success-verify?eforms_submission={submission_id}`, clear the ticket and cookie, strip query params, and re-prime via the pixel.
 	- Emit `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` on PRG responses so rerender rows re-prime as specified; never issue positive cookies in PRG.
 	- Provide NCID redirect-only override so NCID-only completions must round-trip through PRG before success surfaces.
-- Challenge and success responses continue to advertise caching guidance via `Vary: Cookie` scoped to `eforms_s_{form_id}`.
+	- Challenge and success responses continue to advertise caching guidance via `Vary: Cookie` scoped to `eforms_s_{form_id}`.
 
 **Acceptance**
 
 - Challenge provider outcome matrix (success, failure, soft-fail/unconfigured, provider error) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
-- Success verifier invalidation tests ensure tickets clear on first use and follow-up GETs re-prime appropriately.
+- Success verifier invalidation tests ensure tickets clear on first use, create the `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` ticket with the `{form_id, submission_id, issued_at}` payload, and burn down verifier state per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
 - NCID-only completions enforced via redirect-only PRG paths.
 
 ---
