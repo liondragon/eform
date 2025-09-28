@@ -142,53 +142,60 @@
 
 ---
 
-## Phase 7: Renderer → SubmitHandler → challenge → success (PRG)
+## Phase 7A: Renderer & SubmitHandler Core {#phase-7a}
 
-**Goal:** Implement the canonical lifecycle: render → persist → POST → challenge/NCID rerender → normalization/validation → ledger → success, strictly following generated tables and invariants.
+**Goal:** Ship deterministic GET and POST lifecycles that exercise frozen configuration snapshots, renderer priming, and POST orchestration without yet layering challenge or PRG semantics.
+
+**Unblocks:** [Phase 6](#phase-6) confirmation tests and [Phase 10](#phase-10) slots UX once rerender contracts stabilize.
 
 **Delivers**
 
 - **Renderer (GET)**
 	- Hidden-mode: embed payload from `mint_hidden_record()`.
-	- Cookie-mode: deterministic markup + prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
-	- Never call `/eforms/prime` synchronously; priming via pixel on follow-up nav.
-- Provide the WordPress shortcode/template tag entry points required by the request lifecycle, bootstrap them through the frozen configuration snapshot, and document caching guidance (including `Vary: Cookie` scoped to `eforms_s_{form_id}`) alongside renderer bootstrap behaviors.
+	- Cookie-mode: deterministic markup plus prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
+	- Prime pixel only (no synchronous `/eforms/prime`); follow-up navigation performs the mint.
+- WordPress shortcode and template tag entry points bootstrap through the frozen configuration snapshot and document caching guidance, including `Vary: Cookie` scoped to `eforms_s_{form_id}`.
 - **SubmitHandler (POST)**
-	- Orchestrates: Security gate → Normalize → Validate → Coerce → Ledger → Side effects.
-	- **Ledger reservation runs immediately before side effects.**
-	- Cookie handling and NCID transitions per matrices; **no mid-flow mode swaps**.
-	- Error rerenders reuse persisted record; follow NCID rerender contract (delete + re-prime) where required.
-	- Throttling & redirect-safety & suspect handling (per §§9–11).
-	- Spam decision flow enforced per [Validation & Sanitization Pipeline → Spam Decision (§8)](#sec-spam-decision): hard-fail checks fire before soft-fail scoring, `soft_reasons` are deduplicated before counting, and suspect signals wire `X-EForms-Soft-Fails`/`X-EForms-Suspect` headers plus subject tagging from the `spam.*` config (`spam.soft_fail_threshold`, header/subject toggles) alongside throttle/challenge paths. Challenge clears only the documented labels (e.g., removing the `"cookie_missing"` soft reason on success) before recomputing.
-	- Honeypot modes, minimum fill timing, max-form-age soft enforcement, and JS gating (`js_ok` plus `security.js_hard_mode`) run through dedicated helpers with golden tests so anti-abuse behavior is explicit rather than implied.
-- **Challenge**
-	- Implement `challenge.mode` states (`off`/`auto`/`always`) and align `require_challenge` evaluation with [Adaptive challenge (§12)](#sec-adaptive-challenge).
-	- Provider selection supports `turnstile`, `hcaptcha`, and `recaptcha` with server-side verification via the WP HTTP API, request parameter mapping, and timeout handling per [Adaptive challenge (§12)](#sec-adaptive-challenge).
-	- Honor lazy-load boundaries: render widgets only during POST rerenders or verification passes and defer configuration reads until after the snapshot is primed (see [Adaptive challenge (§12)](#sec-adaptive-challenge) and [Lazy-load lifecycle (components & triggers) (§6.1)](#sec-lazy-load-matrix)).
-	- Wire verification hooks so rerenders consume provider responses, update `require_challenge`, and flow into the NCID rerender contract without rotating hidden tokens before success (see [Adaptive challenge (§12)](#sec-adaptive-challenge)).
-	- Soft-fail when providers are misconfigured or unreachable by setting `challenge_unconfigured`, clearing `require_challenge`, and continuing via the soft-cookie path as required by [Adaptive challenge (§12)](#sec-adaptive-challenge).
-	- Triggered only when `require_challenge=true`; rerenders & success follow generated NCID rerender contract; hidden token never rotates before success.
-- **Success (PRG)**
-	- Always `303`, `Cache-Control: private, no-store, max-age=0`. Success tickets mint `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, `Secure` only on HTTPS, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds` per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
-	- **Inline**: success ticket persisted; set `eforms_s_{form_id}` with the normative attributes above; follow-up GET calls `/eforms/success-verify?eforms_submission={submission_id}` while `?eforms_success={form_id}` flag is present; verifier clears ticket & cookie, strips query.
-	- **Redirect**: `wp_safe_redirect(…, 303)`.
-	- **PRG deletion row**: PRG responses **delete** `eforms_eid_{form_id}` by emitting the `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` success deletion header before the 303 so the follow-up GET re-primes, per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow). No positive header in PRG.
-- Success and rerender responses advertise caching guidance via `Vary: Cookie` scoped to `eforms_s_{form_id}` per the request lifecycle contract so intermediaries respect user-specific outcomes.
+	- Orchestrates Security → Normalize → Validate → Coerce → Ledger before any side effects.
+	- Enforces cookie handling and NCID transitions per matrices; **no mid-flow mode swaps**.
+	- Error rerenders reuse persisted records and honor the NCID rerender contract (delete + re-prime when specified).
+	- Wires spam headers (`X-EForms-Soft-Fails`, `X-EForms-Suspect`) and subject tagging while respecting `spam.soft_fail_threshold` outcomes.
+- Anti-abuse helpers: honeypot modes, minimum-fill timers, `js_ok`, and `max_form_age` soft enforcement with explicit helper contracts and fixtures.
+- Success placeholder: temporary no-op banner that defers PRG semantics to [Phase 7B](#phase-7b).
 
 **Acceptance**
 
-- Matrix-driven integration tests: GET rows, POST rows, rerender rows, success handoff.
-- NCID-only completions enforce redirect/verifier requirement; inline forbidden when `is_ncid=true`.
-- Verifier-only success path (no redirect) clears ticket/cookie and strips query params.
-- Verifier MUST invalidate the ticket on first success and clear `eforms_s_{form_id}`.
-- Success-cookie fixtures assert `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds` per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
-- Verifier fixtures assert `Cache-Control: no-store` while consuming success tickets per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
-- PRG deletion row covered for both cookie-mode and NCID/challenge completions.
-- Origin check enforced; Referer not required.
-- Acceptance suite covers challenge provider outcomes (success, failure, unconfigured, provider error) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
-- Spam decision tests cover `soft_fail_count` = 0/1/≥`spam.soft_fail_threshold`, assert `X-EForms-Soft-Fails`/`X-EForms-Suspect` headers and subject tagging per `spam.*`, and ensure challenge success removes only the documented labels from `soft_reasons` before recomputing outcomes.
-- Anti-abuse coverage asserts honeypot triggers, minimum-fill timing thresholds, `max_form_age` soft enforcement, and JS gating (`js_ok`, `security.js_hard_mode`) across GET/POST/success paths.
-- Success/PRG responses set `Vary: Cookie` and surface the documented shortcode/template tag caching guidance in fixtures mirroring the request lifecycle.
+- Matrix-driven GET, POST, and rerender rows for renderer and SubmitHandler flows.
+- Success placeholder path covered by integration tests (banner/no-op) while PRG is deferred.
+- Spam and anti-abuse helpers exercised via golden tests.
+
+---
+
+## Phase 7B: Challenge & Success (PRG) {#phase-7b}
+
+**Goal:** Layer adaptive challenge providers and full success PRG flows atop the stabilized renderer/SubmitHandler core.
+
+**Dependencies:** Requires [Phase 7A](#phase-7a) and the `/eforms/prime` contract from [Phase 6](#phase-6).
+
+**Delivers**
+
+- **Challenge providers**
+	- Support `turnstile`, `hcaptcha`, and `recaptcha` with server-side verification via the WP HTTP API, request parameter mapping, and timeout handling per [Adaptive challenge (§12)](#sec-adaptive-challenge).
+	- Lazy-load widgets only during POST rerenders or verification passes and defer configuration reads until after the snapshot is primed (see [Adaptive challenge (§12)](#sec-adaptive-challenge) and [Lazy-load lifecycle (components & triggers) (§6.1)](#sec-lazy-load-matrix)).
+	- Provide verification hooks that update `require_challenge`, respect the NCID rerender contract, and avoid hidden-token rotation before success.
+	- Soft-fail when providers are misconfigured or unreachable by setting `challenge_unconfigured`, clearing `require_challenge`, and continuing via the documented soft-cookie path.
+- **Success (PRG)**
+	- Always `303` with `Cache-Control: private, no-store, max-age=0` and success tickets minted as `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds` per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
+	- Follow-up GETs hit `/eforms/success-verify?eforms_submission={submission_id}`, clear the ticket and cookie, strip query params, and re-prime via the pixel.
+	- Emit `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` on PRG responses so rerender rows re-prime as specified; never issue positive cookies in PRG.
+	- Provide NCID redirect-only override so NCID-only completions must round-trip through PRG before success surfaces.
+- Challenge and success responses continue to advertise caching guidance via `Vary: Cookie` scoped to `eforms_s_{form_id}`.
+
+**Acceptance**
+
+- Challenge provider outcome matrix (success, failure, soft-fail/unconfigured, provider error) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
+- Success verifier invalidation tests ensure tickets clear on first use and follow-up GETs re-prime appropriately.
+- NCID-only completions enforced via redirect-only PRG paths.
 
 ---
 
@@ -215,32 +222,41 @@
 
 ---
 
-## Phase 9: Logging, Privacy, Error handling, Assets, Throttling & Validation pipeline
+## Phase 9A: Logging & Privacy {#phase-9a}
 
-**Goal:** Cross-cutting correctness, observability, and user experience consistent with §§8–11, 14–16, 20, 22.
+**Goal:** Provide observability aligned with §§15–16 while honoring privacy commitments and correlation requirements.
 
 **Delivers**
 
-- **Logging (§15)**
-  - Modes: `jsonl` / `minimal` / `off`; rotation/retention; `logging.level` (0/1/2); `logging.pii`, `logging.headers`.
-  - Required fields: timestamp, severity, code, `form_id`, `submission_id`, `slot?`, `uri (eforms_*)`, privacy-processed IP, spam signals summary, SMTP failure reason.
-  - **Request correlation id** `request_id` (filter → headers → UUIDv4); included in all events; email-failure logs MUST include it.
-  - Optional Fail2ban emission writes to the configured `logging.fail2ban.file` (relative paths resolve under `${uploads.dir}`) and rotates with the same timestamped scheme as JSONL while remaining independent of `logging.mode`.
-- **Privacy & IP (§16)**: `none|masked|hash|full`; trusted proxy handling; consistent email/log presentation.
-- **Validation pipeline (§8)**: normalize → validate → coerce; consistent across modes; stable error codes.
-- Runtime size-cap enforcement (`RuntimeCap`) clamps POST bodies per `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides; guards `CONTENT_LENGTH` and coordinates with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
-- **Redirect safety (§9)**, **Suspect handling (§10)**, **Throttling (§11)** with headers (e.g., `Retry-After`) & soft/hard outcomes.
-- **Error handling (§20)**: `_global` + per-field; stable codes; NCID/hidden metadata returned for rerenders.
-- **Assets (§22)**: enqueue only when rendering; JS usability helpers; accessibility focus guidance.
+- Logging modes and retention:
+	- `jsonl` / `minimal` / `off` pipelines with rotation/retention controls and `logging.level`, `logging.pii`, `logging.headers` toggles.
+	- Request correlation id `request_id` (filter → headers → UUIDv4) emitted on every log event, including email-failure paths.
+	- Optional Fail2ban emission writing to `logging.fail2ban.file` under `${uploads.dir}`, rotating alongside JSONL while remaining independent of `logging.mode`.
+- Privacy & IP policy: `none|masked|hash|full` handling, trusted proxy evaluation, and consistent presentation across emails and logs.
 
 **Acceptance**
 
-- Snapshot of logs in each mode; PII redaction verified.
- - Fixtures enable Fail2ban and assert emission/rotation for the configured channel.
-- Throttle thresholds; suspect flags; redirect allow-list.
-- `request_id` asserted in JSONL and minimal outputs (meta blob).
-- A11y tests for focus/error summary.
-- RuntimeCap fixtures simulate oversized payloads, boundary values, and upload interactions to confirm clamps, validation errors, and `CONTENT_LENGTH` guards align with the authoritative spec calculations.
+- Redaction and rotation snapshots that verify PII handling across `jsonl`, `minimal`, and `off` configurations.
+- Error events assert presence of `request_id`.
+
+---
+
+## Phase 9B: Validation, Assets & RuntimeCap {#phase-9b}
+
+**Goal:** Finalize the end-to-end validation and runtime experience consistent with §§8–11, 20, and 22.
+
+**Dependencies:** Requires [Phase 9A](#phase-9a).
+
+**Delivers**
+
+- Full validation pipeline: normalize → validate → coerce with stable error codes, redirect safety (§9), suspect handling (§10), throttling (§11), and rerender metadata per [Error handling (§20)](#sec-error-handling).
+- RuntimeCap enforcement that clamps POST bodies using `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides while guarding `CONTENT_LENGTH` and coordinating with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
+- Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Assets (§22)](#sec-assets).
+
+**Acceptance**
+
+- Oversized and boundary payload fixtures covering RuntimeCap clamps, validation errors, and `CONTENT_LENGTH` guards.
+- Accessibility tests for focus management and error summary behavior.
 
 ---
 
@@ -264,6 +280,26 @@
 - Rerender rows preserve deterministic slot & follow delete+re-prime contract.
 - Global slots disabled ⇒ posted `eforms_slot` hard-fails.
 - Posted slot must exist in config allow-list and the record's `slots_allowed`.
+
+---
+
+## Phase 11: Ops & CI Tooling {#phase-11}
+
+**Goal:** Deliver operational safeguards and automation so supported environments stay compliant without manual babysitting.
+
+**Dependencies:** Requires [Phase 7B](#phase-7b) and [Phase 9B](#phase-9b).
+
+**Delivers**
+
+- Compatibility checks across supported PHP and WordPress versions wired into CI.
+- WP-CLI smoke tests covering Origin policy enforcement and RuntimeCap clamps, runnable locally and in CI.
+- Uninstall/purge guard implementations plus retention hooks that honor configuration toggles and prevent destructive runs without the documented flags.
+- Sample configuration diagnostics that surface misconfigurations and retention statuses for operators.
+
+**Acceptance**
+
+- CLI smoke tests execute in CI, asserting Origin policy and RuntimeCap outcomes.
+- Automated coverage exercises uninstall guards and retention hooks.
 
 ---
 
