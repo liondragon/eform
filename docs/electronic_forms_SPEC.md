@@ -352,7 +352,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/cookie/NCID):
   			- Minting helpers (see [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality)) are authoritative: they return canonical metadata and persist base records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed). `/eforms/prime` alone may **mint/refresh** cookie identifiers and MAY update only the `slots_allowed`/`slot` metadata after the helper returns, using the same atomic write contract; other endpoints may **only delete** the cookie as specified in §7.1.4.2 or remove the persisted record during the post-success rotation path in [Cookie-mode contract (§7.1.3)](#sec-cookie-mode).
   			- Definition — Post-success delete = `SubmitHandler::handle()` removing the persisted record immediately before PRG to force the rotation path in [Cookie-mode contract (§7.1.3)](#sec-cookie-mode).
-- Minting helpers never evaluate challenge, throttle, or origin policy; they consult the configuration snapshot for TTLs and slot policy, and—apart from the `/eforms/prime` slot-union carve-out above—entry points embed the returned fields verbatim.
+			- Minting helpers never evaluate challenge, throttle, or origin policy; they consult the configuration snapshot for TTLs, storage paths, and slot policy, and—apart from the `/eforms/prime` slot-union carve-out above—entry points embed the returned fields verbatim.
 			- Config read scope: The preceding restriction applies only to minting helpers. Validation (`Security::token_validate()`) may read any policy keys required (e.g., `security.*`, `challenge.*`, `privacy.*`) to compute `{token_ok, require_challenge, soft_reasons, cookie_present?}`.
 			- Minting/verification helpers MUST ensure a configuration snapshot exists by calling `Config::get()` on first use.
 			- Lazy bootstrap (normative): Endpoint **MUST** call `Config::get()` up front; helpers **MUST** call it again as a backstop. The first `Config::get()` per request runs `bootstrap()` exactly once; redundant calls are expected and safe.
@@ -405,7 +405,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
 			- Dependencies: This contract assumes the shared requirements in [Security invariants (§7.1.2)](#sec-security-invariants) and the rerender rules in [NCID rerender lifecycle (§7.1.4.2)](#sec-ncid-rerender); the sub-blocks below call out cookie-mode specifics.
 **Contract — Security::mint_cookie_record**
 - Inputs:
-- `form_id` (slug) and optional `slot?` (int 1–255). Callers MUST invoke `Config::get()` before calling this helper; the helper also calls it defensively so TTLs and slot policy are loaded and header emission stays reserved for `/eforms/prime` per the header boundary.
+- `form_id` (slug) and optional `slot?` (int 1–255). Callers MUST invoke `Config::get()` before calling this helper; the helper also calls it defensively so TTLs, storage paths, and slot policy are loaded and header emission stays reserved for `/eforms/prime` per the header boundary.
 - Side-effects:
   - On `status ∈ {miss, expired}`: atomically write `eid_minted/{form_id}/{h2}/{eid}.json` with  
     `{ mode:"cookie", form_id, eid, issued_at, expires, slots_allowed:[], slot:null }` using the shared sharding/permissions contract (§7.1.1).
