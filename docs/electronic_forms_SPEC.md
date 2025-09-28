@@ -544,7 +544,7 @@ Definition — Rotation trigger = minted record replacement caused by expiry or 
                                 - The generated contract below governs NCID fallback rerenders, pre-verification challenge rerenders, and challenge success responses.
 --8<-- "generated/security/ncid_rerender.md"
 Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge flows succeed, the success redirect carries the deletion header and the next GET emits the deterministic prime pixel before the next POST.
-- <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, the `eforms_submission` query flag, and verifier requirements are defined in [Success Behavior (PRG) (§13)](#sec-success) (see [NCID-only handoff (§13.1)](#sec-success-ncid)).
+- <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, redirect target selection, and verifier requirements are defined by [NCID success handoff (Cookie/NCID reference (§7.1.5))](#sec-cookie-ncid-summary). [Success Behavior (PRG) (§13)](#sec-success) repeats the rules informatively.
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
 <!-- BEGIN GENERATED: cookie-ncid-summary -->
@@ -558,7 +558,7 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 | Cookie policy `challenge` | `submission_id = nc-…` (`is_ncid=true`, `require_challenge=true`). | Require verification before proceeding; follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) |
 | Challenge rerender after NCID fallback | `submission_id = nc-…` (same value reused). | Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) |
 | Challenge success response | `submission_id = nc-…` (same value reused). | Follow [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender). | [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) |
-| NCID success handoff (no acceptable cookie) | `submission_id = nc-…`. | Force Redirect-only PRG even when `success.mode="inline"`; use `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (required for NCID). | [Success → NCID-only handoff (§13.1)](#sec-success-ncid) |
+| NCID success handoff (no acceptable cookie) | `submission_id = nc-…`. | Force Redirect-only PRG even when `success.mode="inline"`; append `&eforms_submission={submission_id}` and send the NCID deletion header before the 303 (per [NCID rerender rules (§7.1.4.2)](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success Behavior (PRG) (§13)](#sec-success) for narrative bullets. | [Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) |
 <!-- END GENERATED: cookie-ncid-summary -->
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
@@ -797,9 +797,7 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 				| Inline | `303` back to the same URL with `?eforms_success={form_id}`. | Renderer shows the banner only in the first instance in source order; suppress subsequent duplicates. | Works on cached pages only when paired with the verifier flow below. |
 				| Redirect | `wp_safe_redirect(redirect_url, 303)` (append `&eforms_submission=…` only when following the NCID handoff). | Destination renders its own success UX. | Cookie-mode deployments SHOULD prefer redirect targets that are not cached. |
                        - Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff) **and the submission retained a cookie-mode identifier (not an NCID)**, continue to use inline success on cached pages as the graceful fallback.
-                       - NCID override (normative): When the success flow observes `is_ncid=true`, the engine MUST ignore any configured `success.mode="inline"` and complete via [NCID-only redirect PRG (§13.1)](#sec-success-ncid). Inline success is permitted only when the authoritative identifier is a cookie EID or hidden token (`is_ncid=false`).
-                       - Redirect target selection (normative when overriding inline): If `success.redirect_url` is present, redirect there. Otherwise the engine MUST use the built-in verifier endpoint `/eforms/success-verify?eforms_submission={submission_id}` defined in this section; NCID flows require that endpoint to remain enabled.
-                       - Configuration guard: When inline success is configured without a redirect URL and the site has disabled the built-in verifier endpoint, the renderer MUST fail preflight with a deterministic schema/config error (e.g., `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`) instead of deferring to runtime.
+                       - NCID override (normative): When the success flow observes `is_ncid=true`, the engine MUST follow the generated [NCID success handoff row (§7.1.5)](#sec-cookie-ncid-summary). Inline success is permitted only when the authoritative identifier is a cookie EID or hidden token (`is_ncid=false`).
 			- <a id="sec-success-flow"></a>Canonical inline verifier flow (normative):
 				1. On successful POST, create `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{ form_id, submission_id, issued_at }` (short TTL, e.g., 5 minutes). Derive `{h2}` from the `submission_id` per [Security → Shared Lifecycle and Storage Contract (§7.1.1)](#sec-shared-lifecycle).
 				2. Set `eforms_s_{form_id}={submission_id}` with `SameSite=Lax`, `Secure` on HTTPS, HttpOnly=false, `Path=/` (so `/eforms/success-verify` can read and clear it), and `Max-Age = security.success_ticket_ttl_seconds`.
@@ -808,7 +806,11 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 				3. Redirect with `?eforms_success={form_id}` (303).
 				4. On the follow-up GET, the renderer (or lightweight JS helper) calls `/eforms/success-verify?f={form_id}&s={submission_id}` (`Cache-Control: no-store`). Render the success banner only when both the query flag and verifier response succeed. The verifier MUST immediately invalidate the ticket so subsequent calls for the same `{form_id, submission_id}` pair return false, then clear the cookie and strip the query parameter. Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}` cookie.
 			- Downstream consumers MUST treat `submission_id` values as colon-free strings and rely on separate slot metadata when disambiguating multi-instance submissions.
-- <a id="sec-success-ncid"></a>NCID-only handoff: when a submission proceeded under an NCID (no acceptable cookie), implementations MUST complete via Redirect-only PRG even when the template configured `success.mode="inline"`. Inline success is forbidden until the authoritative identifier reverts to an inline-safe token (`is_ncid=false`). The `submission_id` is the pinned NCID for this flow. Append `&eforms_submission={submission_id}` to the 303 redirect. Use `success.redirect_url` when provided; otherwise redirect to the built-in verifier endpoint `/eforms/success-verify?eforms_submission={submission_id}` (this endpoint is REQUIRED for NCID flows). If the site disables that endpoint and no redirect URL is configured, the renderer MUST fail preflight with a deterministic schema/config error (e.g., `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`). `/eforms/success-verify` MUST accept the `submission_id` (`s`) from either the `eforms_s_{form_id}` cookie or the `eforms_submission` query parameter. Refer to [Security → Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) for the identifier and rotation summary that drives this redirect-only flow.
+- <a id="sec-success-ncid"></a>NCID-only handoff (informative summary): The generated [Cookie/NCID reference (§7.1.5)](#sec-cookie-ncid-summary) row is canonical for redirect-only completions when no acceptable cookie is present. Implementations following it will:
+	- Force Redirect-only PRG even when `success.mode="inline"`, appending `&eforms_submission={submission_id}` to the 303.
+	- Send the NCID deletion header before issuing the redirect (per the NCID rerender contract).
+	- Redirect to `success.redirect_url` when provided; otherwise rely on `/eforms/success-verify?eforms_submission={submission_id}`, which MUST remain enabled and accept the identifier via cookie or query.
+	- Fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID` when inline success is configured but neither a redirect URL nor the verifier endpoint is available.
 <a id="sec-email"></a>
 14. EMAIL DELIVERY
 	- DMARC alignment: From: no-reply@{site_domain}
@@ -1015,7 +1017,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- "This file type isn't allowed."
 	- "File upload failed. Please try again."
 	- Re-render after errors passes the mode-specific security metadata defined in [Security → Submission Protection for Public Forms (§7.1)](#sec-submission-protection) back to Renderer (hidden: token/instance/timestamp; cookie: `{eid, slot}`).
-	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_HTML_TOO_LARGE).
+	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_HTML_TOO_LARGE, EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID).
 	- Large form advisory via logs and optional HTML comment (WP_DEBUG only).
 	- "This content is too long." maps to EFORMS_ERR_HTML_TOO_LARGE.
 	- "This form was already submitted or has expired - please reload the page." maps to EFORMS_ERR_TOKEN.
@@ -1134,6 +1136,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- EFORMS_ERR_SCHEMA_OBJECT - "Form configuration error: invalid object shape."
 	- EFORMS_ERR_UPLOAD_TYPE - "This file type isn't allowed."
 	- EFORMS_ERR_HTML_TOO_LARGE - "This content is too large."
+	- EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID - "Success redirect or verifier required for NCID completions."
 	- EFORMS_ERR_THROTTLED - "Please wait a moment and try again."
 	- EFORMS_ERR_CHALLENGE_FAILED - "Please complete the verification and submit again."
 	- EFORMS_CHALLENGE_UNCONFIGURED – "Verification unavailable; please try again."
