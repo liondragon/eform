@@ -148,11 +148,12 @@
   - Cookie-mode: deterministic markup + prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
   - Never call `/eforms/prime` synchronously; priming via pixel on follow-up nav.
 - **SubmitHandler (POST)**
-  - Orchestrates: Security gate → Normalize → Validate → Coerce → Ledger → Side effects.
-  - **Ledger reservation runs immediately before side effects.**
-  - Cookie handling and NCID transitions per matrices; **no mid-flow mode swaps**.
-  - Error rerenders reuse persisted record; follow NCID rerender contract (delete + re-prime) where required.
-  - Throttling & redirect-safety & suspect handling (per §§9–11).
+	- Orchestrates: Security gate → Normalize → Validate → Coerce → Ledger → Side effects.
+	- **Ledger reservation runs immediately before side effects.**
+	- Cookie handling and NCID transitions per matrices; **no mid-flow mode swaps**.
+	- Error rerenders reuse persisted record; follow NCID rerender contract (delete + re-prime) where required.
+	- Throttling & redirect-safety & suspect handling (per §§9–11).
+	- Spam decision flow enforced per [Validation & Sanitization Pipeline → Spam Decision (§8)](#sec-spam-decision): hard-fail checks fire before soft-fail scoring, `soft_reasons` are deduplicated before counting, and suspect signals wire `X-EForms-Soft-Fails`/`X-EForms-Suspect` headers plus subject tagging from the `spam.*` config (`spam.soft_fail_threshold`, header/subject toggles) alongside throttle/challenge paths. Challenge clears only the documented labels (e.g., removing the `"cookie_missing"` soft reason on success) before recomputing.
 - **Challenge**
 	- Implement `challenge.mode` states (`off`/`auto`/`always`) and align `require_challenge` evaluation with [Adaptive challenge (§12)](#sec-adaptive-challenge).
 	- Provider selection supports `turnstile`, `hcaptcha`, and `recaptcha` with server-side verification via the WP HTTP API, request parameter mapping, and timeout handling per [Adaptive challenge (§12)](#sec-adaptive-challenge).
@@ -175,6 +176,7 @@
 - PRG deletion row covered for both cookie-mode and NCID/challenge completions.
 - Origin check enforced; Referer not required.
 - Acceptance suite covers challenge provider outcomes (success, failure, unconfigured, provider error) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
+- Spam decision tests cover `soft_fail_count` = 0/1/≥`spam.soft_fail_threshold`, assert `X-EForms-Soft-Fails`/`X-EForms-Suspect` headers and subject tagging per `spam.*`, and ensure challenge success removes only the documented labels from `soft_reasons` before recomputing outcomes.
 
 ---
 
