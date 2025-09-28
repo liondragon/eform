@@ -535,7 +535,7 @@ GENERATED_CONFIGS = [
     {
         "name": "cookie-ncid-summary",
         "data_key": "ncid_summary_rows",
-        "indent": "\t\t\t\t",
+        "indent": 0,
         "header_token": "| Scenario | Identifier outcome | Required action | Canonical section |",
         "header": "| Scenario | Identifier outcome | Required action | Canonical section |",
         "separator": "|----------|--------------------|-----------------|-------------------|",
@@ -761,9 +761,20 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
                 start_idx = None
                 end_idx = None
                 for idx, line in enumerate(updated):
+                    if idx + 1 >= len(updated):
+                        continue
                     if line == pointer_line and updated[idx + 1] == begin_marker:
                         start_idx = idx
                         break
+                if start_idx is None:
+                    trimmed_pointer = POINTER_TEXT.strip()
+                    trimmed_begin = begin_marker.strip()
+                    for idx, line in enumerate(updated):
+                        if idx + 1 >= len(updated):
+                            continue
+                        if line.strip() == trimmed_pointer and updated[idx + 1].strip() == trimmed_begin:
+                            start_idx = idx
+                            break
                 if start_idx is None:
                     raise SystemExit(f"Pointer line for {config['name']} not found in {path}")
                 pointer = POINTER_TEXT.strip()
@@ -773,8 +784,9 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
                     legacy_begin,
                 }:
                     start_idx -= 1
+                trimmed_end = end_marker.strip()
                 for idx in range(start_idx, len(updated)):
-                    if updated[idx] == end_marker:
+                    if updated[idx] == end_marker or updated[idx].strip() == trimmed_end:
                         end_idx = idx
                         break
                 if end_idx is None:
