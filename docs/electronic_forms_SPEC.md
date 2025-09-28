@@ -861,9 +861,17 @@ Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge f
 - `logging.pii` (bool) — allows full emails/IPs in JSONL only; minimal mode still masks unless explicitly overridden. Default: see §17 Defaults note.
 	- Rotation/retention for JSONL: dirs 0700, files 0600, rotate when file_max_size exceeded, prune > retention_days. flock() used; note NFS caveats.
 	- What to log (all modes, subject to pii/headers):
-	- Timestamp (UTC ISO-8601), severity, code, form_id, submission_id, slot? (when provided), request URI (path + only `eforms_*` query), privacy-processed IP, spam signals summary (honeypot, origin_state, soft_reasons, throttle_state), SMTP failure reason when applicable.
-	- Token evaluation mode (meta.mode) when the submission gate runs, to differentiate hidden-token vs cookie flows.
-	- Cookie consultation boolean (meta.cookie_consulted): true iff the cookie path was evaluated (cookie-mode); false in hidden-mode. Lets tests assert that cookies were never read when a hidden token was posted.
+		- Timestamp (UTC ISO-8601), severity, code, form_id, submission_id, slot? (when provided), request URI (path + only `eforms_*` query), privacy-processed IP, spam signals summary (honeypot, origin_state, soft_reasons, throttle_state), SMTP failure reason when applicable.
+		- Token evaluation mode (meta.mode) when the submission gate runs, to differentiate hidden-token vs cookie flows.
+		- Cookie consultation boolean (meta.cookie_consulted): true iff the cookie path was evaluated (cookie-mode); false in hidden-mode. Lets tests assert that cookies were never read when a hidden token was posted.
+		- Request correlation identifier (normative):
+			- Canonical log key: `request_id`. Every log event emitted while handling a request MUST include this key; JSONL encodes it as a top-level property and minimal mode injects `req=<request_id>` into the `meta=` blob.
+			- Resolution order:
+				- Apply `apply_filters('eforms_request_id', $candidate, $request)` first. Any non-empty ASCII string returned by the filter wins.
+				- If the filter yields an empty value, look for HTTP headers (case-insensitive) in this order: `X-Eforms-Request-Id`, `X-Request-Id`, `X-Correlation-Id`. The first header containing a printable token ≤128 bytes wins after trimming surrounding whitespace.
+				- When no upstream identifier is available, generate a UUIDv4 at bootstrap and reuse it for the lifetime of the request.
+			- Sanitization: collapse internal whitespace to single spaces, strip control characters, and cap the final token at 128 bytes. If sanitization empties the value, advance to the next source in the resolution order.
+			- Entry points (SubmitHandler, Renderer AJAX endpoints, prime/success controllers) MUST pass the resolved identifier to `Logging::event()` so both JSONL and minimal sinks expose it. Email send failure logs required by [Error Handling (§20)](#sec-error-handling) MUST include this `request_id`.
 
 	- Optional on failure: canonical field names + values only for fields causing rejection when logging.on_failure_canonical=true.
 	- Throttle & challenge outcomes at level >=1 (redact provider tokens).
