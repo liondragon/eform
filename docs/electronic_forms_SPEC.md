@@ -293,11 +293,13 @@ Per [Canonicality & Precedence (§1)](SPEC_CONTRACTS.md#sec-canonicality), defer
 - **What:** Renderers delegate minting to helpers: hidden mode calls `Security::mint_hidden_record(form_id)`, while cookie mode emits deterministic slot metadata that `/eforms/prime` consumes before POST.
 - **Why:** Delegation keeps UUID/TTL policy centralized, guarantees the persisted record matches the rendered fields, and prevents ad-hoc client minting.
 - **How:** The generated matrices cover GET render flows, `/eforms/prime`, and header usage; see [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
+- **Normative** — The renderer **MUST NOT** synchronously call `/eforms/prime` during GET; priming occurs via the embedded pixel on follow-up navigation per [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
 
 ##### Persist
 - **What:** Hidden mode writes `tokens/{h2}/{sha256(token)}.json`; cookie mode persists `eid_minted/{form_id}/{h2}/{eid}.json` with `{ issued_at, expires, slots_allowed, slot }`.
 - **Why:** Shared sharding and permission rules (`{h2}` derived via `Helpers::h2()`, dirs `0700`, files `0600`) prevent leakage and ensure atomic rotation across modes.
 - **How:** Persistence details come from the `/eforms/prime` flow in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle).
+- *(Cookie mode: `/eforms/prime` owns the slot union and persists only `slots_allowed/slot`.)*
 
 ##### POST → Security gate
 - **What:** `Security::token_validate()` evaluates submission tokens, cookie presence, NCIDs, slots, throttle/origin policy, and challenge requirements.
