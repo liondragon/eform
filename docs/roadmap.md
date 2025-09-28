@@ -21,7 +21,7 @@
 
 ---
 
-## Phase 2: Security helpers (`mint_hidden_record`, `mint_cookie_record`, `token_validate`)
+## Phase 2: Security helpers (`mint_hidden_record`, `mint_cookie_record`, `token_validate`) {#phase-2}
 
 **Goal:** Make helpers the single source of truth for identifiers, TTL, persistence, and policy evaluation. Keep them header-agnostic (except explicit inputs), pure (no side effects except documented writes), and aligned to generated matrices.
 
@@ -114,9 +114,11 @@
 
 ---
 
-## Phase 6: `/eforms/prime` endpoint (single source of positive `Set-Cookie`)
+## Phase 6: `/eforms/prime` endpoint (single source of positive `Set-Cookie`) {#phase-6}
 
 **Goal:** Own mint/refresh and the positive `Set-Cookie` decision using the **unexpired match** rule; keep helpers header-agnostic.
+
+**Dependencies:** Relies on the helper contracts finalized in [Phase 2](#phase-2) for `mint_cookie_record()` semantics and must precede [Phase 10](#phase-10) so slot unioning builds on a stable `/eforms/prime` flow.
 
 **Delivers**
 
@@ -240,9 +242,11 @@
 
 ---
 
-## Phase 10: Slots (unioning & enforcement)
+## Phase 10: Slots (unioning & enforcement) {#phase-10}
 
 **Goal:** Add slot semantics **after** core cookie flow is stable; keep unioning isolated to `/eforms/prime` and validation to POST.
+
+**Dependencies:** Extends the `/eforms/prime` storage writes from [Phase 6](#phase-6); do not start until that endpoint ships the unexpired-match contract.
 
 **Delivers**
 
