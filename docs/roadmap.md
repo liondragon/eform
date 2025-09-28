@@ -48,6 +48,7 @@
 - Golden tests mirroring matrix rows (hard/soft/off/challenge).
 - Hidden-mode NCID fallback when allowed; no rotation before success.
 - Regex guards for tokens/EIDs run before disk.
+- Changing YAML regenerates matrices and breaks tests until helper behavior matches.
 
 ---
 
@@ -72,13 +73,13 @@
 
 ## Phase 4: Uploads subsystem (policy, finfo, retention)
 
-**Goal:** Implement the uploads pipeline end-to-end so token minting, MIME sniffing, retention, and GC/retention enforcement match the normative uploads spec before POST orchestration depends on it.
+**Goal:** Implement the uploads pipeline end-to-end so token minting, MIME sniffing, retention, and garbage collection (GC) enforcement match the normative uploads spec before POST orchestration depends on it.
 
 **Delivers**
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
 - `finfo`/MIME validation and extension allow-list prior to disk persistence; reject on mismatch.
-- Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and garbage-collection cron hooks.
+- Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and GC cron hooks.
   - `finfo`, extension, and accept-token metadata must agree before persistence (uploads tri-agreement).
 - Upload-specific logging and throttling hooks surfaced to the validation pipeline.
 
@@ -87,6 +88,7 @@
 - Fixtures covering allowed/blocked MIME types, oversize payloads, expired tokens, and retention expiry.
 - Garbage-collection tooling deletes expired assets without touching active submissions.
 - Upload POST paths integrate with `Security::token_validate()` outputs without bypassing snapshot/config rules.
+- Reject when any of finfo/extension/accept-token disagree; log `EFORMS_ERR_UPLOAD_TYPE`.
 
 ---
 
@@ -119,7 +121,7 @@
 - Load/update record; **Set-Cookie decision**:
   - **Send** positive `Set-Cookie` when request **lacks an unexpired match** (mint/remint; expired/missing record; cookie omitted/malformed/mismatched).
   - **Skip** only when an identical, unexpired cookie is present (same Name/Value/Path/SameSite/Secure).
-- Set-Cookie attrs (normative): `Path=/`, `Secure` (on HTTPS), `HttpOnly`, `SameSite=Lax`, `Max-Age` = full TTL on mint, or `record.expires - now` on reissue.
+- Set-Cookie attrs (normative): `Path=/`, `Secure` (HTTPS only), `HttpOnly`, `SameSite=Lax`, `Max-Age` = TTL on mint, or remaining lifetime on reissue.
 - Response: `204` + `Cache-Control: no-store`.
 - No header emission elsewhere except deletion per matrices (rerender/PRG).
 
@@ -128,6 +130,7 @@
 - Matrix-conformant behavior for cookie-less hits.
 - Cookie-less hit reissues positive `Set-Cookie`.
 - Identical, unexpired cookie ⇒ skip header emission.
+- Reissue uses remaining-lifetime (`record.expires - now`) for `Max-Age`.
 - Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET.
 - Never rewrite `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
 - Tests for attribute equality & remaining-lifetime logic.
@@ -163,7 +166,9 @@
 - Matrix-driven integration tests: GET rows, POST rows, rerender rows, success handoff.
 - NCID-only completions enforce redirect/verifier requirement; inline forbidden when `is_ncid=true`.
 - Verifier-only success path (no redirect) clears ticket/cookie and strips query params.
+- Verifier MUST invalidate the ticket on first success and clear `eforms_s_{form_id}`.
 - PRG deletion row covered for both cookie-mode and NCID/challenge completions.
+- Origin check enforced; Referer not required.
 
 ---
 
@@ -184,6 +189,7 @@
 **Acceptance**
 
 - Transport failure tests: retries/backoff (per config), error surfaced, 500 status, ledger unreserved, no cookie changes.
+- No Set-Cookie (positive or deletion) emitted on email-failure rerender.
 
 ---
 
@@ -196,7 +202,7 @@
 - **Logging (§15)**
   - Modes: `jsonl` / `minimal` / `off`; rotation/retention; `logging.level` (0/1/2); `logging.pii`, `logging.headers`.
   - Required fields: timestamp, severity, code, `form_id`, `submission_id`, `slot?`, `uri (eforms_*)`, privacy-processed IP, spam signals summary, SMTP failure reason.
-  - **Request correlation id** `request_id` (filter → headers → UUIDv4); included in all events; email-failure logs must include it.
+- **Request correlation id** `request_id` (filter → headers → UUIDv4); included in all events; email-failure logs MUST include it.
   - Optional Fail2ban emission.
 - **Privacy & IP (§16)**: `none|masked|hash|full`; trusted proxy handling; consistent email/log presentation.
 - **Validation pipeline (§8)**: normalize → validate → coerce; consistent across modes; stable error codes.
