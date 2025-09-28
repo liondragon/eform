@@ -900,7 +900,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Bootstrap ownership (normative):
 		- Entry points MUST call `Config::get()` before invoking helpers (see [Lazy-load Matrix (§6)](#sec-lazy-load-matrix) for trigger ownership).
 - Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly, but skipping the caller-side invocation remains a contract violation for entry points.
-		- When adding a new public endpoint, that endpoint owns calling `Config::get()` up front; do not call `Config::bootstrap()` directly.
+		- When adding a new public endpoint, that endpoint owns calling `Config::get()` up front; do not call `Config::bootstrap()` directly (the uninstall carve-out described in §3 is the lone exception).
 		- Call order (illustrative): Endpoint → `Config::get()` → Helper (which internally no-ops `Config::get()` again) → …
 	- Migration behavior: unknown keys MUST be rejected; missing keys fall back to defaults before clamping; invalid enums/ranges/booleans MUST trigger validation errors rather than coercion; POST handlers MUST continue to enforce constraints after bootstrap.
 
