@@ -285,7 +285,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 | Persist | Hidden tokens and cookie records reuse the shared storage rules in [Shared lifecycle and storage (§7.1.1)](#sec-shared-lifecycle); cookie mode persists via the `/eforms/prime` row in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix). |
 | POST → Security gate | `Security::token_validate()` centralizes cookie policy outcomes and NCID transitions per [Cookie policy outcomes (§7.1.3.2)](#sec-cookie-policy-matrix) and [Cookie/NCID reference (§7.1.4.3)](#sec-cookie-ncid-summary). |
 | Challenge (conditional) | Challenge and NCID rerenders track the rerender entries in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender contract (§7.1.4.2)](#sec-ncid-rerender) for delete + re-prime behavior. |
-| Normalize | Normalization precedes side effects and applies the pipelines documented in §§8–11 so cookie and hidden submissions share consistent validation. |
+| Normalize | Normalization precedes side effects and applies the pipelines documented in [Validation & Sanitization Pipeline (§8)](#sec-validation-pipeline), [Redirect Safety (§9)](#sec-redirect-safety), [Suspect Handling (§10)](#sec-suspect-handling), and [Throttling (§11)](#sec-throttling) so cookie and hidden submissions share consistent validation. |
 | Ledger | Ledger reservation uses the submission ID chosen by `Security::token_validate()` and follows [Ledger reservation contract (§7.1.1)](#sec-ledger-contract) before any side effects. |
 | Success | Success flows rely on [Success behavior (§13)](#sec-success) and the PRG-related header rules in [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions) for NCID/challenge continuations. |
 <!-- END GENERATED: lifecycle-quickstart -->
@@ -326,7 +326,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 ##### Normalize
 - **What:** Every POST runs normalize → validate → coerce before side effects.
 - **Why:** Deterministic ordering keeps uploads, sanitization, and cross-field rules consistent across retries and NCID continuations.
-- **How:** The pipelines in §§8–11 document how hidden and cookie submissions share the same validation behavior and logging outcomes.
+- **How:** The pipelines in [Validation & Sanitization Pipeline (§8)](#sec-validation-pipeline), [Redirect Safety (§9)](#sec-redirect-safety), [Suspect Handling (§10)](#sec-suspect-handling), and [Throttling (§11)](#sec-throttling) document how hidden and cookie submissions share the same validation behavior and logging outcomes.
 
 ##### Ledger
 - **What:** Reserve the ledger entry `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects.

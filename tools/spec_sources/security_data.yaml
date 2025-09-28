@@ -193,7 +193,7 @@ lifecycle_quickstart_rows:
     overview: "Challenge and NCID rerenders track the rerender entries in [Cookie-mode lifecycle (§7.1.3.3)](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender contract (§7.1.4.2)](#sec-ncid-rerender) for delete + re-prime behavior."
   - id: quickstart-normalize
     stage: "Normalize"
-    overview: "Normalization precedes side effects and applies the pipelines documented in §§8–11 so cookie and hidden submissions share consistent validation."
+    overview: "Normalization precedes side effects and applies the pipelines documented in [Validation & Sanitization Pipeline (§8)](#sec-validation-pipeline), [Redirect Safety (§9)](#sec-redirect-safety), [Suspect Handling (§10)](#sec-suspect-handling), and [Throttling (§11)](#sec-throttling) so cookie and hidden submissions share consistent validation."
   - id: quickstart-ledger
     stage: "Ledger"
     overview: "Ledger reservation uses the submission ID chosen by `Security::token_validate()` and follows [Ledger reservation contract (§7.1.1)](#sec-ledger-contract) before any side effects."
