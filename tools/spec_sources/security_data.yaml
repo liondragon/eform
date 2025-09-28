@@ -81,11 +81,11 @@ cookie_lifecycle_rows:
       - sec-cookie-lifecycle-matrix
   - id: cookie-lifecycle-prime
     flow_trigger: "`/eforms/prime` request"
-    server_must: "MUST call `Security::mint_cookie_record()`; union `s` (when allowed) into `slots_allowed`; derive canonical `slot` when the union size is one; load the record before deciding on `Set-Cookie`; MUST skip the positive header when the request presented an identical, unexpired cookie (same Name/Value/Path/SameSite/Secure)."
+    server_must: "MUST call `Security::mint_cookie_record()`; union `s` (when allowed) into `slots_allowed`; derive canonical `slot` when the union size is one; load the record before deciding on `Set-Cookie`; MUST skip the positive header only when the request’s cookie matches the persisted EID on an unexpired record."
     identifier:
       kind: cookie_record
       text: "Cookie record persists `{ mode:\"cookie\", form_id, eid, issued_at, expires, slots_allowed, slot }`."
-    notes: "Missing/truncated/expired record **or a request lacking an unexpired match** ⇒ send `Set-Cookie`; otherwise MUST skip the header whenever that identical, unexpired cookie is present. Response: `204` + `Cache-Control: no-store`. Never rewrite TTLs on reuse. Status reports the pre-write lookup; returned `expires` reflects the persisted record after any remint."
+    notes: "Missing/truncated/expired record **or a request lacking an unexpired match** ⇒ send `Set-Cookie`; otherwise MUST skip the header only when that unexpired record’s `eid` equals the presented cookie value. Response: `204` + `Cache-Control: no-store`. Never rewrite TTLs on reuse. Status reports the pre-write lookup; returned `expires` reflects the persisted record after any remint."
     references:
       - sec-cookie-mode
       - sec-cookie-lifecycle-matrix
@@ -176,7 +176,7 @@ prime_set_cookie_guidance_rows:
   - id: prime-unexpired-match
     text: "Definition — **unexpired match**: the request presents `eforms_eid_{form_id}` matching the EID regex and a server record exists for that EID with `now < record.expires`. HTTP requests do not echo Path/SameSite/Secure, so equality is inferred from minting with the configured attributes."
   - id: prime-set-cookie-carve-out
-    text: "Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match. It MUST NOT emit a positive `Set-Cookie` when an unexpired match is present; the endpoint MUST skip the header whenever an identical, unexpired cookie (same Name, Value, Path, SameSite, Secure) was presented. No alternate positive header is permitted while that match exists."
+    text: "Carve-out (normative): `/eforms/prime` MUST send `Set-Cookie` when minting a new record or when the request lacks an unexpired match. It MUST NOT emit a positive `Set-Cookie` when an unexpired match is present; the endpoint MUST skip the header only when the presented cookie value matches the persisted `eid` on that unexpired record. No alternate positive header is permitted while that match exists."
 
 lifecycle_quickstart_rows:
   - id: quickstart-render
