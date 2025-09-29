@@ -193,7 +193,7 @@
 \t- Forms emit `<form method="post">` and add `enctype="multipart/form-data"` whenever upload fields are present (TemplateContext `has_uploads`), per [Request Lifecycle → GET (§19)](#sec-request-lifecycle-get).
 \t- Shortcode `[eform id="…"]` `cacheable=true|false` switch controls hidden-mode vs. cookie-mode rendering per [Request Lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get).
 \t- Log and optionally surface the `max_input_vars` advisory per [Request lifecycle → GET (§19)](#sec-request-lifecycle-get).
-\t- Honor `html5.client_validation`: renderer never adds `novalidate`; when `true`, retain HTML5 validation hints so browsers run native checks, and when `false`, still omit `novalidate` and leave suppression of native UI to template overrides while server-side validation remains authoritative.
+\t- Honor `html5.client_validation`: omit `novalidate` when the flag is `true` so browsers run native validation, and add `novalidate` when the flag is `false` to suppress native checks while server-side validation remains authoritative.
 - WordPress shortcode and template tag entry points bootstrap through the frozen configuration snapshot and document caching guidance, including `Vary: Cookie` scoped to `eforms_s_{form_id}`.
 - **SubmitHandler (POST)**
 	- Orchestrates Security → Normalize → Validate → Coerce → Ledger before any side effects.
