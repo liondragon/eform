@@ -311,6 +311,7 @@
 - Asset versioning: enqueue CSS and JS with versions derived from `filemtime()` so cache busting matches the requirements in [Assets (§22)](#sec-assets).
 - Configuration: surface the `assets.css_disable` toggle documented in [Assets (§22)](#sec-assets) and ensure Renderer honors the opt-out during enqueue.
 - Sanitize `textarea_html` via `wp_kses_post` and enforce the post-sanitize size bound per [Special Case: HTML-Bearing Fields](docs/electronic_forms_SPEC.md#sec-html-fields).
+- Implement the shared escaping map from [Central Registries (Internal Only) (§6)](#sec-central-registries) so Renderer and output layers rely on the sanctioned helpers (`esc_html`, `esc_attr`, `esc_textarea`, `esc_url`, `esc_url_raw`, `wp_json_encode`).
 - SubmitHandler enforces the bounded cross-field rules defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 
 **Acceptance**
@@ -320,6 +321,7 @@
 - Tests cover each bounded cross-field rule type defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 - Registry fixtures assert lazy initialization and lookup failure paths for each `HANDLERS` table so the registries remain the single source of truth for validator, normalizer/coercer, renderer, and upload resolution.
 - Assets opt-out coverage: acceptance fixtures prove `assets.css_disable` suppresses stylesheet enqueueing while scripts continue to version via `filemtime()` per [Assets (§22)](#sec-assets).
+- Renderer/output acceptance snapshots confirm the escaping helpers from [Central Registries (Internal Only)](#sec-central-registries) remain the enforced sinks.
 
 ---
 
