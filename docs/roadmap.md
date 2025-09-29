@@ -157,7 +157,7 @@
 **Delivers**
 
 - Calls `Config::get()` then `mint_cookie_record(form_id, slot?)`.
-- Load/update record; **Conditional header action** (the only flow allowed to emit the positive `Set-Cookie`):
+- Load/update record; **Conditional header action** (the only flow allowed to emit the positive `Set-Cookie` for `eforms_eid_{form_id}` minted by `/eforms/prime`, leaving other cookies such as success tickets to their own flows):
   - **Send** the conditional header action’s positive `Set-Cookie` when the request **lacks an unexpired match** (mint/remint; expired/missing record; cookie omitted/malformed/mismatched).
   - **Skip** the conditional header action only when an identical, unexpired cookie is present (same Name/Value/Path/SameSite/Secure).
 - Set-Cookie attrs (normative): `Path=/`, `Secure` (HTTPS only), `HttpOnly`, `SameSite=Lax`, `Max-Age` = TTL on mint, or remaining lifetime on reissue.
@@ -229,9 +229,10 @@
 	- Provide verification hooks that update `require_challenge`, respect the NCID rerender contract, and avoid hidden-token rotation before success.
 	- Soft-fail when providers are misconfigured or unreachable by setting `challenge_unconfigured`, clearing `require_challenge`, and continuing via the documented soft-cookie path.
 - **Success (PRG)**
-	- Always `303` with `Cache-Control: private, no-store, max-age=0`, success tickets minted as `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds`, and a server-side ticket file created at `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{form_id, submission_id, issued_at}` before redirecting, all per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
+	- Always `303` with `Cache-Control: private, no-store, max-age=0`, success tickets minted (positive `Set-Cookie`) as `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds`, and a server-side ticket file created at `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{form_id, submission_id, issued_at}` before redirecting, all per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
+	- The mandated success-ticket cookie above is scoped to the verifier flow; it coexists with cookie deletions without reopening the EID boundary.
 	- Follow-up GETs hit `/eforms/success-verify?eforms_submission={submission_id}`, clear the ticket and cookie, strip query params, and re-prime via the pixel.
-	- Emit `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` on PRG responses so rerender rows re-prime as specified; never issue positive cookies in PRG.
+	- Emit `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` on PRG responses so rerender rows re-prime as specified; PRG never issues positive `eforms_eid_{form_id}` cookies (only the success ticket above).
 	- Provide NCID redirect-only override so NCID-only completions must round-trip through PRG before success surfaces.
 	- Challenge and success responses continue to advertise caching guidance via `Vary: Cookie` scoped to `eforms_s_{form_id}`.
 
@@ -380,7 +381,7 @@
 - Cookie policy outcomes (§7.1.3.2), Cookie-mode lifecycle (§7.1.3.3), Cookie header actions (§7.1.3.5), NCID rerender lifecycle (§7.1.4.2).
 - Implementation and tests must treat generated tables as higher authority than narrative.
 - **Matrices conformance harness:** CI tests load generated tables and assert behavior so spec/YAML changes fail when implementations drift.
-- **Header boundary:** Only `/eforms/prime` emits positive `Set-Cookie`; deletion headers occur on rerender & PRG rows as specified; no positive header in PRG.
+- **Header boundary:** `/eforms/prime` is the sole source of positive `Set-Cookie` headers for `eforms_eid_{form_id}`; PRG emits the positive `eforms_s_{form_id}` ticket and only deletion headers for the EID, while rerender rows continue to emit deletions as specified.
 - **No rotation before success:** Identifiers (hidden/cookie/NCID) remain pinned until the success path triggers documented rotations.
 - **Security invariants:** Regex guards before disk; tamper paths hard-fail; error rerenders reuse persisted records; NCID fallbacks preserve dedupe semantics; enforce origin-only CSRF boundary; audit cookie attributes (Path=/, SameSite=Lax, Secure on HTTPS, HttpOnly).
 - **CI scaffolding checks:**
