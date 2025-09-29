@@ -179,6 +179,7 @@
 	- Hidden-mode: embed payload from `mint_hidden_record()` including the normative `token`, `instance_id`, and `timestamp` hidden fields.
 	- Cookie-mode: deterministic markup plus prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
 	- Prime pixel only (no synchronous `/eforms/prime`); follow-up navigation performs the mint.
+	- Log and optionally surface the `max_input_vars` advisory per [Request lifecycle → GET (§19)](#sec-request-lifecycle-get).
 - WordPress shortcode and template tag entry points bootstrap through the frozen configuration snapshot and document caching guidance, including `Vary: Cookie` scoped to `eforms_s_{form_id}`.
 - **SubmitHandler (POST)**
 	- Orchestrates Security → Normalize → Validate → Coerce → Ledger before any side effects.
@@ -193,6 +194,7 @@
 - Matrix-driven GET, POST, and rerender rows for renderer and SubmitHandler flows.
 - Success placeholder path covered by integration tests (banner/no-op) while PRG is deferred.
 - Spam and anti-abuse helpers exercised via golden tests.
+- Integration or snapshot test asserts the `max_input_vars` advisory/comment appears when the heuristic triggers.
 
 ---
 
