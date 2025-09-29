@@ -395,7 +395,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 			| `expires`	| `issued_at + security.token_ttl_seconds`.
 			| `instance_id`| Base64url CSPRNG, never rewritten until token rotation.
 		- POST requirements:
-  			- Success requires a matching record: when lookup finds one, it MUST say `mode:"hidden"` for the same `form_id`, and TTL MUST be valid. Missing or expired records fall through to the policies below.
+- Success requires a matching record when lookup finds one: it MUST say `mode:"hidden"` for the same `form_id`, and TTL MUST be valid. When the lookup falls through to the hidden-mode NCID fallback, treat that NCID as the authoritative identifier for success instead of requiring the hidden record.
 			- Failure is a hard `EFORMS_ERR_TOKEN` when `security.submission_token.required=true`.
 			- When `security.submission_token.required=false`, continue with a soft label `token_soft` and an NCID-derived `submission_id` per
 			  [Security → NCIDs, Slots, and Validation Output](#sec-ncid) (hidden-mode NCID). This enables duplicate suppression
