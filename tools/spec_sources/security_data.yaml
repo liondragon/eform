@@ -325,7 +325,7 @@ ncid_summary_rows:
 ncid_rerender_steps:
   - id: ncid-rerender-delete-cookie
     title: Expire the minted cookie
-    action: "MUST delete `eforms_eid_{form_id}` via a `Set-Cookie` header whose Name/Path/SameSite/Secure/HttpOnly attributes match the minted cookie and whose `Max-Age=0` (or `Expires` is in the past) whenever NCID fallback or challenge rerenders fire, including the PRG redirect on challenge success."
+    action: "MUST delete `eforms_eid_{form_id}` via a `Set-Cookie` header whose Name/Path/SameSite/Secure/HttpOnly attributes match the minted cookie and whose `Max-Age=0` (or `Expires` is in the past) whenever NCID fallback or challenge rerenders fire, including the challenge verification success response and the PRG redirect on challenge success."
   - id: ncid-rerender-reprime
     title: Re-prime via `/eforms/prime`
     action: "MUST embed `/eforms/prime?f={form_id}[&s={slot}]` on those rerenders so the persisted record is reissued before the next POST; the rerender itself MUST NOT emit a positive `Set-Cookie`."
