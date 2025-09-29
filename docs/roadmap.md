@@ -210,6 +210,7 @@
 - Honeypot fixtures assert the `X-EForms-Stealth: 1` header and stealth logging output when `stealth_success` is configured, alongside existing coverage.
 - Integration or snapshot test asserts the `max_input_vars` advisory/comment appears when the heuristic triggers.
 - Upload fixtures assert the `<form method="post">` plus conditional `enctype="multipart/form-data"` markup so GET renders continue honoring [Request Lifecycle → GET (§19)](#sec-request-lifecycle-get).
+- Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET (prime pixel handles minting).
 
 ---
 
