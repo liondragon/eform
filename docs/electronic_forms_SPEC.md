@@ -423,6 +423,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 		- `miss` = no prior record
 		- `expired` = prior record exists and `now >= prior.expires`  
 		- `hit` = prior record exists and `now < prior.expires`  
+	- Definition — Returned record scope = On `status ∈ {miss, expired}`, the helper returns `record.slots_allowed=[]` and `record.slot=null`; `/eforms/prime` MUST apply the slot union after this helper returns per [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix).
 	- After any remint (miss/expired), `record.expires` reflects the newly persisted value.
 - Failure modes:
         - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; on miss/expired writes the helper ignores `slot?` and persists `{ slots_allowed:[], slot:null }`, leaving `/eforms/prime` to union slots after it returns; `status:"hit"` leaves the existing `slots_allowed`/`slot` fields untouched.
