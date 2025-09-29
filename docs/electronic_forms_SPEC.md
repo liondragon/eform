@@ -435,8 +435,8 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - Definition — Hit without match = `status:"hit"` but no unexpired match; `/eforms/prime` MUST still send the positive header per [Cookie header actions](#sec-cookie-header-actions).
 - **Header boundary (normative)** — [Cookie header actions matrix](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
-This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior](#sec-success).
-The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, NCID/challenge rerenders (including challenge verifier success rows), and the PRG redirect so implementations reference a single canonical source.
+  This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior](#sec-success).
+  The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, NCID/challenge rerenders (including challenge verifier success rows), and the PRG redirect so implementations reference a single canonical source.
 --8<-- "generated/security/cookie_headers.md"
 
 **Slot handling:**
@@ -453,7 +453,7 @@ The matrix below centralizes positive vs deletion vs skip requirements for GET r
 - Definition — Cookie-less hit = the request omits `eforms_eid_{form_id}`; since no unexpired match exists, `/eforms/prime` MUST reissue the positive header.
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-					- Rerenders MUST reuse the minted `eid` and deterministic slot choice. NCID/challenge rerenders follow [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender lifecycle](#sec-ncid-rerender) for the delete + re-prime contract.
+                                        - Rerenders MUST reuse the minted `eid` and deterministic slot choice. NCID/challenge rerenders follow [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender) for the delete + re-prime contract.
 --8<-- "generated/security/ncid_rerender.md"
 			- **Persisted record structure** (`eid_minted/{form_id}/{h2}/{eid}.json`):
 					| Field | Notes |
