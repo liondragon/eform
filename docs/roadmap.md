@@ -98,6 +98,7 @@
 **Delivers**
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
+- Upload bootstrap honors the TemplateContext `has_uploads` gate before initializing `finfo` handlers or touching storage, following [Uploads (Implementation Details) (§18)](#sec-uploads).
 - Enforce [Uploads → Filename policy (§18.3)](#sec-uploads-filenames):
   - Strip paths, NFC-normalize, and sanitize names (control-character removal, whitespace/dot collapse) before persistence.
   - Block reserved Windows names and deterministically truncate to `uploads.original_maxlen`.
@@ -120,6 +121,7 @@
 - Garbage-collection tooling deletes expired assets without touching active submissions.
 - Upload POST paths integrate with `Security::token_validate()` outputs without bypassing snapshot/config rules.
 - Reject when any of finfo/extension/accept-token disagree; log `EFORMS_ERR_UPLOAD_TYPE`.
+- Acceptance tests cover the `has_uploads` gate so finfo/storage initialization occurs only when templates flag uploads per [Uploads (Implementation Details) (§18)](#sec-uploads).
 - Filename normalization fixtures cover sanitization, reserved-name blocking, transliteration toggles, and hashed path persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 - Bootstrap guard tests assert `EFORMS_FINFO_UNAVAILABLE` is defined and upload attempts fail when finfo metadata is unavailable per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 
