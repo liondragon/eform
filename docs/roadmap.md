@@ -163,7 +163,6 @@
 - Set-Cookie attrs (normative): `Path=/`, `Secure` (HTTPS only), `HttpOnly`, `SameSite=Lax`, `Max-Age` = TTL on mint, or remaining lifetime on reissue.
 - Response: `204` + `Cache-Control: no-store`.
 - No header emission elsewhere except deletion per matrices (rerender/PRG).
-- Slot unioning persists `slots_allowed`/`slot` using the same atomic write contract (no `issued_at/expires` rewrite) per [Security → Cookie-mode contract → Prime endpoint semantics](electronic_forms_SPEC.md#sec-cookie-mode).
 
 **Acceptance**
 
@@ -172,9 +171,8 @@
 - Identical, unexpired cookie ⇒ skip the conditional header action.
 - Reissue uses remaining-lifetime (`record.expires - now`) for `Max-Age`.
 - Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET.
-- Never rewrite `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
+- Never rewrite `issued_at/expires` on hit; slot unioning is deferred to [Phase 10](#phase-10).
 - Tests for attribute equality & remaining-lifetime logic.
-- Concurrency tests for `/eforms/prime` simulate partial slot unions and concurrent updates to ensure atomic persistence prevents truncated or reverted `slots_allowed` state.
 
 ---
 
@@ -338,7 +336,7 @@
 
 **Delivers**
 
-- `/eforms/prime`: `slots_allowed ∪ {s}` (when allowed), derive `slot` when union size is 1; **do not** rewrite `issued_at/expires`.
+- `/eforms/prime`: `slots_allowed ∪ {s}` (when allowed), derive `slot` when union size is 1, and persist only those fields using the atomic write contract without rewriting `issued_at/expires`, per [Security → Cookie-mode contract → Prime endpoint semantics](electronic_forms_SPEC.md#sec-cookie-mode).
 - Renderer: deterministic slot selection per GET; surplus instances slotless.
 - POST enforcement: when slotted, require posted integer slot ∈ allowed set and consistent with record; otherwise hard fail; slotless deployments reject posted slot.
 - Submission ID shape in cookie mode when slotted: `eid__slot{n}`.
@@ -350,6 +348,7 @@
 - Rerender rows preserve deterministic slot & follow delete+re-prime contract.
 - Global slots disabled ⇒ posted `eforms_slot` hard-fails.
 - Posted slot must exist in config allow-list and the record's `slots_allowed`.
+- Concurrency tests for `/eforms/prime` simulate slot unions and concurrent updates to ensure atomic persistence prevents truncated or reverted `slots_allowed` state.
 
 ---
 
