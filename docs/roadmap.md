@@ -8,7 +8,7 @@
 
 - `Config::get()` (idempotent, per-request snapshot) + `bootstrap()` called exactly-once per request.
 - Snapshot covers `security.*`, `spam.*`, `challenge.*`, `email.*`, `logging.*`, `privacy.*`, `throttle.*`, `validation.*`, `uploads.*`, `assets.*`, `install.*`, defaults (authoritative table in [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration)).
-- Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`.
+- Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`, with a one-time fallback to `0750/0640` and a warning log when strict creation fails per [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes).
 - Defensive `Config::get()` calls inside helpers (normative lazy backstop).
 - Helper library from [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes) shipped alongside bootstrap (`Helpers::nfc`, `Helpers::cap_id`, `Helpers::bytes_from_ini`, etc.) with fixtures covering their contracts.
 - CI/lint hooks to assert all entry points (`Renderer`, `SubmitHandler`, `/eforms/prime`, `/eforms/success-verify`, challenge verifiers, `Emailer`) call `Config::get()` up front.
@@ -21,6 +21,7 @@
 - Unit tests: snapshot immutability across components; default resolution; missing keys handled per spec.
 - Uninstall integration tests assert the `defined('WP_UNINSTALL_PLUGIN')` guard, require the Config bootstrap, and respect purge-flag decisions per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 - Packaging checks confirm `/templates/` ships the protective files and filename allow-list required by [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
+- Storage acceptance includes a warning-path assertion so the `0750/0640` fallback continues to be exercised in tests.
 
 ---
 
