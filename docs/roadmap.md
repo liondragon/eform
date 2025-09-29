@@ -7,8 +7,8 @@
 **Delivers**
 
 - `Config::get()` (idempotent, per-request snapshot) + `bootstrap()` called exactly-once per request.
-- `Config::bootstrap()` runs the `eforms_config` filter once per request and enforces the clamp/enumeration/unknown-key rules mandated by [Configuration → Domains, Constraints, and Defaults (§17)](#sec-configuration).
-- Snapshot covers `security.*`, `spam.*`, `challenge.*`, `email.*`, `logging.*`, `privacy.*`, `throttle.*`, `validation.*`, `uploads.*`, `assets.*`, `install.*`, defaults (authoritative table in [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration)).
+- `Config::bootstrap()` runs the `eforms_config` filter once per request and enforces the clamp/enumeration/unknown-key rules mandated by [Configuration → Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration).
+- Snapshot covers `security.*`, `spam.*`, `challenge.*`, `email.*`, `logging.*`, `privacy.*`, `throttle.*`, `validation.*`, `uploads.*`, `assets.*`, `install.*`, defaults (authoritative table in [Configuration: Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration)).
 - Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`, with a one-time fallback to `0750/0640` and a warning log when strict creation fails per [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes).
 - Defensive `Config::get()` calls inside helpers (normative lazy backstop).
 - Helper library from [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes) shipped alongside bootstrap (`Helpers::nfc`, `Helpers::cap_id`, `Helpers::bytes_from_ini`, etc.) with fixtures covering their contracts.
@@ -20,7 +20,7 @@
 
 - Multiple `Config::get()` calls in a request are safe; first triggers bootstrap only.
 - Unit tests: snapshot immutability across components; default resolution; missing keys handled per spec.
-- Fixtures/tests prove the `eforms_config` filter executes exactly once per request, reject invalid keys, and clamp configuration values to the §17 ranges/enumerations defined in [Configuration → Domains, Constraints, and Defaults (§17)](#sec-configuration).
+- Fixtures/tests prove the `eforms_config` filter executes exactly once per request, reject invalid keys, and clamp configuration values to the §17 ranges/enumerations defined in [Configuration → Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration).
 - Uninstall integration tests assert the `defined('WP_UNINSTALL_PLUGIN')` guard, require the Config bootstrap, and respect purge-flag decisions per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 - Packaging checks confirm `/templates/` ships the protective files and filename allow-list required by [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 - Storage acceptance includes a warning-path assertion so the `0750/0640` fallback continues to be exercised in tests.
@@ -74,9 +74,9 @@
 
 - `TemplateValidator` preflight covering field definitions, row-group constraints, and envelope rules.
 - Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows; runtime uses the preflighted manifest only.
-- TemplateContext outputs enumerated and persisted per [Template Model → Row groups (§5.2)](#sec-template-row-groups) and [Template Model → Template JSON (§5.3)](#sec-template-json), covering descriptors, `max_input_vars_estimate`, sanitized `before_html`/`after_html` fragments, `display_format_tel` tokens, and other canonical fragments consumed by runtime components. TemplateContext also computes the `has_uploads` flag defined in [Template Model → TemplateContext (§5.8)](#sec-template-context) so upload gating is deterministic downstream.
-- TemplateValidator and TemplateContext ingest the `rules[]` envelope defined in [Template Model → Template JSON (§5.3)](#sec-template-json) and expose the bounded cross-field rules required by [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
-- TemplateContext normalizes and persists the canonical template version per [Template Model → Versioning & cache keys (§5.6)](#sec-template-versioning), storing `version` (falling back to `filemtime()` when omitted) for cache keys and Renderer/SubmitHandler success/log metadata.
+- TemplateContext outputs enumerated and persisted per [Template Model → Row groups (§5.2)](electronic_forms_SPEC.md#sec-template-row-groups) and [Template Model → Template JSON (§5.3)](electronic_forms_SPEC.md#sec-template-json), covering descriptors, `max_input_vars_estimate`, sanitized `before_html`/`after_html` fragments, `display_format_tel` tokens, and other canonical fragments consumed by runtime components. TemplateContext also computes the `has_uploads` flag defined in [Template Model → TemplateContext (§5.8)](electronic_forms_SPEC.md#sec-template-context) so upload gating is deterministic downstream.
+- TemplateValidator and TemplateContext ingest the `rules[]` envelope defined in [Template Model → Template JSON (§5.3)](electronic_forms_SPEC.md#sec-template-json) and expose the bounded cross-field rules required by [Validation → Cross-field rules (§10)](electronic_forms_SPEC.md#sec-cross-field-rules).
+- TemplateContext normalizes and persists the canonical template version per [Template Model → Versioning & cache keys (§5.6)](electronic_forms_SPEC.md#sec-template-versioning), storing `version` (falling back to `filemtime()` when omitted) for cache keys and Renderer/SubmitHandler success/log metadata.
 - CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
 - Ship default template assets in `/templates/forms/` and `/templates/email/` so deployments have ready-to-use form and email examples, including `templates/forms/quote-request.json`, `templates/forms/contact.json`, and `assets/forms.css` shipped alongside the JSON/email templates.
 - Developer ergonomics: actionable diagnostics, anchor links back to spec sections, fixtures for regression tests.
@@ -86,8 +86,8 @@
 - Golden fixtures for representative templates (hidden, cookie, NCID, uploads) pass preflight.
 - Schema drift or missing sections produce stable error codes/messages.
 - Renderer/SubmitHandler rely exclusively on the validated manifest (no ad-hoc template parsing at runtime).
-- TemplateValidator sanitizes `before_html`/`after_html` via `wp_kses_post`, persists the canonical markup, and exposes TemplateContext fields (descriptors, `max_input_vars_estimate`, sanitized fragments, telephone formatting tokens) required by [Template Model → Template JSON (§5.3)](#sec-template-json) and [Template Model → display_format_tel tokens (§5.4)](#sec-display-format-tel).
-- TemplateValidator rejects upload fields whose `accept[]` tokens do not overlap the global allow-list, emitting `EFORMS_ERR_ACCEPT_EMPTY` per [Uploads → Accept-token policy](#sec-uploads-accept-tokens), with fixtures covering both valid and empty intersections.
+- TemplateValidator sanitizes `before_html`/`after_html` via `wp_kses_post`, persists the canonical markup, and exposes TemplateContext fields (descriptors, `max_input_vars_estimate`, sanitized fragments, telephone formatting tokens) required by [Template Model → Template JSON (§5.3)](electronic_forms_SPEC.md#sec-template-json) and [Template Model → display_format_tel tokens (§5.4)](electronic_forms_SPEC.md#sec-display-format-tel).
+- TemplateValidator rejects upload fields whose `accept[]` tokens do not overlap the global allow-list, emitting `EFORMS_ERR_ACCEPT_EMPTY` per [Uploads → Accept-token policy](electronic_forms_SPEC.md#sec-uploads-accept-tokens), with fixtures covering both valid and empty intersections.
 - Acceptance coverage ensures fixtures assert the normalized version surfaces to Renderer, SubmitHandler, and logging consumers per `TemplateContext::normalize_version`.
 
 ---
@@ -99,8 +99,8 @@
 **Delivers**
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
-- Upload bootstrap honors the TemplateContext `has_uploads` gate before initializing `finfo` handlers or touching storage, following [Uploads (Implementation Details) (§18)](#sec-uploads).
-- Enforce [Uploads → Filename policy (§18.3)](#sec-uploads-filenames):
+- Upload bootstrap honors the TemplateContext `has_uploads` gate before initializing `finfo` handlers or touching storage, following [Uploads (Implementation Details) (§18)](electronic_forms_SPEC.md#sec-uploads).
+- Enforce [Uploads → Filename policy (§18.3)](electronic_forms_SPEC.md#sec-uploads-filenames):
   - Strip paths, NFC-normalize, and sanitize names (control-character removal, whitespace/dot collapse) before persistence.
   - Block reserved Windows names and deterministically truncate to `uploads.original_maxlen`.
   - Transliterate to ASCII when `uploads.transliterate=true`; otherwise retain UTF-8 and emit RFC 5987 `filename*`.
@@ -112,8 +112,8 @@
   - Liveness checks skip unexpired EIDs/hidden tokens and ledger `.used` files; success tickets only purge after TTL expiry.
   - Dry-run mode lists candidate counts and bytes without deleting.
   - Observability: log GC summaries (scanned/deleted/bytes) at `info`.
-  - `finfo`, extension, and accept-token metadata must agree before persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames) (uploads tri-agreement).
-- Bootstrap defines `EFORMS_FINFO_UNAVAILABLE` when PHP `finfo`/extension metadata are unavailable and deterministically rejects uploads per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
+  - `finfo`, extension, and accept-token metadata must agree before persistence per [Uploads → Filename policy (§18.3)](electronic_forms_SPEC.md#sec-uploads-filenames) (uploads tri-agreement).
+- Bootstrap defines `EFORMS_FINFO_UNAVAILABLE` when PHP `finfo`/extension metadata are unavailable and deterministically rejects uploads per [Uploads → Filename policy (§18.3)](electronic_forms_SPEC.md#sec-uploads-filenames).
 - Upload-specific logging and throttling hooks surfaced to the validation pipeline.
 
 **Acceptance**
@@ -122,9 +122,9 @@
 - Garbage-collection tooling deletes expired assets without touching active submissions.
 - Upload POST paths integrate with `Security::token_validate()` outputs without bypassing snapshot/config rules.
 - Reject when any of finfo/extension/accept-token disagree; log `EFORMS_ERR_UPLOAD_TYPE`.
-- Acceptance tests cover the `has_uploads` gate so finfo/storage initialization occurs only when templates flag uploads per [Uploads (Implementation Details) (§18)](#sec-uploads).
-- Filename normalization fixtures cover sanitization, reserved-name blocking, transliteration toggles, and hashed path persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
-- Bootstrap guard tests assert `EFORMS_FINFO_UNAVAILABLE` is defined and upload attempts fail when finfo metadata is unavailable per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
+- Acceptance tests cover the `has_uploads` gate so finfo/storage initialization occurs only when templates flag uploads per [Uploads (Implementation Details) (§18)](electronic_forms_SPEC.md#sec-uploads).
+- Filename normalization fixtures cover sanitization, reserved-name blocking, transliteration toggles, and hashed path persistence per [Uploads → Filename policy (§18.3)](electronic_forms_SPEC.md#sec-uploads-filenames).
+- Bootstrap guard tests assert `EFORMS_FINFO_UNAVAILABLE` is defined and upload attempts fail when finfo metadata is unavailable per [Uploads → Filename policy (§18.3)](electronic_forms_SPEC.md#sec-uploads-filenames).
 - Packaging checks confirm the plugin bundle ships `templates/forms/quote-request.json`, `templates/forms/contact.json`, and `assets/forms.css` alongside the JSON/email templates so CI can assert their presence.
 
 ---
@@ -190,9 +190,9 @@
 \t- Hidden-mode: embed payload from `mint_hidden_record()` including the normative `token`, `instance_id`, and `timestamp` hidden fields.
 \t- Cookie-mode: deterministic markup plus prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
 \t- Prime pixel only (no synchronous `/eforms/prime`); follow-up navigation performs the mint.
-\t- Forms emit `<form method="post">` and add `enctype="multipart/form-data"` whenever upload fields are present (TemplateContext `has_uploads`), per [Request Lifecycle → GET (§19)](#sec-request-lifecycle-get).
+\t- Forms emit `<form method="post">` and add `enctype="multipart/form-data"` whenever upload fields are present (TemplateContext `has_uploads`), per [Request Lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get).
 \t- Shortcode `[eform id="…"]` `cacheable=true|false` switch controls hidden-mode vs. cookie-mode rendering per [Request Lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get).
-\t- Log and optionally surface the `max_input_vars` advisory per [Request lifecycle → GET (§19)](#sec-request-lifecycle-get).
+\t- Log and optionally surface the `max_input_vars` advisory per [Request lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get).
 \t- Honor `html5.client_validation`: omit `novalidate` when the flag is `true` so browsers run native validation, and add `novalidate` when the flag is `false` to suppress native checks while server-side validation remains authoritative.
 - WordPress shortcode and template tag entry points bootstrap through the frozen configuration snapshot and document caching guidance, including `Vary: Cookie` scoped to `eforms_s_{form_id}`.
 - **SubmitHandler (POST)**
@@ -211,7 +211,7 @@
 - Golden tests cover `security.js_hard_mode`, proving `js_ok` hard-fails non-JS submissions when enabled while the default configuration retains soft behavior per [Security → Timing Checks (§7.3)](electronic_forms_SPEC.md#sec-timing-checks) and [Configuration → Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration).
 - Honeypot fixtures assert the `X-EForms-Stealth: 1` header and stealth logging output when `stealth_success` is configured, alongside existing coverage.
 - Integration or snapshot test asserts the `max_input_vars` advisory/comment appears when the heuristic triggers.
-- Upload fixtures assert the `<form method="post">` plus conditional `enctype="multipart/form-data"` markup so GET renders continue honoring [Request Lifecycle → GET (§19)](#sec-request-lifecycle-get).
+- Upload fixtures assert the `<form method="post">` plus conditional `enctype="multipart/form-data"` markup so GET renders continue honoring [Request Lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get).
 - Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET (prime pixel handles minting).
 
 ---
@@ -225,12 +225,12 @@
 **Delivers**
 
 - **Challenge providers**
-	- Support `turnstile`, `hcaptcha`, and `recaptcha` with server-side verification via the WP HTTP API, request parameter mapping, and timeout handling per [Adaptive challenge (§12)](#sec-adaptive-challenge).
-	- Lazy-load widgets only during POST rerenders or verification passes and defer configuration reads until after the snapshot is primed (see [Adaptive challenge (§12)](#sec-adaptive-challenge) and [Lazy-load lifecycle (components & triggers) (§6.1)](#sec-lazy-load-matrix)).
+	- Support `turnstile`, `hcaptcha`, and `recaptcha` with server-side verification via the WP HTTP API, request parameter mapping, and timeout handling per [Adaptive challenge (§12)](electronic_forms_SPEC.md#sec-adaptive-challenge).
+	- Lazy-load widgets only during POST rerenders or verification passes and defer configuration reads until after the snapshot is primed (see [Adaptive challenge (§12)](electronic_forms_SPEC.md#sec-adaptive-challenge) and [Lazy-load lifecycle (components & triggers) (§6.1)](electronic_forms_SPEC.md#sec-lazy-load-matrix)).
 	- Provide verification hooks that update `require_challenge`, respect the NCID rerender contract, and avoid hidden-token rotation before success.
-	- Required challenges without a working provider must keep `require_challenge=true`, set `hard_fail=true`, add `challenge_unconfigured` to `soft_reasons`, and surface/log `EFORMS_CHALLENGE_UNCONFIGURED` until the provider is fixed per [Adaptive challenge (§12)](#sec-adaptive-challenge).
+	- Required challenges without a working provider must keep `require_challenge=true`, set `hard_fail=true`, add `challenge_unconfigured` to `soft_reasons`, and surface/log `EFORMS_CHALLENGE_UNCONFIGURED` until the provider is fixed per [Adaptive challenge (§12)](electronic_forms_SPEC.md#sec-adaptive-challenge).
 - **Success (PRG)**
-	- Always `303` with `Cache-Control: private, no-store, max-age=0`, success tickets minted (positive `Set-Cookie`) as `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds`, and a server-side ticket file created at `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{form_id, submission_id, issued_at}` before redirecting, all per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
+	- Always `303` with `Cache-Control: private, no-store, max-age=0`, success tickets minted (positive `Set-Cookie`) as `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds`, and a server-side ticket file created at `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{form_id, submission_id, issued_at}` before redirecting, all per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](electronic_forms_SPEC.md#sec-success-flow).
 	- The mandated success-ticket cookie above is scoped to the verifier flow; it coexists with cookie deletions without reopening the EID boundary.
 	- Follow-up GETs hit `/eforms/success-verify?eforms_submission={submission_id}`, clear the ticket and cookie, strip query params, and re-prime via the pixel.
 	- Emit `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` on PRG responses so rerender rows re-prime as specified; PRG never issues positive `eforms_eid_{form_id}` cookies (only the success ticket above).
@@ -239,8 +239,8 @@
 
 **Acceptance**
 
-- Challenge provider outcome matrix covering success, failure, provider error, and the hard-fail unconfigured path (`require_challenge=true`, `hard_fail=true`, `EFORMS_CHALLENGE_UNCONFIGURED`) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
-- Success verifier invalidation tests ensure tickets clear on first use, create the `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` ticket with the `{form_id, submission_id, issued_at}` payload, and burn down verifier state per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
+- Challenge provider outcome matrix covering success, failure, provider error, and the hard-fail unconfigured path (`require_challenge=true`, `hard_fail=true`, `EFORMS_CHALLENGE_UNCONFIGURED`) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](electronic_forms_SPEC.md#sec-adaptive-challenge).
+- Success verifier invalidation tests ensure tickets clear on first use, create the `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` ticket with the `{form_id, submission_id, issued_at}` payload, and burn down verifier state per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](electronic_forms_SPEC.md#sec-success-flow).
 - NCID-only completions enforced via redirect-only PRG paths.
 
 ---
@@ -251,14 +251,14 @@
 
 **Delivers**
 
-- SMTP/PHPMailer integration; DKIM optional; plain text default; HTML allowed via config; enforce the DMARC-aligned `From:` fallback (`no-reply@{site_domain}`), same-domain `From` requirement, optional `email.envelope_sender`, and Subject/header sanitization rules from [Email Delivery (§14)](#sec-email).
+- SMTP/PHPMailer integration; DKIM optional; plain text default; HTML allowed via config; enforce the DMARC-aligned `From:` fallback (`no-reply@{site_domain}`), same-domain `From` requirement, optional `email.envelope_sender`, and Subject/header sanitization rules from [Email Delivery (§14)](electronic_forms_SPEC.md#sec-email).
 - Attachments policy; enforce size/count caps before send.
-- Email body renders included upload filenames and summarizes attachment overflows per [Email Delivery (§14)](#sec-email).
-- Register `wp_mail_failed` handler to log send failures and surface diagnostics per [Email Delivery (§14)](#sec-email).
-- Register `phpmailer_init` handler to apply DKIM and debug configuration before dispatch per [Email Delivery (§14)](#sec-email).
-- Email template selection pipeline matches [`email_template`] JSON keys to `/templates/email/{name}.txt.php` and `{name}.html.php`, enforces the token set/slot handling defined in [Email Templates (Registry) (§24)](#sec-email-templates), and constrains template inputs to the canonical fields/meta/uploads summary.
-- `Reply-To` header sourced from the validated field configured via `email.reply_to_field` per [Email Delivery (§14)](#sec-email).
-- `email.policy` modes (`strict`, `autocorrect`) implemented per [Email Delivery (§14)](#sec-email), including autocorrect's display-only normalization (no persisted mutations).
+- Email body renders included upload filenames and summarizes attachment overflows per [Email Delivery (§14)](electronic_forms_SPEC.md#sec-email).
+- Register `wp_mail_failed` handler to log send failures and surface diagnostics per [Email Delivery (§14)](electronic_forms_SPEC.md#sec-email).
+- Register `phpmailer_init` handler to apply DKIM and debug configuration before dispatch per [Email Delivery (§14)](electronic_forms_SPEC.md#sec-email).
+- Email template selection pipeline matches [`email_template`] JSON keys to `/templates/email/{name}.txt.php` and `{name}.html.php`, enforces the token set/slot handling defined in [Email Templates (Registry) (§24)](electronic_forms_SPEC.md#sec-email-templates), and constrains template inputs to the canonical fields/meta/uploads summary.
+- `Reply-To` header sourced from the validated field configured via `email.reply_to_field` per [Email Delivery (§14)](electronic_forms_SPEC.md#sec-email).
+- `email.policy` modes (`strict`, `autocorrect`) implemented per [Email Delivery (§14)](electronic_forms_SPEC.md#sec-email), including autocorrect's display-only normalization (no persisted mutations).
 - Staging safety (`email.disable_send`, `email.staging_redirect_to`, `X-EForms-Env: staging`, `[STAGING]` subject).
 - **Failure semantics (normative):**
 	- If `send()` returns false/throws: abort success PRG, surface `_global` error **“We couldn't send your message. Please try again later.”**, respond **HTTP 500**, log at `error`, **do not** mutate cookie/hidden records, **skip positive Set-Cookie**, continue emitting NCID/challenge deletion headers when matrices require them, keep original identifier for rerender, **rollback ledger reservation** so user can retry.
@@ -269,8 +269,8 @@
 
 - Transport failure tests: retries/backoff (per config), error surfaced, 500 status, ledger unreserved, no cookie changes.
 - No positive Set-Cookie emitted on email-failure rerender; NCID/challenge deletion headers still fire when required by matrices.
-- Fixtures/tests cover supported template inputs (fields/meta/uploads summary), token expansion for `{{field.key}}`/`{{submitted_at}}`/`{{ip}}`/`{{form_id}}`/`{{submission_id}}`/`{{slot}}`, and escape rules for text (CR/LF normalization) and HTML contexts per [Email Templates (Registry) (§24)](#sec-email-templates).
-- Fixtures/tests assert both `wp_mail_failed` and `phpmailer_init` hooks fire—logging send failures and applying DKIM/debug settings—per [Email Delivery (§14)](#sec-email).
+- Fixtures/tests cover supported template inputs (fields/meta/uploads summary), token expansion for `{{field.key}}`/`{{submitted_at}}`/`{{ip}}`/`{{form_id}}`/`{{submission_id}}`/`{{slot}}`, and escape rules for text (CR/LF normalization) and HTML contexts per [Email Templates (Registry) (§24)](electronic_forms_SPEC.md#sec-email-templates).
+- Fixtures/tests assert both `wp_mail_failed` and `phpmailer_init` hooks fire—logging send failures and applying DKIM/debug settings—per [Email Delivery (§14)](electronic_forms_SPEC.md#sec-email).
 - Acceptance tests cover both `email.policy` modes (`strict`, `autocorrect`)—including autocorrect's display-only normalization—and verify `Reply-To` resolution via `email.reply_to_field`.
 
 ---
@@ -284,7 +284,7 @@
 - Logging modes and retention:
 - `jsonl` / `minimal` / `off` pipelines with rotation/retention controls and `logging.level`, `logging.pii`, `logging.headers` toggles.
 - Request correlation id `request_id` (filter → headers → UUIDv4) emitted on every log event, including email-failure paths.
-- Optional Fail2ban emission supporting every `logging.fail2ban.target` enumeration (`error_log`, `syslog`, `file`) from [Configuration → Domains, Constraints, and Defaults (§17)](#sec-configuration). `file` targets continue writing to `logging.fail2ban.file` under `${uploads.dir}` and rotate with the JSONL pipeline, while `error_log` and `syslog` defer rotation to the host yet still clamp `logging.fail2ban.retention_days` to the §17 bounds so configuration validation and retention behavior remain consistent across sinks.
+- Optional Fail2ban emission supporting every `logging.fail2ban.target` enumeration (`error_log`, `syslog`, `file`) from [Configuration → Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration). `file` targets continue writing to `logging.fail2ban.file` under `${uploads.dir}` and rotate with the JSONL pipeline, while `error_log` and `syslog` defer rotation to the host yet still clamp `logging.fail2ban.retention_days` to the §17 bounds so configuration validation and retention behavior remain consistent across sinks.
 - Level-gated diagnostics per [Logging (§15)](electronic_forms_SPEC.md#sec-logging):
 - `logging.on_failure_canonical=true` unlocks canonical field name/value emission for rejected inputs only.
 - Level 2 appends the `desc_sha1` descriptor fingerprint to JSONL/minimal logs so fixtures can assert descriptor stability.
@@ -298,7 +298,7 @@
 - Proxy resolution fixtures exercise `privacy.client_ip_header` and `privacy.trusted_proxies` in CI, covering untrusted `X-Forwarded-For` spoofing, trusted proxy chains, and private-IP fallbacks per [Privacy and IP Handling (§16)](electronic_forms_SPEC.md#sec-privacy).
 - Masked/hash/full mode tests confirm the resolved client IP propagates to logs and emails with the expected redaction per [Privacy and IP Handling (§16)](electronic_forms_SPEC.md#sec-privacy).
 - Level 2 logging tests assert `desc_sha1` emission across sinks.
-- Fail2ban fixtures cover each `logging.fail2ban.target` (`error_log`, `syslog`, `file`), asserting the `logging.fail2ban.retention_days` clamp from [Configuration → Domains, Constraints, and Defaults (§17)](#sec-configuration) and verifying retention/rotation behavior per sink (shared JSONL rotation for `file`, host-managed retention for `error_log`/`syslog`).
+- Fail2ban fixtures cover each `logging.fail2ban.target` (`error_log`, `syslog`, `file`), asserting the `logging.fail2ban.retention_days` clamp from [Configuration → Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration) and verifying retention/rotation behavior per sink (shared JSONL rotation for `file`, host-managed retention for `error_log`/`syslog`).
 
 ---
 
@@ -310,24 +310,24 @@
 
 **Delivers**
 
-- Full validation pipeline: normalize → validate → coerce with stable error codes, redirect safety (§9), suspect handling (§10), throttling (§11), and rerender metadata per [Error handling (§20)](#sec-error-handling).
+- Full validation pipeline: normalize → validate → coerce with stable error codes, redirect safety (§9), suspect handling (§10), throttling (§11), and rerender metadata per [Error handling (§20)](electronic_forms_SPEC.md#sec-error-handling).
 - Private `HANDLERS` registries (validators, normalizers/coercers, renderers, uploads) with spec-aligned `resolve()` helpers so runtime lookups stay centralized and pluggable without bypassing the authoritative tables.
-- RuntimeCap enforcement that clamps POST bodies using `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides while guarding `CONTENT_LENGTH` and coordinating with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
-- Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Accessibility (§12)](#sec-accessibility) and [Assets (§22)](#sec-assets), including label/control associations, fieldset/legend grouping, role/ARIA obligations for the error summary, and focus-management rules when native validation remains enabled (`html5.client_validation=true`): skip pre-submit summary focus to avoid double focus, yet still move focus to the first invalid control after server rerenders.
-- Asset versioning: enqueue CSS and JS with versions derived from `filemtime()` so cache busting matches the requirements in [Assets (§22)](#sec-assets).
-- Configuration: surface the `assets.css_disable` toggle documented in [Assets (§22)](#sec-assets) and ensure Renderer honors the opt-out during enqueue.
-- Sanitize `textarea_html` via `wp_kses_post` and enforce the post-sanitize size bound per [Special Case: HTML-Bearing Fields](docs/electronic_forms_SPEC.md#sec-html-fields).
-- Implement the shared escaping map from [Central Registries (Internal Only) (§6)](#sec-central-registries) so Renderer and output layers rely on the sanctioned helpers (`esc_html`, `esc_attr`, `esc_textarea`, `esc_url`, `esc_url_raw`, `wp_json_encode`).
-- SubmitHandler enforces the bounded cross-field rules defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
+- RuntimeCap enforcement that clamps POST bodies using `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides while guarding `CONTENT_LENGTH` and coordinating with upload slot validation (see [POST Size Cap (§6)](electronic_forms_SPEC.md#sec-post-size-cap)).
+- Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Accessibility (§12)](electronic_forms_SPEC.md#sec-accessibility) and [Assets (§22)](electronic_forms_SPEC.md#sec-assets), including label/control associations, fieldset/legend grouping, role/ARIA obligations for the error summary, and focus-management rules when native validation remains enabled (`html5.client_validation=true`): skip pre-submit summary focus to avoid double focus, yet still move focus to the first invalid control after server rerenders.
+- Asset versioning: enqueue CSS and JS with versions derived from `filemtime()` so cache busting matches the requirements in [Assets (§22)](electronic_forms_SPEC.md#sec-assets).
+- Configuration: surface the `assets.css_disable` toggle documented in [Assets (§22)](electronic_forms_SPEC.md#sec-assets) and ensure Renderer honors the opt-out during enqueue.
+- Sanitize `textarea_html` via `wp_kses_post` and enforce the post-sanitize size bound per [Special Case: HTML-Bearing Fields](electronic_forms_SPEC.md#sec-html-fields).
+- Implement the shared escaping map from [Central Registries (Internal Only) (§6)](electronic_forms_SPEC.md#sec-central-registries) so Renderer and output layers rely on the sanctioned helpers (`esc_html`, `esc_attr`, `esc_textarea`, `esc_url`, `esc_url_raw`, `wp_json_encode`).
+- SubmitHandler enforces the bounded cross-field rules defined in [Validation → Cross-field rules (§10)](electronic_forms_SPEC.md#sec-cross-field-rules).
 
 **Acceptance**
 
 - Oversized and boundary payload fixtures covering RuntimeCap clamps, validation errors, and `CONTENT_LENGTH` guards.
 - Accessibility tests cover focus management alongside markup requirements: labels tied to controls, grouped inputs wrapped in fieldset/legend, and role="alert" summary behavior.
-- Tests cover each bounded cross-field rule type defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
+- Tests cover each bounded cross-field rule type defined in [Validation → Cross-field rules (§10)](electronic_forms_SPEC.md#sec-cross-field-rules).
 - Registry fixtures assert lazy initialization and lookup failure paths for each `HANDLERS` table so the registries remain the single source of truth for validator, normalizer/coercer, renderer, and upload resolution.
-- Assets opt-out coverage: acceptance fixtures prove `assets.css_disable` suppresses stylesheet enqueueing while scripts continue to version via `filemtime()` per [Assets (§22)](#sec-assets).
-- Renderer/output acceptance snapshots confirm the escaping helpers from [Central Registries (Internal Only)](#sec-central-registries) remain the enforced sinks.
+- Assets opt-out coverage: acceptance fixtures prove `assets.css_disable` suppresses stylesheet enqueueing while scripts continue to version via `filemtime()` per [Assets (§22)](electronic_forms_SPEC.md#sec-assets).
+- Renderer/output acceptance snapshots confirm the escaping helpers from [Central Registries (Internal Only)](electronic_forms_SPEC.md#sec-central-registries) remain the enforced sinks.
 
 ---
 
