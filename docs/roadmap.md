@@ -188,7 +188,7 @@
 	- Enforces cookie handling and NCID transitions per matrices; **no mid-flow mode swaps**.
 	- Error rerenders reuse persisted records, emit `Cache-Control: private, no-store`, and honor the NCID rerender contract (delete + re-prime when specified).
 	- Wires spam headers (`X-EForms-Soft-Fails`, `X-EForms-Suspect`) and subject tagging while respecting `spam.soft_fail_threshold` outcomes.
-- Anti-abuse helpers: honeypot modes, minimum-fill timers, `js_ok`, and `max_form_age` soft enforcement with explicit helper contracts and fixtures.
+- Anti-abuse helpers: honeypot modes, minimum-fill timers, `js_ok`, and `max_form_age` soft enforcement with explicit helper contracts and fixtures, including `stealth_success` flows emitting `X-EForms-Stealth: 1` and logging `stealth:true` per [Security → Honeypot (§7.2)](electronic_forms_SPEC.md#sec-honeypot).
 - Success placeholder: temporary no-op banner that defers PRG semantics to [Phase 7B](#phase-7b).
 
 **Acceptance**
@@ -196,6 +196,7 @@
 - Matrix-driven GET, POST, and rerender rows for renderer and SubmitHandler flows.
 - Success placeholder path covered by integration tests (banner/no-op) while PRG is deferred.
 - Spam and anti-abuse helpers exercised via golden tests.
+- Honeypot fixtures assert the `X-EForms-Stealth: 1` header and stealth logging output when `stealth_success` is configured, alongside existing coverage.
 - Integration or snapshot test asserts the `max_input_vars` advisory/comment appears when the heuristic triggers.
 
 ---
