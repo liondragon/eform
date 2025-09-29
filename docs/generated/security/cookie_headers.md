@@ -1,4 +1,5 @@
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
 <!-- BEGIN GENERATED: cookie-header-actions -->
 | Flow trigger | Header action | Invariants |
 |--------------|---------------|------------|

@@ -1,4 +1,5 @@
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
 <!-- BEGIN GENERATED: ncid-rerender-steps -->
 - **Expire the minted cookie** — MUST delete `eforms_eid_{form_id}` via a `Set-Cookie` header whose Name/Path/SameSite/Secure/HttpOnly attributes match the minted cookie and whose `Max-Age=0` (or `Expires` is in the past) whenever NCID fallback or challenge rerenders fire, including the challenge verification success response and the PRG redirect on challenge success.
 - **Re-prime via `/eforms/prime`** — MUST embed `/eforms/prime?f={form_id}[&s={slot}]` on those rerenders so the persisted record is reissued before the next POST; the rerender itself MUST NOT emit a positive `Set-Cookie`.

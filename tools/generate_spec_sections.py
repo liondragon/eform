@@ -406,6 +406,7 @@ def format_ncid_summary_rows(rows: list[dict]) -> list[dict[str, str]]:
 def render_ncid_rerender_steps(steps: list[dict]) -> str:
     lines = [
         POINTER_TEXT,
+        "",
         "<!-- BEGIN GENERATED: ncid-rerender-steps -->",
     ]
     for step in steps:
@@ -457,6 +458,7 @@ def render_bullet_block(
 ) -> list[str]:
     lines = [
         base_indent + POINTER_TEXT,
+        "",
         base_indent + f"<!-- BEGIN GENERATED: {name} -->",
     ]
     lines.extend(render_bullet_rows(rows, base_indent=base_indent, indent_unit=indent_unit))
@@ -707,7 +709,11 @@ def render_table(config: dict, rows: list[dict[str, str]]) -> list[str]:
         lines.append(line)
     indent = get_indent_string(config)
     prefixed = [indent + line if line else line for line in lines]
-    block = [indent + POINTER_TEXT, indent + f"<!-- BEGIN GENERATED: {config['name']} -->"]
+    block = [
+        indent + POINTER_TEXT,
+        "",
+        indent + f"<!-- BEGIN GENERATED: {config['name']} -->",
+    ]
     block.extend(prefixed)
     block.append(indent + f"<!-- END GENERATED: {config['name']} -->")
     return block
@@ -761,18 +767,24 @@ def integrate_generated_content(data: dict, *, check: bool) -> bool:
                 start_idx = None
                 end_idx = None
                 for idx, line in enumerate(updated):
-                    if idx + 1 >= len(updated):
+                    if line != pointer_line:
                         continue
-                    if line == pointer_line and updated[idx + 1] == begin_marker:
+                    next_idx = idx + 1
+                    while next_idx < len(updated) and updated[next_idx] == "":
+                        next_idx += 1
+                    if next_idx < len(updated) and updated[next_idx] == begin_marker:
                         start_idx = idx
                         break
                 if start_idx is None:
                     trimmed_pointer = POINTER_TEXT.strip()
                     trimmed_begin = begin_marker.strip()
                     for idx, line in enumerate(updated):
-                        if idx + 1 >= len(updated):
+                        if line.strip() != trimmed_pointer:
                             continue
-                        if line.strip() == trimmed_pointer and updated[idx + 1].strip() == trimmed_begin:
+                        next_idx = idx + 1
+                        while next_idx < len(updated) and updated[next_idx].strip() == "":
+                            next_idx += 1
+                        if next_idx < len(updated) and updated[next_idx].strip() == trimmed_begin:
                             start_idx = idx
                             break
                 if start_idx is None:
