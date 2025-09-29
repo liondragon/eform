@@ -248,6 +248,8 @@
 
 - SMTP/PHPMailer integration; DKIM optional; strict header sanitation; plain text default; HTML allowed via config.
 - Attachments policy; enforce size/count caps before send.
+- Register `wp_mail_failed` handler to log send failures and surface diagnostics per [Email Delivery (§14)](#sec-email).
+- Register `phpmailer_init` handler to apply DKIM and debug configuration before dispatch per [Email Delivery (§14)](#sec-email).
 - Email template selection pipeline matches [`email_template`] JSON keys to `/templates/email/{name}.txt.php` and `{name}.html.php`, enforces the token set/slot handling defined in [Email Templates (Registry) (§24)](#sec-email-templates), and constrains template inputs to the canonical fields/meta/uploads summary.
 - `Reply-To` header sourced from the validated field configured via `email.reply_to_field` per [Email Delivery (§14)](#sec-email).
 - `email.policy` modes (`strict`, `autocorrect`) implemented per [Email Delivery (§14)](#sec-email), including autocorrect's display-only normalization (no persisted mutations).
@@ -262,6 +264,7 @@
 - Transport failure tests: retries/backoff (per config), error surfaced, 500 status, ledger unreserved, no cookie changes.
 - No positive Set-Cookie emitted on email-failure rerender; NCID/challenge deletion headers still fire when required by matrices.
 - Fixtures/tests cover supported template inputs (fields/meta/uploads summary), token expansion for `{{field.key}}`/`{{submitted_at}}`/`{{ip}}`/`{{form_id}}`/`{{submission_id}}`/`{{slot}}`, and escape rules for text (CR/LF normalization) and HTML contexts per [Email Templates (Registry) (§24)](#sec-email-templates).
+- Fixtures/tests assert both `wp_mail_failed` and `phpmailer_init` hooks fire—logging send failures and applying DKIM/debug settings—per [Email Delivery (§14)](#sec-email).
 - Acceptance tests cover both `email.policy` modes (`strict`, `autocorrect`)—including autocorrect's display-only normalization—and verify `Reply-To` resolution via `email.reply_to_field`.
 
 ---
