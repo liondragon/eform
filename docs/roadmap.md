@@ -228,7 +228,7 @@
 	- Support `turnstile`, `hcaptcha`, and `recaptcha` with server-side verification via the WP HTTP API, request parameter mapping, and timeout handling per [Adaptive challenge (§12)](#sec-adaptive-challenge).
 	- Lazy-load widgets only during POST rerenders or verification passes and defer configuration reads until after the snapshot is primed (see [Adaptive challenge (§12)](#sec-adaptive-challenge) and [Lazy-load lifecycle (components & triggers) (§6.1)](#sec-lazy-load-matrix)).
 	- Provide verification hooks that update `require_challenge`, respect the NCID rerender contract, and avoid hidden-token rotation before success.
-	- Soft-fail when providers are misconfigured or unreachable by setting `challenge_unconfigured`, clearing `require_challenge`, and continuing via the documented soft-cookie path.
+	- Required challenges without a working provider must keep `require_challenge=true`, set `hard_fail=true`, add `challenge_unconfigured` to `soft_reasons`, and surface/log `EFORMS_CHALLENGE_UNCONFIGURED` until the provider is fixed per [Adaptive challenge (§12)](#sec-adaptive-challenge).
 - **Success (PRG)**
 	- Always `303` with `Cache-Control: private, no-store, max-age=0`, success tickets minted (positive `Set-Cookie`) as `eforms_s_{form_id}` with `Path=/`, `SameSite=Lax`, HTTPS-gated `Secure`, `HttpOnly=false`, and `Max-Age=security.success_ticket_ttl_seconds`, and a server-side ticket file created at `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{form_id, submission_id, issued_at}` before redirecting, all per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
 	- The mandated success-ticket cookie above is scoped to the verifier flow; it coexists with cookie deletions without reopening the EID boundary.
@@ -239,7 +239,7 @@
 
 **Acceptance**
 
-- Challenge provider outcome matrix (success, failure, soft-fail/unconfigured, provider error) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
+- Challenge provider outcome matrix covering success, failure, provider error, and the hard-fail unconfigured path (`require_challenge=true`, `hard_fail=true`, `EFORMS_CHALLENGE_UNCONFIGURED`) for Turnstile, hCaptcha, and reCAPTCHA per [Adaptive challenge (§12)](#sec-adaptive-challenge).
 - Success verifier invalidation tests ensure tickets clear on first use, create the `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` ticket with the `{form_id, submission_id, issued_at}` payload, and burn down verifier state per [Success Behavior (PRG) → Canonical inline verifier flow (§13)](#sec-success-flow).
 - NCID-only completions enforced via redirect-only PRG paths.
 
