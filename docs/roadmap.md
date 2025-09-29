@@ -186,12 +186,13 @@
 **Delivers**
 
 - **Renderer (GET)**
-	- Hidden-mode: embed payload from `mint_hidden_record()` including the normative `token`, `instance_id`, and `timestamp` hidden fields.
-	- Cookie-mode: deterministic markup plus prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
-	- Prime pixel only (no synchronous `/eforms/prime`); follow-up navigation performs the mint.
-	- Shortcode `[eform id="…"]` `cacheable=true|false` switch controls hidden-mode vs. cookie-mode rendering per [Request Lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get).
-	- Log and optionally surface the `max_input_vars` advisory per [Request lifecycle → GET (§19)](#sec-request-lifecycle-get).
-	- Honor `html5.client_validation`: when `true`, omit `novalidate` and retain required/pattern attributes so browsers run native checks; when `false`, add `novalidate` and suppress native validation UI so server-side errors remain authoritative.
+\t- Hidden-mode: embed payload from `mint_hidden_record()` including the normative `token`, `instance_id`, and `timestamp` hidden fields.
+\t- Cookie-mode: deterministic markup plus prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
+\t- Prime pixel only (no synchronous `/eforms/prime`); follow-up navigation performs the mint.
+\t- Forms emit `<form method="post">` and add `enctype="multipart/form-data"` whenever upload fields are present (TemplateContext `has_uploads`), per [Request Lifecycle → GET (§19)](#sec-request-lifecycle-get).
+\t- Shortcode `[eform id="…"]` `cacheable=true|false` switch controls hidden-mode vs. cookie-mode rendering per [Request Lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get).
+\t- Log and optionally surface the `max_input_vars` advisory per [Request lifecycle → GET (§19)](#sec-request-lifecycle-get).
+\t- Honor `html5.client_validation`: when `true`, omit `novalidate` and retain required/pattern attributes so browsers run native checks; when `false`, add `novalidate` and suppress native validation UI so server-side errors remain authoritative.
 - WordPress shortcode and template tag entry points bootstrap through the frozen configuration snapshot and document caching guidance, including `Vary: Cookie` scoped to `eforms_s_{form_id}`.
 - **SubmitHandler (POST)**
 	- Orchestrates Security → Normalize → Validate → Coerce → Ledger before any side effects.
@@ -209,6 +210,7 @@
 - Golden tests cover `security.js_hard_mode`, proving `js_ok` hard-fails non-JS submissions when enabled while the default configuration retains soft behavior per [Security → Timing Checks (§7.3)](electronic_forms_SPEC.md#sec-timing-checks) and [Configuration → Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration).
 - Honeypot fixtures assert the `X-EForms-Stealth: 1` header and stealth logging output when `stealth_success` is configured, alongside existing coverage.
 - Integration or snapshot test asserts the `max_input_vars` advisory/comment appears when the heuristic triggers.
+- Upload fixtures assert the `<form method="post">` plus conditional `enctype="multipart/form-data"` markup so GET renders continue honoring [Request Lifecycle → GET (§19)](#sec-request-lifecycle-get).
 
 ---
 
