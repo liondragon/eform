@@ -438,7 +438,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - **Header boundary (normative)** — [Cookie header actions matrix](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
   This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior](#sec-success).
-  The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, rerenders covered by the NCID rerender and challenge lifecycle (including challenge verifier success rows), and the PRG redirect so implementations reference a single canonical source.
+  The matrix below centralizes the conditional vs deletion vs skip guidance for GET renders, `/eforms/prime`, rerenders covered by the NCID rerender and challenge lifecycle (including challenge verifier success rows), and the PRG redirect so implementations reference a single canonical source. The conditional row still governs the positive `Set-Cookie` carve-out by stating exactly when `/eforms/prime` emits or withholds that header.
 --8<-- "generated/security/cookie_headers.md"
 
 **Slot handling:**
