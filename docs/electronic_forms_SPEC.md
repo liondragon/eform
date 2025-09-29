@@ -451,6 +451,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 
 **Header decision (at `/eforms/prime`):**
 - Apply the `/eforms/prime` row from [Cookie header actions](#sec-cookie-header-actions) after loading the record: **send** the positive `Set-Cookie` whenever the request **lacks an unexpired match** (e.g., mint/remint; expired/missing record; cookie omitted/malformed/mismatched) and **skip** it only when an identical, unexpired cookie is already present.
+- Definition — Conditional positive header = `/eforms/prime` emits the positive `Set-Cookie` only when the request lacks an unexpired match per that matrix.
 - Definition — Identical cookie inference = treat the presented cookie as identical when its value equals the persisted `eid`; request headers never surface Path/SameSite/Secure, so those attributes are inferred from the mint.
 - Definition — Cookie-less hit = the request omits `eforms_eid_{form_id}`; since no unexpired match exists, `/eforms/prime` MUST reissue the positive header.
 			- **GET markup and rerendering**
@@ -505,7 +506,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
                                         |-------------|-----------------------------------------------------|-----------|-------------|--------------------|--------------------|-------------------|
                                         | `hard` | Reject with `EFORMS_ERR_TOKEN`. Return the structured result and abort before ledger reservation. | `false` | — | `false` | — (`submission_id=null`) | Per request; true only when a syntactically valid cookie header was present on this POST. |
                                         | `soft` | Continue via NCID; treat tampering separately; add `cookie_missing`. | `false` | `cookie_missing` | `false` | NCID (`nc-…`, `is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
-                                        | `off` | Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record. | `false` | Conditional | `false` | NCID (`nc-…`, `is_ncid=true`) | False when the cookie was absent/malformed; true when only the record was missing/expired. |
+                                        | `off` | Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record. | `false` | conditional (`cookie_missing` only when a syntactically valid cookie lacked a record) | `false` | NCID (`nc-…`, `is_ncid=true`) | False when the cookie was absent/malformed; true when only the record was missing/expired. |
                                         | `challenge` | Continue via NCID; require verification before proceeding; add `cookie_missing`. | `false` | `cookie_missing` | `true` | NCID (`nc-…`, `is_ncid=true`) | False when the cookie was absent/malformed; true when a syntactically valid cookie lacked a record. |
                                         <!-- END GENERATED: cookie-policy-matrix -->
 - Identifier pinning (challenge): See [Security → NCIDs, slots, and validation output](#sec-ncid) for the canonical challenge pinning rules.
