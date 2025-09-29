@@ -288,7 +288,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 | Challenge (conditional) | Challenge and NCID rerenders track the rerender entries in [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) and the generated [NCID rerender and challenge lifecycle](#sec-ncid-rerender) for delete + re-prime behavior. |
 | Normalize | Normalization precedes side effects and applies the pipelines documented in the [Validation & Sanitization Pipeline](#sec-validation-pipeline), [Redirect Safety](#sec-redirect-safety), [Suspect Handling](#sec-suspect-handling), and [Throttling](#sec-throttling) so cookie and hidden submissions share consistent validation. |
 | Ledger | Ledger reservation uses the submission ID chosen by `Security::token_validate()` and follows [Ledger reservation contract](#sec-ledger-contract) before any side effects. |
-| Success | Success flows rely on [Success behavior](#sec-success) and the PRG-related header rules in [Cookie header actions](#sec-cookie-header-actions) for NCID/challenge continuations. |
+| Success | Success flows rely on [Success behavior](#sec-success) and the PRG-related header rules in [Cookie header actions](#sec-cookie-header-actions) for flows governed by the NCID rerender and challenge lifecycle. |
 <!-- END GENERATED: lifecycle-quickstart -->
 
 ##### Render (GET)
@@ -437,7 +437,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - **Header boundary (normative)** — [Cookie header actions matrix](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
   This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior](#sec-success).
-  The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, NCID/challenge rerenders (including challenge verifier success rows), and the PRG redirect so implementations reference a single canonical source.
+  The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, rerenders covered by the NCID rerender and challenge lifecycle (including challenge verifier success rows), and the PRG redirect so implementations reference a single canonical source.
 --8<-- "generated/security/cookie_headers.md"
 
 **Slot handling:**
@@ -454,7 +454,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - Definition — Cookie-less hit = the request omits `eforms_eid_{form_id}`; since no unexpired match exists, `/eforms/prime` MUST reissue the positive header.
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-        - Rerenders MUST reuse the minted `eid` and deterministic slot choice. NCID/challenge rerenders follow [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender) for the delete + re-prime contract.
+        - Rerenders MUST reuse the minted `eid` and deterministic slot choice. Rerenders governed by the NCID rerender and challenge lifecycle follow [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender) for the delete + re-prime contract.
 
 --8<-- "generated/security/ncid_rerender.md"
 			- **Persisted record structure** (`eid_minted/{form_id}/{h2}/{eid}.json`):
@@ -476,7 +476,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
                                        `eforms_eid_{form_id}` with a matching Max-Age=0 Set-Cookie header and embed
                                        `/eforms/prime?f={form_id}[&s={slot}]` so the persisted record is reissued before the next
                                        POST without rotating identifiers.
-					**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+                                       **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
                                         <!-- BEGIN GENERATED: cookie-lifecycle-matrix -->
                                         | Flow trigger | Server MUST | Identifier outcome | Notes |
                                         |--------------|-------------|--------------------|-------|
@@ -492,10 +492,10 @@ This table routes each lifecycle stage to the normative matrices that govern its
                                         <!-- END GENERATED: cookie-lifecycle-matrix -->
 
        - <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
-      Pick the configured policy, consume the row’s `{ token_ok, soft_reasons, require_challenge, identifier, cookie_present? }`, and defer NCID/challenge rerender + header handling to [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender).
+      Pick the configured policy, consume the row’s `{ token_ok, soft_reasons, require_challenge, identifier, cookie_present? }`, and defer rerender and header handling for the NCID rerender and challenge lifecycle to [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender).
 
 --8<-- "generated/security/ncid_rerender.md"
-					**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+                                       **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
                                         <!-- BEGIN GENERATED: cookie-policy-matrix -->
                                         | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
                                         |-------------|-----------------------------------------------------|-----------|-------------|--------------------|--------------------|-------------------|
@@ -564,7 +564,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - <a id="sec-ncid-rerender"></a>NCID rerender and challenge lifecycle (normative):
 			- The generated contract below governs NCID fallback rerenders, pre-verification challenge rerenders, and challenge success responses.
 --8<-- "generated/security/ncid_rerender.md"
-- Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge flows succeed, the success redirect carries the deletion header and the next GET emits the deterministic prime pixel before the next POST.
+- Definition — PRG re-prime (NCID rerender and challenge lifecycle) = when NCID fallback or challenge flows succeed, the success redirect carries the deletion header and the next GET emits the deterministic prime pixel before the next POST.
 - <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, redirect target selection, and verifier requirements are defined by [NCID success handoff (Cookie/NCID reference)](#sec-cookie-ncid-summary). [Success Behavior (PRG)](#sec-success) repeats the rules informatively.
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
@@ -825,10 +825,10 @@ This table routes each lifecycle stage to the normative matrices that govern its
 				2. Set `eforms_s_{form_id}={submission_id}` with `SameSite=Lax`, `Secure` on HTTPS, HttpOnly=false, `Path=/` (so `/eforms/success-verify` can read and clear it), and `Max-Age = security.success_ticket_ttl_seconds`.
 				- Definition — Success-cookie TTL = `security.success_ticket_ttl_seconds` from [Configuration](#sec-configuration).
 				- Definition — Success-cookie Path `/` keeps `/eforms/success-verify` eligible to receive and clear the ticket.
-                               3. Send the `eforms_eid_{form_id}` deletion header (Max-Age=0) then redirect with `?eforms_success={form_id}` (303). Success responses MUST NOT emit a positive `Set-Cookie` for `eforms_eid_{form_id}`; only `/eforms/prime` may reissue it on the follow-up GET per [Cookie header actions](#sec-cookie-header-actions).
-                                       - Definition — Success PRG deletion header = the `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` emitted before the 303 per [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
-                                       - Definition — Success header boundary = Success responses send only the deletion header; the positive `Set-Cookie` remains reserved for `/eforms/prime`.
-                               4. On the follow-up GET, the renderer (or lightweight JS helper) calls `/eforms/success-verify?eforms_submission={submission_id}` (`Cache-Control: no-store`) while the `?eforms_success={form_id}` flag and `eforms_s_{form_id}` cookie remain present. Render the success banner only when both the query flag and verifier response succeed. The verifier MUST immediately invalidate the ticket so subsequent calls for the same `{form_id, submission_id}` pair return false, then clear the cookie and strip the query parameter. Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}` cookie.
+				3. Send the `eforms_eid_{form_id}` deletion header (Max-Age=0) then redirect with `?eforms_success={form_id}` (303). Success responses MUST NOT emit a positive `Set-Cookie` for `eforms_eid_{form_id}`; only `/eforms/prime` may reissue it on the follow-up GET per [Cookie header actions](#sec-cookie-header-actions).
+					- Definition — Success PRG deletion header = the `Set-Cookie: eforms_eid_{form_id}; Max-Age=0` emitted before the 303 per [Cookie header actions (§7.1.3.5)](#sec-cookie-header-actions).
+					- Definition — Success header boundary = Success responses send only the deletion header; the positive `Set-Cookie` remains reserved for `/eforms/prime`.
+				4. On the follow-up GET, the renderer (or lightweight JS helper) calls `/eforms/success-verify?eforms_submission={submission_id}` (`Cache-Control: no-store`) while the `?eforms_success={form_id}` flag and `eforms_s_{form_id}` cookie remain present. Render the success banner only when both the query flag and verifier response succeed. The verifier MUST immediately invalidate the ticket so subsequent calls for the same `{form_id, submission_id}` pair return false, then clear the cookie and strip the query parameter. Inline success MUST NOT rely solely on a bare `eforms_s_{form_id}` cookie.
 					- Definition — Success re-prime = that follow-up GET MUST embed `/eforms/prime?f={form_id}[&s={slot}]` per [Cookie header actions](#sec-cookie-header-actions) so the deleted cookie is reprovisioned before the next POST.
 			- Downstream consumers MUST treat `submission_id` values as colon-free strings and rely on separate slot metadata when disambiguating multi-instance submissions.
 - <a id="sec-success-ncid"></a>NCID-only handoff (informative summary): The generated [Cookie/NCID reference](#sec-cookie-ncid-summary) row is canonical for redirect-only completions when no acceptable cookie is present. Implementations following it will:
@@ -1044,7 +1044,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Hidden-mode NCID fallback: when continuation is permitted without a hidden record, rely on [Security → Cookie/NCID reference](#sec-cookie-ncid-summary) for the NCID metadata while rerenders keep the persisted `{instance_id, timestamp}` from [Security → Hidden-mode contract](#sec-hidden-mode).
 	- On success: after reserving the ledger entry (the `.used` marker stays committed), move stored uploads; send email; log; PRG/redirect; cleanup per retention.
 - Email send failure (Emailer::send() returns false or throws) is fatal: abort the success PRG, reuse the canonical rerender path, surface a `_global` error, skip redirect/positive cookie emission, log the event at `error` severity, and return HTTP 500. On email-send failure, do not delete, rotate, or otherwise mutate the persisted cookie/hidden record, keep the submission on its original identifier for the rerender per the error path, and still honor the deletion-header requirements in [NCID rerender and challenge lifecycle](#sec-ncid-rerender) when that rerender applies. SubmitHandler MUST roll back the ledger reservation (`.used` marker) on this failure so the next POST attempt with the same token is processed instead of treated as a duplicate.
-- Definition — Email-failure header carve-out = this rerender skips positive `Set-Cookie` headers but MUST emit the NCID/challenge deletion header whenever [NCID rerender and challenge lifecycle](#sec-ncid-rerender) requires it.
+- Definition — Email-failure header carve-out = this rerender skips positive `Set-Cookie` headers but MUST emit the NCID rerender and challenge lifecycle deletion header whenever [NCID rerender and challenge lifecycle](#sec-ncid-rerender) requires it.
 	- Best-effort GC on shutdown; no persistence of validation errors/canonical values beyond request.
 	- throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
 	- Challenge hook: if required (always/auto or cookie policy), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
