@@ -275,7 +275,7 @@
 - Logging modes and retention:
 - `jsonl` / `minimal` / `off` pipelines with rotation/retention controls and `logging.level`, `logging.pii`, `logging.headers` toggles.
 - Request correlation id `request_id` (filter → headers → UUIDv4) emitted on every log event, including email-failure paths.
-- Optional Fail2ban emission writing to `logging.fail2ban.file` under `${uploads.dir}`, rotating alongside JSONL while remaining independent of `logging.mode`.
+- Optional Fail2ban emission supporting every `logging.fail2ban.target` enumeration (`error_log`, `syslog`, `file`) from [Configuration → Domains, Constraints, and Defaults (§17)](#sec-configuration). `file` targets continue writing to `logging.fail2ban.file` under `${uploads.dir}` and rotate with the JSONL pipeline, while `error_log` and `syslog` defer rotation to the host yet still clamp `logging.fail2ban.retention_days` to the §17 bounds so configuration validation and retention behavior remain consistent across sinks.
 - Level-gated diagnostics per [Logging (§15)](electronic_forms_SPEC.md#sec-logging):
 - `logging.on_failure_canonical=true` unlocks canonical field name/value emission for rejected inputs only.
 - Level 2 appends the `desc_sha1` descriptor fingerprint to JSONL/minimal logs so fixtures can assert descriptor stability.
@@ -289,6 +289,7 @@
 - Proxy resolution fixtures exercise `privacy.client_ip_header` and `privacy.trusted_proxies` in CI, covering untrusted `X-Forwarded-For` spoofing, trusted proxy chains, and private-IP fallbacks per [Privacy and IP Handling (§16)](electronic_forms_SPEC.md#sec-privacy).
 - Masked/hash/full mode tests confirm the resolved client IP propagates to logs and emails with the expected redaction per [Privacy and IP Handling (§16)](electronic_forms_SPEC.md#sec-privacy).
 - Level 2 logging tests assert `desc_sha1` emission across sinks.
+- Fail2ban fixtures cover each `logging.fail2ban.target` (`error_log`, `syslog`, `file`), asserting the `logging.fail2ban.retention_days` clamp from [Configuration → Domains, Constraints, and Defaults (§17)](#sec-configuration) and verifying retention/rotation behavior per sink (shared JSONL rotation for `file`, host-managed retention for `error_log`/`syslog`).
 
 ---
 
