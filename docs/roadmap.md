@@ -270,6 +270,8 @@
 - Redaction and rotation snapshots that verify PII handling across `jsonl`, `minimal`, and `off` configurations.
 - Error events assert presence of `request_id`.
 - Logging fixtures cover `logging.on_failure_canonical` by asserting canonical field outputs appear only on rejection when the toggle is enabled.
+- Proxy resolution fixtures exercise `privacy.client_ip_header` and `privacy.trusted_proxies` in CI, covering untrusted `X-Forwarded-For` spoofing, trusted proxy chains, and private-IP fallbacks per [Privacy and IP Handling (§16)](electronic_forms_SPEC.md#sec-privacy).
+- Masked/hash/full mode tests confirm the resolved client IP propagates to logs and emails with the expected redaction per [Privacy and IP Handling (§16)](electronic_forms_SPEC.md#sec-privacy).
 - Level 2 logging tests assert `desc_sha1` emission across sinks.
 
 ---
