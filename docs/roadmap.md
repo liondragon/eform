@@ -246,7 +246,7 @@
 
 **Delivers**
 
-- SMTP/PHPMailer integration; DKIM optional; strict header sanitation; plain text default; HTML allowed via config.
+- SMTP/PHPMailer integration; DKIM optional; plain text default; HTML allowed via config; enforce the DMARC-aligned `From:` fallback (`no-reply@{site_domain}`), same-domain `From` requirement, optional `email.envelope_sender`, and Subject/header sanitization rules from [Email Delivery (§14)](#sec-email).
 - Attachments policy; enforce size/count caps before send.
 - Register `wp_mail_failed` handler to log send failures and surface diagnostics per [Email Delivery (§14)](#sec-email).
 - Register `phpmailer_init` handler to apply DKIM and debug configuration before dispatch per [Email Delivery (§14)](#sec-email).
