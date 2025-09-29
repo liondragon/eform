@@ -431,7 +431,8 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - Definition — Status lookup scope = helper loads the form's persisted active minted record; cookie headers participate only in the unexpired-match test.
 
 **Definitions (normative):**
-- **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record for that EID with `now < record.expires`; equality is evaluated against that record's `eid`.
+- **Unexpired match** = request presents `eforms_eid_{form_id}` matching the EID regex **and** storage has a record for that EID with `now < record.expires`; equality compares against the persisted `eid` minted under the configured attributes.
+- Definition — Attribute inference = HTTP requests never echo Path/SameSite/Secure, so treat the stored mint metadata as authoritative when evaluating matches.
 - Definition — Presented cookie = the request supplies `eforms_eid_{form_id}` matching the EID regex.
 - Definition — Hit without match = `status:"hit"` but no unexpired match; `/eforms/prime` MUST still send the positive header per [Cookie header actions](#sec-cookie-header-actions).
 - **Header boundary (normative)** — [Cookie header actions matrix](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
