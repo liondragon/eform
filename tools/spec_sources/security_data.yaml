@@ -317,7 +317,7 @@ ncid_summary_rows:
     identifier_outcome:
       kind: ncid
       text: "`submission_id = nc-…`."
-    required_action: "Force Redirect-only PRG even when `success.mode=\"inline\"`; append `&eforms_submission={submission_id}` and send the `eforms_eid_{form_id}` deletion header before the 303 (per [NCID rerender and challenge lifecycle](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success Behavior (PRG)](#sec-success) for narrative bullets."
+    required_action: "Force Redirect-only PRG even when `success.mode=\"inline\"`; append `&eforms_submission={submission_id}` and send the `eforms_eid_{form_id}` deletion header before the 303 (per [NCID rerender and challenge lifecycle](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success behavior (PRG)](#sec-success) for narrative bullets."
     canonical_section:
       anchor: sec-cookie-ncid-summary
       label: Cookie/NCID reference

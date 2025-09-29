@@ -436,7 +436,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - Definition — Hit without match = `status:"hit"` but no unexpired match; `/eforms/prime` MUST still send the positive header per [Cookie header actions](#sec-cookie-header-actions).
 - **Header boundary (normative)** — [Cookie header actions matrix](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
-			This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior](#sec-success).
+                       This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success behavior](#sec-success).
 			The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, NCID/challenge rerenders, verifier success, and the PRG redirect so implementations reference a single canonical source.
 --8<-- "generated/security/cookie_headers.md"
 
@@ -559,12 +559,12 @@ This table routes each lifecycle stage to the normative matrices that govern its
 			- Slot metadata from cookie flows is governed by [Cookie-mode contract](#sec-cookie-mode). Slotless deployments MUST omit `s` parameters so records remain `{ slot:null, slots_allowed:[] }`; slotted submissions embed `slot` in `submission_id` as `eid__slot{n}`.
 - Identifier pinning (challenge): If the policy path returns an NCID and `require_challenge=true`, that submission MUST continue to use the same NCID as its `submission_id` through verification and success. The rerender stays deletion-only; the positive cookie reissue comes from the follow-up `/eforms/prime` call and MUST NOT change the identifier mid-flow.
 - Definition — Follow-up reissue = the positive `Set-Cookie` emitted by `/eforms/prime` after the rerender embeds its pixel.
-				- Ledger behavior for NCIDs follows [Security invariants](#sec-security-invariants) and [Security → Ledger reservation contract](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat `EEXIST` as spam, and continue with [Success Behavior (PRG)](#sec-success) using the NCID-based identifier.
+                           - Ledger behavior for NCIDs follows [Security invariants](#sec-security-invariants) and [Security → Ledger reservation contract](#sec-ledger-contract); reserve `${submission_id}.used` immediately before side effects, treat `EEXIST` as spam, and continue with [Success behavior (PRG)](#sec-success) using the NCID-based identifier.
 - <a id="sec-ncid-rerender"></a>NCID rerender and challenge lifecycle (normative):
 			- The generated contract below governs NCID fallback rerenders, pre-verification challenge rerenders, and challenge success responses.
 --8<-- "generated/security/ncid_rerender.md"
 - Definition — PRG re-prime (NCID/challenge) = when NCID fallback or challenge flows succeed, the success redirect carries the deletion header and the next GET emits the deterministic prime pixel before the next POST.
-- <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, redirect target selection, and verifier requirements are defined by [NCID success handoff (Cookie/NCID reference)](#sec-cookie-ncid-summary). [Success Behavior (PRG)](#sec-success) repeats the rules informatively.
+- <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, redirect target selection, and verifier requirements are defined by [NCID success handoff (Cookie/NCID reference)](#sec-cookie-ncid-summary). [Success behavior (PRG)](#sec-success) repeats the rules informatively.
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
 <!-- BEGIN GENERATED: cookie-ncid-summary -->
@@ -578,7 +578,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 | Cookie policy `challenge` | `submission_id = nc-…` (`is_ncid=true`, `require_challenge=true`). | Require verification before proceeding; follow [NCID rerender and challenge lifecycle](#sec-ncid-rerender). | [Cookie policy outcomes](#sec-cookie-policy-matrix) |
 | Challenge rerender after NCID fallback | `submission_id = nc-…` (same value reused). | Follow [NCID rerender and challenge lifecycle](#sec-ncid-rerender). | [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) |
 | Challenge success response | `submission_id = nc-…` (same value reused). | Follow [NCID rerender and challenge lifecycle](#sec-ncid-rerender). | [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) |
-| NCID success handoff (no acceptable cookie) | `submission_id = nc-…`. | Force Redirect-only PRG even when `success.mode="inline"`; append `&eforms_submission={submission_id}` and send the `eforms_eid_{form_id}` deletion header before the 303 (per [NCID rerender and challenge lifecycle](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success Behavior (PRG)](#sec-success) for narrative bullets. | [Cookie/NCID reference](#sec-cookie-ncid-summary) |
+| NCID success handoff (no acceptable cookie) | `submission_id = nc-…`. | Force Redirect-only PRG even when `success.mode="inline"`; append `&eforms_submission={submission_id}` and send the `eforms_eid_{form_id}` deletion header before the 303 (per [NCID rerender and challenge lifecycle](#sec-ncid-rerender)); redirect to `success.redirect_url` when set, otherwise `/eforms/success-verify?eforms_submission={submission_id}` (endpoint MUST remain enabled); renderers lacking both MUST fail preflight with `EFORMS_ERR_SUCCESS_REDIRECT_REQUIRED_FOR_NCID`. See [Success behavior (PRG)](#sec-success) for narrative bullets. | [Cookie/NCID reference](#sec-cookie-ncid-summary) |
 <!-- END GENERATED: cookie-ncid-summary -->
 <a id="sec-honeypot"></a>2. Honeypot
 	- Runs after CSRF gate; never overrides a CSRF hard fail.
@@ -953,7 +953,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	| Security	| `security.min_fill_seconds`			 | int	 | clamp 0–60; values <0 become 0; >60 become 60.																|
 	| Security	| `security.token_ttl_seconds`			| int	 | clamp 1–86400; minted tokens MUST set `expires - issued_at` equal to this value.								 |
 	| Security	| `security.max_form_age_seconds`		 | int	 | clamp 1–86400; defaults to `security.token_ttl_seconds` when omitted.											|
-	| Security  | `security.success_ticket_ttl_seconds` | int  | clamp 30–3600; governs success ticket validity for success verification (inline & redirect) ([Success Behavior (PRG)](#sec-success)). |
+        | Security  | `security.success_ticket_ttl_seconds` | int  | clamp 30–3600; governs success ticket validity for success verification (inline & redirect) ([Success behavior (PRG)](#sec-success)). |
 	| Security	| `security.cookie_mode_slots_allowed`	| list	| Normalized to unique ints 1–255; honored only when paired with `cookie_mode_slots_enabled = true`.			 |
 	| Challenge | `challenge.mode`						| enum	| {`off`,`auto`,`always`} — controls when human challenges execute; invalid values MUST be rejected.			|
 	| Challenge | `challenge.provider`					| enum	| {`turnstile`,`hcaptcha`,`recaptcha`} — provider-specific keys MUST be populated before enablement.			 |
