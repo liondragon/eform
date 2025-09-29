@@ -53,12 +53,13 @@
 
 **Acceptance**
 
-- Golden tests mirroring matrix rows (hard/soft/off/challenge).
+- Golden tests mirror the cookie-policy and lifecycle matrices from [Security → Cookie policy matrix](electronic_forms_SPEC.md#sec-cookie-policy-matrix) and [Security → Throttling matrix](electronic_forms_SPEC.md#sec-throttling) (hard/soft/off/challenge).
 - Acceptance tests mirror `security.origin_mode` outcomes (soft vs. hard, missing-origin carve-outs) to validate origin policy contracts.
+- Fixtures `throttle_soft_label` and `throttle_hard_fail_retry_after` exercise the throttle soft-label, hard-fail, and `Retry-After` handling paths defined by `Security::token_validate()` and [Security → Throttling](electronic_forms_SPEC.md#sec-throttling).
 - Hidden-mode NCID fallback when allowed; no rotation before success.
 - Regex guards for tokens/EIDs run before disk.
 - Changing YAML regenerates matrices and breaks tests until helper behavior matches.
-- Storage integration tests simulate partial writes and concurrent mint attempts to prove non-atomic persistence fails (e.g., leave truncated JSON) and therefore enforce the atomic write contracts above.
+- Storage integration tests simulate partial writes and concurrent mint attempts to prove non-atomic persistence fails (e.g., leave truncated JSON) and therefore enforce the atomic write contracts above, including throttle file persistence/GC behavior from [Security → Shared lifecycle and storage contract](electronic_forms_SPEC.md#sec-shared-lifecycle).
 
 ---
 
