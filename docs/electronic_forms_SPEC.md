@@ -279,6 +279,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 **Pipeline-first outline (render → persist → POST → challenge → normalization → ledger → success)**
 
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
 <!-- BEGIN GENERATED: lifecycle-quickstart -->
 | Stage | Overview |
 |-------|----------|
@@ -444,6 +445,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 **Slot handling:**
 
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
 <!-- BEGIN GENERATED: slot-handling-summary -->
 - `Security::mint_cookie_record()` never unions slots.
 - `/eforms/prime` performs `slots_allowed ∪ {s}` (when allowed), derives `slot` when `|slots_allowed| == 1`, and persists only those fields; it MUST NOT rewrite `issued_at`/`expires`.
@@ -481,6 +483,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
                                         - Definition — Deletion header options = Match the minted cookie’s Name/Path/SameSite/Secure/HttpOnly attributes (and Domain when the mint included one) and clear it via `Max-Age=0` or an already-expired `Expires` value. Host-only mints omit Domain; the deletion header MUST do the same.
 
                                         **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
                                         <!-- BEGIN GENERATED: cookie-lifecycle-matrix -->
                                         | Flow trigger | Server MUST | Identifier outcome | Notes |
                                         |--------------|-------------|--------------------|-------|
@@ -500,6 +503,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 
 --8<-- "generated/security/ncid_rerender.md"
                                         **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
                                         <!-- BEGIN GENERATED: cookie-policy-matrix -->
                                         | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
                                         |-------------|-----------------------------------------------------|-----------|-------------|--------------------|--------------------|-------------------|
@@ -517,6 +521,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 			- Prime endpoint semantics (`/eforms/prime`):
 
 				**Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
 				<!-- BEGIN GENERATED: prime-set-cookie-guidance -->
 				- Set-Cookie attributes (normative): When `/eforms/prime` sends `Set-Cookie`, it MUST set `eforms_eid_{form_id}` with:
 					- `Path=/`
@@ -572,6 +577,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - <a id="sec-ncid-success-ref"></a>NCID success integration: Redirect-only success handling, redirect target selection, and verifier requirements are defined by [NCID success handoff (Cookie/NCID reference)](#sec-cookie-ncid-summary). [Success Behavior (PRG)](#sec-success) repeats the rules informatively.
 <a id="sec-cookie-ncid-summary"></a>Cookie/NCID reference (authoritative summary):
 **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
 <!-- BEGIN GENERATED: cookie-ncid-summary -->
 | Scenario | Identifier outcome | Required action | Canonical section |
 |----------|--------------------|-----------------|-------------------|
