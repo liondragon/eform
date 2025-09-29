@@ -73,6 +73,7 @@
 - `TemplateValidator` preflight covering field definitions, row-group constraints, and envelope rules.
 - Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows; runtime uses the preflighted manifest only.
 - TemplateContext outputs enumerated and persisted per [Template Model → Row groups (§5.2)](#sec-template-row-groups) and [Template Model → Template JSON (§5.3)](#sec-template-json), covering descriptors, `max_input_vars_estimate`, sanitized `before_html`/`after_html` fragments, `display_format_tel` tokens, and other canonical fragments consumed by runtime components.
+- TemplateValidator and TemplateContext ingest the `rules[]` envelope defined in [Template Model → Template JSON (§5.3)](#sec-template-json) and expose the bounded cross-field rules required by [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 - TemplateContext normalizes and persists the canonical template version per [Template Model → Versioning & cache keys (§5.6)](#sec-template-versioning), storing `version` (falling back to `filemtime()` when omitted) for cache keys and Renderer/SubmitHandler success/log metadata.
 - CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
 - Ship default template assets in `/templates/forms/` and `/templates/email/` so deployments have ready-to-use form and email examples.
@@ -296,11 +297,13 @@
 - RuntimeCap enforcement that clamps POST bodies using `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides while guarding `CONTENT_LENGTH` and coordinating with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
 - Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Accessibility (§12)](#sec-accessibility) and [Assets (§22)](#sec-assets), including label/control associations, fieldset/legend grouping, and role/ARIA obligations for the error summary.
 - Sanitize `textarea_html` via `wp_kses_post` and enforce the post-sanitize size bound per [Special Case: HTML-Bearing Fields](docs/electronic_forms_SPEC.md#sec-html-fields).
+- SubmitHandler enforces the bounded cross-field rules defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 
 **Acceptance**
 
 - Oversized and boundary payload fixtures covering RuntimeCap clamps, validation errors, and `CONTENT_LENGTH` guards.
 - Accessibility tests cover focus management alongside markup requirements: labels tied to controls, grouped inputs wrapped in fieldset/legend, and role="alert" summary behavior.
+- Tests cover each bounded cross-field rule type defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 
 ---
 
