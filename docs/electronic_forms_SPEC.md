@@ -786,24 +786,24 @@ This table routes each lifecycle stage to the normative matrices that govern its
 <a id="sec-accessibility"></a>
 12. ACCESSIBILITY (A11Y)
 	1. Labels
-	- Always render a <label> for each control; if missing, derive Title Case label and mark visually hidden
-	- label@for matches control id; control id unique
+	- Always render a `<label>` for each control; if missing, derive Title Case label and mark visually hidden
+	- The `<label>` `for` attribute matches the control's `id`; control `id` values are unique
 	2. Required Fields
-	- Native controls: use native required only (no aria-required)
-	- Custom widgets: aria-required="true"
+	- Native controls: use native required only (no `aria-required`)
+	- Custom widgets: `aria-required="true"`
 	- Show a visual indicator (e.g., "*")
 	3. Grouped Controls
-	- radio/checkbox groups wrapped in <fieldset> with <legend>
-	- Error summary links target the fieldset/legend (or first control); use aria-describedby to include error id
+	- radio/checkbox groups wrapped in `<fieldset>` with `<legend>`
+	- Error summary links target the `<fieldset>`/`<legend>` (or first control); use `aria-describedby` to include error id
 	4. Error Summary (top)
-	- role="alert" container appears after submit when errors exist; list links to invalid controls; forms.js focuses summary (tabindex="-1") once, then first invalid control
-	- Do not use role="alert" on each field; if live updates are needed, use aria-live="polite" or role="status"
+	- `role="alert"` container appears after submit when errors exist; list links to invalid controls; forms.js focuses summary (`tabindex="-1"`) once, then first invalid control
+	- Do not use `role="alert"` on each field; if live updates are needed, use `aria-live="polite"` or `role="status"`
 	5. Per-field Errors
-	- <span id="error-{field_id}" class="eforms-error">...</span>
-	- when invalid: aria-invalid="true"; aria-describedby includes error id
+	- `<span id="error-{field_id}" class="eforms-error">...</span>`
+	- when invalid: `aria-invalid="true"`; `aria-describedby` includes error id
 	6. Focus Behavior
 	- forms.js focuses first invalid after submission
-	- Do not set multiple autofocus attributes.
+	- Do not set multiple `autofocus` attributes.
 	7. File Inputs
 	- follow same patterns as native inputs
 
