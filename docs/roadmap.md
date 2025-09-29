@@ -329,11 +329,13 @@
 - WP-CLI smoke tests covering Origin policy enforcement and RuntimeCap clamps, runnable locally and in CI.
 - Uninstall/purge guard implementations plus retention hooks that honor configuration toggles and prevent destructive runs without the documented flags.
 - Sample configuration diagnostics that surface misconfigurations and retention statuses for operators.
+- Admin environment guard surfaces an actionable notice and auto-deactivates when PHP < 8.0 or WordPress < 5.8 per [Compatibility (§21)](electronic_forms_SPEC.md#sec-compatibility).
 
 **Acceptance**
 
 - CLI smoke tests execute in CI, asserting Origin policy and RuntimeCap outcomes.
 - Automated coverage exercises uninstall guards and retention hooks.
+- Environment fixtures prove PHP < 8.0 or WordPress < 5.8 trigger the admin notice and immediate deactivation required by [Compatibility (§21)](electronic_forms_SPEC.md#sec-compatibility).
 
 ---
 
