@@ -496,7 +496,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
                                         <!-- END GENERATED: cookie-lifecycle-matrix -->
 
        - <a id="sec-cookie-policy-matrix"></a>Cookie policy outcomes (normative):
-      Pick the configured policy, consume the row’s `{ token_ok, soft_reasons, require_challenge, identifier, cookie_present? }`, and defer rerender and header handling for the NCID rerender and challenge lifecycle to [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender).
+      Pick the configured policy, consume the row’s `{ token_ok, soft_reasons, require_challenge, identifier, cookie_present? }`, and defer rerender and header handling for the NCID rerender and challenge lifecycle to [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender). NCID continuation never relaxes `/eforms/prime`’s obligation to reissue the anti-duplication cookie on the next `/eforms/prime` call per [Cookie header actions](#sec-cookie-header-actions); cookie-less hits still trigger that positive header.
 
 --8<-- "generated/security/ncid_rerender.md"
                                         **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
@@ -825,7 +825,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 				| Redirect | `wp_safe_redirect(redirect_url, 303)` (append `&eforms_submission=…` only when following the NCID handoff). | Destination renders its own success UX. | Cookie-mode deployments SHOULD prefer redirect targets that are not cached. |
 			- Fallback UX: when a redirect target is impossible (e.g., static cached page without a non-cached handoff) **and the submission retained a cookie-mode identifier (not an NCID)**, continue to use inline success on cached pages as the graceful fallback.
 			- NCID override (normative): When the success flow observes `is_ncid=true`, the engine MUST follow the generated [NCID success handoff row](#sec-cookie-ncid-summary). Inline success is permitted only when the authoritative identifier is a cookie EID or hidden token (`is_ncid=false`).
-			- <a id="sec-success-flow"></a>Canonical inline verifier flow (normative):
+			- <a id="sec-success-flow"></a>Canonical inline verifier flow (normative): Applies only when `is_ncid=false`; NCID handoffs follow [Cookie/NCID reference](#sec-cookie-ncid-summary) instead of this redirect target.
 				1. On successful POST, create `${uploads.dir}/eforms-private/success/{form_id}/{h2}/{submission_id}.json` containing `{ form_id, submission_id, issued_at }` (short TTL, e.g., 5 minutes). Derive `{h2}` from the `submission_id` per [Security → Shared Lifecycle and Storage Contract](#sec-shared-lifecycle).
 				2. Set `eforms_s_{form_id}={submission_id}` with `SameSite=Lax`, `Secure` on HTTPS, HttpOnly=false, `Path=/` (so `/eforms/success-verify` can read and clear it), and `Max-Age = security.success_ticket_ttl_seconds`.
 				- Definition — Success-cookie TTL = `security.success_ticket_ttl_seconds` from [Configuration](#sec-configuration).
