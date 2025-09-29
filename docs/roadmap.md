@@ -171,10 +171,10 @@
 - Cookie-less hit reissues the conditional header action’s positive `Set-Cookie`.
 - Identical, unexpired cookie ⇒ skip the conditional header action.
 - Reissue uses remaining-lifetime (`record.expires - now`) for `Max-Age`.
-- Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET.
 - Slot unioning merges `slots_allowed` and, when a single slot remains, persists `slot` without rewriting `issued_at/expires`.
 - Concurrency/partial-write fixtures prove unioning updates remain atomic and do not revert `slots_allowed` or `slot` when multiple requests race.
 - Tests for attribute equality & remaining-lifetime logic.
+- Renderer coverage deferred to [Phase 7A](#phase-7a); Phase 6 acceptance focuses on `/eforms/prime` endpoint behavior until the renderer ships.
 
 ---
 
