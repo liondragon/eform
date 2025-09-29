@@ -163,7 +163,7 @@
 - Set-Cookie attrs (normative): `Path=/`, `Secure` (HTTPS only), `HttpOnly`, `SameSite=Lax`, `Max-Age` = TTL on mint, or remaining lifetime on reissue.
 - Response: `204` + `Cache-Control: no-store`.
 - No header emission elsewhere except deletion per matrices (rerender/PRG).
-- Slot unioning persists `slots_allowed`/`slot` using the same atomic write contract (no `issued_at/expires` rewrite) per [Security → Cookie-mode contract → Prime endpoint semantics](electronic_forms_SPEC.md#sec-cookie-mode).
+- Persist refreshed records without rewriting `issued_at/expires`, matching [Security → Cookie-mode contract → Prime endpoint semantics](electronic_forms_SPEC.md#sec-cookie-mode).
 
 **Acceptance**
 
@@ -171,9 +171,9 @@
 - Cookie-less hit reissues the conditional header action’s positive `Set-Cookie`.
 - Identical, unexpired cookie ⇒ skip the conditional header action.
 - Reissue uses remaining-lifetime (`record.expires - now`) for `Max-Age`.
-- Never rewrite `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
+- Never rewrite `issued_at/expires` on hit; refreshed metadata updates must preserve the existing lifetime fields.
 - Tests for attribute equality & remaining-lifetime logic.
-- Concurrency tests for `/eforms/prime` simulate partial slot unions and concurrent updates to ensure atomic persistence prevents truncated or reverted `slots_allowed` state.
+- Concurrency tests for `/eforms/prime` simulate remint collisions to ensure atomic persistence prevents truncated or reverted cookie records.
 
 ---
 
@@ -332,13 +332,13 @@
 
 ## Phase 10: Slots (unioning & enforcement) {#phase-10}
 
-**Goal:** Add slot semantics **after** core cookie flow is stable; keep unioning isolated to `/eforms/prime` and validation to POST.
+**Goal:** Add slot semantics **after** the core cookie flow is stable; extend `/eforms/prime` so it persists slot unioning and teach downstream flows to respect it.
 
-**Dependencies:** Extends the `/eforms/prime` storage writes from [Phase 6](#phase-6); do not start until that endpoint ships the unexpired-match contract.
+**Dependencies:** Builds on the `/eforms/prime` contract from [Phase 6](#phase-6); do not start until the unexpired-match minting behavior ships.
 
 **Delivers**
 
-- `/eforms/prime`: `slots_allowed ∪ {s}` (when allowed), derive `slot` when union size is 1; **do not** rewrite `issued_at/expires`.
+- `/eforms/prime`: persist `slots_allowed ∪ {s}` (when allowed) and derive `slot` when the union resolves to a single value while continuing to avoid `issued_at/expires` rewrites.
 - Renderer: deterministic slot selection per GET; surplus instances slotless.
 - POST enforcement: when slotted, require posted integer slot ∈ allowed set and consistent with record; otherwise hard fail; slotless deployments reject posted slot.
 - Submission ID shape in cookie mode when slotted: `eid__slot{n}`.
@@ -350,6 +350,7 @@
 - Rerender rows preserve deterministic slot & follow delete+re-prime contract.
 - Global slots disabled ⇒ posted `eforms_slot` hard-fails.
 - Posted slot must exist in config allow-list and the record's `slots_allowed`.
+- Concurrency tests for `/eforms/prime` cover slot unioning updates to prove atomic persistence prevents truncated or reverted `slots_allowed` state.
 
 ---
 
