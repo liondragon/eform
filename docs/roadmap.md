@@ -248,6 +248,7 @@
 
 - SMTP/PHPMailer integration; DKIM optional; plain text default; HTML allowed via config; enforce the DMARC-aligned `From:` fallback (`no-reply@{site_domain}`), same-domain `From` requirement, optional `email.envelope_sender`, and Subject/header sanitization rules from [Email Delivery (§14)](#sec-email).
 - Attachments policy; enforce size/count caps before send.
+- Email body renders included upload filenames and summarizes attachment overflows per [Email Delivery (§14)](#sec-email).
 - Register `wp_mail_failed` handler to log send failures and surface diagnostics per [Email Delivery (§14)](#sec-email).
 - Register `phpmailer_init` handler to apply DKIM and debug configuration before dispatch per [Email Delivery (§14)](#sec-email).
 - Email template selection pipeline matches [`email_template`] JSON keys to `/templates/email/{name}.txt.php` and `{name}.html.php`, enforces the token set/slot handling defined in [Email Templates (Registry) (§24)](#sec-email-templates), and constrains template inputs to the canonical fields/meta/uploads summary.
