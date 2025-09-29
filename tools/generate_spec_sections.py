@@ -239,6 +239,29 @@ def validate_data(data: dict) -> None:
 
 
 def validate_soft_labels(value: Any, context: str) -> None:
+    if isinstance(value, dict):
+        allowed_keys = {"labels", "note"}
+        unexpected_keys = set(value) - allowed_keys
+        if unexpected_keys:
+            unexpected = ", ".join(sorted(unexpected_keys))
+            raise SystemExit(
+                f"soft_labels mapping for {context} contains unexpected keys: {unexpected}"
+            )
+        labels = value.get("labels")
+        if not isinstance(labels, list) or not labels:
+            raise SystemExit(
+                f"soft_labels mapping for {context} must include a non-empty list under 'labels'"
+            )
+        for label in labels:
+            if label not in SOFT_LABEL_VALUES:
+                raise SystemExit(f"Unsupported soft label {label!r} for {context}")
+        note = value.get("note")
+        if note is not None:
+            if not isinstance(note, str) or not note.strip():
+                raise SystemExit(
+                    f"soft_labels mapping for {context} must use a non-empty string when 'note' is provided"
+                )
+        return
     if isinstance(value, list):
         for label in value:
             if label not in SOFT_LABEL_VALUES:
@@ -248,7 +271,8 @@ def validate_soft_labels(value: Any, context: str) -> None:
         return
     if value != []:
         raise SystemExit(
-            f"soft_labels must be an empty list, ['cookie_missing'], or 'conditional' for {context}"
+            "soft_labels must be an empty list, ['cookie_missing'], 'conditional', "
+            f"or a mapping with 'labels'/'note' for {context}"
         )
 
 
@@ -309,6 +333,13 @@ def format_bool(value: bool) -> str:
 
 
 def format_soft_labels(value: Any) -> str:
+    if isinstance(value, dict):
+        labels = value.get("labels", [])
+        formatted_labels = ", ".join(format_inline_code(label) for label in labels) if labels else "—"
+        note = value.get("note")
+        if note:
+            return f"{formatted_labels} ({note})"
+        return formatted_labels
     if value == "conditional":
         return "Conditional"
     if isinstance(value, list):
