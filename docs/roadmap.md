@@ -188,8 +188,9 @@
 	- Hidden-mode: embed payload from `mint_hidden_record()` including the normative `token`, `instance_id`, and `timestamp` hidden fields.
 	- Cookie-mode: deterministic markup plus prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
 	- Prime pixel only (no synchronous `/eforms/prime`); follow-up navigation performs the mint.
- 	- Shortcode `[eform id="…"]` `cacheable=true|false` switch controls hidden-mode vs. cookie-mode rendering per [Request Lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get). 
+	- Shortcode `[eform id="…"]` `cacheable=true|false` switch controls hidden-mode vs. cookie-mode rendering per [Request Lifecycle → GET (§19)](electronic_forms_SPEC.md#sec-request-lifecycle-get).
 	- Log and optionally surface the `max_input_vars` advisory per [Request lifecycle → GET (§19)](#sec-request-lifecycle-get).
+	- Honor `html5.client_validation`: when `true`, omit `novalidate` and retain required/pattern attributes so browsers run native checks; when `false`, add `novalidate` and suppress native validation UI so server-side errors remain authoritative.
 - WordPress shortcode and template tag entry points bootstrap through the frozen configuration snapshot and document caching guidance, including `Vary: Cookie` scoped to `eforms_s_{form_id}`.
 - **SubmitHandler (POST)**
 	- Orchestrates Security → Normalize → Validate → Coerce → Ledger before any side effects.
@@ -299,7 +300,7 @@
 
 - Full validation pipeline: normalize → validate → coerce with stable error codes, redirect safety (§9), suspect handling (§10), throttling (§11), and rerender metadata per [Error handling (§20)](#sec-error-handling).
 - RuntimeCap enforcement that clamps POST bodies using `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides while guarding `CONTENT_LENGTH` and coordinating with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
-- Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Accessibility (§12)](#sec-accessibility) and [Assets (§22)](#sec-assets), including label/control associations, fieldset/legend grouping, and role/ARIA obligations for the error summary.
+- Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Accessibility (§12)](#sec-accessibility) and [Assets (§22)](#sec-assets), including label/control associations, fieldset/legend grouping, role/ARIA obligations for the error summary, and focus-management rules when native validation remains enabled (`html5.client_validation=true`): skip pre-submit summary focus to avoid double focus, yet still move focus to the first invalid control after server rerenders.
 - Sanitize `textarea_html` via `wp_kses_post` and enforce the post-sanitize size bound per [Special Case: HTML-Bearing Fields](docs/electronic_forms_SPEC.md#sec-html-fields).
 - SubmitHandler enforces the bounded cross-field rules defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 
