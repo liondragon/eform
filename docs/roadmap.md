@@ -289,13 +289,13 @@
 
 - Full validation pipeline: normalize → validate → coerce with stable error codes, redirect safety (§9), suspect handling (§10), throttling (§11), and rerender metadata per [Error handling (§20)](#sec-error-handling).
 - RuntimeCap enforcement that clamps POST bodies using `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides while guarding `CONTENT_LENGTH` and coordinating with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
-- Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Assets (§22)](#sec-assets).
+- Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Accessibility (§12)](#sec-accessibility) and [Assets (§22)](#sec-assets), including label/control associations, fieldset/legend grouping, and role/ARIA obligations for the error summary.
 - Sanitize `textarea_html` via `wp_kses_post` and enforce the post-sanitize size bound per [Special Case: HTML-Bearing Fields](docs/electronic_forms_SPEC.md#sec-html-fields).
 
 **Acceptance**
 
 - Oversized and boundary payload fixtures covering RuntimeCap clamps, validation errors, and `CONTENT_LENGTH` guards.
-- Accessibility tests for focus management and error summary behavior.
+- Accessibility tests cover focus management alongside markup requirements: labels tied to controls, grouped inputs wrapped in fieldset/legend, and role="alert" summary behavior.
 
 ---
 
