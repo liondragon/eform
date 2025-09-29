@@ -171,7 +171,6 @@
 - Cookie-less hit reissues the conditional header action’s positive `Set-Cookie`.
 - Identical, unexpired cookie ⇒ skip the conditional header action.
 - Reissue uses remaining-lifetime (`record.expires - now`) for `Max-Age`.
-- Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET.
 - Never rewrite `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
 - Tests for attribute equality & remaining-lifetime logic.
 - Concurrency tests for `/eforms/prime` simulate partial slot unions and concurrent updates to ensure atomic persistence prevents truncated or reverted `slots_allowed` state.
@@ -212,6 +211,7 @@
 - Honeypot fixtures assert the `X-EForms-Stealth: 1` header and stealth logging output when `stealth_success` is configured, alongside existing coverage.
 - Integration or snapshot test asserts the `max_input_vars` advisory/comment appears when the heuristic triggers.
 - Upload fixtures assert the `<form method="post">` plus conditional `enctype="multipart/form-data"` markup so GET renders continue honoring [Request Lifecycle → GET (§19)](#sec-request-lifecycle-get).
+- Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET (prime pixel handles minting).
 
 ---
 
