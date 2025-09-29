@@ -1046,7 +1046,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- CDN/cache notes: bypass caching on non-cacheable token pages; /eforms/prime is no-store; do not strip Set-Cookie on 204.
 	- Initialize Logging only when logging.mode != "off".
 	- Initialize Uploads only when uploads.enable=true and template declares file/files (detected at preflight).
-	- html5.client_validation=true → omit novalidate; server validator still runs on POST.
+- Renderer toggles the `novalidate` attribute based on `html5.client_validation`: omit it when the flag is `true` so browsers present native validation UI, and include it when the flag is `false` to suppress native validation in favor of server feedback. The server validator always runs on POST.
 	- Preflight resolves and freezes per-request resolved descriptors; reuse across Renderer and Validator (no re-merge on POST).
 
 	<a id="sec-request-lifecycle-post"></a>2. POST
@@ -1093,14 +1093,14 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- assets.css_disable=true lets themes opt out
 	- On submit failure, focus the first control with an error
 	- Focus styling (a11y): do not remove outlines unless visible replacement is provided. For inside-the-box focus: outline: 1px solid #b8b8b8 !important; outline-offset: -1px;
-	- html5.client_validation=true: do not suppress native validation UI; skip pre-submit summary focus to avoid double-focus; after server rerender with errors, still focus first invalid control.
+- Renderer toggles the `novalidate` attribute based on `html5.client_validation`: when the flag is `true`, omit the attribute so native validation UI runs, and when `false`, include it to disable native validation in favor of server-rendered errors. With native UI active, skip pre-submit summary focus to avoid double-focus yet still move focus to the first invalid control after server rerenders.
 	- Only enqueue provider script when the challenge is rendered:
 	- Turnstile: https://challenges.cloudflare.com/turnstile/v0/api.js (defer, crossorigin=anonymous)
 	- hCaptcha: https://hcaptcha.com/1/api.js (defer)
 	- reCAPTCHA v2: https://www.google.com/recaptcha/api.js (defer)
 - Do not load challenge script on the initial GET. “Always” mode does not override this; challenges are rendered on POST rerender or during verification only.
 	- Secrets hygiene: Render only site_key to HTML. Never expose secret_key or verify tokens in markup/JS. Verify server-side; redact tokens in logs.
-	- Honor novalidate behavior: do not add `novalidate`; progressive enhancement depends on native validation.
+- Honor novalidate behavior: add `novalidate` only when `html5.client_validation=false`; omit it otherwise so progressive enhancement retains native validation.
 
 <a id="sec-implementation-notes"></a>
 23. NOTES FOR IMPLEMENTATION
