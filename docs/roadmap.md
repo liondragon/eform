@@ -73,6 +73,7 @@
 - `TemplateValidator` preflight covering field definitions, row-group constraints, and envelope rules.
 - Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows; runtime uses the preflighted manifest only.
 - TemplateContext outputs enumerated and persisted per [Template Model → Row groups (§5.2)](#sec-template-row-groups) and [Template Model → Template JSON (§5.3)](#sec-template-json), covering descriptors, `max_input_vars_estimate`, sanitized `before_html`/`after_html` fragments, `display_format_tel` tokens, and other canonical fragments consumed by runtime components.
+- TemplateContext normalizes and persists the canonical template version per [Template Model → Versioning & cache keys (§5.6)](#sec-template-versioning), storing `version` (falling back to `filemtime()` when omitted) for cache keys and Renderer/SubmitHandler success/log metadata.
 - CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
 - Ship default template assets in `/templates/forms/` and `/templates/email/` so deployments have ready-to-use form and email examples.
 - Developer ergonomics: actionable diagnostics, anchor links back to spec sections, fixtures for regression tests.
@@ -83,6 +84,7 @@
 - Schema drift or missing sections produce stable error codes/messages.
 - Renderer/SubmitHandler rely exclusively on the validated manifest (no ad-hoc template parsing at runtime).
 - TemplateValidator sanitizes `before_html`/`after_html` via `wp_kses_post`, persists the canonical markup, and exposes TemplateContext fields (descriptors, `max_input_vars_estimate`, sanitized fragments, telephone formatting tokens) required by [Template Model → Template JSON (§5.3)](#sec-template-json) and [Template Model → display_format_tel tokens (§5.4)](#sec-display-format-tel).
+- Acceptance coverage ensures fixtures assert the normalized version surfaces to Renderer, SubmitHandler, and logging consumers per `TemplateContext::normalize_version`.
 
 ---
 
