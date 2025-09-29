@@ -328,7 +328,7 @@ ncid_rerender_steps:
     action: "MUST delete `eforms_eid_{form_id}` via a `Set-Cookie` header whose Name/Path/SameSite/Secure/HttpOnly attributes match the minted cookie and whose `Max-Age=0` (or `Expires` is in the past) whenever NCID fallback or challenge rerenders fire, including the challenge verification success response and the PRG redirect on challenge success."
   - id: ncid-rerender-reprime
     title: Re-prime via `/eforms/prime`
-    action: "MUST embed `/eforms/prime?f={form_id}[&s={slot}]` on those rerenders so the persisted record is reissued before the next POST; the rerender itself MUST NOT emit a positive `Set-Cookie`."
+    action: "MUST embed `/eforms/prime?f={form_id}[&s={slot}]` on HTML rerenders (error rerenders and pre-verification challenge rerenders) so the persisted record is reissued before the next POST; challenge verification success responses and the PRG redirect rely on the follow-up GET called out below; none of these flows may emit a positive `Set-Cookie`."
   - id: ncid-rerender-pinned-submission
     title: Keep the NCID-pinned `submission_id`
     action: "MUST continue using the existing NCID as `submission_id`; rerenders, verification templates, and challenge success responses MUST NOT mint or substitute another identifier mid-flow. This delete + re-prime cycle is an allowed carve-out and does not violate the “no rotation before success” rule."
