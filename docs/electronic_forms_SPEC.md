@@ -455,7 +455,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - Definition — Cookie-less hit = the request omits `eforms_eid_{form_id}`; since no unexpired match exists, `/eforms/prime` MUST reissue the positive header.
 			- **GET markup and rerendering**
 					- Deterministic GET markup embeds `form_id`, `eforms_mode="cookie"`, honeypot, and `js_ok`. Slotless renders omit `eforms_slot` and invoke `/eforms/prime?f={form_id}`; slotted renders emit a deterministic hidden `eforms_slot` and prime pixel with `s={slot}`.
-        - Rerenders MUST reuse the minted `eid` and deterministic slot choice. Rerenders governed by the NCID rerender and challenge lifecycle follow [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender) for the delete + re-prime contract.
+        - Cookie-mode rerenders that remain on a cookie identifier MUST reuse the minted `eid` and deterministic slot choice; NCID fallback and challenge rerenders stay pinned to their NCID per [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix) and follow [Cookie header actions](#sec-cookie-header-actions) and [NCID rerender and challenge lifecycle](#sec-ncid-rerender) for the delete + re-prime contract.
 
 --8<-- "generated/security/ncid_rerender.md"
 			- **Persisted record structure** (`eid_minted/{form_id}/{h2}/{eid}.json`):
@@ -655,7 +655,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 		- Hidden-mode error rerender reuses original `instance_id`, `timestamp`, and hidden token.
 		- Hidden-mode `timestamp` equals the record’s `issued_at` on all renders (first and rerenders); drift → hard fail.
 		- Hidden-mode `instance_id` is identical across rerenders until token rotation; drift → hard fail.
-		- Cookie-mode rerender emits identical markup (no new randomness) and reuses the minted `eid` and slot.
+                - Cookie-mode rerender emits identical markup (no new randomness) and reuses the minted `eid` and slot when the submission stays on a cookie identifier; NCID fallback/challenge rerenders keep their pinned NCID per [Cookie-mode lifecycle](#sec-cookie-lifecycle-matrix).
 		- Renderer id/name attributes stable per descriptor; attr mirror parity holds.
 <a id="sec-test-qa"></a>7. Test/QA Checklist (mandatory)
 	- Hidden-mode scenarios → follow [Security → Hidden-mode contract](#sec-hidden-mode) and the POST flow coverage in [Request Lifecycle → POST](#sec-request-lifecycle-post).
