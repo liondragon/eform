@@ -212,7 +212,7 @@ cookie_header_actions_rows:
   - id: cookie-header-prime
     flow_trigger: "`/eforms/prime` request"
     anchor: sec-cookie-header-prime
-    header_action: positive
+    header_action: conditional
     invariants: "Only flow permitted to emit a positive `Set-Cookie` for `eforms_eid_{form_id}`; send it when minting or when no unexpired match was presented, and skip it when an identical unexpired cookie arrived."
     references:
       - sec-cookie-mode

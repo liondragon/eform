@@ -25,7 +25,7 @@ SUPPORTED_SCHEMA_VERSION = 1
 POLICY_PATHS = {"hard", "soft", "off", "challenge"}
 SOFT_LABEL_VALUES = {"cookie_missing"}
 IDENTIFIER_KINDS = {"none", "ncid", "eid", "prime_record", "cookie_record", "submission_id"}
-HEADER_ACTION_VALUES = {"positive", "deletion", "skip"}
+HEADER_ACTION_VALUES = {"positive", "conditional", "deletion", "skip"}
 EXPECTED_HEADER_FLOWS = {
     "GET render",
     "`/eforms/prime` request",
@@ -182,7 +182,7 @@ def validate_data(data: dict) -> None:
         header_action = row.get("header_action")
         if header_action not in HEADER_ACTION_VALUES:
             raise SystemExit(
-                "header_action must be one of {'positive', 'deletion', 'skip'} for cookie_header_actions_rows"
+                "header_action must be one of {'positive', 'conditional', 'deletion', 'skip'} for cookie_header_actions_rows"
             )
         invariants = row.get("invariants")
         if not isinstance(invariants, str) or not invariants.strip():
