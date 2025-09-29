@@ -33,7 +33,10 @@ cookie_policy_rows:
     policy_path: "off"
     handling: "Continue via NCID; do **not** add `cookie_missing` when the cookie was absent/malformed; add it when a syntactically valid cookie lacked a record."
     token_ok: false
-    soft_labels: conditional
+    soft_labels:
+      labels:
+        - cookie_missing
+      note: "only when a syntactically valid cookie lacked a record; omit when the cookie was absent/malformed"
     require_challenge: false
     identifier:
       kind: ncid
