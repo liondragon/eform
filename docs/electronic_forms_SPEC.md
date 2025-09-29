@@ -694,7 +694,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
   - Challenge rerenders before verification and the subsequent success redirect follow the NCID rerender and challenge lifecycle (generated contract below); see [Security → Cookie-mode contract](#sec-cookie-mode) for markup context.
 
 --8<-- "generated/security/ncid_rerender.md"
-		- Definition — Challenge success reuse = deletion header on the redirect + the follow-up `/eforms/prime` reissuing the persisted record without reminting.
+                - Definition — Challenge success reuse = the verification success response emits the deletion header, the PRG redirect also deletes per [Cookie header actions](#sec-cookie-header-actions), and the follow-up `/eforms/prime` reissues the persisted record without reminting.
 	- Turnstile → cf-turnstile-response; hCaptcha → h-captcha-response; reCAPTCHA v2 → g-recaptcha-response.
 
 <a id="sec-validation-pipeline"></a>
