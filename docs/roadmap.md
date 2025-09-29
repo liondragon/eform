@@ -78,7 +78,7 @@
 - TemplateValidator and TemplateContext ingest the `rules[]` envelope defined in [Template Model → Template JSON (§5.3)](#sec-template-json) and expose the bounded cross-field rules required by [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 - TemplateContext normalizes and persists the canonical template version per [Template Model → Versioning & cache keys (§5.6)](#sec-template-versioning), storing `version` (falling back to `filemtime()` when omitted) for cache keys and Renderer/SubmitHandler success/log metadata.
 - CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
-- Ship default template assets in `/templates/forms/` and `/templates/email/` so deployments have ready-to-use form and email examples, including `templates/forms/quote-request.json`, `templates/forms/contact.json`, and `templates/forms/eforms.css`.
+- Ship default template assets in `/templates/forms/` and `/templates/email/` so deployments have ready-to-use form and email examples, including `templates/forms/quote-request.json`, `templates/forms/contact.json`, and `assets/forms.css` shipped alongside the JSON/email templates.
 - Developer ergonomics: actionable diagnostics, anchor links back to spec sections, fixtures for regression tests.
 
 **Acceptance**
@@ -125,7 +125,7 @@
 - Acceptance tests cover the `has_uploads` gate so finfo/storage initialization occurs only when templates flag uploads per [Uploads (Implementation Details) (§18)](#sec-uploads).
 - Filename normalization fixtures cover sanitization, reserved-name blocking, transliteration toggles, and hashed path persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 - Bootstrap guard tests assert `EFORMS_FINFO_UNAVAILABLE` is defined and upload attempts fail when finfo metadata is unavailable per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
-- Packaging checks confirm the plugin bundle ships `templates/forms/quote-request.json`, `templates/forms/contact.json`, and `templates/forms/eforms.css` so CI can assert their presence.
+- Packaging checks confirm the plugin bundle ships `templates/forms/quote-request.json`, `templates/forms/contact.json`, and `assets/forms.css` alongside the JSON/email templates so CI can assert their presence.
 
 ---
 
