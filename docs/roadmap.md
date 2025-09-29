@@ -72,7 +72,7 @@
 
 - `TemplateValidator` preflight covering field definitions, row-group constraints, and envelope rules.
 - Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows; runtime uses the preflighted manifest only.
-- TemplateContext outputs enumerated and persisted per [Template Model → Row groups (§5.2)](#sec-template-row-groups) and [Template Model → Template JSON (§5.3)](#sec-template-json), covering descriptors, `max_input_vars_estimate`, sanitized `before_html`/`after_html` fragments, `display_format_tel` tokens, and other canonical fragments consumed by runtime components.
+- TemplateContext outputs enumerated and persisted per [Template Model → Row groups (§5.2)](#sec-template-row-groups) and [Template Model → Template JSON (§5.3)](#sec-template-json), covering descriptors, `max_input_vars_estimate`, sanitized `before_html`/`after_html` fragments, `display_format_tel` tokens, and other canonical fragments consumed by runtime components. TemplateContext also computes the `has_uploads` flag defined in [Template Model → TemplateContext (§5.8)](#sec-template-context) so upload gating is deterministic downstream.
 - TemplateContext normalizes and persists the canonical template version per [Template Model → Versioning & cache keys (§5.6)](#sec-template-versioning), storing `version` (falling back to `filemtime()` when omitted) for cache keys and Renderer/SubmitHandler success/log metadata.
 - CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
 - Ship default template assets in `/templates/forms/` and `/templates/email/` so deployments have ready-to-use form and email examples.
@@ -95,6 +95,7 @@
 **Delivers**
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
+- Upload bootstrap honors the TemplateContext `has_uploads` gate before initializing `finfo` handlers or touching storage, following [Uploads (Implementation Details) (§18)](#sec-uploads).
 - Enforce [Uploads → Filename policy (§18.3)](#sec-uploads-filenames):
   - Strip paths, NFC-normalize, and sanitize names (control-character removal, whitespace/dot collapse) before persistence.
   - Block reserved Windows names and deterministically truncate to `uploads.original_maxlen`.
@@ -117,6 +118,7 @@
 - Garbage-collection tooling deletes expired assets without touching active submissions.
 - Upload POST paths integrate with `Security::token_validate()` outputs without bypassing snapshot/config rules.
 - Reject when any of finfo/extension/accept-token disagree; log `EFORMS_ERR_UPLOAD_TYPE`.
+- Acceptance tests cover the `has_uploads` gate so finfo/storage initialization occurs only when templates flag uploads per [Uploads (Implementation Details) (§18)](#sec-uploads).
 - Filename normalization fixtures cover sanitization, reserved-name blocking, transliteration toggles, and hashed path persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 - Bootstrap guard tests assert `EFORMS_FINFO_UNAVAILABLE` is defined and upload attempts fail when finfo metadata is unavailable per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 
