@@ -424,7 +424,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 		- `hit` = prior record exists and `now < prior.expires`  
 	- After any remint (miss/expired), `record.expires` reflects the newly persisted value.
 - Failure modes:
-	- Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; the helper otherwise ignores `slot?` and always persists `{ slots_allowed:[], slot:null }`, leaving `/eforms/prime` to union slots after it returns.
+        - Invalid/disabled `slot?` (not allowed or outside 1–255) is normalized to `null`; on miss/expired writes the helper ignores `slot?` and persists `{ slots_allowed:[], slot:null }`, leaving `/eforms/prime` to union slots after it returns; `status:"hit"` leaves the existing `slots_allowed`/`slot` fields untouched.
 	- Filesystem errors propagate (hard fail).
 - Status computation inspects only the form's persisted active minted record and does not read request cookies.
 - `status:"hit"` means storage already holds that unexpired record; `/eforms/prime` MUST compare the presented cookie (when any) against `record.eid` to apply the **unexpired-match** test before deciding to skip the positive header.
