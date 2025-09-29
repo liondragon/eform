@@ -352,6 +352,7 @@
 - **No rotation before success:** Identifiers (hidden/cookie/NCID) remain pinned until the success path triggers documented rotations.
 - **Security invariants:** Regex guards before disk; tamper paths hard-fail; error rerenders reuse persisted records; NCID fallbacks preserve dedupe semantics; enforce origin-only CSRF boundary; audit cookie attributes (Path=/, SameSite=Lax, Secure on HTTPS, HttpOnly).
 - **CI scaffolding checks:**
+	- Config defaults parity test: CI loads the §17 configuration table and diffs it against `Config::DEFAULTS` (key coverage plus clamp/enum metadata) so spec/implementation drift fails fast; wire this parity check into phpunit/spec-lint as part of the build.【F:docs/electronic_forms_SPEC.md†L922-L992】
 	- Descriptor resolution test proves every handler surfaced by `Spec::typeDescriptors()` is callable, preventing drift between matrices and helper implementations.【F:docs/electronic_forms_SPEC.md†L1116-L1117】
 	- Schema parity diff regenerates JSON Schema from `TEMPLATE_SPEC` (or vice versa) and fails when enums, required fields, or shapes diverge from the canonical manifest.【F:docs/electronic_forms_SPEC.md†L1117-L1118】
 	- Determinism validation replays a fixed template + inputs and asserts identical error ordering, canonical values, and rendered attribute sets for every run.【F:docs/electronic_forms_SPEC.md†L1117-L1118】
