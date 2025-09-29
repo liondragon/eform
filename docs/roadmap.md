@@ -148,18 +148,18 @@
 
 ---
 
-## Phase 6: `/eforms/prime` endpoint (single source of positive `Set-Cookie`) {#phase-6}
+## Phase 6: `/eforms/prime` endpoint (conditional header action owner) {#phase-6}
 
-**Goal:** Own mint/refresh and the positive `Set-Cookie` decision using the **unexpired match** rule; keep helpers header-agnostic.
+**Goal:** Own mint/refresh and the conditional (positive `Set-Cookie`) header action from [Cookie header actions](electronic_forms_SPEC.md#sec-cookie-header-actions) using the **unexpired match** rule; keep helpers header-agnostic.
 
 **Dependencies:** Relies on the helper contracts finalized in [Phase 2](#phase-2) for `mint_cookie_record()` semantics and must precede [Phase 10](#phase-10) so slot unioning builds on a stable `/eforms/prime` flow.
 
 **Delivers**
 
 - Calls `Config::get()` then `mint_cookie_record(form_id, slot?)`.
-- Load/update record; **Set-Cookie decision**:
-  - **Send** positive `Set-Cookie` when request **lacks an unexpired match** (mint/remint; expired/missing record; cookie omitted/malformed/mismatched).
-  - **Skip** only when an identical, unexpired cookie is present (same Name/Value/Path/SameSite/Secure).
+- Load/update record; **Conditional header action** (the only flow allowed to emit the positive `Set-Cookie`):
+  - **Send** the conditional header action’s positive `Set-Cookie` when the request **lacks an unexpired match** (mint/remint; expired/missing record; cookie omitted/malformed/mismatched).
+  - **Skip** the conditional header action only when an identical, unexpired cookie is present (same Name/Value/Path/SameSite/Secure).
 - Set-Cookie attrs (normative): `Path=/`, `Secure` (HTTPS only), `HttpOnly`, `SameSite=Lax`, `Max-Age` = TTL on mint, or remaining lifetime on reissue.
 - Response: `204` + `Cache-Control: no-store`.
 - No header emission elsewhere except deletion per matrices (rerender/PRG).
@@ -167,9 +167,9 @@
 
 **Acceptance**
 
-- Matrix-conformant behavior for cookie-less hits.
-- Cookie-less hit reissues positive `Set-Cookie`.
-- Identical, unexpired cookie ⇒ skip header emission.
+- Matrix-conformant behavior for the conditional header action on cookie-less hits.
+- Cookie-less hit reissues the conditional header action’s positive `Set-Cookie`.
+- Identical, unexpired cookie ⇒ skip the conditional header action.
 - Reissue uses remaining-lifetime (`record.expires - now`) for `Max-Age`.
 - Renderer never emits Set-Cookie; `/eforms/prime` not called synchronously on GET.
 - Never rewrite `issued_at/expires` on hit; only slot unioning is persisted here later (Phase 10).
