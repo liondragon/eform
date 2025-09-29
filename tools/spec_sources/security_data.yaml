@@ -220,7 +220,7 @@ cookie_header_actions_rows:
     flow_trigger: POST rerender (NCID or challenge)
     anchor: sec-cookie-header-post-rerender
     header_action: deletion
-    invariants: "Error rerenders governed by the NCID rerender and challenge lifecycle MUST delete `eforms_eid_{form_id}` with a matching header that mirrors the minted Name/Path/SameSite/Secure/HttpOnly attributes (and Domain when minted), clears via `Max-Age=0` or an already-expired `Expires`, and embed `/eforms/prime` on the follow-up GET; the rerender itself MUST NOT emit a positive header. Host-only mints omit Domain; the deletion header MUST match."
+    invariants: "Error rerenders governed by the NCID rerender and challenge lifecycle MUST delete `eforms_eid_{form_id}` with a matching header that mirrors the minted Name/Path/SameSite/Secure/HttpOnly attributes (and Domain when minted), clears via `Max-Age=0` or an already-expired `Expires`, and embed `/eforms/prime?f={form_id}[&s={slot}]` in the rerender so the persisted record is reissued before the next POST; the rerender itself MUST NOT emit a positive header. Host-only mints omit Domain; the deletion header MUST match."
     references:
       - sec-ncid-rerender
   - id: cookie-header-challenge-success
