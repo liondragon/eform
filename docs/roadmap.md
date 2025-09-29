@@ -303,6 +303,8 @@
 - Private `HANDLERS` registries (validators, normalizers/coercers, renderers, uploads) with spec-aligned `resolve()` helpers so runtime lookups stay centralized and pluggable without bypassing the authoritative tables.
 - RuntimeCap enforcement that clamps POST bodies using `security.max_post_bytes`, PHP INI (`post_max_size`, `upload_max_filesize`), and `uploads.*` overrides while guarding `CONTENT_LENGTH` and coordinating with upload slot validation (see [POST Size Cap (§6)](#sec-post-size-cap)).
 - Assets and accessibility: enqueue scripts/styles only during rendering, deliver JS usability helpers, and implement accessibility focus/error summary guidance per [Accessibility (§12)](#sec-accessibility) and [Assets (§22)](#sec-assets), including label/control associations, fieldset/legend grouping, role/ARIA obligations for the error summary, and focus-management rules when native validation remains enabled (`html5.client_validation=true`): skip pre-submit summary focus to avoid double focus, yet still move focus to the first invalid control after server rerenders.
+- Asset versioning: enqueue CSS and JS with versions derived from `filemtime()` so cache busting matches the requirements in [Assets (§22)](#sec-assets).
+- Configuration: surface the `assets.css_disable` toggle documented in [Assets (§22)](#sec-assets) and ensure Renderer honors the opt-out during enqueue.
 - Sanitize `textarea_html` via `wp_kses_post` and enforce the post-sanitize size bound per [Special Case: HTML-Bearing Fields](docs/electronic_forms_SPEC.md#sec-html-fields).
 - SubmitHandler enforces the bounded cross-field rules defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 
@@ -312,6 +314,7 @@
 - Accessibility tests cover focus management alongside markup requirements: labels tied to controls, grouped inputs wrapped in fieldset/legend, and role="alert" summary behavior.
 - Tests cover each bounded cross-field rule type defined in [Validation → Cross-field rules (§10)](#sec-cross-field-rules).
 - Registry fixtures assert lazy initialization and lookup failure paths for each `HANDLERS` table so the registries remain the single source of truth for validator, normalizer/coercer, renderer, and upload resolution.
+- Assets opt-out coverage: acceptance fixtures prove `assets.css_disable` suppresses stylesheet enqueueing while scripts continue to version via `filemtime()` per [Assets (§22)](#sec-assets).
 
 ---
 
