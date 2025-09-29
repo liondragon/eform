@@ -13,12 +13,14 @@
 - Helper library from [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes) shipped alongside bootstrap (`Helpers::nfc`, `Helpers::cap_id`, `Helpers::bytes_from_ini`, etc.) with fixtures covering their contracts.
 - CI/lint hooks to assert all entry points (`Renderer`, `SubmitHandler`, `/eforms/prime`, `/eforms/success-verify`, challenge verifiers, `Emailer`) call `Config::get()` up front.
 - `uninstall.php` implements and exercises the guard/Config bootstrap/purge-flag contract defined in [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture), including operational toggles for uploads/log retention.
+- Ship `/templates/` hardening files (`index.html`, `.htaccess`, `web.config`) and enforce the filename allow-list per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 
 **Acceptance**
 
 - Multiple `Config::get()` calls in a request are safe; first triggers bootstrap only.
 - Unit tests: snapshot immutability across components; default resolution; missing keys handled per spec.
 - Uninstall integration tests assert the `defined('WP_UNINSTALL_PLUGIN')` guard, require the Config bootstrap, and respect purge-flag decisions per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
+- Packaging checks confirm `/templates/` ships the protective files and filename allow-list required by [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 
 ---
 
