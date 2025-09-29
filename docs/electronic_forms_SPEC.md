@@ -476,6 +476,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
                                        `eforms_eid_{form_id}` with a matching Max-Age=0 Set-Cookie header and embed
                                        `/eforms/prime?f={form_id}[&s={slot}]` so the persisted record is reissued before the next
                                        POST without rotating identifiers.
+
                                        **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
                                         <!-- BEGIN GENERATED: cookie-lifecycle-matrix -->
                                         | Flow trigger | Server MUST | Identifier outcome | Notes |
@@ -496,6 +497,8 @@ This table routes each lifecycle stage to the normative matrices that govern its
 
 --8<-- "generated/security/ncid_rerender.md"
                                        **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
+
+
                                         <!-- BEGIN GENERATED: cookie-policy-matrix -->
                                         | Policy path | Handling when cookie missing/invalid or record expired | `token_ok` | Soft labels | `require_challenge` | Identifier returned | `cookie_present?` |
                                         |-------------|-----------------------------------------------------|-----------|-------------|--------------------|--------------------|-------------------|

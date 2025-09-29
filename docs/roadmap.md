@@ -10,14 +10,17 @@
 - Snapshot covers `security.*`, `spam.*`, `challenge.*`, `email.*`, `logging.*`, `privacy.*`, `throttle.*`, `validation.*`, `uploads.*`, `assets.*`, `install.*`, defaults (authoritative table in [Configuration: Domains, Constraints, and Defaults (§17)](#sec-configuration)).
 - Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`.
 - Defensive `Config::get()` calls inside helpers (normative lazy backstop).
+- Helper library from [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes) shipped alongside bootstrap (`Helpers::nfc`, `Helpers::cap_id`, `Helpers::bytes_from_ini`, etc.) with fixtures covering their contracts.
 - CI/lint hooks to assert all entry points (`Renderer`, `SubmitHandler`, `/eforms/prime`, `/eforms/success-verify`, challenge verifiers, `Emailer`) call `Config::get()` up front.
 - `uninstall.php` implements and exercises the guard/Config bootstrap/purge-flag contract defined in [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture), including operational toggles for uploads/log retention.
+- Ship `/templates/` hardening files (`index.html`, `.htaccess`, `web.config`) and enforce the filename allow-list per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 
 **Acceptance**
 
 - Multiple `Config::get()` calls in a request are safe; first triggers bootstrap only.
 - Unit tests: snapshot immutability across components; default resolution; missing keys handled per spec.
 - Uninstall integration tests assert the `defined('WP_UNINSTALL_PLUGIN')` guard, require the Config bootstrap, and respect purge-flag decisions per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
+- Packaging checks confirm `/templates/` ships the protective files and filename allow-list required by [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 
 ---
 
@@ -67,6 +70,7 @@
 
 - `TemplateValidator` preflight covering field definitions, row-group constraints, and envelope rules.
 - Manifest/schema source of truth for template metadata referenced by Renderer, SubmitHandler, and challenge flows; runtime uses the preflighted manifest only.
+- TemplateContext outputs enumerated and persisted per [Template Model → Row groups (§5.2)](#sec-template-row-groups) and [Template Model → Template JSON (§5.3)](#sec-template-json), covering descriptors, `max_input_vars_estimate`, sanitized `before_html`/`after_html` fragments, `display_format_tel` tokens, and other canonical fragments consumed by runtime components.
 - CLI/CI wiring that fails builds when templates drift from the canonical schema or omit required rows/fields.
 - Ship default template assets in `/templates/forms/` and `/templates/email/` so deployments have ready-to-use form and email examples.
 - Developer ergonomics: actionable diagnostics, anchor links back to spec sections, fixtures for regression tests.
@@ -76,6 +80,7 @@
 - Golden fixtures for representative templates (hidden, cookie, NCID, uploads) pass preflight.
 - Schema drift or missing sections produce stable error codes/messages.
 - Renderer/SubmitHandler rely exclusively on the validated manifest (no ad-hoc template parsing at runtime).
+- TemplateValidator sanitizes `before_html`/`after_html` via `wp_kses_post`, persists the canonical markup, and exposes TemplateContext fields (descriptors, `max_input_vars_estimate`, sanitized fragments, telephone formatting tokens) required by [Template Model → Template JSON (§5.3)](#sec-template-json) and [Template Model → display_format_tel tokens (§5.4)](#sec-display-format-tel).
 
 ---
 
@@ -86,7 +91,11 @@
 **Delivers**
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
-- `finfo`/MIME validation and extension allow-list prior to disk persistence; reject on mismatch.
+- Enforce [Uploads → Filename policy (§18.3)](#sec-uploads-filenames):
+  - Strip paths, NFC-normalize, and sanitize names (control-character removal, whitespace/dot collapse) before persistence.
+  - Block reserved Windows names and deterministically truncate to `uploads.original_maxlen`.
+  - Transliterate to ASCII when `uploads.transliterate=true`; otherwise retain UTF-8 and emit RFC 5987 `filename*`.
+  - Persist stored filenames as `{Ymd}/{original_slug}-{sha16}-{seq}.{ext}` so hashed paths remain stable across retries.
 - Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and opportunistic GC on GET and shutdown.
   - Plugin never schedules WP-Cron; ship an idempotent `wp eforms gc` WP-CLI command so operators can wire real cron if desired.
   - Single-run lock (e.g., `${uploads.dir}/eforms-private/gc.lock`) prevents overlapping runs.
@@ -94,7 +103,8 @@
   - Liveness checks skip unexpired EIDs/hidden tokens and ledger `.used` files; success tickets only purge after TTL expiry.
   - Dry-run mode lists candidate counts and bytes without deleting.
   - Observability: log GC summaries (scanned/deleted/bytes) at `info`.
-  - `finfo`, extension, and accept-token metadata must agree before persistence (uploads tri-agreement).
+  - `finfo`, extension, and accept-token metadata must agree before persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames) (uploads tri-agreement).
+- Bootstrap defines `EFORMS_FINFO_UNAVAILABLE` when PHP `finfo`/extension metadata are unavailable and deterministically rejects uploads per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 - Upload-specific logging and throttling hooks surfaced to the validation pipeline.
 
 **Acceptance**
@@ -103,6 +113,8 @@
 - Garbage-collection tooling deletes expired assets without touching active submissions.
 - Upload POST paths integrate with `Security::token_validate()` outputs without bypassing snapshot/config rules.
 - Reject when any of finfo/extension/accept-token disagree; log `EFORMS_ERR_UPLOAD_TYPE`.
+- Filename normalization fixtures cover sanitization, reserved-name blocking, transliteration toggles, and hashed path persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
+- Bootstrap guard tests assert `EFORMS_FINFO_UNAVAILABLE` is defined and upload attempts fail when finfo metadata is unavailable per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 
 ---
 
@@ -164,7 +176,7 @@
 **Delivers**
 
 - **Renderer (GET)**
-	- Hidden-mode: embed payload from `mint_hidden_record()`.
+	- Hidden-mode: embed payload from `mint_hidden_record()` including the normative `token`, `instance_id`, and `timestamp` hidden fields.
 	- Cookie-mode: deterministic markup plus prime pixel `/eforms/prime?f={form_id}[&s={slot}]`; **renderer never emits Set-Cookie**.
 	- Prime pixel only (no synchronous `/eforms/prime`); follow-up navigation performs the mint.
 - WordPress shortcode and template tag entry points bootstrap through the frozen configuration snapshot and document caching guidance, including `Vary: Cookie` scoped to `eforms_s_{form_id}`.
