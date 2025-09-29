@@ -87,7 +87,13 @@
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
 - `finfo`/MIME validation and extension allow-list prior to disk persistence; reject on mismatch.
-- Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and GC cron hooks.
+- Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and opportunistic GC on GET and shutdown.
+  - Plugin never schedules WP-Cron; ship an idempotent `wp eforms gc` WP-CLI command so operators can wire real cron if desired.
+  - Single-run lock (e.g., `${uploads.dir}/eforms-private/gc.lock`) prevents overlapping runs.
+  - Bounded deletes cap files/time per pass and resume on subsequent GC opportunities.
+  - Liveness checks skip unexpired EIDs/hidden tokens and ledger `.used` files; success tickets only purge after TTL expiry.
+  - Dry-run mode lists candidate counts and bytes without deleting.
+  - Observability: log GC summaries (scanned/deleted/bytes) at `info`.
   - `finfo`, extension, and accept-token metadata must agree before persistence (uploads tri-agreement).
 - Upload-specific logging and throttling hooks surfaced to the validation pipeline.
 
@@ -236,15 +242,20 @@
 **Delivers**
 
 - Logging modes and retention:
-	- `jsonl` / `minimal` / `off` pipelines with rotation/retention controls and `logging.level`, `logging.pii`, `logging.headers` toggles.
-	- Request correlation id `request_id` (filter → headers → UUIDv4) emitted on every log event, including email-failure paths.
-	- Optional Fail2ban emission writing to `logging.fail2ban.file` under `${uploads.dir}`, rotating alongside JSONL while remaining independent of `logging.mode`.
+- `jsonl` / `minimal` / `off` pipelines with rotation/retention controls and `logging.level`, `logging.pii`, `logging.headers` toggles.
+- Request correlation id `request_id` (filter → headers → UUIDv4) emitted on every log event, including email-failure paths.
+- Optional Fail2ban emission writing to `logging.fail2ban.file` under `${uploads.dir}`, rotating alongside JSONL while remaining independent of `logging.mode`.
+- Level-gated diagnostics per [Logging (§15)](electronic_forms_SPEC.md#sec-logging):
+- `logging.on_failure_canonical=true` unlocks canonical field name/value emission for rejected inputs only.
+- Level 2 appends the `desc_sha1` descriptor fingerprint to JSONL/minimal logs so fixtures can assert descriptor stability.
 - Privacy & IP policy: `none|masked|hash|full` handling, trusted proxy evaluation, and consistent presentation across emails and logs.
 
 **Acceptance**
 
 - Redaction and rotation snapshots that verify PII handling across `jsonl`, `minimal`, and `off` configurations.
 - Error events assert presence of `request_id`.
+- Logging fixtures cover `logging.on_failure_canonical` by asserting canonical field outputs appear only on rejection when the toggle is enabled.
+- Level 2 logging tests assert `desc_sha1` emission across sinks.
 
 ---
 
