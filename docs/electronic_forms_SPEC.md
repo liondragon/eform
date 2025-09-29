@@ -1003,7 +1003,13 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 								- Path length cap: enforce `uploads.max_relative_path_chars`; shorten `original_slug` deterministically when exceeded.
 				- Intersection: field `accept[]` ∩ global allow-list must be non-empty → else `EFORMS_ERR_ACCEPT_EMPTY`.
 				- Delete uploads after successful send unless retention applies; if email send fails after files were stored, cleanup per retention policy. On final send failure, delete unless `uploads.retention_seconds>0` (then GC per retention).
-				- GC: opportunistic on GET and best-effort on POST shutdown only. No WP-Cron.
+				- GC: opportunistic on GET and best-effort on POST shutdown only. The plugin MUST NOT schedule WP-Cron.
+				- Provide an idempotent `wp eforms gc` WP-CLI command so operators can wire real cron for stricter SLAs without enabling WP-Cron.
+				- GC runs under a single-run lock (e.g., `${uploads.dir}/eforms-private/gc.lock`) to prevent overlapping work.
+				- Each GC pass is bounded by time/files processed and resumes on later GET/shutdown opportunities.
+				- Liveness checks MUST skip unexpired hidden tokens/EIDs and ledger `.used` markers; success tickets purge only after their TTL.
+				- Dry-run mode lists candidate counts and total bytes without deleting.
+				- Emit GC summaries (scanned/deleted/bytes) at `info`.
 				- `has_uploads` flag computed during preflight; guard Uploads init on that.
 				- Fileinfo hard requirement: if ext/fileinfo unavailable, define `EFORMS_FINFO_UNAVAILABLE` at bootstrap and deterministically fail any upload attempt.
 				- MIME validation requires agreement of finfo + extension + accept-token; finfo=false/unknown ⇒ reject with `EFORMS_ERR_UPLOAD_TYPE`.

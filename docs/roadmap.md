@@ -87,7 +87,13 @@
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
 - `finfo`/MIME validation and extension allow-list prior to disk persistence; reject on mismatch.
-- Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and GC cron hooks.
+- Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and opportunistic GC on GET and shutdown.
+  - Plugin never schedules WP-Cron; ship an idempotent `wp eforms gc` WP-CLI command so operators can wire real cron if desired.
+  - Single-run lock (e.g., `${uploads.dir}/eforms-private/gc.lock`) prevents overlapping runs.
+  - Bounded deletes cap files/time per pass and resume on subsequent GC opportunities.
+  - Liveness checks skip unexpired EIDs/hidden tokens and ledger `.used` files; success tickets only purge after TTL expiry.
+  - Dry-run mode lists candidate counts and bytes without deleting.
+  - Observability: log GC summaries (scanned/deleted/bytes) at `info`.
   - `finfo`, extension, and accept-token metadata must agree before persistence (uploads tri-agreement).
 - Upload-specific logging and throttling hooks surfaced to the validation pipeline.
 
