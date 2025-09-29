@@ -87,6 +87,7 @@
 - Schema drift or missing sections produce stable error codes/messages.
 - Renderer/SubmitHandler rely exclusively on the validated manifest (no ad-hoc template parsing at runtime).
 - TemplateValidator sanitizes `before_html`/`after_html` via `wp_kses_post`, persists the canonical markup, and exposes TemplateContext fields (descriptors, `max_input_vars_estimate`, sanitized fragments, telephone formatting tokens) required by [Template Model → Template JSON (§5.3)](#sec-template-json) and [Template Model → display_format_tel tokens (§5.4)](#sec-display-format-tel).
+- TemplateValidator rejects upload fields whose `accept[]` tokens do not overlap the global allow-list, emitting `EFORMS_ERR_ACCEPT_EMPTY` per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames), with fixtures covering both valid and empty intersections.
 - Acceptance coverage ensures fixtures assert the normalized version surfaces to Renderer, SubmitHandler, and logging consumers per `TemplateContext::normalize_version`.
 
 ---
