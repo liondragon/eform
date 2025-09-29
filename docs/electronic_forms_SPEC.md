@@ -1045,7 +1045,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- CDN/cache notes: bypass caching on non-cacheable token pages; /eforms/prime is no-store; do not strip Set-Cookie on 204.
 	- Initialize Logging only when logging.mode != "off".
 	- Initialize Uploads only when uploads.enable=true and template declares file/files (detected at preflight).
-	- html5.client_validation=true → omit novalidate; server validator still runs on POST.
+- Renderer never adds `novalidate`; when `html5.client_validation=true`, retain HTML5 validation hints so browsers can run native checks, and when `false`, still omit `novalidate` and leave any suppression of native UI to custom templates. The server validator always runs on POST.
 	- Preflight resolves and freezes per-request resolved descriptors; reuse across Renderer and Validator (no re-merge on POST).
 
 	<a id="sec-request-lifecycle-post"></a>2. POST
@@ -1092,7 +1092,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- assets.css_disable=true lets themes opt out
 	- On submit failure, focus the first control with an error
 	- Focus styling (a11y): do not remove outlines unless visible replacement is provided. For inside-the-box focus: outline: 1px solid #b8b8b8 !important; outline-offset: -1px;
-	- html5.client_validation=true: do not suppress native validation UI; skip pre-submit summary focus to avoid double-focus; after server rerender with errors, still focus first invalid control.
+- Renderer never adds `novalidate`, so native validation UI remains active. When `html5.client_validation=true`, skip pre-submit summary focus to avoid double-focus yet still move focus to the first invalid control after server rerenders. When the flag is `false`, any suppression of native UI requires template overrides outside the renderer.
 	- Only enqueue provider script when the challenge is rendered:
 	- Turnstile: https://challenges.cloudflare.com/turnstile/v0/api.js (defer, crossorigin=anonymous)
 	- hCaptcha: https://hcaptcha.com/1/api.js (defer)
