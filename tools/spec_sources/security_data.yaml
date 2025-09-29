@@ -220,21 +220,21 @@ cookie_header_actions_rows:
     flow_trigger: POST rerender (NCID or challenge)
     anchor: sec-cookie-header-post-rerender
     header_action: deletion
-    invariants: "Error rerenders governed by the NCID rerender and challenge lifecycle MUST delete `eforms_eid_{form_id}` with a matching Max-Age=0 header and embed `/eforms/prime` on the follow-up GET; the rerender itself MUST NOT emit a positive header."
+    invariants: "Error rerenders governed by the NCID rerender and challenge lifecycle MUST delete `eforms_eid_{form_id}` with a matching header that mirrors the minted Name/Path/SameSite/Secure/HttpOnly attributes (and Domain when minted), clears via `Max-Age=0` or an already-expired `Expires`, and embed `/eforms/prime` on the follow-up GET; the rerender itself MUST NOT emit a positive header. Host-only mints omit Domain; the deletion header MUST match."
     references:
       - sec-ncid-rerender
   - id: cookie-header-challenge-success
     flow_trigger: Challenge verification success
     anchor: sec-cookie-header-challenge-success
     header_action: deletion
-    invariants: "Verifier success response clears the cookie via deletion header and relies on the PRG redirect GET to embed `/eforms/prime`; NCID stays pinned per the rerender lifecycle."
+    invariants: "Verifier success response clears the cookie via a deletion header that mirrors the minted Name/Path/SameSite/Secure/HttpOnly attributes (and Domain when minted) and uses `Max-Age=0` or an already-expired `Expires`, then relies on the PRG redirect GET to embed `/eforms/prime`; NCID stays pinned per the rerender lifecycle. Host-only mints omit Domain; the deletion header MUST match."
     references:
       - sec-ncid-rerender
   - id: cookie-header-prg-redirect
     flow_trigger: PRG redirect (success handoff)
     anchor: sec-cookie-header-prg-redirect
     header_action: deletion
-    invariants: "All success PRG responses MUST delete `eforms_eid_{form_id}` before issuing the 303 so the follow-up GET reprovisions the cookie; flows covered by the NCID rerender and challenge lifecycle rely on that redirect GET to re-prime, and no positive header is permitted in PRG."
+    invariants: "All success PRG responses MUST delete `eforms_eid_{form_id}` before issuing the 303 using a header that mirrors the minted Name/Path/SameSite/Secure/HttpOnly attributes (and Domain when minted) with `Max-Age=0` or an already-expired `Expires`, so the follow-up GET reprovisions the cookie; flows covered by the NCID rerender and challenge lifecycle rely on that redirect GET to re-prime, and no positive header is permitted in PRG. Host-only mints omit Domain; the deletion header MUST match."
     references:
       - sec-success
       - sec-ncid-rerender
