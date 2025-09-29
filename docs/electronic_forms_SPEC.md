@@ -45,7 +45,7 @@ electronic_forms - Spec
 		- Fail2ban emission
 		- Rejected-submission logging → set logging.mode="jsonl" (or "minimal") and logging.level>=1
 		- Header logging, PII logging, SMTP debug
-	- Operational profile: Cookie mode is intended for cached pages; hidden-token mode is recommended elsewhere. On cached pages, `/eforms/prime` is the canonical mint/remint endpoint (and the only component permitted to emit the positive `Set-Cookie`), and it issues that header only when no unexpired match exists; setting it on the main GET is not supported.
+- Operational profile: Cookie mode is intended for cached pages; hidden-token mode is recommended elsewhere. On cached pages, `/eforms/prime` is the canonical mint/remint endpoint for the anti-duplication cookie (and the only component permitted to emit the positive `Set-Cookie` for `eforms_eid_{form_id}`), and it issues that header only when no unexpired match exists; setting it on the main GET is not supported.
 	- Definition — Mint/remint trigger = `/eforms/prime` sends the positive `Set-Cookie` only when the request lacks an unexpired match per [Cookie header actions](#sec-cookie-header-actions).
 <a id="sec-architecture"></a>
 3. ARCHITECTURE AND FILE LAYOUT
@@ -435,8 +435,8 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - Definition — Hit without match = `status:"hit"` but no unexpired match; `/eforms/prime` MUST still send the positive header per [Cookie header actions](#sec-cookie-header-actions).
 - **Header boundary (normative)** — [Cookie header actions matrix](#sec-cookie-header-actions) is authoritative for which flow emits which header. `/eforms/prime` remains the sole source of a positive `Set-Cookie` for `eforms_eid_{form_id}`.
 - <a id="sec-cookie-header-actions"></a>Cookie header actions (normative):
-			This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior](#sec-success).
-			The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, NCID/challenge rerenders, verifier success, and the PRG redirect so implementations reference a single canonical source.
+This table applies only to the anti-duplication cookie `eforms_eid_{form_id}`; success-ticket cookies are governed by [Success Behavior](#sec-success).
+The matrix below centralizes positive vs deletion vs skip requirements for GET renders, `/eforms/prime`, NCID/challenge rerenders (including challenge verifier success rows), and the PRG redirect so implementations reference a single canonical source.
 --8<-- "generated/security/cookie_headers.md"
 
 **Slot handling:**
