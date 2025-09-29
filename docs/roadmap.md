@@ -91,7 +91,11 @@
 **Delivers**
 
 - Accept-token generation/verification consistent with uploads matrices and `uploads.*` config (size caps, ttl, allowed forms).
-- `finfo`/MIME validation and extension allow-list prior to disk persistence; reject on mismatch.
+- Enforce [Uploads → Filename policy (§18.3)](#sec-uploads-filenames):
+  - Strip paths, NFC-normalize, and sanitize names (control-character removal, whitespace/dot collapse) before persistence.
+  - Block reserved Windows names and deterministically truncate to `uploads.original_maxlen`.
+  - Transliterate to ASCII when `uploads.transliterate=true`; otherwise retain UTF-8 and emit RFC 5987 `filename*`.
+  - Persist stored filenames as `{Ymd}/{original_slug}-{sha16}-{seq}.{ext}` so hashed paths remain stable across retries.
 - Storage layout honoring `{h2}` sharding, `0700/0600` permissions, retention windows, and opportunistic GC on GET and shutdown.
   - Plugin never schedules WP-Cron; ship an idempotent `wp eforms gc` WP-CLI command so operators can wire real cron if desired.
   - Single-run lock (e.g., `${uploads.dir}/eforms-private/gc.lock`) prevents overlapping runs.
@@ -99,7 +103,8 @@
   - Liveness checks skip unexpired EIDs/hidden tokens and ledger `.used` files; success tickets only purge after TTL expiry.
   - Dry-run mode lists candidate counts and bytes without deleting.
   - Observability: log GC summaries (scanned/deleted/bytes) at `info`.
-  - `finfo`, extension, and accept-token metadata must agree before persistence (uploads tri-agreement).
+  - `finfo`, extension, and accept-token metadata must agree before persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames) (uploads tri-agreement).
+- Bootstrap defines `EFORMS_FINFO_UNAVAILABLE` when PHP `finfo`/extension metadata are unavailable and deterministically rejects uploads per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 - Upload-specific logging and throttling hooks surfaced to the validation pipeline.
 
 **Acceptance**
@@ -108,6 +113,8 @@
 - Garbage-collection tooling deletes expired assets without touching active submissions.
 - Upload POST paths integrate with `Security::token_validate()` outputs without bypassing snapshot/config rules.
 - Reject when any of finfo/extension/accept-token disagree; log `EFORMS_ERR_UPLOAD_TYPE`.
+- Filename normalization fixtures cover sanitization, reserved-name blocking, transliteration toggles, and hashed path persistence per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
+- Bootstrap guard tests assert `EFORMS_FINFO_UNAVAILABLE` is defined and upload attempts fail when finfo metadata is unavailable per [Uploads → Filename policy (§18.3)](#sec-uploads-filenames).
 
 ---
 
