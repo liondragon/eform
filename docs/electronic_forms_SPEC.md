@@ -477,7 +477,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
                                         already lies in the past) and embed
                                         `/eforms/prime?f={form_id}[&s={slot}]` so the persisted record is reissued before the next
                                         POST without rotating identifiers.
-                                        Definition — Deletion header options = Match the minted cookie’s Name/Path/SameSite/Secure/HttpOnly attributes and clear it via `Max-Age=0` or an already-expired `Expires` value.
+                                        - Definition — Deletion header options = Match the minted cookie’s Name/Path/SameSite/Secure/HttpOnly attributes and clear it via `Max-Age=0` or an already-expired `Expires` value.
 
                                        **Generated from `tools/spec_sources/security_data.yaml` — do not edit manually.**
                                         <!-- BEGIN GENERATED: cookie-lifecycle-matrix -->
