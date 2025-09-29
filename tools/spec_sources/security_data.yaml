@@ -199,7 +199,7 @@ lifecycle_quickstart_rows:
     overview: "Ledger reservation uses the submission ID chosen by `Security::token_validate()` and follows [Ledger reservation contract](#sec-ledger-contract) before any side effects."
   - id: quickstart-success
     stage: "Success"
-    overview: "Success flows rely on [Success behavior](#sec-success) and the PRG-related header rules in [Cookie header actions](#sec-cookie-header-actions) for NCID/challenge continuations."
+    overview: "Success flows rely on [Success behavior](#sec-success) and the PRG-related header rules in [Cookie header actions](#sec-cookie-header-actions) for flows governed by the NCID rerender and challenge lifecycle."
 
 cookie_header_actions_rows:
   - id: cookie-header-get-render
@@ -220,7 +220,7 @@ cookie_header_actions_rows:
     flow_trigger: POST rerender (NCID or challenge)
     anchor: sec-cookie-header-post-rerender
     header_action: deletion
-    invariants: "Error rerenders that proceed via NCID/challenge MUST delete `eforms_eid_{form_id}` with a matching Max-Age=0 header and embed `/eforms/prime` on the follow-up GET; the rerender itself MUST NOT emit a positive header."
+    invariants: "Error rerenders governed by the NCID rerender and challenge lifecycle MUST delete `eforms_eid_{form_id}` with a matching Max-Age=0 header and embed `/eforms/prime` on the follow-up GET; the rerender itself MUST NOT emit a positive header."
     references:
       - sec-ncid-rerender
   - id: cookie-header-challenge-success
@@ -234,7 +234,7 @@ cookie_header_actions_rows:
     flow_trigger: PRG redirect (success handoff)
     anchor: sec-cookie-header-prg-redirect
     header_action: deletion
-    invariants: "All success PRG responses MUST delete `eforms_eid_{form_id}` before issuing the 303 so the follow-up GET reprovisions the cookie; NCID/challenge flows rely on that redirect GET to re-prime, and no positive header is permitted in PRG."
+    invariants: "All success PRG responses MUST delete `eforms_eid_{form_id}` before issuing the 303 so the follow-up GET reprovisions the cookie; flows covered by the NCID rerender and challenge lifecycle rely on that redirect GET to re-prime, and no positive header is permitted in PRG."
     references:
       - sec-success
       - sec-ncid-rerender
