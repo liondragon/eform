@@ -42,7 +42,7 @@ Deliver a dependency-free WordPress plugin that renders, validates, and submits 
 
 ## Reusable Components
 
-### Existing Code to Leverage
+### New Components Required
 - **Configuration Loader**: Lazy `Config::get()` snapshot that seeds registries for forms, challenges, transports, and fields.
 - **Renderer**: Template-driven HTML generator that respects before/after HTML fragments and shared partials.
 - **Validator**: Field registry enforcing normalization, coercion, and validation rules per schema metadata.
@@ -50,9 +50,7 @@ Deliver a dependency-free WordPress plugin that renders, validates, and submits 
 - **Security Helpers**: Honeypot, delay, and Q/A challenge modules described in security matrices.
 - **Transport Layer**: Email sending abstraction with pluggable adapters and deterministic formatting.
 - **Logging Facility**: File-backed writer with rotation, redaction, and audit trail guarantees.
-- **CLI/Script Utilities**: Existing spec-lint and config validation scripts under `scripts/`.
-
-### New Components Required
+- **CLI/Script Utilities**: Spec-lint and config validation scripts under `scripts/` to support template authors.
 - **Template Authoring Guide**: Companion documentation explaining schema fields, helper references, and deployment toggles.
 - **Automation Hooks**: Optional CLI command to regenerate configuration snapshots or validate template integrity pre-deploy.
 - **Extended Analytics Hook**: Opt-in callback for forwarding sanitized submission metadata to observability tools without PII leakage.
