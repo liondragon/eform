@@ -75,6 +75,12 @@ Deliver a dependency-free WordPress plugin that renders, validates, and submits 
 - Keep `/eforms/prime` responsible for emitting the positive `Set-Cookie` header only when the request lacks an unexpired match; success, rerender, and verification responses issue deletion headers and rely on the follow-up prime call to reprovision the identifier.
 - Return JSON or HTML responses based on request context, keeping all responses cache-safe and never storing session state.
 
+### Submission Modes & Shortcode Integration {#sec-submission-modes}
+- Hidden-token mode (default) runs end-to-end without priming, embedding the anti-duplication token as a hidden input during the initial `[eform id="{form_id}"]` render and expecting the shortcode to hydrate it on every rerender or validation failure.
+- Cookie mode is explicitly requested via shortcode attributes (for example `[eform id="{form_id}" mode="cookie"]`) or template metadata and requires the render pipeline to output the deterministic `/eforms/prime` pixel so browsers fetch or refresh the cookie identifier before any submission attempt.
+- Shortcode handlers must expose both modes so integrators can choose deterministic hidden tokens for static marketing pages or cookie pinning for flows that need replay detection across multiple browser tabs or asynchronous resumptions.
+- Both modes share the same renderer, validator, and submit handler contracts; the shortcode simply wires the mode selection into the request lifecycle so the correct priming (hidden field vs. pixel fetch) executes without diverging from the canonical anti-duplication matrices.
+
 ### Frontend Behavior
 - Serve a minimal JavaScript snippet to manage inline errors, progressive enhancement of success banners, and optional challenge timers.
 - Lazy-load challenge widgets and verification fetches only when server responses flag `require_challenge=true`, ensuring initial GET renders remain provider-free.
