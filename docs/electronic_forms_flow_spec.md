@@ -18,6 +18,7 @@ Deliver a dependency-free WordPress plugin that renders, validates, and submits 
 - Normalize, validate, and coerce inputs using deterministic helper contracts; reject submissions that fail schema or anti-spam checks.
 - Generate and verify one-time submission tokens using the file-backed ledger for replay protection.
 - Support challenge helpers (honeypot, timing, question/answer) referenced by matrix metadata and escalate to provider-backed challenges (Turnstile, hCaptcha, reCAPTCHA) using the canonical lazy-load lifecycle when `require_challenge=true`.
+- Honor both hidden-token and cookie anti-duplication modes defined in the canonical matrices; expose `/eforms/prime` as the only endpoint that mints or refreshes the cookie identifier and keep success flows deletion-only.
 - Deliver submission payloads via transactional email with configurable subject, recipients, and body merge fields.
 - Persist submission summaries to rotating log files with predictable naming and retention rules.
 - Handle success responses via inline Turbo-like PRG redirect or success verification endpoint without storing server sessions.
@@ -66,14 +67,18 @@ Deliver a dependency-free WordPress plugin that renders, validates, and submits 
 
 ### Request Lifecycle
 - Use WordPress rewrite rules to route `GET /eforms/render` and `POST /eforms/submit` through the plugin bootstrap.
+- Provide the `/eforms/prime` controller for cookie-mode priming and `/eforms/success-verify` for verification redirects, both of which call `Config::get()` before delegating to helpers.
 - Invoke `Config::get()` at each entry point, then dispatch to renderer or submit handler with deterministic dependency injection.
 - Apply middleware ordering: normalization → validation → security challenges → token verification → email/log dispatch → response builder.
 - Trigger provider-backed challenges only after `Security::token_validate()` returns `require_challenge=true`, rendering widgets on rerender or verification paths per the lazy-load matrix.
+- Maintain NCID pinning on fallback/challenge rerenders, sending the deletion header on rerender/verification responses and relying on the follow-up prime pixel to reprovision the same persisted record.
+- Keep `/eforms/prime` responsible for emitting the positive `Set-Cookie` header only when the request lacks an unexpired match; success, rerender, and verification responses issue deletion headers and rely on the follow-up prime call to reprovision the identifier.
 - Return JSON or HTML responses based on request context, keeping all responses cache-safe and never storing session state.
 
 ### Frontend Behavior
 - Serve a minimal JavaScript snippet to manage inline errors, progressive enhancement of success banners, and optional challenge timers.
 - Lazy-load challenge widgets and verification fetches only when server responses flag `require_challenge=true`, ensuring initial GET renders remain provider-free.
+- Embed deterministic prime pixels (`/eforms/prime?f={form_id}[&s={slot}]`) on cookie-mode renders, rerenders, redirects, and challenge continuations so the browser reissues the anti-duplication cookie before the next POST.
 - Avoid client-side templating; rely on server-rendered HTML with unobtrusive enhancements only.
 - Support async submission via fetch when available, falling back to classic form POST without breaking accessibility.
 
