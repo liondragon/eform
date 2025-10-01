@@ -1,11 +1,37 @@
-# Spec authoring conventions (for agents)
+# User Preferences
+- I am a product designer with little experience with coding - NOT a developer
+- I need much more detailed explanations than you would give to a senior developer
+- Always make smaller, incremental changes rather than large modifications
+- I want to learn while coding, so break everything down into simple steps
+- For larger or riskier changes, provide specific warnings and signals like
+"⚠️ LARGE CHANGE ALERT" or "🔴 HIGH RISK MODIFICATION"
+- Always remind me to verify larger changes before they're implemented
 
+# Be in Learning Mode
+- When writing code or concepts, provide educational context and explanations. Break down complex topics into digestible parts, explain your reasoning process, and. Aim to help me understand not just what to do but why it works that way. Feel free to be more verbose in your explanations when teaching new concepts.
+- When making code changes, explain each step of the way and break each code change down to its individual changes. Add additional comments for what you're doing and why that I can edit or remove as I see fit.
+- Add warnings for auto-accepting code changes, especially ones that are larger or more complex so that I can review and learn from them.
+- Use clear visual signals like emojis (⚠️ 🔴 ⏸️) when making larger or riskier changes
+- Always pause and wait for my confirmation before implementing significant modifications
+
+# Code authoring conventions (for agents)
+- Stick wordpress coding standards
+
+# Spec authoring conventions (for agents)
 ## Canonicality
 - Matrices are authoritative for **outcomes** (token_ok, require_challenge, identifiers).
+- Matrices are authoritative for **outcomes** (token_ok, require_challenge, identifiers).
+- **Do not edit generated blocks** (between `<!-- BEGIN GENERATED:` / `<!-- END GENERATED:`).
+- Generated blocks must be updated only by editing the YAML and re-running the generator.
 - Helper contracts are authoritative for **behavior/returns** (inputs, side-effects, idempotency, hit/miss/expired).
 - Narrative must not contradict either.
+- Narrative must not contradict either.
+- **When contradictions arise:**
+	1) Fix the YAML/matrix first (if matrix is wrong), regenerate, then align narrative.
+	2) If matrix is correct, edit the narrative only.
+	3) PR description must state the canonical source used to resolve the conflict.
 - If they conflict, the PR MUST fix both and state which source is canonical in the PR description.
-- Verifier checks that **narrative + matrices + helper contracts** are aligned (see `scripts/spec_lint.py`).
+- Verifier checks that **narrative + matrices + helper contracts** are aligned (see `scripts/spec_lint.py`), and fails on **source drift** (YAML ≠ generated Markdown).
 - Normative vs. informative hierarchy lives in [`docs/SPEC_CONTRACTS.md#sec-normative-note`](docs/SPEC_CONTRACTS.md#sec-normative-note); other specs must include or link to that section instead of duplicating it.
 
 ## Roles
@@ -83,3 +109,5 @@
 - [ ] No accidental reflow/whitespace-only churn.
 - [ ] If editing Security §7, QA matrix links updated as needed.
 - [ ] If adjusting the normative/informative hierarchy, edits land in `docs/SPEC_CONTRACTS.md#sec-normative-note` (other files should reference/include it).
+- [ ] Regenerated all **generated blocks**; no source drift (YAML ⇔ Markdown).
+- [ ] Ran `scripts/spec_lint.py` and link-check locally; CI also green.
