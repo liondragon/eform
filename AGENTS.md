@@ -15,7 +15,71 @@
 - Always pause and wait for my confirmation before implementing significant modifications
 
 # Code authoring conventions (for agents)
-- Stick to WordPress coding standards
+
+**Style & linting**
+- Follow **WordPress Coding Standards (WPCS)** using **PHPCS** rulesets: `WordPress-Core`, `WordPress-Docs`, `WordPress-Extra`.
+- Naming: **snake_case** for functions, **StudlyCaps** for classes, and **$lower_case_with_underscores** for variables.
+- Prefix all globals (functions, classes, hooks, options) with a unique plugin prefix, e.g. `eforms_`.
+
+**Security (quick checklist)**
+- Always **Validate → Sanitize → Escape** (in that order).
+- Nonces for state-changing requests: `check_admin_referer()` / `wp_verify_nonce()`.
+- Capabilities: gate actions with `current_user_can()`; never rely on the UI only.
+- Database: use `$wpdb->prepare()` (no string interpolation in SQL).
+- Files/paths: validate extensions and size limits from config; prefer `WP_Filesystem`.
+- Output escaping: see “Escaping map” below.
+
+**Escaping map (what to use where)**
+- Text node → `esc_html( $s )`
+- HTML attribute → `esc_attr( $s )`
+- URL/href/src → `esc_url( $s )`
+- Limited user HTML → `wp_kses_post( $html )`
+
+**Internationalization (i18n)**
+- Wrap strings: `__( 'Text', 'eforms' )`, `_x()`, and `esc_html__()` as appropriate.
+- Load text domain early (e.g., `plugins_loaded`).
+- Avoid concatenating sentences; use placeholders:  
+  `sprintf( __( 'Hello, %s', 'eforms' ), $name )`.
+
+**Docblocks & naming hygiene**
+- Add file headers and function/class DocBlocks (purpose, params, return types).
+- For public APIs, document inputs, side effects, error modes.
+- Prefer small, pure helpers; keep side effects in orchestrators.
+
+**Actions & filters**
+- Prefix hook names (e.g., `eforms_before_send`).
+- Document each filter’s expected input, return type, and timing.
+
+**Minimal tooling (non-blocking)**
+- Provide a repo-level `.phpcs.xml.dist` using WPCS rulesets.
+- Optional npm scripts (if present) for convenience:
+  - `npm run lint:php` → `phpcs -q`
+  - `npm run lint:fix` → `phpcbf -q || true`
+
+**Tiny end-to-end example (nonce, caps, sanitize, escape)**
+```php
+/**
+ * Save a setting (example).
+ */
+function eforms_save_setting() {
+	if ( ! isset( $_POST['_wpnonce'] ) || ! wp_verify_nonce( $_POST['_wpnonce'], 'eforms_save' ) ) {
+		wp_die( esc_html__( 'Security check failed.', 'eforms' ) );
+	}
+
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( esc_html__( 'Insufficient permissions.', 'eforms' ) );
+	}
+
+	// Validate + sanitize
+	$raw = isset( $_POST['eforms_message'] ) ? wp_unslash( $_POST['eforms_message'] ) : '';
+	$val = sanitize_text_field( $raw );
+
+	update_option( 'eforms_message', $val, false );
+
+	// Safe redirect (no output before this)
+	wp_safe_redirect( admin_url( 'options-general.php?page=eforms&updated=1' ) );
+	exit;
+}
 
 # Spec authoring conventions (for agents)
 ## Canonicality
