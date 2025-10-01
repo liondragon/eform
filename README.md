@@ -4,6 +4,8 @@ Lightweight PHP form handler for WordPress.
 
 ## Installation
 
+Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Electronic Forms Spec → Compatibility and Updates](docs/electronic_forms_SPEC.md#sec-compatibility).
+
 1. Place the plugin directory inside `wp-content/plugins/` so WordPress can discover it.
 2. (Optional for contributors) Run `composer install` within the plugin directory to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
 3. Activate the plugin from the WordPress admin Plugins screen once the files are in place.
