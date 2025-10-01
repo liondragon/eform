@@ -8,23 +8,21 @@
 - Always remind me to verify larger changes before they're implemented
 
 # Be in Learning Mode
-- When writing code or concepts, provide educational context and explanations. Break down complex topics into digestible parts, explain your reasoning process, and. Aim to help me understand not just what to do but why it works that way. Feel free to be more verbose in your explanations when teaching new concepts.
+- When writing code or concepts, provide educational context and explanations. Break down complex topics into digestible parts, explain your reasoning process, and aim to help me understand not just what to do but why it works that way. Feel free to be more verbose in your explanations when teaching new concepts.
 - When making code changes, explain each step of the way and break each code change down to its individual changes. Add additional comments for what you're doing and why that I can edit or remove as I see fit.
 - Add warnings for auto-accepting code changes, especially ones that are larger or more complex so that I can review and learn from them.
 - Use clear visual signals like emojis (⚠️ 🔴 ⏸️) when making larger or riskier changes
 - Always pause and wait for my confirmation before implementing significant modifications
 
 # Code authoring conventions (for agents)
-- Stick wordpress coding standards
+- Stick to WordPress coding standards
 
 # Spec authoring conventions (for agents)
 ## Canonicality
 - Matrices are authoritative for **outcomes** (token_ok, require_challenge, identifiers).
-- Matrices are authoritative for **outcomes** (token_ok, require_challenge, identifiers).
 - **Do not edit generated blocks** (between `<!-- BEGIN GENERATED:` / `<!-- END GENERATED:`).
 - Generated blocks must be updated only by editing the YAML and re-running the generator.
 - Helper contracts are authoritative for **behavior/returns** (inputs, side-effects, idempotency, hit/miss/expired).
-- Narrative must not contradict either.
 - Narrative must not contradict either.
 - **When contradictions arise:**
 	1) Fix the YAML/matrix first (if matrix is wrong), regenerate, then align narrative.
@@ -85,7 +83,7 @@
 
 ## Security (§7) edits (special care)
 - Do not change anchor IDs under Security; add new anchors if you introduce new subsections.
-- When editing cookie/NCID/prime semantics, also check the QA checklist links point to the correct anchors.
+- For cookie/NCID/prime semantics, edit the YAML first and regenerate; do not hand-edit generated tables. Also check the QA checklist links point to the correct anchors.
 
 ## Minimal diff hygiene
 - Preserve tabs in lists.
@@ -111,3 +109,5 @@
 - [ ] If adjusting the normative/informative hierarchy, edits land in `docs/SPEC_CONTRACTS.md#sec-normative-note` (other files should reference/include it).
 - [ ] Regenerated all **generated blocks**; no source drift (YAML ⇔ Markdown).
 - [ ] Ran `scripts/spec_lint.py` and link-check locally; CI also green.
+- [ ] ⚠️ LARGE CHANGE ALERT: Used when cookie/NCID/PRG semantics change (add a 2–3 bullet impact summary).
+- [ ] 🔴 HIGH RISK MODIFICATION: Used when changing header boundaries (who may send `Set-Cookie`) or rotation/TTL; include a quick rollback note.
