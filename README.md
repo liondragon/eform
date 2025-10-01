@@ -2,6 +2,10 @@
 
 Lightweight PHP form handler for WordPress.
 
+## Documentation
+
+- See [Documentation Guide](docs/README.md) for an overview of the spec, roadmap, and generated excerpts.
+
 ## Architecture
 
 - `eforms.php` boots the plugin, sets up rewrite rules, autoloads `src/`, and registers the `[eform]` shortcode.
