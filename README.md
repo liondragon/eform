@@ -5,8 +5,8 @@ Lightweight PHP form handler for WordPress.
 ## Installation
 
 1. Place the plugin directory inside `wp-content/plugins/` so WordPress can discover it.
-2. Run `composer install` within the plugin directory to install PHP dependencies.
-3. Activate the plugin from the WordPress admin Plugins screen once the files and dependencies are in place.
+2. (Optional for contributors) Run `composer install` within the plugin directory to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
+3. Activate the plugin from the WordPress admin Plugins screen once the files are in place.
 
 ## Documentation
 
