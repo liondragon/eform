@@ -2,9 +2,17 @@
 
 Lightweight PHP form handler for WordPress.
 
+## Installation
+
+1. Place the plugin directory inside `wp-content/plugins/` so WordPress can discover it.
+2. Run `composer install` within the plugin directory to install PHP dependencies.
+3. Activate the plugin from the WordPress admin Plugins screen once the files and dependencies are in place.
+
 ## Documentation
 
-- See [Documentation Guide](docs/README.md) for an overview of the spec, roadmap, and generated excerpts.
+- [Electronic Forms Spec](docs/electronic_forms_SPEC.md) details the end-to-end submission, security, and rendering requirements the plugin must meet.
+- [Roadmap](docs/roadmap.md) highlights upcoming milestones, outstanding work, and longer-term ideas.
+- [Documentation Guide](docs/README.md) explains how the documentation set is organized and where to find generated excerpts.
 
 ## Architecture
 
