@@ -13,6 +13,7 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Electronic Forms Spec
 ## Documentation
 
 - [Electronic Forms Spec](docs/electronic_forms_SPEC.md) details the end-to-end submission, security, and rendering requirements the plugin must meet.
+- [Spec Contracts](docs/SPEC_CONTRACTS.md) defines the canonicality hierarchy and helper contract rules the rest of the docs rely on.
 - [Roadmap](docs/roadmap.md) highlights upcoming milestones, outstanding work, and longer-term ideas.
 - [Documentation Guide](docs/README.md) explains how the documentation set is organized and where to find generated excerpts.
 
