@@ -12,6 +12,7 @@
 - Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`, with a one-time fallback to `0750/0640` and a warning log when strict creation fails per [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes).
 - Defensive `Config::get()` calls inside helpers (normative lazy backstop).
 - Helper library from [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes) shipped alongside bootstrap (`Helpers::nfc`, `Helpers::cap_id`, `Helpers::bytes_from_ini`, etc.) with fixtures covering their contracts.
+- Public helpers and new files introduced in this milestone ship with WordPress Coding Standards–compliant file-level and method docblocks; see the [coding conventions](../AGENTS.md) for formatting guidance.
 - CI/lint hooks to assert all entry points (`Renderer`, `SubmitHandler`, `/eforms/prime`, `/eforms/success-verify`, challenge verifiers, `Emailer`) call `Config::get()` up front.
 - `uninstall.php` implements and exercises the guard/Config bootstrap/purge-flag contract defined in [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture), including operational toggles for uploads/log retention.
 - Ship `/templates/` hardening files (`index.html`, `.htaccess`, `web.config`) and enforce the filename allow-list per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
