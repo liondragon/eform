@@ -8,6 +8,7 @@
 
 - `Config::get()` (idempotent, per-request snapshot) + `bootstrap()` called exactly-once per request.
 - `Config::bootstrap()` runs the `eforms_config` filter once per request and enforces the clamp/enumeration/unknown-key rules mandated by [Configuration → Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration).
+- Filtered configuration deep-merges with the default snapshot so partial overrides inherit unspecified defaults without drift.
 - Snapshot covers `security.*`, `spam.*`, `challenge.*`, `email.*`, `logging.*`, `privacy.*`, `throttle.*`, `validation.*`, `uploads.*`, `assets.*`, `install.*`, defaults (authoritative table in [Configuration: Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration)).
 - Shared storage rules: `{h2}` sharding via `Helpers::h2()`, dirs `0700`, files `0600`, with a one-time fallback to `0750/0640` and a warning log when strict creation fails per [Implementation Notes → Helpers](electronic_forms_SPEC.md#sec-implementation-notes).
 - Defensive `Config::get()` calls inside helpers (normative lazy backstop).
@@ -20,6 +21,7 @@
 
 - Multiple `Config::get()` calls in a request are safe; first triggers bootstrap only.
 - Unit tests: snapshot immutability across components; default resolution; missing keys handled per spec.
+- Merge coverage: overriding a subset of keys keeps remaining defaults, proving the deep-merge semantics above.
 - Fixtures/tests prove the `eforms_config` filter executes exactly once per request, reject invalid keys, and clamp configuration values to the §17 ranges/enumerations defined in [Configuration → Domains, Constraints, and Defaults (§17)](electronic_forms_SPEC.md#sec-configuration).
 - Uninstall integration tests assert the `defined('WP_UNINSTALL_PLUGIN')` guard, require the Config bootstrap, and respect purge-flag decisions per [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
 - Packaging checks confirm `/templates/` ships the protective files and filename allow-list required by [Architecture → /electronic_forms/ layout (§3)](electronic_forms_SPEC.md#sec-architecture).
