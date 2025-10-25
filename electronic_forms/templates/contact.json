@@ -1,0 +1,18 @@
+{
+  "id": "contact_us",
+  "version": "1",
+  "title": "Contact Us",
+  "success": { "mode": "inline", "message": "Thanks! We got your message." },
+  "email": {
+    "to": "admin@example.com",
+    "subject": "Contact Form",
+    "email_template": "default",
+    "include_fields": ["name","email","message"]
+  },
+  "fields": [
+    {"key":"name","type":"name","label":"Your Name","required":true,"before_html":"<h3>Hello,</h3>"},
+    {"key":"message","type":"textarea","label":"Message","required":true,"placeholder":"And continue here ..."},
+    {"key":"email","type":"email","label":"Email","autocomplete":"email","size":40,"required":true,"placeholder":"you@example.com"}
+  ],
+  "submit_button_text": "Send Your Request"
+}
