@@ -1,0 +1,28 @@
+1. **Challenge providers (Turnstile / hCAPTCHA / reCAPTCHA)**
+   - Default: `challenge.mode = off`.
+   - Delete the provider matrix, the extra rerender paths, the HTTP-timeout knobs, and the “challenge_unconfigured” hard-fail.
+   - If you ever need a bot wall, turn on basic throttle first; if that still isn’t enough, *then* add a single provider in a point release.
+2. **Throttle hard-multiplier & JSON file**
+   - Keep the soft throttle (cheap) but drop the “hard multiplier” path.
+   - A 429-style `Retry-After` header on soft-over-limit is enough; converting soft → hard buys almost nothing at this traffic level.
+3. **Origin hard-fail mode**
+   - Delete `security.origin_mode = hard` and `origin_missing_hard`.
+   - Leave only `off` (nothing) and `soft` (adds label).
+   - Hard origin blocking is only justified on high-risk authenticated endpoints; a contact form already has the token/cookie gate.
+4. **Display-format tel tokens**
+   - Kill the whole `email.display_format_tel` enum.
+   - Always render phone numbers as `xxx-xxx-xxxx` in e-mail; nobody *needs* parentheses vs. dots badly enough to warrant three code paths.
+5. **Success-ticket TTL ≠ token TTL**
+   - Collapse `security.success_ticket_ttl_seconds` into the same value as `security.token_ttl_seconds`.
+   - Two separate timers add config surface for zero user benefit (a five-minute ticket is plenty whether the token lived 15 min or 60 min).
+6. **Upload retention policy & GC**
+   - Make retention *binary*:
+     - `uploads.retention_seconds = 0` (delete on send) **or**
+     - `86400` (keep 24 h for forensics).
+   - Delete the fancy bounded-GC loop and the WP-CLI gc command; a daily `find … -mtime +1 -delete` cron one-liner is enough for 40 files/day.
+7. **Fail2ban emission target**
+   - Keep only `error_log` sink; delete the `file` and `syslog` targets.
+   - Ops can redirect stderr to rsyslog if they want; no need to maintain another log writer inside the plugin.
+8. **Row-group nesting**
+   - Restrict `type:"row_group"` to *one* level (no nesting).
+   - Removes the stack balancer and the “unbalanced” error path; 99 % of layout needs are met with a single wrapper.
