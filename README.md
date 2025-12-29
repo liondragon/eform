@@ -4,7 +4,7 @@ Lightweight PHP form handler for WordPress.
 
 ## Installation
 
-Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Electronic Forms Spec → Compatibility and Updates](docs/electronic_forms_SPEC.md#sec-compatibility).
+Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Compatibility and Updates](docs/Canonical_Spec.md#sec-compatibility).
 
 1. Place the plugin directory inside `wp-content/plugins/` so WordPress can discover it.
 2. (Optional for contributors) Run `composer install` within the plugin directory to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
@@ -12,10 +12,10 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Electronic Forms Spec
 
 ## Documentation
 
-- [Electronic Forms Spec](docs/electronic_forms_SPEC.md) details the end-to-end submission, security, and rendering requirements the plugin must meet.
-- [Spec Contracts](docs/SPEC_CONTRACTS.md) defines the canonicality hierarchy and helper contract rules the rest of the docs rely on.
+- [Canonical Spec](docs/Canonical_Spec.md) details the end-to-end submission, security, and rendering requirements the plugin must meet.
 - [Roadmap](docs/roadmap.md) highlights upcoming milestones, outstanding work, and longer-term ideas.
-- [Documentation Guide](docs/README.md) explains how the documentation set is organized and where to find generated excerpts.
+- [Past Decisions](docs/PAST_DECISIONS.md) records key design trade-offs and simplifications.
+- [Documentation Guide](docs/README.md) explains how the documentation set is organized.
 
 ## Architecture
 
@@ -47,6 +47,7 @@ add_filter('eforms_config', function ($config) {
 
 * CSRF protection via Origin checks and per-request tokens.
 * Token ledger prevents duplicate submissions.
+* Email-failure retries set a marker that suppresses the min-fill-time soft signal (see Canonical Spec).
 
 ### Logging
 
@@ -55,6 +56,12 @@ Logging modes: `off`, `minimal`, `jsonl`. See `Config` for options.
 ### Uploads
 
 Uploads are stored in `wp-content/uploads/eforms-private` with strict perms.
+
+### Maintenance (Required)
+
+Run `wp eforms gc` via system cron to prune expired token records and uploads. The plugin also runs best-effort GC on request shutdown, but cron is the primary mechanism.
+
+Ledger markers are pruned by `wp eforms gc` after the associated token is expired.
 
 ## Tests
 
@@ -79,4 +86,3 @@ wp eval-file wp-content/plugins/eform/bin/wp-cli/post-oversized.php
 
 Both scripts exit with a non-zero status when the observed behaviour deviates
 from the expected result.
-

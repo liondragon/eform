@@ -1,0 +1,88 @@
+diff --git a/docs/Canonical_Spec.md b/docs/Canonical_Spec.md
+--- a/docs/Canonical_Spec.md
++++ b/docs/Canonical_Spec.md
+@@ -343,10 +343,10 @@
+ >	- Inputs:
+ >	- `form_id` (slug). Callers MUST invoke `Config::get()` first; the helper also calls it defensively so the snapshot and `security.token_ttl_seconds` are available.
+ >	- Side-effects:
+->	- Atomically write `tokens/{h2}/{sha256(token)}.json` with `{ mode:"hidden", form_id, instance_id, issued_at, expires }`, using shared lifecycle sharding (`{h2}`) and permissions from [Shared lifecycle and storage](#sec-shared-lifecycle).
++>	- Atomically write `tokens/{h2}/{sha256(token)}.json` with `{ mode:"hidden", form_id, instance_id, issued_at, expires, delivery_id }`, using shared lifecycle sharding (`{h2}`) and permissions from [Shared lifecycle and storage](#sec-shared-lifecycle).
+ >	- Persisted records never rewrite on rerender.
+ >	- Returns:
+->	- `{ token: UUIDv4, instance_id: base64url(16–24 bytes), issued_at: unix, expires: issued_at + security.token_ttl_seconds }`.
++>	- `{ token: UUIDv4, instance_id: base64url(16–24 bytes), issued_at: unix, expires: issued_at + security.token_ttl_seconds, delivery_id: UUIDv4 }`.
+ >	- Failure modes:
+ >	- Propagate filesystem errors (create/write/fsync) to the caller as hard failures; helpers never swallow IO issues.
+
+@@ -364,6 +364,7 @@
+ 			| `form_id`	| Must match the rendered form; mismatch is tampering.
+ 			| `issued_at`	| Timestamp mirrored to the rendered `timestamp`.
+ 			| `expires`	| `issued_at + security.token_ttl_seconds`.
++			| `delivery_id`| UUIDv4; correlation key for delivery sinks and logs.
+ 			| `instance_id`| Base64url CSPRNG, never rewritten until token rotation.
+ 		- POST requirements:
+
+@@ -388,7 +389,7 @@
+ >\t- `f` (form_id slug).
+ >\t- Side-effects:
+ >\t- Enforce origin policy and throttling.
+->\t- Atomically write `tokens/{h2}/{sha256(token)}.json` with `{ mode:"js", form_id, instance_id, issued_at, expires }`.
++>\t- Atomically write `tokens/{h2}/{sha256(token)}.json` with `{ mode:"js", form_id, instance_id, issued_at, expires, delivery_id }`.
+ >\t- Returns:
+ >\t- JSON `{ token, instance_id, timestamp, expires }` where `timestamp == issued_at`.
+ >\t- Response headers:
+@@ -1043,6 +1044,42 @@
+ 28. KNOWN DEBT & OPTIMIZATIONS
+ 	(No outstanding debt items at this time.)
+
++<a id="sec-delivery"></a>
++29. DELIVERY ABSTRACTION (INTERNAL)
++
++**Rationale:** The delivery abstraction creates a single internal boundary for post-validation side effects. Today email is the only sink; the abstraction prepares a seam for future CRM integration without adding config surface or changing external behavior.
++
++### 29.1 delivery_id
++- A UUIDv4 generated at token mint time (both hidden-mode and `/eforms/mint`).
++- Persisted in the token record alongside `mode`, `form_id`, `instance_id`, `issued_at`, `expires`.
++- Purpose: log/audit correlation, submission tracing.
++- Not exposed to clients; internal only.
++- Each token mint generates a fresh `delivery_id`; it is NOT stable across remints.
++
++### 29.2 SubmissionPayload (internal)
++After normalize/validate/coerce succeeds, `SubmitHandler` constructs an immutable `SubmissionPayload`:
++```
++{ form_id, template_version, request_id, delivery_id, submission_id,
++  canonical_values, upload_metadata, meta }
++```
++- `request_id`: correlation from Logging.
++- `delivery_id`: from the validated token record.
++- `submission_id`: equals the posted `eforms_token`.
++- `canonical_values`: field_key → canonical value after coercion.
++- `upload_metadata`: array of `{ path, bytes, mime, sha256, original_name_safe }`.
++- `meta`: `{ submitted_at, ip_processed, origin_state }`.
++
++All downstream delivery sinks consume this object. Not serialized to clients.
++
++### 29.3 Delivery::deliver()
++Single internal boundary for post-validation side effects. Called after ledger reservation succeeds. Returns `DeliveryResult { delivered, sink, error_code? }`. Email is the only sink in v1.
++
++### 29.4 Extension hook
++`do_action('eforms_submission_payload', SubmissionPayload $payload)` fires read-only immediately before `Delivery::deliver()`. Listeners MUST NOT mutate the payload or perform write operations that affect submission success. Intended for logging, analytics, or prototyping external integrations.
++
++### 29.5 Future extension (non-normative)
++CRM delivery modes (`email`, `crm`, `both`) and provider configuration are deferred. When implemented, they will extend the template schema under `delivery.*` and add config keys under `delivery.crm.*`. A stable idempotency key for CRM deduplication across retries requires additional design (e.g., server-issued remint grants); see `docs/crm.md` for the design sketch.
++
+ <a id="sec-past-decisions"></a>
+-29. PAST DECISION NOTES
++30. PAST DECISION NOTES
+ 	See [PAST_DECISIONS.md](PAST_DECISIONS.md) for architectural decisions, design principles, and major simplifications.
+diff --git a/docs/README.md b/docs/README.md
+--- a/docs/README.md
++++ b/docs/README.md
+@@ -8,6 +8,7 @@
+ - `docs/roadmap.md` — High-level planning notes, upcoming milestones, and sequencing context.
+ - `docs/PAST_DECISIONS.md` — Rationale and history for major architectural choices.
+ - `docs/v2_spec_ncid.md` — Work-in-progress notes (non-canonical).
++- `docs/crm.md` — CRM integration design sketch (non-canonical; implementation deferred).
+
+ ## Regenerating spec excerpts {#sec-regenerating-spec-excerpts}
+
