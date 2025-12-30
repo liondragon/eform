@@ -1,0 +1,109 @@
+diff --git a/README.md b/README.md
+index a46dae9..dcd3abf 100644
+--- a/README.md
++++ b/README.md
+@@ -24,7 +24,7 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Co
+ - `src/Submission/SubmitHandler.php` orchestrates security checks, validation, logging, email, and uploads.
+ - `src/Security/` houses token, origin, challenge, and throttling logic.
+ - `src/Logging.php` writes structured logs with rotation.
+-- Configuration lives in `src/Config.php` and can be overridden via the `eforms_config` filter.
++- Configuration lives in `src/Config.php` and can be overridden via a drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`, usually `wp-content/eforms.config.php`) and/or the `eforms_config` filter.
+ 
+ ## Usage
+ 
+@@ -34,6 +34,25 @@ Add forms via shortcode:
+ [eforms id="contact"]
+ ```
+ 
++Configure via drop-in file:
++
++- Create `${WP_CONTENT_DIR}/eforms.config.php` (usually `wp-content/eforms.config.php`) returning an array of overrides.
++- Copying the example `eforms.config.php.example` from this repo is the recommended starting point.
++- Recommended: keep secrets in `wp-config.php` constants and reference them from the config file (so secrets aren’t committed to the plugin directory).
++
++```php
++<?php
++if (!defined('ABSPATH')) {
++    return [];
++}
++
++return [
++    'security' => [
++        'origin_mode' => 'hard',
++    ],
++];
++```
++
+ Configure via filter:
+ 
+ ```php
+diff --git a/docs/Canonical_Spec.md b/docs/Canonical_Spec.md
+index e234845..35562ed 100644
+--- a/docs/Canonical_Spec.md
++++ b/docs/Canonical_Spec.md
+@@ -746,9 +746,27 @@ Notes (normative):
+ 18. CONFIGURATION: DOMAINS, CONSTRAINTS, AND DEFAULTS
+ - Authority: Default *values* live in code as `Config::DEFAULTS` (see `src/Config.php`). This spec no longer duplicates every literal; the code array is the single source of truth for defaults.
+ 
++- Override sources (normative):
++	- Base defaults: `Config::DEFAULTS`.
++	- Optional drop-in override file: `${WP_CONTENT_DIR}/eforms.config.php` (typically `wp-content/eforms.config.php`) returning an array of overrides.
++	- Optional WordPress filter: `eforms_config` — receives the merged config array and returns the final config array.
++	- Precedence (normative): defaults < drop-in file < `eforms_config` filter.
++	- Bootstrap safety (normative): drop-in loading occurs only when `ABSPATH` and `WP_CONTENT_DIR` are defined; otherwise skip drop-in loading (standalone tooling MAY force bootstrap without WordPress loaded).
++	- Drop-in file contract (normative):
++		- MUST be side-effect free (no output).
++		- MUST NOT call `exit`/`die`.
++		- MUST `return` an array.
++	- Drop-in failure behavior (normative):
++		- Missing file: treat as an empty override (no-op).
++		- Unreadable file: treat as a configuration validation error and continue with defaults.
++		- Return value not an array: treat as a configuration validation error and continue with defaults.
++		- Warnings/notices/output during load: treat as a configuration validation error and continue with defaults.
++		- Syntax errors are PHP parse errors; operators MUST fix or remove the file to recover.
++		- Logging (normative): when `logging.mode != "off"` and `logging.level` includes warnings, configuration validation errors from drop-in loading MUST emit a warning with a deterministic code (`EFORMS_CONFIG_DROPIN_IO` or `EFORMS_CONFIG_DROPIN_INVALID`) and include { path, reason }.
++
+ Defaults note: When this spec refers to a ‘Default’, the authoritative literal is `Config::DEFAULTS` in code; the spec does not restate those literals.
+ 	- Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
+-	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints) invokes `Config::bootstrap()`; within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
++	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints) invokes `Config::bootstrap()`; within a request it runs at most once, merges the optional drop-in override file (when applicable), applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
+ 	- Bootstrap ownership (normative):
+ 		- Entry points SHOULD call `Config::get()` before invoking helpers (see [Lazy-load Matrix](#sec-lazy-load-matrix) for trigger ownership).
+ - Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly.
+@@ -1028,6 +1046,9 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
+ 		- EFORMS_ERR_THROTTLED - "Please wait a moment and try again."
+ 		- EFORMS_ERR_CHALLENGE_FAILED - "Please complete the verification and submit again."
+ 		- EFORMS_CHALLENGE_UNCONFIGURED – "Verification unavailable; please try again."
++	- EFORMS_CONFIG_CLAMPED - "Configuration value was clamped."
++	- EFORMS_CONFIG_DROPIN_IO - "Drop-in config file could not be read."
++	- EFORMS_CONFIG_DROPIN_INVALID - "Drop-in config file was invalid."
+ 	- EFORMS_RESERVE - "Reservation outcome (info)."
+ 	- EFORMS_LEDGER_IO - "Ledger I/O problem."
+ 	- EFORMS_FAIL2BAN_IO - "Fail2ban file I/O problem."
+
+diff --git a/eforms.config.php.example b/eforms.config.php.example
+new file mode 100644
+index 0000000..9d9b1bd
+--- /dev/null
++++ b/eforms.config.php.example
+@@ -0,0 +1,20 @@
++<?php
++/**
++ * eForms drop-in configuration (example).
++ *
++ * Copy to: wp-content/eforms.config.php
++ *
++ * This file MUST return an array of overrides matching the config shape.
++ */
++if (!defined('ABSPATH')) {
++    return [];
++}
++
++return [
++    'security' => [
++        'origin_mode' => 'hard',
++    ],
++    'logging' => [
++        'mode' => 'minimal',
++    ],
++];

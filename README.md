@@ -24,7 +24,7 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Co
 - `src/Submission/SubmitHandler.php` orchestrates security checks, validation, logging, email, and uploads.
 - `src/Security/` houses token, origin, challenge, and throttling logic.
 - `src/Logging.php` writes structured logs with rotation.
-- Configuration lives in `src/Config.php` and can be overridden via the `eforms_config` filter.
+- Configuration lives in `src/Config.php` and can be overridden via a drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`, usually `wp-content/eforms.config.php`) and/or the `eforms_config` filter.
 
 ## Usage
 
@@ -32,6 +32,25 @@ Add forms via shortcode:
 
 ```php
 [eforms id="contact"]
+```
+
+Configure via drop-in file:
+
+- Create `${WP_CONTENT_DIR}/eforms.config.php` (usually `wp-content/eforms.config.php`) returning an array of overrides.
+- Copying the example `eforms.config.php.example` from this repo is the recommended starting point.
+- Recommended: keep secrets in `wp-config.php` constants and reference them from the config file (so secrets aren’t committed to the plugin directory).
+
+```php
+<?php
+if (!defined('ABSPATH')) {
+    return [];
+}
+
+return [
+    'security' => [
+        'origin_mode' => 'hard',
+    ],
+];
 ```
 
 Configure via filter:

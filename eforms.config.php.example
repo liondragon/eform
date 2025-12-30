@@ -1,0 +1,20 @@
+<?php
+/**
+ * eForms drop-in configuration (example).
+ *
+ * Copy to: wp-content/eforms.config.php
+ *
+ * This file MUST return an array of overrides matching the config shape.
+ */
+if (!defined('ABSPATH')) {
+    return [];
+}
+
+return [
+    'security' => [
+        'origin_mode' => 'hard',
+    ],
+    'logging' => [
+        'mode' => 'minimal',
+    ],
+];

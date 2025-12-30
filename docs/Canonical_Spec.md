@@ -217,6 +217,7 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 >	- Inputs:
 >	- Runtime evaluation uses two phases: `(0)` structural preflight via `TemplateValidator`, then `(1)` normalize → validate → coerce via `Validator`.
 >	- `/schema/template.schema.json` exists for CI/docs only and is mechanically derived from `TEMPLATE_SPEC`.
+>	- `/schema/template.schema.json` is a generated artifact: it MUST NOT be hand-edited. If `TEMPLATE_SPEC` changes, maintainers MUST regenerate the schema and keep parity checks passing.
 >	- Side-effects:
 >	- TemplateValidator rejects unknown keys, enum violations, malformed rule objects, and reports deterministic error codes.
 >	- CI MUST validate `/templates/forms/*.json` against the schema and assert parity with the PHP `TEMPLATE_SPEC` so dual sources do not drift.
@@ -286,16 +287,16 @@ This section defines submission-protection contracts for hidden-token and JS-min
 <a id="sec-lifecycle-quickstart"></a>7.1.0 Lifecycle quickstart (normative)
 This table routes each lifecycle stage to the normative matrices that govern its behavior.
 <!-- BEGIN BLOCK: lifecycle-pipeline-quickstart -->
-**Pipeline-first outline (render → mint → POST → challenge → normalization → ledger → success)**
+**Pipeline-first outline (render → mint → POST → normalize/validate → challenge (if needed) → commit → success)**
 
 | Stage | Overview |
 |-------|----------|
 | Render (GET) | Non-cacheable pages embed the payload from `Security::mint_hidden_record()`. Cacheable pages render empty security inputs; JS calls `/eforms/mint` to populate them. |
 | Mint (cacheable only) | `/eforms/mint` enforces origin/throttle policy and mints a token record; responses MUST send `Cache-Control: no-store` and MUST NOT set cookies. |
 | POST → Security gate | `Security::token_validate()` validates the posted security inputs against persisted records and decides whether a challenge is required. |
-| Challenge (conditional) | Challenge renders only on POST rerender (or when a provider response is present) and never on the initial GET. Rerenders MUST reuse the same token metadata. |
-| Normalize | Every POST runs normalize → validate → coerce before side effects. |
-| Ledger | Reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects. Treat `EEXIST` as duplicate. |
+| Normalize → Validate → Coerce | Every POST runs normalize → validate → coerce before side effects. |
+| Challenge verification (conditional) | When required, challenge is rendered only on POST rerender (or when a provider response is present) and never on the initial GET. Challenge verification MUST occur before commit (ledger reservation + side effects) on a submission that would otherwise succeed. |
+| Commit | Reserve `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` immediately before side effects. Treat `EEXIST` as duplicate. |
 | Success | On success, run side effects then PRG per [Success behavior](#sec-success). |
 
 > **Contract — Security::token_validate**
@@ -319,6 +320,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 - Mode selection stays server-owned: `[eform id="slug" cacheable="false"]` (default) renders in hidden-token mode; `cacheable="true"` renders in JS-minted mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
 		- Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, JS-minted tokens, ledger entries, and throttles.
 		- Regex guards (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` tokens, `^[A-Za-z0-9_-]{22,32}$` instance IDs) run before disk access to weed out obvious tampering.
+		- Filesystem semantics assumptions (normative): token records and ledger markers rely on atomic exclusive-create and atomic rename semantics. Record writes MUST use an atomic write pattern (write-to-temp + rename in the same directory) and MUST apply the permissions contract from this section. If these invariants cannot be met, token mint/validate MUST hard-fail; optional features that depend on `flock()` (e.g., throttling/JSONL logging) SHOULD be disabled per their respective sections.
 		- <a id="sec-ledger-contract"></a>Ledger reservation contract
 
 **Rationale:** The file-based ledger uses atomic exclusive-create (`fopen('xb')`) to prevent duplicate submissions without requiring a database. By reserving the ledger marker immediately before side effects (uploads moves, email send), the system guarantees that successful submissions cannot be replayed—even if the user hits back/refresh or retries after network failure. On email failure after reservation, the reservation remains committed; the rerender mints a fresh token to enable immediate retry without reopening a race window.
@@ -570,13 +572,19 @@ Notes (normative):
 		- Only evaluate fields declared in template; ignore extraneous POST keys but still reject arrays where a scalar is expected.
 	- Client validation (when enabled) is advisory; server runs always.
 
-	4. Coerce (post-validate, canonicalization only)
+	4. Coerce (post-validate, canonicalization only; no side effects)
 	- Lowercase email domain; NANP canonicalization for tel_us; whitespace collapse when enabled.
-	- Defer file moves until global success; move to private dir; perms 0600/0700; stored name derived from `submission_id` + upload position + sha16; compute sha256.
+	- Uploads: do not move files here. File moves occur only after ledger reservation on success (see [Security → Ledger reservation contract](#sec-ledger-contract) and [Uploads](#sec-uploads)).
 
-	5. Use canonical values only (email/logs)
+	5. Challenge verification (conditional; before side effects)
+	- When `challenge.mode` requires verification (or when a provider response is present), verify the provider response before any side effects and before ledger reservation.
+	- If the submission would otherwise succeed but challenge verification is missing/invalid, rerender with `EFORMS_ERR_CHALLENGE_FAILED` and render the challenge per [Adaptive challenge](#sec-adaptive-challenge).
 
-	6. Escape at sinks only (per map in [Central Registries (Internal Only)](#sec-central-registries))
+	6. Commit (ledger reservation + side effects)
+	- Reserve the ledger marker per [Security → Ledger reservation contract](#sec-ledger-contract) immediately before side effects.
+	- After reservation: move stored uploads into private storage per [Uploads → Filename policy](#sec-uploads-filenames); send email; log; then PRG/redirect per [Success behavior](#sec-success).
+	- Use canonical values only (email/logs).
+	- Escape at sinks only (per map in [Central Registries (Internal Only)](#sec-central-registries)).
 
 <a id="sec-html-fields"></a>
 10. SPECIAL CASE: HTML-BEARING FIELDS
@@ -746,9 +754,27 @@ Notes (normative):
 18. CONFIGURATION: DOMAINS, CONSTRAINTS, AND DEFAULTS
 - Authority: Default *values* live in code as `Config::DEFAULTS` (see `src/Config.php`). This spec no longer duplicates every literal; the code array is the single source of truth for defaults.
 
+- Override sources (normative):
+	- Base defaults: `Config::DEFAULTS`.
+	- Optional drop-in override file: `${WP_CONTENT_DIR}/eforms.config.php` (typically `wp-content/eforms.config.php`) returning an array of overrides.
+	- Optional WordPress filter: `eforms_config` — receives the merged config array and returns the final config array.
+	- Precedence (normative): defaults < drop-in file < `eforms_config` filter.
+	- Bootstrap safety (normative): drop-in loading occurs only when `ABSPATH` and `WP_CONTENT_DIR` are defined; otherwise skip drop-in loading (standalone tooling MAY force bootstrap without WordPress loaded).
+	- Drop-in file contract (normative):
+		- MUST be side-effect free (no output).
+		- MUST NOT call `exit`/`die`.
+		- MUST `return` an array.
+	- Drop-in failure behavior (normative):
+		- Missing file: treat as an empty override (no-op).
+		- Unreadable file: treat as a configuration validation error and continue with defaults.
+		- Return value not an array: treat as a configuration validation error and continue with defaults.
+		- Warnings/notices/output during load: treat as a configuration validation error and continue with defaults.
+		- Syntax errors are PHP parse errors; operators MUST fix or remove the file to recover.
+		- Logging (normative): when `logging.mode != "off"` and `logging.level` includes warnings, configuration validation errors from drop-in loading MUST emit a warning with a deterministic code (`EFORMS_CONFIG_DROPIN_IO` or `EFORMS_CONFIG_DROPIN_INVALID`) and include { path, reason }.
+
 Defaults note: When this spec refers to a ‘Default’, the authoritative literal is `Config::DEFAULTS` in code; the spec does not restate those literals.
 	- Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
-	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints) invokes `Config::bootstrap()`; within a request it runs at most once, applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
+	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints) invokes `Config::bootstrap()`; within a request it runs at most once, merges the optional drop-in override file (when applicable), applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
 	- Bootstrap ownership (normative):
 		- Entry points SHOULD call `Config::get()` before invoking helpers (see [Lazy-load Matrix](#sec-lazy-load-matrix) for trigger ownership).
 - Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly.
@@ -877,7 +903,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Preflight resolves and freezes per-request resolved descriptors; reuse across Renderer and Validator (no re-merge on POST).
 
 	<a id="sec-request-lifecycle-post"></a>2. POST
-	- SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce
+	- SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce -> (Challenge verify if required) -> Ledger reservation -> side effects -> PRG/redirect (see [Validation & Sanitization Pipeline (Deterministic)](#sec-validation-pipeline) and [Security → Ledger reservation contract](#sec-ledger-contract)).
 	- Mode, hidden-field reuse, and rerender behavior follow the canonical contract in [Security → Submission Protection for Public Forms](#sec-submission-protection); lifecycle logic never swaps modes mid-flow.
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
 	- Error rerenders and duplicate handling follow [Security → Ledger reservation contract](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` as a duplicate submission, and treats other IO failures as hard failures (`EFORMS_ERR_LEDGER_IO`) while logging `EFORMS_LEDGER_IO` for diagnosis.
@@ -1028,6 +1054,9 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 		- EFORMS_ERR_THROTTLED - "Please wait a moment and try again."
 		- EFORMS_ERR_CHALLENGE_FAILED - "Please complete the verification and submit again."
 		- EFORMS_CHALLENGE_UNCONFIGURED – "Verification unavailable; please try again."
+	- EFORMS_CONFIG_CLAMPED - "Configuration value was clamped."
+	- EFORMS_CONFIG_DROPIN_IO - "Drop-in config file could not be read."
+	- EFORMS_CONFIG_DROPIN_INVALID - "Drop-in config file was invalid."
 	- EFORMS_RESERVE - "Reservation outcome (info)."
 	- EFORMS_LEDGER_IO - "Ledger I/O problem."
 	- EFORMS_FAIL2BAN_IO - "Fail2ban file I/O problem."

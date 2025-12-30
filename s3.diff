@@ -1,0 +1,128 @@
+--- a/docs/Canonical_Spec.md
++++ b/docs/Canonical_Spec.md
+@@ -259,6 +259,7 @@
+ 		- URL (render) -> esc_url
+ 		- URL (storage/transport) -> esc_url_raw
+ 		- JSON/logs -> wp_json_encode
++		- Sanitized HTML fragment (`before_html` / `after_html`) -> emit as-is (after `wp_kses_post`; no additional escaping)
+ 	-	<a id="sec-lazy-load-matrix"></a>Lazy-load lifecycle (components & triggers):
+ 		| Component		| Init policy | Trigger(s) (first use) | Notes |
+ 		|------------------|------------:|-------------------------|-------|
+@@ -291,5 +291,5 @@
+ | Stage | Overview |
+ |-------|----------|
+ | Render (GET) | Non-cacheable pages embed the payload from `Security::mint_hidden_record()`. Cacheable pages render empty security inputs; JS calls `/eforms/mint` to populate them. |
+-| Mint (cacheable only) | `/eforms/mint` enforces origin/throttle policy and mints a token record; responses MUST send `Cache-Control: no-store` and MUST NOT set cookies. |
++| Mint (cacheable only) | `/eforms/mint` enforces origin policy and (when `throttle.enable=true`) throttling, then mints a token record; responses MUST send `Cache-Control: no-store` and MUST NOT set cookies. |
+ | POST → Security gate | `Security::token_validate()` validates the posted security inputs against persisted records and decides whether a challenge is required. |
+@@ -353,3 +353,17 @@
++Hidden-mode cache-safety (normative):
++- Any response that embeds hidden-mode security metadata (token/instance_id/timestamp) MUST:
++	- Send `Cache-Control: private, no-store, max-age=0`.
++	- Emit WordPress' standard no-cache header suite as redundant defense (e.g., `nocache_headers()`), and ensure the `Cache-Control` directive above is still present after emitting the suite.
++	- If headers cannot be set (e.g., headers already sent), implementations MUST, when logging is enabled, emit a warning log event (including `request_id`) and MUST treat this as a configuration/runtime error (do not mint or emit hidden-mode tokens in a cache-unsafe response).
++
++Hidden-mode storage bootstrap (normative):
++- Before calling `Security::mint_hidden_record()` during GET render, `FormRenderer` MUST run a storage health check for `${uploads.dir}`.
++- The health check MUST verify writability and the file operations required by this plugin (directory creation under `${uploads.dir}/eforms-private/`, atomic write+rename, and atomic exclusive-create).
++- On health-check failure:
++	- Do not mint a token record.
++	- Render an inline per-form configuration error: `EFORMS_ERR_STORAGE_UNAVAILABLE` (HTTP 200) with a generic message.
++	- When logging is enabled, emit exactly one warning log event per request (include `request_id`) even if multiple forms fail.
++
+ Hidden-mode GET rate limiting (normative):
+ - When `throttle.enable=true`, `Security::mint_hidden_record()` MUST enforce throttling before minting.
+ - On throttle hard-fail (rate limit exceeded):
+@@ -387,10 +387,11 @@
+ >\t- HTTP method MUST be POST; return 405 Method Not Allowed for other methods.
+ >\t- `f` (form_id slug).
+ >\t- Side-effects:
+->\t- Enforce origin policy and throttling.
++>\t- Enforce origin policy; when `throttle.enable=true`, enforce throttling.
+ >\t- Atomically write `tokens/{h2}/{sha256(token)}.json` with `{ mode:"js", form_id, instance_id, issued_at, expires }`.
+ >\t- Returns:
+ >\t- JSON `{ token, instance_id, timestamp, expires }` where `timestamp == issued_at`.
+ >\t- Response headers:
+ >\t- MUST send `Cache-Control: no-store, max-age=0` and MUST NOT set cookies.
++>\t- MUST also emit WordPress' standard no-cache header suite as redundant defense (e.g., `nocache_headers()`), and ensure the `Cache-Control: no-store, max-age=0` directive remains present after emitting the suite.
+ >\t- Failure modes:
+@@ -396,3 +396,4 @@
+ >\t- Failure modes:
+ >\t- Invalid/unknown `f` inputs are hard failures.
+->\t- Filesystem errors propagate as hard failures.
++>\t- Storage health-check failures are hard failures: return `{ "error": "EFORMS_ERR_STORAGE_UNAVAILABLE" }` with HTTP 500.
++>\t- Other filesystem errors propagate as hard failures.
+
+@@ -404,4 +406,5 @@
+ | Origin hard-fail | 403 | `{ "error": "EFORMS_ERR_ORIGIN_FORBIDDEN" }` | `Cache-Control: no-store, max-age=0` |
+ | Rate limited | 429 | `{ "error": "EFORMS_ERR_THROTTLED" }` | `Cache-Control: no-store, max-age=0`, `Retry-After: {seconds}` |
+-| Filesystem error | 500 | `{ "error": "EFORMS_ERR_MINT_FAILED" }` | `Cache-Control: no-store, max-age=0` |
++| Storage unavailable | 500 | `{ "error": "EFORMS_ERR_STORAGE_UNAVAILABLE" }` | `Cache-Control: no-store, max-age=0` |
++| Other filesystem error | 500 | `{ "error": "EFORMS_ERR_MINT_FAILED" }` | `Cache-Control: no-store, max-age=0` |
+ | Wrong method | 405 | `{ "error": "EFORMS_ERR_METHOD_NOT_ALLOWED" }` | `Cache-Control: no-store, max-age=0`, `Allow: POST` |
+@@ -526,7 +528,6 @@
+ 
+ 	- Challenge rotation follows [Security → Security invariants](#sec-security-invariants); tokens are reused across rerenders until success or expiry.
+ 	- Modes: off | auto (require when `soft_reasons` is non-empty) | always_post.
+-	- Migration: legacy value `always` is accepted as an alias for `always_post`.
+ 	- Provider (v1): Turnstile only (`cf-turnstile-response`).
+ 	- If `challenge.mode` requires verification but Turnstile site_key/secret_key are not configured, treat it as a configuration error and fail with `EFORMS_CHALLENGE_UNCONFIGURED` until fixed.
+ 	- Render only on POST rerender when required or during verification; never on the initial GET.
+@@ -581,7 +582,8 @@
+ <a id="sec-html-fields"></a>
+ 10. SPECIAL CASE: HTML-BEARING FIELDS
+ 	- Template fragments (before_html / after_html)
+-	- Sanitize with wp_kses_post; sanitized result is canonical; escape per sink.
++	- Sanitize with wp_kses_post; sanitized result is canonical.
++	- Emission sink: sanitized fragments are inserted into HTML output as markup (no additional escaping); MUST NOT be used in attribute/JS sinks.
+ 
+ <a id="sec-cross-field-rules"></a>
+ 11. CROSS-FIELD RULES (BOUNDED SET)
+@@ -653,3 +653,3 @@
+ 14. SUCCESS BEHAVIOR (PRG)
+-			- PRG status is fixed at 303. Success responses MUST send `Cache-Control: private, no-store, max-age=0`. Any request containing `eforms_*` query args MUST also send `Cache-Control: private, no-store, max-age=0`.
++			- PRG status is fixed at 303. Success responses MUST send `Cache-Control: private, no-store, max-age=0` and MUST also emit WordPress' standard no-cache header suite as redundant defense (e.g., `nocache_headers()`). Any request containing `eforms_*` query args MUST also send `Cache-Control: private, no-store, max-age=0`.
+ 			- Namespace internal query args with `eforms_*`. `success.message` is plain text and escaped.
+@@ -801,7 +803,7 @@
+ 	| Security	| `security.token_ttl_seconds`			| int	 | clamp `[TOKEN_TTL_MIN]`–`[TOKEN_TTL_MAX]`; minted tokens MUST set `expires - issued_at` equal to this value (see [Anchors](#sec-anchors)).								 |
+ 	| Security	| `security.max_form_age_seconds`		 | int	 | clamp `[MAX_FORM_AGE_MIN]`–`[MAX_FORM_AGE_MAX]`; defaults to `security.token_ttl_seconds` when omitted (see [Anchors](#sec-anchors)).											|
+ 	| Security	| `security.origin_missing_hard`		 | bool	| When `security.origin_mode="hard"`, treat missing Origin header as hard-fail.														|
+-	| Challenge | `challenge.mode`						| enum	| {`off`,`auto`,`always_post`} — controls when human challenges execute; invalid values MUST be rejected; legacy `always` is accepted as an alias.			|
++	| Challenge | `challenge.mode`						| enum	| {`off`,`auto`,`always_post`} — controls when human challenges execute; invalid values MUST be rejected.			|
+ 	| Challenge | `challenge.provider`					| enum	| {`turnstile`} (v1). `hcaptcha` and `recaptcha` reserved for future extension.			 |
+ 	| Challenge | `challenge.http_timeout_seconds`		| int	 | clamp `[CHALLENGE_TIMEOUT_MIN]`–`[CHALLENGE_TIMEOUT_MAX]` seconds (see [Anchors](#sec-anchors)).																							|
+ 	| Email	 | `email.from_address`				| string | Optional; when non-empty but invalid, treat as empty and emit a warning when `logging.mode != "off"` and `logging.level` includes warnings; fall back to no-reply@{site_domain}. |
+@@ -890,3 +890,3 @@
+ 	- Max-input-vars heuristic: log advisory.
+-	- CDN/cache notes: bypass caching on non-cacheable token pages; `/eforms/mint` is no-store.
++	- CDN/cache notes: bypass caching on non-cacheable token pages; `/eforms/mint` is no-store; any response that includes security metadata or `eforms_*` query args MUST also emit WordPress' standard no-cache header suite (e.g., `nocache_headers()`).
+ 	- Initialize Logging only when logging.mode != "off".
+@@ -903,7 +905,7 @@
+ 	- <a id="sec-email-failure-recovery"></a>Email send failure (Emailer::send() returns false or throws) is fatal: abort the success PRG, rerender with a fresh token (see [Hidden-mode email-failure recovery](#sec-hidden-email-failure) and [JS-minted email-failure recovery](#sec-js-email-failure) for mode-specific behavior), surface a `_global` error, log the event at `error` severity, and return HTTP 500. The ledger reservation remains committed; the fresh token enables immediate retry.
+ 	- Best-effort GC on shutdown (opportunistically if lock is available; complements cron); no persistence of validation errors/canonical values beyond request.
+ 	- throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
+-	- Challenge hook: if required (always/auto or the Security gate), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
++	- Challenge hook: if required (always_post/auto or the Security gate), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
+ 
+ <a id="sec-error-handling"></a>
+ 21. ERROR HANDLING
+@@ -931,3 +931,3 @@
+ 	- Re-render after errors passes the mode-specific security metadata defined in [Security → Submission Protection for Public Forms](#sec-submission-protection) back to Renderer (hidden: `{eforms_token, instance_id, timestamp}`; JS-minted: `{eforms_token, instance_id, timestamp}`).
+-	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_THROTTLED, EFORMS_ERR_DUPLICATE_FORM_ID, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_LEDGER_IO, EFORMS_ERR_INVALID_FORM_ID, EFORMS_ERR_ORIGIN_FORBIDDEN, EFORMS_ERR_MINT_FAILED, EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE).
++	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_THROTTLED, EFORMS_ERR_DUPLICATE_FORM_ID, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_LEDGER_IO, EFORMS_ERR_STORAGE_UNAVAILABLE, EFORMS_ERR_INVALID_FORM_ID, EFORMS_ERR_ORIGIN_FORBIDDEN, EFORMS_ERR_MINT_FAILED, EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE).
+ 	- Large form advisory via logs.
+@@ -926,7 +928,7 @@
+ 
+ <a id="sec-compatibility"></a>
+ 22. COMPATIBILITY AND UPDATES
+-	- Deployment constraint (normative): token records, ledger markers, throttle state, and uploads live under `wp_upload_dir()` and MUST be readable/writable across the render→POST lifecycle. Single-webhead deployments work out of the box. Multi-webhead or containerized deployments MUST mount `${uploads.dir}` as a shared persistent volume; ephemeral container storage is unsupported.
++	- Deployment constraint (normative): token records, ledger markers, throttle state, and uploads live under `wp_upload_dir()` and MUST be readable/writable across the render→POST lifecycle. Single-webhead deployments work out of the box. Multi-webhead or containerized deployments MUST mount `${uploads.dir}` as a shared persistent volume that preserves the filesystem semantics required by the ledger reservation contract (atomic exclusive-create); ephemeral container storage is unsupported. If these filesystem semantics cannot be guaranteed, the plugin MUST fail closed with a configuration/runtime error.
+ 	- Changing type defaults or rules updates behavior globally via registry
+ 	- Templates remain portable (no callbacks)
+ 	- Minimum versions: PHP >= 8.0; WordPress >= 5.8 (admin notice + deactivate if unmet)
+@@ -1046,4 +1046,5 @@
+ 	- EFORMS_ERR_SCHEMA_TYPE - "Form configuration error: wrong type."
+ 	- EFORMS_ERR_SCHEMA_OBJECT - "Form configuration error: invalid object shape."
+ 	- EFORMS_ERR_DUPLICATE_FORM_ID - "Form configuration error: duplicate form id on page."
++	- EFORMS_ERR_STORAGE_UNAVAILABLE - "Form configuration error: server storage is unavailable."
+ 	- EFORMS_ERR_LEDGER_IO - "Submission failed due to a server error. Please try again."
