@@ -16,7 +16,7 @@ electronic_forms - Spec
 - No admin UI.
 - Platform requirements: see [Compatibility and Updates](#sec-compatibility).
 - Focus on simplicity, elegancy, and efficiency; avoid overengineering. Easy to maintain and performant for the intended workloads.
-- Lazy by design: the configuration snapshot is bootstrapped lazily on first access. Entry points (Renderer/SubmitHandler/challenge verifiers/Emailer/`/eforms/mint`) SHOULD call `Config::get()` early for clarity and predictable timing, but correctness does not rely on it because Security helpers also call `Config::get()` defensively as a backstop (see [Central Registries → Lazy-load Matrix](#sec-lazy-load-matrix) and [Configuration: Domains, Constraints, and Defaults](#sec-configuration).)
+- Lazy config snapshot: bootstrapped on first `Config::get()` per request; entry points SHOULD call `Config::get()` early (see [Configuration: Domains, Constraints, and Defaults](#sec-configuration)).
 - No database writes; file-backed one-time token ledger for duplicate-submit prevention (no Redis/queues).
 - Clear boundaries: render vs. validate vs. send vs. log vs. upload.
 - Deterministic pipeline and schema parity: big win for testability.
@@ -43,7 +43,7 @@ electronic_forms - Spec
 		- Multisite support
 	3. Deployment profiles (defaults vs. opt-ins)
 	- Baseline defaults (minimal ops):
-		- ships with conservative security defaults and minimal operational overhead; see [Configuration: Domains, Constraints, and Defaults](#sec-configuration) for the authoritative configuration table and exact default values.
+		- ships with conservative security defaults and minimal operational overhead; see [Configuration: Domains, Constraints, and Defaults](#sec-configuration) for the authoritative configuration table and constraints; default values live in `Config::DEFAULTS`.
 	- Opt-ins (enable only if needed):
 		- Throttling, adaptive/always challenge
 		- Fail2ban emission
@@ -74,7 +74,7 @@ electronic_forms - Spec
 
 <a id="sec-dry-principles"></a>
 4. DRY PRINCIPLES (SINGLE SOURCES OF TRUTH)
-- Determinism. Given the same template and inputs, the pipeline produces identical canonical outputs, including error ordering.
+- Determinism. Given the same template and inputs, the pipeline produces identical canonical outputs. Error ordering: global errors first, then field errors in template `fields[]` order; within each field: (1) structural/type errors, (2) required, (3) intrinsic constraints (length/pattern/range/allowlist), (4) cross-field rule violations in `rules[]` order. Collect all applicable errors (no short-circuit).
 - Centralize (validator defaults + tiny helpers used by renderer):
 	- Field type traits & defaults (is_multivalue, default max_length, allowed URL schemes, canonicalization toggles)
 	- id/name generation (append [] only when multivalue)
@@ -104,8 +104,7 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 | `[CHALLENGE_TIMEOUT_MAX]` | 5 | Upper bound for `challenge.http_timeout_seconds` |
 | `[THROTTLE_MAX_PER_MIN_MIN]` | 1 | Lower bound for `throttle.per_ip.max_per_minute` |
 | `[THROTTLE_MAX_PER_MIN_MAX]` | 120 | Upper bound for `throttle.per_ip.max_per_minute` |
-| `[THROTTLE_SOFT_THRESHOLD]` | 0.7 | Soft throttle signal threshold (fraction of `throttle.per_ip.max_per_minute`) |
-| `[THROTTLE_COOLDOWN_MIN]` | 10 | Lower bound for `throttle.per_ip.cooldown_seconds` |
+| `[THROTTLE_COOLDOWN_MIN]` | 0 | Lower bound for `throttle.per_ip.cooldown_seconds` (0 = disabled) |
 | `[THROTTLE_COOLDOWN_MAX]` | 600 | Upper bound for `throttle.per_ip.cooldown_seconds` (10 minutes) |
 | `[LOGGING_LEVEL_MIN]` | 0 | Lower bound for `logging.level` (errors only) |
 | `[LOGGING_LEVEL_MAX]` | 2 | Upper bound for `logging.level` (errors + warnings + info) |
@@ -141,6 +140,7 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 >	- Failure modes:
 >	- Slugs outside the allowed regex, duplicate keys, or reserved names produce deterministic TemplateValidator schema errors (e.g., `EFORMS_ERR_SCHEMA_DUP_KEY`, `EFORMS_ERR_SCHEMA_KEY`), preventing render.
 >	- HTML fragments that attempt inline styles or cross `row_group` boundaries are rejected during structural preflight.
+>	- `include_fields` entries that reference keys not present in `fields[]` or the allowed meta keys (`ip`, `submitted_at`, `form_id`, `instance_id`, `submission_id`) fail preflight with `EFORMS_ERR_SCHEMA_UNKNOWN_KEY`.
 >	- Upload overrides whose `accept[]` tokens fall outside the global allow-list fail validation, triggering `EFORMS_ERR_ACCEPT_EMPTY` per [Uploads → Accept-token policy](#sec-uploads-accept-tokens).
 
 | Concern | Emission rule | Notes / exceptions |
@@ -160,7 +160,7 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 >	- Pseudo-fields use `type:"row_group"` with `{ mode:"start"|"end", tag:"div"|"section" (default `div`), class? }`.
 >	- Row-group objects omit `key`, carry no submission data, and may be nested.
 >	- Side-effects:
->	- `FormRenderer` adds a base wrapper class (for example `eforms-row`) to each emitted group and maintains a stack so dangling opens are auto-closed at form end to keep the DOM valid.
+>	- `FormRenderer` adds a base wrapper class (for example `eforms-row`) to each emitted group and maintains a stack while emitting wrappers to preserve nesting order. `FormRenderer` MUST NOT auto-close dangling opens; unbalanced row groups are rejected by TemplateValidator and prevent render.
 >	- TemplateValidator enforces `additionalProperties:false` for row-group objects to block unexpected keys.
 >	- Returns:
 >	- Row groups never count toward `validation.max_fields_per_form` and exist purely to organize markup.
@@ -170,6 +170,7 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 ### 6.3 Template JSON {#sec-template-json}
 > **Contract — TemplateValidator::validate_template_envelope**
 >	- Inputs:
+>	- `form_id` maps to `templates/forms/{form_id}.json` (filename stem; no nesting, no slug transforms).
 >	- Templates live in `/templates/forms/` with filenames matching `/^[a-z0-9-]+\.json$/`.
 >	- Authors may include a design-time schema pointer (recommended) using a stable URL or absolute path (avoid hard-coded `/wp-content/plugins/...` paths).
 >	- Side-effects:
@@ -260,10 +261,11 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 		- URL (render) -> esc_url
 		- URL (storage/transport) -> esc_url_raw
 		- JSON/logs -> wp_json_encode
+		- Sanitized HTML fragment (`before_html` / `after_html`) -> emit as-is (after `wp_kses_post`; no additional escaping)
 	-	<a id="sec-lazy-load-matrix"></a>Lazy-load lifecycle (components & triggers):
 		| Component		| Init policy | Trigger(s) (first use) | Notes |
 		|------------------|------------:|-------------------------|-------|
-               | Config snapshot | Lazy | First `Config::get()` call (entry points such as `FormRenderer::render()`, `SubmitHandler::handle()`, challenge verifiers, `Emailer::send()`, and `/eforms/mint` invoke it before helpers; `/eforms/mint` SHOULD call `Config::get()` before delegating to its mint handler—helpers still no-op repeat calls) | Idempotent (per request); entry points SHOULD trigger it early by calling `Config::get()` before any helper; see [Configuration: Domains, Constraints, and Defaults](#sec-configuration) for bootstrap timing. |
+               | Config snapshot | Lazy | First `Config::get()` call (any entry point) | Idempotent (per request); see [Configuration: Domains, Constraints, and Defaults](#sec-configuration). |
 		| TemplateValidator / Validator | Lazy | Rendering (GET) preflight; POST validate | Builds resolved descriptors on first call; memoizes per request (no global scans). |
 		| Static registries (`HANDLERS` maps) | Lazy | First call to `resolve()` / class autoload | Autoloading counts as lazy; classes hold only const maps; derived caches compute on demand. |
 		| Renderer / FormRenderer | Lazy | Shortcode or template tag executes | Enqueues assets only when form present. |
@@ -272,7 +274,7 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 		| Emailer | Lazy | After validation succeeds (just before send) | Mail init only on send (delegated via `wp_mail()`); skipped on failures. |
 		| Logging | Lazy | First log write when `logging.mode != "off"` | Opens/rotates file on demand. |
 		| Throttle | Lazy | When `throttle.enable=true` and key present | File created on first check. |
-	       | Challenge | Lazy | Only inside entry points: (1) `SubmitHandler::handle()` after `Security::token_validate()` returns `require_challenge=true`; (2) `FormRenderer::render()` on a POST rerender when `require_challenge=true`; or (3) verification step when a Turnstile response is present (`cf-turnstile-response`). | Provider script enqueued only when rendered. Even when `challenge.mode="always_post"`, challenge MUST NOT initialize on the initial GET; it loads only on: (a) POST rerender after `Security::token_validate()` sets `require_challenge=true`, or (b) the verification step when a provider response is present. |
+		| Challenge | Lazy | SubmitHandler POST security gate may set `require_challenge=true` → render on POST rerender; verify when provider response present. | **Never on initial GET** (see [Adaptive challenge](#sec-adaptive-challenge)). |
 		| Assets (CSS/JS) | Lazy | When a form is rendered on the page | Version via filemtime; opt-out honored. |
  	
 <a id="sec-security"></a>
@@ -284,6 +286,7 @@ This section defines submission-protection contracts for hidden-token and JS-min
 <a id="sec-submission-protection"></a>1. Submission Protection for Public Forms (hidden vs JS-minted)
 - See [Lifecycle quickstart](#sec-lifecycle-quickstart) for the canonical render → persist → POST → rerender/success contract that governs both modes.
 - This spec does not use cookie/NCID matrices; token issuance and validation are defined by the contracts below.
+- WordPress nonces are intentionally omitted; they defeat long-lived edge caching and multi-form pages. CSRF resistance is provided by the token + origin policy contract.
 <a id="sec-lifecycle-quickstart"></a>7.1.0 Lifecycle quickstart (normative)
 This table routes each lifecycle stage to the normative matrices that govern its behavior.
 <!-- BEGIN BLOCK: lifecycle-pipeline-quickstart -->
@@ -292,7 +295,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 | Stage | Overview |
 |-------|----------|
 | Render (GET) | Non-cacheable pages embed the payload from `Security::mint_hidden_record()`. Cacheable pages render empty security inputs; JS calls `/eforms/mint` to populate them. |
-| Mint (cacheable only) | `/eforms/mint` enforces origin/throttle policy and mints a token record; responses MUST send `Cache-Control: no-store` and MUST NOT set cookies. |
+| Mint (cacheable only) | `/eforms/mint` enforces origin policy; when `throttle.enable=true`, enforces throttling; then mints a token record. Responses MUST send `Cache-Control: no-store` and MUST NOT set cookies. |
 | POST → Security gate | `Security::token_validate()` validates the posted security inputs against persisted records and decides whether a challenge is required. |
 | Normalize → Validate → Coerce | Every POST runs normalize → validate → coerce before side effects. |
 | Challenge verification (conditional) | When required, challenge is rendered only on POST rerender (or when a provider response is present) and never on the initial GET. Challenge verification MUST occur before commit (ledger reservation + side effects) on a submission that would otherwise succeed. |
@@ -301,7 +304,8 @@ This table routes each lifecycle stage to the normative matrices that govern its
 
 > **Contract — Security::token_validate**
 >	- Inputs:
->	- POST payload (`$_POST`) and mode metadata emitted by Renderer (including `eforms_mode`). Reads the frozen configuration snapshot (`security.*`, `challenge.*`, `privacy.*`, `throttle.*`) and the persisted token records.
+>	- POST payload (`$_POST`) and mode metadata emitted by Renderer (including `eforms_mode` when present). Reads the frozen configuration snapshot (`security.*`, `challenge.*`, `privacy.*`, `throttle.*`) and the persisted token records.
+>	- `eforms_mode` is informational only and MUST NOT influence mode selection. When a token record is present, the returned `mode` MUST come from the persisted record’s `mode`. If a posted `eforms_mode` is present, it MAY be used only as a consistency check; mismatch is a hard failure.
 >	- Side-effects:
 >	- None. Read-only lookups only; never mutates storage or headers.
 >	- Returns:
@@ -309,7 +313,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 >		- `mode ∈ {"hidden","js"}`.
 >		- When `token_ok=true`, `submission_id` equals the posted `eforms_token`.
 >	- Failure modes:
->	- Missing/expired/invalid token is a hard failure (`EFORMS_ERR_TOKEN`) and callers MUST abort before ledger reservation.
+>	- Missing/expired/invalid token is a hard failure (`EFORMS_ERR_TOKEN`) and callers MUST abort before ledger reservation. This includes token record files that exist but cannot be parsed or fail schema validation (e.g., malformed JSON, missing required fields); log a specific internal reason when logging is enabled.
 >	- IO/read errors bubble as hard failures.
 >	- Challenge-required paths set `require_challenge=true` without mutating storage.
 
@@ -330,7 +334,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 				- Treat other filesystem failures as a hard failure (`EFORMS_ERR_LEDGER_IO`) and log `EFORMS_LEDGER_IO`.
 				- Ledger reservations are GC-managed. Once `${submission_id}.used` is created, no code path may delete it except `wp eforms gc`, and GC MUST NOT delete any `.used` marker that might still correspond to an acceptably fresh token (see [Uploads → GC](#sec-uploads) for eligibility rules).
 				- If email send fails after reservation, the token is consumed; a fresh token is minted for the rerender to enable immediate retry (see [Email-failure recovery](#sec-email-failure-recovery)).
-				- Honeypot short-circuits burn the same ledger entry, and submission IDs for all modes remain colon-free.
+				- Honeypot short-circuits MAY attempt to burn the same ledger entry only when `token_ok=true`; MUST NOT attempt any ledger write on token failure. Submission IDs for all modes remain colon-free.
 
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/JS-minted):
 - Minting helpers are authoritative: they return canonical metadata and persist records with atomic `0700`/`0600` writes (creating `{h2}` directories as needed). `/eforms/mint` is the only endpoint permitted to mint JS-mode token records.
@@ -351,6 +355,26 @@ This table routes each lifecycle stage to the normative matrices that govern its
 >	- `{ token: UUIDv4, instance_id: base64url(16–24 bytes), issued_at: unix, expires: issued_at + security.token_ttl_seconds }`.
 >	- Failure modes:
 >	- Propagate filesystem errors (create/write/fsync) to the caller as hard failures; helpers never swallow IO issues.
+
+<a id="sec-cache-safety"></a>
+Cache-safety (normative):
+- Applies to responses that:
+	- Embed hidden-mode security metadata (token/instance_id/timestamp), or
+	- Are PRG success responses, or
+	- Respond to a request containing `eforms_*` query args.
+- For these responses, implementations MUST:
+	- Send `Cache-Control: private, no-store, max-age=0`.
+	- Emit WordPress' standard no-cache header suite as redundant defense (e.g., `nocache_headers()`), and ensure the `Cache-Control` directive above is still present after emitting the suite.
+	- If headers cannot be set (e.g., headers already sent), then when logging is enabled emit at most one warning log event per request (include `request_id`). When the response would embed hidden-mode security metadata, treat this as a configuration/runtime error and do not mint or emit hidden-mode tokens in a cache-unsafe response.
+
+Hidden-mode storage bootstrap (normative):
+- Before calling `Security::mint_hidden_record()` during GET render, `FormRenderer` MUST run a storage health check for `${uploads.dir}` (or reuse a memoized result for the current request).
+- Frequency (normative): implementations MUST NOT run the health check more than once per request even if multiple forms require hidden-mode tokens.
+- The health check MUST verify writability and the file operations required by this plugin (directory creation under `${uploads.dir}/eforms-private/`, atomic write+rename, and atomic exclusive-create). Implementations MUST memoize the health-check result for the current request (run at most once per request) and MAY re-check only after a subsequent filesystem operation fails. Do not persist health-check state across requests.
+- On health-check failure:
+	- Do not mint a token record.
+	- Render an inline per-form configuration error: `EFORMS_ERR_STORAGE_UNAVAILABLE` (HTTP 200) with a generic message.
+	- When logging is enabled, emit at most one warning log event per request (include `request_id`) even if multiple forms fail (do not log repeatedly per form).
 
 Hidden-mode GET rate limiting (normative):
 - When `throttle.enable=true`, `Security::mint_hidden_record()` MUST enforce throttling before minting.
@@ -415,8 +439,8 @@ Notes (normative):
 
 <a id="sec-js-email-failure"></a>Email-failure recovery (JS-minted, normative):
 - When `EFORMS_ERR_EMAIL_SEND` occurs after ledger reservation, the rerender MUST include `data-eforms-remint="1"` on the form element.
-- On this rerender, Renderer MUST leave the token and instance hidden fields empty so forms.js can inject without overwriting.
-- forms.js MUST detect this marker on DOMContentLoaded, clear the cached token for that `form_id` from sessionStorage, call `/eforms/mint` to obtain a fresh token, inject the new `{token, instance_id}` into the form, and re-enable submission.
+- On this rerender, Renderer MUST leave the token, instance, and timestamp hidden fields empty so forms.js can inject without overwriting.
+- forms.js MUST detect this marker on DOMContentLoaded, clear the cached token for that `form_id` from sessionStorage, call `/eforms/mint` to obtain a fresh token, inject the new `{token, instance_id, timestamp}` into the form, and re-enable submission.
 - The original token remains burned in the ledger.
 
 **Duplicate form IDs (normative):**
@@ -427,7 +451,7 @@ Notes (normative):
 - Config: `security.honeypot_response` ∈ {`hard_fail`,`stealth_success`}.
 	- Common behavior:
 		- UX: treat as spam-certain, short-circuit before validation/coercion/email, delete temp uploads.
-		- Ledger: attempt reservation to burn the ledger entry for that `submission_id`.
+		- Ledger: when `Security::token_validate()` returns `token_ok=true`, attempt reservation to burn the ledger entry for the validated `submission_id`; MUST NOT attempt any ledger write when `token_ok=false` (never use raw attacker-controlled input).
 	- "stealth_success": mimic success UX and log stealth:true.
 		- Log events emitted for stealth success MUST still record that the honeypot fired (not just `stealth=true`) so ops can distinguish it from genuine success.
 	- "hard_fail": rerender with generic global error (HTTP 200) and no field-level hints.
@@ -476,11 +500,11 @@ Notes (normative):
 <a id="sec-spam-decision"></a>8. Spam Decision
 	- Ordering (normative): the Security gate runs before Normalize/Validate/Coerce; on hard failure it MUST stop processing before side effects (uploads moves, email). Honeypot may still perform its ledger burn/cleanup as specified in [Security → Honeypot](#sec-honeypot).
 	- Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
-	- Throttle integration (normative): `throttle_soft` is added to `soft_reasons` only by the throttle check itself; do not add it out of band.
-	- `soft_reasons` (closed set, deduplicated): `min_fill_time` | `age_advisory` | `js_missing` | `origin_soft` | `throttle_soft`. Producers MUST use only these labels; unknown labels are an implementation bug.
+	- `soft_reasons` (closed set, deduplicated): `min_fill_time` | `age_advisory` | `js_missing` | `origin_soft`. Producers MUST use only these labels; unknown labels are an implementation bug.
 	- Scoring (computed, not stored): let `soft_fail_count = |soft_reasons|`. Decision: if `soft_fail_count >= spam.soft_fail_threshold` → spam-fail; else if `soft_fail_count > 0` → deliver as suspect; else deliver normal.
 	- Spam-fail behavior: short-circuit before validation/email; respond per `security.honeypot_response` (stealth_success or hard_fail); log with `spam_decision=fail` and the triggering `soft_reasons`.
 	- `spam.soft_fail_threshold` is clamped at bootstrap to a minimum of 1.
+	- Default: see the Defaults note in [Configuration: Domains, Constraints, and Defaults](#sec-configuration).
 	- Accessibility note: `js_hard_mode=true` blocks non-JS users; keep opt-in.
 
 <a id="sec-redirect-safety"></a>9. Redirect Safety
@@ -491,22 +515,32 @@ Notes (normative):
 	- X-EForms-Soft-Fails value = `|soft_reasons|` (computed length of the deduplicated set)
 
 <a id="sec-throttling"></a>11. Throttling (optional; file-based)
-	- Throttle uses a fixed 60s window tracked via JSON files under `${uploads.dir}/throttle/` with flock() for concurrency. Throttle evaluation is part of the Security gate and runs before normalize/validate.
-	- Hosting requirement (normative): file-based throttling requires a filesystem with reliable `flock()` and atomic exclusive-create semantics; if your hosting cannot guarantee these (verify with your provider), set `throttle.enable=false`.
+	- Throttle uses a fixed 60s window tracked via byte-counter files under `${uploads.dir}/throttle/`. Throttle evaluation is part of the Security gate and runs before normalize/validate.
+	- Hosting requirement (normative): file-based throttling requires a filesystem with reliable `flock()` and consistent `fstat`/`ftruncate`/`touch` semantics; if your hosting cannot guarantee these (verify with your provider), set `throttle.enable=false`.
+	- `flock()` failure behavior (normative): if acquiring the lock returns false for the active throttle file, skip throttle enforcement for that request and, when `logging.mode != "off"` and `logging.level` includes warnings, emit a single warning event for the request (include `request_id`).
 
-	- Window semantics (normative):
-		- Each fixed window is derived deterministically from current time so concurrent requests agree on the active window.
-		- Counter increments on each request that reaches the throttle check.
-		- On hard-fail, `Retry-After` equals the time until the active fixed window resets (a positive integer number of seconds); implementations MAY prune stale window files opportunistically.
+	- Mechanism (Byte-Counter + Sentinel):
+		- **Timing:** Capture `now` once at the start of the throttle check; derive `window_start = floor(now / 60) * 60` and `window_end = window_start + 60` from this single timestamp.
+		- **Files:** `${uploads.dir}/throttle/{h2}/{ip_hash}.tally` (counter) and `{ip_hash}.cooldown` (sentinel; only used when `throttle.per_ip.cooldown_seconds > 0`). Keys are derived solely from the resolved client IP (global per-IP scope).
+		- **Ownership (normative):** Only the throttling implementation and the throttle GC mechanism may create/modify these files. Other processes/tools MUST NOT touch them (mtime semantics are load-bearing).
+		- **Step 1 (Fast Path):** If `throttle.per_ip.cooldown_seconds > 0` AND `{ip_hash}.cooldown` exists AND `filemtime > now - throttle.per_ip.cooldown_seconds`: Hard-fail immediately (no `flock` required).
+			- Stat cache hygiene (normative): implementations MUST avoid stale stat cache for the sentinel (e.g., `clearstatcache(true, $cooldown_path)` before reading mtime).
+		- **Step 2 (Lock):** Open `{ip_hash}.tally` for append + `flock` (exclusive).
+		- **Step 3 (Reset):** `fstat($fp)` the opened handle and read `{ mtime, size }` from the result. If `mtime < window_start`, `ftruncate(0)` to reset the window and set local `size=0`.
+		- **Step 4 (Trigger):** If `size >= throttle.per_ip.max_per_minute`:
+			- When `throttle.per_ip.cooldown_seconds > 0`, `touch` the `{ip_hash}.cooldown` sentinel file.
+			- Unlock, close, and hard-fail.
+		- **Step 5 (Count):** `fwrite` exactly 1 byte to the `{ip_hash}.tally` file.
+		- **Step 6 (Proceed):** Unlock, close, and allow the request to proceed.
 
-	- Thresholds (normative):
-		- Soft: when `count >= (throttle.per_ip.max_per_minute × [THROTTLE_SOFT_THRESHOLD])`, add `"throttle_soft"` to `soft_reasons`. This triggers challenge in `auto` mode without blocking.
-		- Hard: when `count >= throttle.per_ip.max_per_minute`, hard-fail with HTTP 429 and `Retry-After`.
+	- Response semantics (normative):
+		- On 429 (Hard Fail), MUST send `Retry-After` header.
+		- `Retry-After` calculation (clamp to minimum 1 to avoid zero/negative values):
+			- Let `cooldown_remaining = 0` when `throttle.per_ip.cooldown_seconds == 0` or the sentinel does not exist; otherwise `max(0, (sentinel_mtime + throttle.per_ip.cooldown_seconds) - now)`.
+			- Send `Retry-After: max(1, window_end - now, cooldown_remaining)`.
 
-	- Cooldown (normative):
-		- After a hard-fail, the IP enters cooldown for `throttle.per_ip.cooldown_seconds`.
-		- During cooldown, all requests from that IP receive 429 immediately without incrementing the counter or evaluating other gates.
-		- Cooldown is tracked via `${uploads.dir}/throttle/{h2}/{key}.cooldown.json` with `{ "expires": <unix_timestamp> }`. Cooldown files follow the same sharding and permissions as window files (dirs `0700`, files `0600`).
+	- Cooldown configuration:
+		- `throttle.per_ip.cooldown_seconds`: 0 = disabled (skip sentinel logic); >0 = enable sentinel.
 
 	- Response semantics by entrypoint (normative):
 		| Entrypoint | Hard-fail response | Headers |
@@ -515,24 +549,21 @@ Notes (normative):
 		| POST submit | HTTP 429 | `Retry-After: {seconds}` |
 		| `/eforms/mint` | HTTP 429 | `Retry-After: {seconds}` |
 
-	- Form-ID fanout guard (normative):
-		- When a validated `form_id` is available, include it in the throttle key material.
-		- When `form_id` is unknown/invalid (pre-validation), include the literal `"invalid"` (do not incorporate user-supplied values).
-		- Prevents disk-spam via arbitrary `form_id` values.
-	- Key derivation uses the resolved client IP per [Privacy and IP Handling](#sec-privacy) regardless of `privacy.ip_mode` (do not persist the literal IP); storage path `${uploads.dir}/throttle/{h2}/{key}.json` with `{h2}` derived from the key per [Security → Shared Lifecycle and Storage Contract](#sec-shared-lifecycle)’s shared sharding and permission guidance; GC files >2 days old.
+	- Key derivation uses the resolved client IP per [Privacy and IP Handling](#sec-privacy) regardless of `privacy.ip_mode` (do not persist the literal IP).
+	- Storage paths use `{h2}` derived from the key per [Security → Shared Lifecycle and Storage Contract](#sec-shared-lifecycle); GC files >2 days old.
 	- Hard failures MUST abort the pipeline before side effects (uploads, email, ledger).
 
 <a id="sec-adaptive-challenge"></a>12. Adaptive challenge (optional; Turnstile preferred)
 
-**Rationale:** The adaptive challenge system provides progressive spam defense without penalizing legitimate users. `auto` mode only triggers challenges when soft signals (timing anomalies, origin mismatches, throttle pressure) suggest potential abuse, balancing security with UX. `always_post` mode enforces challenges on every submission for high-risk forms. Challenges render only on POST rerenders (never on initial GET) to preserve edge cacheability and avoid unnecessary provider script loads. The token-reuse policy across rerenders prevents challenge exhaustion and maintains form state through the verification flow.
+**Rationale:** The adaptive challenge system provides progressive spam defense without penalizing legitimate users. `auto` mode only triggers challenges when soft signals (timing anomalies, origin mismatches) suggest potential abuse, balancing security with UX. `always_post` mode enforces challenges on every submission for high-risk forms. Challenges render only on POST rerenders (never on initial GET) to preserve edge cacheability and avoid unnecessary provider script loads. The token-reuse policy across rerenders prevents challenge exhaustion and maintains form state through the verification flow.
 
-	- Challenge rotation follows [Security → Security invariants](#sec-security-invariants); tokens are reused across rerenders until success or expiry.
+	- Token reuse: see [Security invariants](#sec-security-invariants).
 	- Modes: off | auto (require when `soft_reasons` is non-empty) | always_post.
-	- Migration: legacy value `always` is accepted as an alias for `always_post`.
+	- Legacy `always` is accepted as an alias for `always_post`.
 	- Provider (v1): Turnstile only (`cf-turnstile-response`).
 	- If `challenge.mode` requires verification but Turnstile site_key/secret_key are not configured, treat it as a configuration error and fail with `EFORMS_CHALLENGE_UNCONFIGURED` until fixed.
 	- Render only on POST rerender when required or during verification; never on the initial GET.
-	- Extension point (future): The provider abstraction supports adding hCaptcha (`h-captcha-response`) and reCAPTCHA v2 (`g-recaptcha-response`). Adding a provider requires: (1) enum extension, (2) verification implementation following the provider's server-side API, (3) script URL in asset enqueue map. These are reserved for future versions based on operator demand.
+	- Only Turnstile is supported in v1; hCaptcha and reCAPTCHA are reserved for future extension.
 
 <a id="sec-validation-pipeline"></a>
 9. VALIDATION & SANITIZATION PIPELINE (DETERMINISTIC)
@@ -550,6 +581,7 @@ Notes (normative):
 
 	2. Normalize (lossless)
 	- Apply wp_unslash and trim; Helpers::nfc for Unicode NFC (no-op without intl).
+	- Normalize line endings: convert `\r\n` and `\r` to `\n` for all text inputs.
 	- Flatten $_FILES; shape items as { tmp_name, original_name, size, error, original_name_safe }.
 	- Treat UPLOAD_ERR_NO_FILE or empty original_name as "no value".
 	- Scalar vs array:
@@ -560,7 +592,7 @@ Notes (normative):
 	- No rejection allowed in Normalize.
 
 	3. Validate (authoritative; may reject)
-	- Check required, length/pattern/range, allow-lists, cross-field rules (see [Cross-Field Rules (BOUNDED SET)](#sec-cross-field-rules)).
+	- Check required, length/pattern/range, allow-lists, cross-field rules (see [Cross-Field Rules (BOUNDED SET)](#sec-cross-field-rules)). `max_length` counts Unicode code points (`mb_strlen` with UTF-8; falls back to bytes when mbstring unavailable).
 	- Options: reject when a disabled option key is submitted.
 	- Uploads:
 		- Enforce per-file, per-field, per-request caps; count cap for files.
@@ -573,7 +605,7 @@ Notes (normative):
 	- Client validation (when enabled) is advisory; server runs always.
 
 	4. Coerce (post-validate, canonicalization only; no side effects)
-	- Lowercase email domain; NANP canonicalization for tel_us; whitespace collapse when enabled.
+	- Lowercase email domain; NANP canonicalization for tel_us; whitespace collapse when enabled. Upload `tmp_name` paths are request-scoped; never persist them.
 	- Uploads: do not move files here. File moves occur only after ledger reservation on success (see [Security → Ledger reservation contract](#sec-ledger-contract) and [Uploads](#sec-uploads)).
 
 	5. Challenge verification (conditional; before side effects)
@@ -659,7 +691,7 @@ Notes (normative):
 
 <a id="sec-success"></a>
 14. SUCCESS BEHAVIOR (PRG)
-			- PRG status is fixed at 303. Success responses MUST send `Cache-Control: private, no-store, max-age=0`. Any request containing `eforms_*` query args MUST also send `Cache-Control: private, no-store, max-age=0`.
+			- PRG status is fixed at 303. Success responses MUST satisfy [Cache-safety](#sec-cache-safety).
 			- Namespace internal query args with `eforms_*`. `success.message` is plain text and escaped.
 			- Caching: do not disable page caching globally. Only bypass caching for requests containing `eforms_*` query args.
 			- <a id="sec-success-modes"></a>Modes (normative summary):
@@ -667,6 +699,7 @@ Notes (normative):
 				|------|------------|--------------|----------------|
 				| Inline | `303` back to the same URL with `?eforms_success={form_id}`. | Renderer shows the banner when `?eforms_success={form_id}` is present. Show banner only in the first instance in source order; suppress subsequent duplicates. | The success message is idempotent and can be displayed on multiple visits to the URL. |
 				| Redirect | `wp_safe_redirect(redirect_url, 303)`. | Destination renders its own success UX. | No special cache requirements. |
+			- **Constraint (normative):** `success.mode="inline"` MUST NOT be combined with `cacheable="true"`. Preflight MUST reject this combination with `EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE`.
 			- <a id="sec-success-flow"></a>Inline success flow (normative):
 				1. On successful POST, redirect with `?eforms_success={form_id}` (303).
 				2. On the follow-up GET, renderer checks for the `?eforms_success={form_id}` query parameter and displays the success banner (using `success.message` from template) when present.
@@ -774,13 +807,13 @@ Notes (normative):
 
 Defaults note: When this spec refers to a ‘Default’, the authoritative literal is `Config::DEFAULTS` in code; the spec does not restate those literals.
 	- Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
-	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or the prime/success endpoints) invokes `Config::bootstrap()`; within a request it runs at most once, merges the optional drop-in override file (when applicable), applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
+	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or other entry points) invokes `Config::bootstrap()`; within a request it runs at most once, merges the optional drop-in override file (when applicable), applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
 	- Bootstrap ownership (normative):
 		- Entry points SHOULD call `Config::get()` before invoking helpers (see [Lazy-load Matrix](#sec-lazy-load-matrix) for trigger ownership).
 - Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly.
 		- When adding a new public endpoint, that endpoint owns calling `Config::get()` up front; do not call `Config::bootstrap()` directly (the uninstall carve-out described in [Architecture and file layout](#sec-architecture) is the lone exception).
 		- Call order (illustrative): Endpoint → `Config::get()` → Helper (which internally no-ops `Config::get()` again) → …
-	- Migration behavior: unknown keys MUST be rejected; missing keys fall back to defaults before clamping; invalid enums/ranges/booleans MUST trigger validation errors rather than coercion; POST handlers MUST continue to enforce constraints after bootstrap.
+	- Migration behavior: unknown keys MUST be rejected; missing keys fall back to defaults before clamping; invalid enums/booleans/types MUST trigger validation errors; numeric ranges are clamped per the constraints table; POST handlers MUST continue to enforce constraints after bootstrap.
 
 	`Config::DEFAULTS` also powers uninstall/CLI flows; it exposes a stable public symbol for ops tooling.
 
@@ -817,7 +850,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	| Email	 | `email.reply_to_address`			| string | Optional; when non-empty and valid, set Reply-To to this value (takes precedence over `email.reply_to_field`). |
 	| Email	 | `email.reply_to_field`			| string | Optional; template field key to source Reply-To from (ignored when `email.reply_to_address` is set). |
 	| HTML5	| `html5.client_validation`			| bool	| When `true`, omit `novalidate` so browsers present native validation UI; when `false`, include `novalidate` to suppress native UI in favor of server-rendered errors. |
-	| Throttle	| `throttle.per_ip.max_per_minute`		| int	 | clamp `[THROTTLE_MAX_PER_MIN_MIN]`–`[THROTTLE_MAX_PER_MIN_MAX]`; values beyond clamp saturate; 0 disables throttle only via `throttle.enable = false` (see [Anchors](#sec-anchors)).			|
+	| Throttle	| `throttle.per_ip.max_per_minute`		| int	 | clamp `[THROTTLE_MAX_PER_MIN_MIN]`–`[THROTTLE_MAX_PER_MIN_MAX]`; values below min clamp up (do not disable); to disable rate limiting set `throttle.enable=false` (see [Anchors](#sec-anchors)).			|
 	| Throttle	| `throttle.per_ip.cooldown_seconds`	| int	 | clamp `[THROTTLE_COOLDOWN_MIN]`–`[THROTTLE_COOLDOWN_MAX]` seconds (see [Anchors](#sec-anchors)).																							|
 	| Logging	 | `logging.mode`						| enum	| {`off`,`minimal`,`jsonl`} — determines logging sink ([Logging](#sec-logging)).													 |
 	| Logging	 | `logging.level`						 | int	 | clamp `[LOGGING_LEVEL_MIN]`–`[LOGGING_LEVEL_MAX]`; level ≥1 unlocks verbose submission diagnostics (see [Anchors](#sec-anchors)).													|
@@ -874,7 +907,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 				- Path collisions are treated as internal errors; implementations MUST NOT overwrite existing files.
 				- Intersection: field `accept[]` ∩ global allow-list must be non-empty → else `EFORMS_ERR_ACCEPT_EMPTY`.
 				- Delete uploads after successful send unless retention applies; if email send fails after files were stored, cleanup per retention policy. On final send failure, delete unless `uploads.retention_seconds>0` (then GC per retention).
-				- GC (normative): the plugin MUST NOT schedule WP-Cron. Operators SHOULD run `wp eforms gc` via system cron for predictable pruning. The plugin also runs best-effort GC on request shutdown when the lock is available; this baseline prevents unbounded growth but may lag under low traffic.
+				- GC (normative): the plugin MUST schedule a recurring WP-Cron event (e.g., hourly) to perform garbage collection. GC MUST process a limited batch of files per run (time-boxed or count-boxed) to prevent timeouts even during cron execution. Operators MAY run `wp eforms gc` via system cron for more frequent or controlled pruning.
 				- GC targets: expired token records (past TTL), uploads (past retention), stale throttle window files, and expired ledger `.used` markers.
 				- Ledger GC eligibility (normative): a `${submission_id}.used` marker MAY be deleted when `now >= file_mtime + [TOKEN_TTL_MAX] + [LEDGER_GC_GRACE_SECONDS]`. This conservative rule covers the worst-case token validity window plus a grace period, without requiring a token record lookup.
 				- Provide an idempotent `wp eforms gc` WP-CLI command.
@@ -896,45 +929,42 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Registers/enqueues CSS/JS only when rendering
 	- Always set method="post". If any upload field present, add enctype="multipart/form-data".
 	- Max-input-vars heuristic: log advisory.
-	- CDN/cache notes: bypass caching on non-cacheable token pages; `/eforms/mint` is no-store.
-	- Initialize Logging only when logging.mode != "off".
-	- Initialize Uploads only when uploads.enable=true and template declares file/files (detected at preflight).
+	- CDN/cache notes: bypass caching on non-cacheable token pages; `/eforms/mint` is no-store; cache-safety requirements: see [Cache-safety](#sec-cache-safety).
+	- Lazy init: see [Lazy-load Matrix](#sec-lazy-load-matrix).
 - Renderer toggles the `novalidate` attribute based on `html5.client_validation`: omit it when the flag is `true` so browsers present native validation UI, and include it when the flag is `false` to suppress native validation in favor of server feedback. The server validator always runs on POST.
 	- Preflight resolves and freezes per-request resolved descriptors; reuse across Renderer and Validator (no re-merge on POST).
 
 	<a id="sec-request-lifecycle-post"></a>2. POST
 	- SubmitHandler orchestrates Security gate -> Normalize -> Validate -> Coerce -> (Challenge verify if required) -> Ledger reservation -> side effects -> PRG/redirect (see [Validation & Sanitization Pipeline (Deterministic)](#sec-validation-pipeline) and [Security → Ledger reservation contract](#sec-ledger-contract)).
+	- Storage prerequisite (normative): before the first write under `${uploads.dir}` (token records, ledger markers, uploads, throttle/log state), SubmitHandler MUST run the same storage health check used by hidden-mode GET minting (see [Cache-safety](#sec-cache-safety)). On failure, hard-fail with HTTP 500 and `EFORMS_ERR_STORAGE_UNAVAILABLE` and, when logging is enabled, emit at most one warning log event per request including `request_id` (do not log repeatedly). If the configured logging sink depends on `${uploads.dir}`, the warning MAY fall back to PHP `error_log()`.
 	- Mode, hidden-field reuse, and rerender behavior follow the canonical contract in [Security → Submission Protection for Public Forms](#sec-submission-protection); lifecycle logic never swaps modes mid-flow.
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
 	- Error rerenders and duplicate handling follow [Security → Ledger reservation contract](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` as a duplicate submission, and treats other IO failures as hard failures (`EFORMS_ERR_LEDGER_IO`) while logging `EFORMS_LEDGER_IO` for diagnosis.
 	- On success: after reserving the ledger entry (the `.used` marker stays committed), move stored uploads; send email; log; PRG/redirect; cleanup per retention.
 	- <a id="sec-email-failure-recovery"></a>Email send failure (Emailer::send() returns false or throws) is fatal: abort the success PRG, rerender with a fresh token (see [Hidden-mode email-failure recovery](#sec-hidden-email-failure) and [JS-minted email-failure recovery](#sec-js-email-failure) for mode-specific behavior), surface a `_global` error, log the event at `error` severity, and return HTTP 500. The ledger reservation remains committed; the fresh token enables immediate retry.
-	- Best-effort GC on shutdown (opportunistically if lock is available; complements cron); no persistence of validation errors/canonical values beyond request.
-	- throttle.enable=true and key available → run throttle; over → +1 soft and add Retry-After; hard → HARD FAIL (skip side effects).
-	- Challenge hook: if required (always/auto or the Security gate), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
+	- No persistence of validation errors/canonical values beyond request.
+	- throttle.enable=true and key available → run throttle; on limit hit → HARD FAIL with HTTP 429 and Retry-After (skip side effects).
+	- Challenge hook: if required (always_post/auto or the Security gate), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
 
 <a id="sec-error-handling"></a>
 21. ERROR HANDLING
 	- Errors stored by field_key; global errors under _global
 	- Renderer prints global summary + per-field messages
 - Email send failures MUST surface `_global` ⇒ "We couldn't send your message. Please try again.", respond with HTTP 500, and tag the error as `EFORMS_ERR_EMAIL_SEND`. The log entry for this failure MUST include `form_id`, the transport/provider identifier, any exception class/message, and the correlation/request identifier.
-- On `EFORMS_ERR_EMAIL_SEND` rerender, Renderer MUST:
-	- Mint a fresh token (hidden-mode) or emit `data-eforms-remint="1"` (JS-minted mode).
-	- Preserve submitted non-file field values (pre-filled).
-	- Render a read-only `<textarea>` containing the submission content for manual copy as a fallback safety net (exclude file contents; include `original_name_safe` filenames only; honor `privacy.ip_mode` for any IP shown).
+- On `EFORMS_ERR_EMAIL_SEND` rerender: mint fresh token per [Hidden-mode email-failure recovery](#sec-hidden-email-failure) or [JS-minted email-failure recovery](#sec-js-email-failure); preserve submitted non-file field values; render read-only `<textarea>` with submission content for manual copy (exclude file contents; include `original_name_safe` filenames only; honor `privacy.ip_mode`).
 	- Upload user-facing messages:
 	- "This file exceeds the size limit."
 	- "Too many files."
 	- "This file type isn't allowed."
 	- "File upload failed. Please try again."
 	- Re-render after errors passes the mode-specific security metadata defined in [Security → Submission Protection for Public Forms](#sec-submission-protection) back to Renderer (hidden: `{eforms_token, instance_id, timestamp}`; JS-minted: `{eforms_token, instance_id, timestamp}`).
-	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_THROTTLED, EFORMS_ERR_DUPLICATE_FORM_ID, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_LEDGER_IO, EFORMS_ERR_INVALID_FORM_ID, EFORMS_ERR_ORIGIN_FORBIDDEN, EFORMS_ERR_MINT_FAILED, EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE).
+	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_THROTTLED, EFORMS_ERR_DUPLICATE_FORM_ID, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_LEDGER_IO, EFORMS_ERR_STORAGE_UNAVAILABLE, EFORMS_ERR_INVALID_FORM_ID, EFORMS_ERR_ORIGIN_FORBIDDEN, EFORMS_ERR_MINT_FAILED, EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE).
 	- Large form advisory via logs.
 	- "This form was already submitted or has expired - please reload the page." maps to EFORMS_ERR_TOKEN.
 
 <a id="sec-compatibility"></a>
 22. COMPATIBILITY AND UPDATES
-	- Deployment constraint (normative): token records, ledger markers, throttle state, and uploads live under `wp_upload_dir()` and MUST be readable/writable across the render→POST lifecycle. Single-webhead deployments work out of the box. Multi-webhead or containerized deployments MUST mount `${uploads.dir}` as a shared persistent volume; ephemeral container storage is unsupported.
+	- Deployment constraint (normative): token records, ledger markers, throttle state, and uploads live under `wp_upload_dir()` and MUST be readable/writable across the render→POST lifecycle. Single-webhead deployments work out of the box. Multi-webhead or containerized deployments MUST mount `${uploads.dir}` as a shared persistent volume that preserves the filesystem semantics required by the ledger reservation contract (atomic exclusive-create); ephemeral container storage is unsupported. If these filesystem semantics cannot be guaranteed, the plugin MUST fail closed with a configuration/runtime error.
 	- Changing type defaults or rules updates behavior globally via registry
 	- Templates remain portable (no callbacks)
 	- Minimum versions: PHP >= 8.0; WordPress >= 5.8 (admin notice + deactivate if unmet)
@@ -944,21 +974,20 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 23. ASSETS (CSS & JS)
 	- Enqueued only when a form is rendered; version strings via filemtime().
 	- forms.js provides js_ok="1" on DOM Ready, submit-lock/disabled state, error-summary focus, and first-invalid focus. Required for cacheable pages (JS-minted mode); otherwise optional unless `security.js_hard_mode=true`.
-	- JS-minted token injection (normative): forms.js MUST, on DOMContentLoaded, ensure each JS-minted form has a token by issuing a POST to `/eforms/mint` with form-encoded body `f={form_id}`, inject `token` into `eforms_token`, and inject `instance_id` into the hidden instance field. forms.js MUST block submission until minting succeeds and MUST NOT overwrite a non-empty `eforms_token`. forms.js SHOULD reuse the minted token across refreshes/back-navigation within the same tab (e.g., sessionStorage keyed by `{form_id}`) until expiry; if cached state is unavailable, mint a fresh token.
+	- JS-minted token injection (normative): forms.js MUST, on DOMContentLoaded, ensure each JS-minted form has a token by issuing a POST to `/eforms/mint` with form-encoded body `f={form_id}`, inject `token` into `eforms_token`, inject `instance_id` into the hidden instance field, and inject `timestamp` into the hidden timestamp field. forms.js MUST block submission until minting succeeds and MUST NOT overwrite a non-empty `eforms_token`. forms.js SHOULD reuse the minted token across refreshes/back-navigation within the same tab (e.g., sessionStorage keyed by `{form_id}`) until expiry; if cached state is unavailable, mint a fresh token.
 
-	- Email-failure remint (normative): When a form element has `data-eforms-remint="1"`, forms.js MUST clear the cached token for that `form_id` from sessionStorage, POST to `/eforms/mint`, inject the fresh `{token, instance_id}`, remove the `data-eforms-remint` attribute, and re-enable submission. This occurs on DOMContentLoaded before the normal injection logic.
+	- Mixed-mode pages (normative): forms.js MUST only call `/eforms/mint` for JS-minted forms (cacheable=true) and MUST NOT call it for hidden-mode forms; each form is handled independently.
+	- Injection safety (normative): forms.js MUST NOT overwrite a non-empty `eforms_token`, `instance_id`, or `timestamp` field; it may only fill empty fields.
+	- Mint failure UX (normative): on mint failure, forms.js MUST keep submission blocked for that form and surface a deterministic generic error message in the error summary container.
+	- Email-failure remint (normative): When a form element has `data-eforms-remint="1"`, forms.js MUST clear the cached token for that `form_id` from sessionStorage, POST to `/eforms/mint`, inject the fresh `{token, instance_id, timestamp}`, remove the `data-eforms-remint` attribute, and re-enable submission. This occurs on DOMContentLoaded before the normal injection logic.
 
 	- assets.css_disable=true lets themes opt out
 	- On submit failure, focus the first control with an error
 	- Focus styling (a11y): do not remove outlines unless visible replacement is provided. For inside-the-box focus: outline: 1px solid #b8b8b8 !important; outline-offset: -1px;
-	- Renderer toggles the `novalidate` attribute based on `html5.client_validation`: when `true`, omit it so native validation UI runs (forms.js MUST skip pre-submit summary focus to avoid double-focus); when `false`, include it and forms.js owns pre-submit summary focus. In both cases, forms.js still moves focus to the first invalid control after server rerenders.
-	- Only enqueue provider script when the challenge is rendered:
-		- Turnstile (v1): https://challenges.cloudflare.com/turnstile/v0/api.js (defer, crossorigin=anonymous)
-
-	- Reserved for future extension (not implemented in v1):
-		- hCaptcha: https://hcaptcha.com/1/api.js (defer)
-		- reCAPTCHA v2: https://www.google.com/recaptcha/api.js (defer)
-- Do not load challenge script on the initial GET. `always_post` mode does not override this; challenges are rendered on POST rerender or during verification only.
+	- `novalidate` attribute: see [Request Lifecycle → GET](#sec-request-lifecycle-get). When `html5.client_validation=true`, forms.js skips pre-submit summary focus; when `false`, forms.js owns it. In both cases, forms.js moves focus to first invalid after server rerenders.
+	- Provider script (v1 Turnstile; enqueue only when challenge is rendered):
+		- https://challenges.cloudflare.com/turnstile/v0/api.js (defer, crossorigin=anonymous)
+		- hCaptcha/reCAPTCHA reserved for future extension.
 	- Secrets hygiene: Render only site_key to HTML. Never expose secret_key or verify tokens in markup/JS. Verify server-side; redact tokens in logs.
 
 <a id="sec-implementation-notes"></a>
@@ -1047,6 +1076,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- EFORMS_ERR_SCHEMA_TYPE - "Form configuration error: wrong type."
 	- EFORMS_ERR_SCHEMA_OBJECT - "Form configuration error: invalid object shape."
 	- EFORMS_ERR_DUPLICATE_FORM_ID - "Form configuration error: duplicate form id on page."
+	- EFORMS_ERR_STORAGE_UNAVAILABLE - "Form configuration error: server storage is unavailable."
 	- EFORMS_ERR_LEDGER_IO - "Submission failed due to a server error. Please try again."
 	- EFORMS_ERR_UPLOAD_TYPE - "This file type isn't allowed."
 		- EFORMS_ERR_EMAIL_SEND - "We couldn't send your message. Please try again."
@@ -1063,9 +1093,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- EFORMS_FINFO_UNAVAILABLE - "File uploads are unsupported on this server."
 
 	2. <a id="sec-accept-token-map"></a>Accept Token -> MIME/Extension Map (informative summary)
-	- Canonical rules live in [Uploads → Accept-token policy](#sec-uploads-accept-tokens). This appendix summarizes the current defaults for quick reference.
-	- Current defaults (informative): image → image/jpeg, image/png, image/gif, image/webp (SVG excluded); pdf → application/pdf. Other tokens are excluded by default (e.g., image/svg+xml, image/heic, image/heif, image/tiff).
-	- Applies to both `file` and `files` field types; multi-file inputs reuse these lists, and email attachment policy remains governed by [Email Delivery](#sec-email).
+	- Canonical rules live in [Uploads → Accept-token policy](#sec-uploads-accept-tokens).
 
 
 	3. Schema Source of Truth

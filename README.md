@@ -68,6 +68,66 @@ add_filter('eforms_config', function ($config) {
 * Token ledger prevents duplicate submissions.
 * Email-failure retries set a marker that suppresses the min-fill-time soft signal (see Canonical Spec).
 
+### Rate Limiting
+
+The plugin includes optional file-based throttling (`throttle.enable = true`). This is a lightweight, zero-dependency solution suitable for low-to-moderate traffic.
+
+**Built-in throttle limitations:**
+
+| Limitation | Impact |
+|------------|--------|
+| File-based | Requires reliable `flock()`; may not work on NFS or some shared hosting |
+| Per-IP only | Users behind shared NAT (cafes, corporate, cellular) share a limit |
+| Application-layer | Requests still reach PHP before being rejected |
+| Single-server | No coordination across multiple web servers |
+
+**For production sites expecting abuse, use infrastructure-level protection:**
+
+#### Fail2ban (Recommended for VPS/Dedicated)
+
+Blocks IPs at the firewall before requests reach PHP. Requires root access.
+
+The plugin provides a dedicated Fail2ban emission channel (independent of `logging.mode`) that outputs a simple, single-line format designed for parsing:
+
+```
+eforms[f2b] ts=<unix> code=<EFORMS_ERR_*> ip=<client_ip> form=<form_id>
+```
+
+1. Enable Fail2ban emission in your config:
+   ```php
+   'logging' => [
+       'fail2ban' => ['target' => 'file']
+   ]
+   ```
+
+2. Create filter `/etc/fail2ban/filter.d/eforms.conf`:
+   ```ini
+   [Definition]
+   failregex = ^eforms\[f2b\].*ip=<HOST>.*$
+   ignoreregex =
+   ```
+
+3. Create jail `/etc/fail2ban/jail.d/eforms.local`:
+   ```ini
+   [eforms]
+   enabled = true
+   filter = eforms
+   logpath = /var/www/html/wp-content/uploads/eforms-private/f2b/eforms-f2b.log
+   maxretry = 5      ; adjust based on your traffic patterns
+   findtime = 300    ; 5-minute window
+   bantime = 3600    ; 1-hour ban
+   ```
+
+4. Restart Fail2ban: `sudo systemctl restart fail2ban`
+
+**Fail2ban advantages:** Blocks at firewall (iptables/nftables), zero PHP overhead for banned IPs.
+
+#### Cloudflare (Recommended for All Sites)
+
+Blocks malicious traffic at the edge before it reaches your server. See [Cloudflare documentation](https://developers.cloudflare.com/waf/rate-limiting-rules/) for rate limiting setup. The plugin supports Cloudflare Turnstile natively (`challenge.provider = 'turnstile'`).
+
+**Recommendation:** Use Cloudflare or similar edge protection as your first line of defense. Add Fail2ban if you have server access. Use the built-in throttle as a fallback for simple deployments.
+
 ### Logging
 
 Logging modes: `off`, `minimal`, `jsonl`. See `Config` for options.
