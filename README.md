@@ -6,8 +6,8 @@ Lightweight PHP form handler for WordPress.
 
 Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Compatibility and Updates](docs/Canonical_Spec.md#sec-compatibility).
 
-1. Place the plugin directory inside `wp-content/plugins/` so WordPress can discover it.
-2. (Optional for contributors) Run `composer install` within the plugin directory to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
+1. Place `eforms/` inside `wp-content/plugins/` so WordPress can discover it.
+2. (Optional for contributors) Run `composer install` within `eforms/` to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
 3. Activate the plugin from the WordPress admin Plugins screen once the files are in place.
 
 ## Documentation
@@ -19,19 +19,19 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Co
 
 ## Architecture
 
-- `eforms.php` boots the plugin, sets up rewrite rules, autoloads `src/`, and registers the `[eform]` shortcode.
-- `src/Rendering/` loads JSON form templates from `templates/forms/` and renders HTML.
-- `src/Submission/SubmitHandler.php` orchestrates security checks, validation, logging, email, and uploads.
-- `src/Security/` houses token, origin, challenge, and throttling logic.
-- `src/Logging.php` writes structured logs with rotation.
-- Configuration lives in `src/Config.php` and can be overridden via a drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`, usually `wp-content/eforms.config.php`) and/or the `eforms_config` filter.
+- `eforms/eforms.php` boots the plugin, sets up rewrite rules, autoloads `src/`, and registers the `[eform]` shortcode.
+- `eforms/src/Rendering/` loads JSON form templates from `templates/forms/` and renders HTML.
+- `eforms/src/Submission/SubmitHandler.php` orchestrates security checks, validation, logging, email, and uploads.
+- `eforms/src/Security/` houses token, origin, challenge, and throttling logic.
+- `eforms/src/Logging.php` writes structured logs with rotation.
+- Configuration lives in `eforms/src/Config.php` and can be overridden via a drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`, usually `wp-content/eforms.config.php`) and/or the `eforms_config` filter.
 
 ## Usage
 
 Add forms via shortcode:
 
 ```php
-[eforms id="contact"]
+[eform id="contact"]
 ```
 
 Configure via drop-in file:
@@ -141,14 +141,6 @@ Uploads are stored in `wp-content/uploads/eforms-private` with strict perms.
 Run `wp eforms gc` via system cron to prune expired token records and uploads. The plugin also runs best-effort GC on request shutdown, but cron is the primary mechanism.
 
 Ledger markers are pruned by `wp eforms gc` after the associated token is expired.
-
-## Tests
-
-Requires PHP 8.0+ and Composer. Install dependencies and run the tiny PHPUnit suite:
-
-- `composer install`
-- `vendor/bin/phpunit -c phpunit.xml.dist --testdox`
-- Optional stricter run: `vendor/bin/phpunit -c phpunit.xml.dist --fail-on-warning --testdox`
 
 ## WP-CLI scripts
 

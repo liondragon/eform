@@ -1,8 +1,25 @@
 electronic_forms - Spec
 ================================================================
-<!-- SPEC_STATUS: BOOTSTRAP -->
+<!-- SPEC_STATUS: STABLE -->
 
 <a id="sec-objective"></a>
+
+## PUBLIC SURFACES INDEX
+
+Quick reference for implementers. Each surface links to its authoritative section (no duplicated rules).
+
+| Surface | Type | Description | Reference |
+|---------|------|-------------|-----------|
+| `[eform id="..." cacheable="..."]` | Shortcode | Renders a form; `cacheable` selects token mode | [Request Lifecycle → GET](#sec-request-lifecycle-get) |
+| `eform_render($slug, $opts)` | Template tag | PHP equivalent of shortcode | [Request Lifecycle → GET](#sec-request-lifecycle-get) |
+| `POST /eforms/mint` | REST endpoint | Mints JS-mode tokens for cacheable pages | [JS-minted mode contract](#sec-js-mint-mode) |
+| `${WP_CONTENT_DIR}/eforms.config.php` | Drop-in file | Optional runtime config override source | [Configuration](#sec-configuration) |
+| `eforms_config` | Filter | Optional runtime config override hook | [Configuration](#sec-configuration) |
+| `eforms_request_id` | Filter | Optional request correlation override for logs | [Logging](#sec-logging) |
+| `wp eforms gc` | WP-CLI | Garbage-collects expired runtime artifacts | [Uploads](#sec-uploads) |
+
+Storage layout and paths: see [Shared lifecycle and storage contract](#sec-shared-lifecycle).
+
 1. OBJECTIVE
 - Build a dependency-free, lightweight plugin that renders and processes multiple forms from JSON templates with strict DRY principles and a deterministic pipeline.
 - Designed for real-world operation today (internal use across a handful of sites, modest daily volume) while laying durable groundwork for higher volume growth without redesign.
@@ -19,7 +36,7 @@ electronic_forms - Spec
 - Lazy config snapshot: bootstrapped on first `Config::get()` per request; entry points SHOULD call `Config::get()` early (see [Configuration: Domains, Constraints, and Defaults](#sec-configuration)).
 - No database writes; file-backed one-time token ledger for duplicate-submit prevention (no Redis/queues).
 - Clear boundaries: render vs. validate vs. send vs. log vs. upload.
-- Deterministic pipeline and schema parity: big win for testability.
+- Deterministic pipeline and validator-driven structural validation: big win for testability.
 - Lazy loading of registries/features and config snapshot: keeps coupling down.
 
 <a id="sec-scope"></a>
@@ -52,7 +69,7 @@ electronic_forms - Spec
 - Operational profile: Cacheable pages require JS and use a JS-minted submission token via `/eforms/mint` (no anti-duplication cookies). Non-cacheable pages embed a server-minted hidden token during GET render.
 <a id="sec-architecture"></a>
 3. ARCHITECTURE AND FILE LAYOUT
-	- /electronic_forms/
+	- /eforms/
 		- eforms.php		// bootstrap + autoloader + shortcode/template tag
 		- uninstall.php	 // optional purge of uploads/logs (reads flags from Config; see [Configuration: Domains, Constraints, and Defaults](#sec-configuration))
 			- uninstall.php requires __DIR__.'/src/Config.php' and calls Config::bootstrap() so it can read purge flags without relying on WP hooks.
@@ -63,8 +80,6 @@ electronic_forms - Spec
 	- /src/
 		- Config.php, Helpers.php, Logging.php
 		- Email/, Rendering/, Submission/, Validation/, Security/, Uploads/
-	- /schema/
-		- template.schema.json	// design-time only (editor/CI lint); kept in sync with PHP spec
 	- /templates/
 		- forms/		// default JSON templates that ship with the plugin
 		- email/		// default email bodies that ship with the plugin
@@ -172,13 +187,22 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 >	- Inputs:
 >	- `form_id` maps to `templates/forms/{form_id}.json` (filename stem; no nesting, no slug transforms).
 >	- Templates live in `/templates/forms/` with filenames matching `/^[a-z0-9-]+\.json$/`.
->	- Authors may include a design-time schema pointer (recommended) using a stable URL or absolute path (avoid hard-coded `/wp-content/plugins/...` paths).
+>	- The PHP `TEMPLATE_SPEC` array (in `src/Validation/TemplateValidator.php`) is the sole authoritative schema; no separate JSON Schema file is maintained.
 >	- Side-effects:
 >	- None beyond normalization; runtime loads files lazily and never modifies them in place.
 >	- Returns:
 >	- Minimal shape includes `id` (slug), `version` (string), `title` (string), `success { mode:"inline"|"redirect", redirect_url?, message? }`, `email { to, subject, email_template, include_fields[], display_format_tel? }`, `fields[]` (see §5.1), `submit_button_text` (string), and bounded JSON `rules[]` (see §10).
 >	- Failure modes:
 >	- Filenames outside the allow-list are ignored. Malformed or incomplete JSON triggers a deterministic “Form configuration error” without a white screen.
+
+Email block (normative):
+- `email` MUST be present and MUST include `to`, `subject`, `email_template`, and `include_fields`.
+- `email.to` MUST be either a string email address or a list of string email addresses; implementations MUST normalize a scalar to a single-element list.
+	- Each entry MUST validate as a single address via WordPress `is_email()` (no display names, no comma-separated lists).
+- `email.subject` MUST be a string.
+- `email.email_template` MUST be a string and MUST reference an existing template per [Email Templates (Registry)](#sec-email-templates).
+- `email.include_fields` MUST be a list of strings; entries MUST reference keys present in `fields[]` or the allowed meta keys from [Field descriptors and namespacing](#sec-template-model-fields).
+- Any violation in this block MUST raise deterministic TemplateValidator schema errors and prevent render.
 
 ### 6.4 display_format_tel tokens {#sec-display-format-tel}
 > **Contract — TemplateValidator::validate_display_format_tel**
@@ -217,11 +241,9 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 > **Contract — SubmitHandler::validate_template_lifecycle**
 >	- Inputs:
 >	- Runtime evaluation uses two phases: `(0)` structural preflight via `TemplateValidator`, then `(1)` normalize → validate → coerce via `Validator`.
->	- `/schema/template.schema.json` exists for CI/docs only and is mechanically derived from `TEMPLATE_SPEC`.
->	- `/schema/template.schema.json` is a generated artifact: it MUST NOT be hand-edited. If `TEMPLATE_SPEC` changes, maintainers MUST regenerate the schema and keep parity checks passing.
 >	- Side-effects:
 >	- TemplateValidator rejects unknown keys, enum violations, malformed rule objects, and reports deterministic error codes.
->	- CI MUST validate `/templates/forms/*.json` against the schema and assert parity with the PHP `TEMPLATE_SPEC` so dual sources do not drift.
+>	- Shipped templates in `/templates/forms/*.json` MUST pass TemplateValidator structural preflight (no separate JSON Schema).
 >	- Returns:
 >	- On failure, runtime surfaces a clear “Form configuration error” while continuing to render a fallback UX (no WSOD). Successful normalization yields canonical field arrays reused by Renderer, Security, and Validator.
 >	- Failure modes:
@@ -233,13 +255,13 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 >	- `TemplateValidator` resolves descriptors from `TEMPLATE_SPEC`, reading handler IDs (`validator_id`, `normalizer_id`, `renderer_id`), HTML traits, validation ranges, constants, and optional `alias_of` metadata.
 >	- Handler registries are private to their owning classes (see [Central Registries (Internal Only)](#sec-central-registries)) and expose `resolve()` helpers for deterministic lookup.
 >	- Side-effects:
->	- Descriptor resolution is fail-fast: unknown handler IDs throw a deterministic `RuntimeException` containing `{ type, id, registry, spec_path }`, which CI surfaces immediately.
->	- Alias hygiene runs during preflight, asserting that aliases share handler IDs with their target; violations fail CI.
+>	- Descriptor resolution is fail-fast: unknown handler IDs throw a deterministic `RuntimeException` containing `{ type, id, registry, spec_path }` and abort template loading.
+>	- Alias hygiene runs during preflight, asserting that aliases share handler IDs with their target; violations abort template loading.
 >	- Returns:
 >	- TemplateContext exposes `has_uploads` (bool), `descriptors[]` (resolved field descriptors), `version`, `id`, `email`, `success`, `rules`, normalized `fields`, and `max_input_vars_estimate` (advisory).
 >	- Each resolved descriptor includes `{ key, type, is_multivalue, name_tpl, id_prefix, html, validate, constants, attr_mirror, handlers: { v, n, r } }` and remains immutable for the request. Renderer and Validator reuse the same descriptor objects to avoid re-merging during POST.
 >	- Failure modes:
->	- Attempting to resolve unknown handlers, mutate descriptors post-preflight, or violate alias invariants aborts template loading and is treated as a configuration error surfaced during CI or first render.
+>	- Attempting to resolve unknown handlers, mutate descriptors post-preflight, or violate alias invariants aborts template loading and is treated as a configuration error surfaced during preflight.
 
 <a id="sec-central-registries"></a>
 7. CENTRAL REGISTRIES (INTERNAL ONLY)
@@ -322,6 +344,17 @@ This table routes each lifecycle stage to the normative matrices that govern its
 
 <a id="sec-shared-lifecycle"></a>1. Shared lifecycle and storage contract
 - Mode selection stays server-owned: `[eform id="slug" cacheable="false"]` (default) renders in hidden-token mode; `cacheable="true"` renders in JS-minted mode. All markup carries `eforms_mode`, and the renderer never gives the client a way to pick its own mode.
+		- Filesystem storage layout (normative):
+			- All runtime artifacts written under `${uploads.dir}` MUST live under `${uploads.dir}/eforms-private/`.
+			- Token records: `${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json`
+			- Ledger markers: `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used`
+			- Upload storage: `${uploads.dir}/eforms-private/uploads/` (stored paths are relative to this base)
+			- Throttle state: `${uploads.dir}/eforms-private/throttle/{h2}/{ip_hash}.tally` and `{ip_hash}.cooldown`
+			- JSONL logs: `${uploads.dir}/eforms-private/logs/` (when `logging.mode="jsonl"`)
+			- Fail2ban file: `${uploads.dir}/eforms-private/f2b/` (when enabled and resolved under `uploads.dir`)
+		- Private-directory hardening (normative):
+			- Implementations MUST create an `index.html` placeholder and server deny-rule files (`.htaccess` and `web.config`) in `${uploads.dir}/eforms-private/`.
+			- Failure to ensure these files exist is treated as `EFORMS_ERR_STORAGE_UNAVAILABLE` for request paths that write under `${uploads.dir}`.
 		- Directory sharding (`{h2}` placeholder) is universal: compute `Helpers::h2($id)` — `substr(hash('sha256', $id), 0, 2)` on UTF-8 bytes — and create the `{h2}` directory with `0700` perms before writing `0600` files. The same rule covers hidden tokens, JS-minted tokens, ledger entries, and throttles.
 		- Regex guards (`/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/` tokens, `^[A-Za-z0-9_-]{22,32}$` instance IDs) run before disk access to weed out obvious tampering.
 		- Filesystem semantics assumptions (normative): token records and ledger markers rely on atomic exclusive-create and atomic rename semantics. Record writes MUST use an atomic write pattern (write-to-temp + rename in the same directory) and MUST apply the permissions contract from this section. If these invariants cannot be met, token mint/validate MUST hard-fail; optional features that depend on `flock()` (e.g., throttling/JSONL logging) SHOULD be disabled per their respective sections.
@@ -349,7 +382,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
 >	- Inputs:
 >	- `form_id` (slug). Callers MUST invoke `Config::get()` first; the helper also calls it defensively so the snapshot and `security.token_ttl_seconds` are available.
 >	- Side-effects:
->	- Atomically write `tokens/{h2}/{sha256(token)}.json` with `{ mode:"hidden", form_id, instance_id, issued_at, expires }`, using shared lifecycle sharding (`{h2}`) and permissions from [Shared lifecycle and storage](#sec-shared-lifecycle).
+>	- Atomically write `${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json` with `{ mode:"hidden", form_id, instance_id, issued_at, expires }`, using shared lifecycle sharding (`{h2}`) and permissions from [Shared lifecycle and storage](#sec-shared-lifecycle).
 >	- Persisted records never rewrite on rerender.
 >	- Returns:
 >	- `{ token: UUIDv4, instance_id: base64url(16–24 bytes), issued_at: unix, expires: issued_at + security.token_ttl_seconds }`.
@@ -365,7 +398,7 @@ Cache-safety (normative):
 - For these responses, implementations MUST:
 	- Send `Cache-Control: private, no-store, max-age=0`.
 	- Emit WordPress' standard no-cache header suite as redundant defense (e.g., `nocache_headers()`), and ensure the `Cache-Control` directive above is still present after emitting the suite.
-	- If headers cannot be set (e.g., headers already sent), then when logging is enabled emit at most one warning log event per request (include `request_id`). When the response would embed hidden-mode security metadata, treat this as a configuration/runtime error and do not mint or emit hidden-mode tokens in a cache-unsafe response.
+	- If headers cannot be set (e.g., headers already sent), then when logging is enabled emit at most one warning log event per request (include `request_id`). When the response would embed hidden-mode security metadata, treat this as a configuration/runtime error and do not mint or emit hidden-mode tokens in a cache-unsafe response. `FormRenderer` MUST render an inline per-form configuration error: `EFORMS_ERR_STORAGE_UNAVAILABLE`.
 
 Hidden-mode storage bootstrap (normative):
 - Before calling `Security::mint_hidden_record()` during GET render, `FormRenderer` MUST run a storage health check for `${uploads.dir}` (or reuse a memoized result for the current request).
@@ -387,7 +420,7 @@ Hidden-mode GET rate limiting (normative):
 	- Log the throttle event including `request_id`.
 - `FormRenderer` must embed the returned `token`, `instance_id`, and `issued_at` (as `timestamp`) in HTML and **must not** generate or alter them (see [Security invariants](#sec-security-invariants)).
 		- Markup: GET renders emit a CSPRNG `instance_id` (16–24 bytes → base64url `^[A-Za-z0-9_-]{22,32}$`), the persisted `timestamp`, and `<input type="hidden" name="eforms_token" value="…">` whose UUID matches `/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i/`. Rerenders MUST reuse the exact `{token, instance_id, timestamp}` trio and send `Cache-Control: private, no-store`.
-		- Persisted record (`tokens/{h2}/{sha256(token)}.json`):
+		- Persisted record (`${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json`):
 			| Field		| Notes |
 			|--------------|-------|
 			| `mode`		 | Always `"hidden"`.
@@ -411,10 +444,13 @@ Hidden-mode GET rate limiting (normative):
 > **Contract — `/eforms/mint`**
 >\t- Inputs:
 >\t- HTTP method MUST be POST; return 405 Method Not Allowed for other methods.
+>\t- Request Content-Type MUST be `application/x-www-form-urlencoded` (JSON request bodies MUST be rejected).
 >\t- `f` (form_id slug).
 >\t- Side-effects:
 >\t- Enforce origin policy and throttling.
->\t- Atomically write `tokens/{h2}/{sha256(token)}.json` with `{ mode:"js", form_id, instance_id, issued_at, expires }`.
+>\t- Origin invariant (normative): `/eforms/mint` MUST hard-fail with HTTP 403 `EFORMS_ERR_ORIGIN_FORBIDDEN` when origin_state != `same` (including `missing`), regardless of `security.origin_mode` / `security.origin_missing_hard`.
+>\t- CORS invariant (normative): `/eforms/mint` MUST NOT emit `Access-Control-Allow-Origin` (or any other CORS response headers).
+>\t- Atomically write `${uploads.dir}/eforms-private/tokens/{h2}/{sha256(token)}.json` with `{ mode:"js", form_id, instance_id, issued_at, expires }`.
 >\t- Returns:
 >\t- JSON `{ token, instance_id, timestamp, expires }` where `timestamp == issued_at`.
 >\t- Response headers:
@@ -447,11 +483,11 @@ Notes (normative):
 - A single page MAY render multiple different forms, but MUST NOT render the same `form_id` twice. Attempting to do so is a configuration error: `EFORMS_ERR_DUPLICATE_FORM_ID`.
 
 <a id="sec-honeypot"></a>2. Honeypot
-	- Field: eforms_hp (fixed POST name). Control IDs follow the current mode’s `id` scheme; the posted value MUST be empty. Submitted value is discarded and never logged.
-- Config: `security.honeypot_response` ∈ {`hard_fail`,`stealth_success`}.
-	- Common behavior:
-		- UX: treat as spam-certain, short-circuit before validation/coercion/email, delete temp uploads.
-		- Ledger: when `Security::token_validate()` returns `token_ok=true`, attempt reservation to burn the ledger entry for the validated `submission_id`; MUST NOT attempt any ledger write when `token_ok=false` (never use raw attacker-controlled input).
+		- Field: eforms_hp (fixed POST name). Control IDs follow the current mode’s `id` scheme; the posted value MUST be empty. Submitted value is discarded and never logged. The honeypot control MUST include `autocomplete="off" tabindex="-1" aria-hidden="true"`.
+	- Config: `security.honeypot_response` ∈ {`hard_fail`,`stealth_success`}.
+		- Common behavior:
+			- UX: treat as spam-certain, short-circuit before validation/coercion/email, delete temp uploads.
+			- Ledger: when `Security::token_validate()` returns `token_ok=true`, attempt reservation to burn the ledger entry for the validated `submission_id`; MUST NOT attempt any ledger write when `token_ok=false` (never use raw attacker-controlled input).
 	- "stealth_success": mimic success UX and log stealth:true.
 		- Log events emitted for stealth success MUST still record that the honeypot fired (not just `stealth=true`) so ops can distinguish it from genuine success.
 	- "hard_fail": rerender with generic global error (HTTP 200) and no field-level hints.
@@ -515,13 +551,13 @@ Notes (normative):
 	- X-EForms-Soft-Fails value = `|soft_reasons|` (computed length of the deduplicated set)
 
 <a id="sec-throttling"></a>11. Throttling (optional; file-based)
-	- Throttle uses a fixed 60s window tracked via byte-counter files under `${uploads.dir}/throttle/`. Throttle evaluation is part of the Security gate and runs before normalize/validate.
+	- Throttle uses a fixed 60s window tracked via byte-counter files under `${uploads.dir}/eforms-private/throttle/`. Throttle evaluation is part of the Security gate and runs before normalize/validate.
 	- Hosting requirement (normative): file-based throttling requires a filesystem with reliable `flock()` and consistent `fstat`/`ftruncate`/`touch` semantics; if your hosting cannot guarantee these (verify with your provider), set `throttle.enable=false`.
 	- `flock()` failure behavior (normative): if acquiring the lock returns false for the active throttle file, skip throttle enforcement for that request and, when `logging.mode != "off"` and `logging.level` includes warnings, emit a single warning event for the request (include `request_id`).
 
 	- Mechanism (Byte-Counter + Sentinel):
 		- **Timing:** Capture `now` once at the start of the throttle check; derive `window_start = floor(now / 60) * 60` and `window_end = window_start + 60` from this single timestamp.
-		- **Files:** `${uploads.dir}/throttle/{h2}/{ip_hash}.tally` (counter) and `{ip_hash}.cooldown` (sentinel; only used when `throttle.per_ip.cooldown_seconds > 0`). Keys are derived solely from the resolved client IP (global per-IP scope).
+		- **Files:** `${uploads.dir}/eforms-private/throttle/{h2}/{ip_hash}.tally` (counter) and `{ip_hash}.cooldown` (sentinel; only used when `throttle.per_ip.cooldown_seconds > 0`). Keys are derived solely from the resolved client IP (global per-IP scope).
 		- **Ownership (normative):** Only the throttling implementation and the throttle GC mechanism may create/modify these files. Other processes/tools MUST NOT touch them (mtime semantics are load-bearing).
 		- **Step 1 (Fast Path):** If `throttle.per_ip.cooldown_seconds > 0` AND `{ip_hash}.cooldown` exists AND `filemtime > now - throttle.per_ip.cooldown_seconds`: Hard-fail immediately (no `flock` required).
 			- Stat cache hygiene (normative): implementations MUST avoid stale stat cache for the sentinel (e.g., `clearstatcache(true, $cooldown_path)` before reading mtime).
@@ -569,7 +605,7 @@ Notes (normative):
 9. VALIDATION & SANITIZATION PIPELINE (DETERMINISTIC)
 	0. Structural preflight (stop on error; no field processing)
 	- Unknown keys rejected at every level (root/email/success/field/rule).
-	- Unknown-key errors SHOULD include a best-effort "did you mean …?" suggestion when an unambiguous close match exists.
+	- Unknown-key errors MAY include a best-effort "did you mean …?" suggestion when an unambiguous close match exists.
 	- fields[].key must be unique; duplicates → EFORMS_ERR_SCHEMA_DUP_KEY.
 	- Enum enforcement (field.type, rule.rule, row_group.mode, row_group.tag).
 	- Conditional requirements (redirect mode requires redirect_url; files must have max_files>=1 if present; row_group must omit key).
@@ -699,7 +735,7 @@ Notes (normative):
 				|------|------------|--------------|----------------|
 				| Inline | `303` back to the same URL with `?eforms_success={form_id}`. | Renderer shows the banner when `?eforms_success={form_id}` is present. Show banner only in the first instance in source order; suppress subsequent duplicates. | The success message is idempotent and can be displayed on multiple visits to the URL. |
 				| Redirect | `wp_safe_redirect(redirect_url, 303)`. | Destination renders its own success UX. | No special cache requirements. |
-			- **Constraint (normative):** `success.mode="inline"` MUST NOT be combined with `cacheable="true"`. Preflight MUST reject this combination with `EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE`.
+			- **Constraint (normative):** `success.mode="inline"` MUST NOT be combined with `cacheable="true"`. `FormRenderer` preflight MUST reject this combination with `EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE`.
 			- <a id="sec-success-flow"></a>Inline success flow (normative):
 				1. On successful POST, redirect with `?eforms_success={form_id}` (303).
 				2. On the follow-up GET, renderer checks for the `?eforms_success={form_id}` query parameter and displays the success banner (using `success.message` from template) when present.
@@ -731,7 +767,7 @@ Notes (normative):
 
 	- Mode selects destination; level selects severities; pii/headers select detail; rotation keeps files sane.
 	- logging.mode: "jsonl" | "minimal" | "off" (authoritative)
-	- jsonl — structured files in ${uploads.dir} with rotation/retention.
+	- jsonl — structured files under `${uploads.dir}/eforms-private/logs/` with rotation/retention.
 	- minimal — compact line per event via error_log(); rotation governed by server.
 	- off — no logging (except optional Fail2ban emission).
 	- Severity mapping: error (fatal pipeline failures), warning (rejections, validation, challenge timeouts), info (successful sends, token rotations, throttling state changes).
@@ -756,12 +792,12 @@ Notes (normative):
 	- At level=2, include a compact descriptor fingerprint for this request: desc_sha1 = sha1(json_encode(resolved descriptors)). Optionally include a compact spam bitset alongside the human list.
 	- Minimal mode line format
 	- eforms severity=<error|warning|info> code=<EFORMS_*> form=<form_id> subm=<submission_id> ip=<masked|hash|full|none> uri="<path?eforms_*...>" msg="<short>" meta=<compact JSON>
-	- Fail2ban (optional; independent of logging.mode; enabled only when `logging.fail2ban.*` is configured)
+	- Fail2ban (optional; independent of logging.mode; enabled only when `logging.fail2ban.file` is non-empty)
 
 	**Privacy notice:** Fail2ban emission uses the resolved client IP in plaintext regardless of `privacy.ip_mode`. This is intentional—external rate-limiting tools require real IPs to function. Operators who enable Fail2ban should be aware that raw IPs will appear in the Fail2ban log even when `privacy.ip_mode` is set to `masked`, `hash`, or `none`.
 
 	- Emit single-line: eforms[f2b] ts=<unix> code=<EFORMS_ERR_*> ip=<resolved_client_ip> form=<form_id>
-	- Rotation/retention similar to JSONL.
+	- Rotation/retention are identical to JSONL: rotate when file exceeds the internal size cap; prune > `logging.fail2ban.retention_days`.
 	- Implementation notes:
 	- Initialize JSONL/minimal logger only when logging.mode!='off'. Fail2ban emission is independent.
 
@@ -781,7 +817,7 @@ Notes (normative):
 	- If REMOTE_ADDR is in trusted_proxies and a valid public IP exists in header list, use left-most public IP; else REMOTE_ADDR.
 	- Public IP excludes private/reserved ranges.
 	- Header parsed case-insensitively; comma-separated list; strip brackets/ports; accept only valid literals.
-	- CI tests: forged XFF from untrusted source → use REMOTE_ADDR; trusted proxy + XFF(client,proxy) → pick client; header with only private IPs → fall back to REMOTE_ADDR.
+	- Verification examples (informative): forged XFF from untrusted source → use REMOTE_ADDR; trusted proxy + XFF(client,proxy) → pick client; header with only private IPs → fall back to REMOTE_ADDR.
 
 <a id="sec-configuration"></a>
 18. CONFIGURATION: DOMAINS, CONSTRAINTS, AND DEFAULTS
@@ -842,9 +878,12 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	| Security	| `security.token_ttl_seconds`			| int	 | clamp `[TOKEN_TTL_MIN]`–`[TOKEN_TTL_MAX]`; minted tokens MUST set `expires - issued_at` equal to this value (see [Anchors](#sec-anchors)).								 |
 	| Security	| `security.max_form_age_seconds`		 | int	 | clamp `[MAX_FORM_AGE_MIN]`–`[MAX_FORM_AGE_MAX]`; defaults to `security.token_ttl_seconds` when omitted (see [Anchors](#sec-anchors)).											|
 	| Security	| `security.origin_missing_hard`		 | bool	| When `security.origin_mode="hard"`, treat missing Origin header as hard-fail.														|
+	| Spam		| `spam.soft_fail_threshold`			 | int	 | Controls spam decision; clamped per [Spam Decision](#sec-spam-decision).									|
 	| Challenge | `challenge.mode`						| enum	| {`off`,`auto`,`always_post`} — controls when human challenges execute; invalid values MUST be rejected; legacy `always` is accepted as an alias.			|
 	| Challenge | `challenge.provider`					| enum	| {`turnstile`} (v1). `hcaptcha` and `recaptcha` reserved for future extension.			 |
 	| Challenge | `challenge.http_timeout_seconds`		| int	 | clamp `[CHALLENGE_TIMEOUT_MIN]`–`[CHALLENGE_TIMEOUT_MAX]` seconds (see [Anchors](#sec-anchors)).																							|
+	| Challenge | `challenge.site_key`				| string | Optional; Turnstile site key. Required when `challenge.mode != "off"`; missing triggers `EFORMS_CHALLENGE_UNCONFIGURED`. |
+	| Challenge | `challenge.secret_key`				| string | Optional; Turnstile secret key. Required when `challenge.mode != "off"`; missing triggers `EFORMS_CHALLENGE_UNCONFIGURED`. |
 	| Email	 | `email.from_address`				| string | Optional; when non-empty but invalid, treat as empty and emit a warning when `logging.mode != "off"` and `logging.level` includes warnings; fall back to no-reply@{site_domain}. |
 	| Email	 | `email.html`						| bool	| When `true`, prefer HTML email templates; when `false`, send text/plain only. |
 	| Email	 | `email.reply_to_address`			| string | Optional; when non-empty and valid, set Reply-To to this value (takes precedence over `email.reply_to_field`). |
@@ -858,6 +897,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	| Logging	 | `logging.pii`						| bool	| When `true` and logging.mode=jsonl, allow full emails/IPs; otherwise redact per privacy policy (minimal always redacts). |
 	| Logging	 | `logging.retention_days`				| int	 | clamp `[RETENTION_DAYS_MIN]`–`[RETENTION_DAYS_MAX]` days (see [Anchors](#sec-anchors)).																								 |
 	| Logging	 | `logging.fail2ban.target`			 | enum	| {`file`} — fail2ban emission is file-only in v1; all other values MUST be rejected.		 |
+	| Logging	 | `logging.fail2ban.file`			 | string | Optional; when non-empty, enables Fail2ban emission. If relative, resolve under `uploads.dir`. |
 	| Logging	 | `logging.fail2ban.retention_days`	 | int	 | clamp `[RETENTION_DAYS_MIN]`–`[RETENTION_DAYS_MAX]`; defaults to `logging.retention_days` when unspecified (see [Anchors](#sec-anchors)).											|
 	| Privacy	 | `privacy.ip_mode`					 | enum	| {`none`,`masked`,`hash`,`full`} — see [Logging](#sec-logging) for hashing/masking details.										 |
 	| Validation| `validation.max_fields_per_form`		| int	 | clamp `[MAX_FIELDS_MIN]`–`[MAX_FIELDS_MAX]`; protects renderer/validator recursion (see [Anchors](#sec-anchors)).															|
@@ -878,9 +918,8 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 		- Bootstrap note (informative): Until `Config::DEFAULTS` exists in code, any "default" values mentioned elsewhere in this spec are intended targets; constraints (clamps, enums, required combinations) remain authoritative in this spec.
 		- Changing a default in code changes runtime behavior but MUST NOT weaken any constraint defined in this spec (constraints live here; defaults live in `Config::DEFAULTS`).
 
-	4. CI guardrails
-		- Repository CI MUST assert that every key documented above exists in `Config::DEFAULTS` and that the clamp/enum metadata in code matches the normative ranges listed here. This keeps the spec and implementation from drifting.
-		- If CI is not yet present, maintainers MUST add an equivalent automated parity check before claiming conformance with this section.
+	4. Drift guardrail (normative)
+		- When `Config::DEFAULTS` exists in code, it MUST include every key documented above, and the clamp/enum enforcement in code MUST match the normative constraints in this section.
 
 	5. Contract stability (normative)
 		- Configuration keys and meanings are treated as stable; evolve append-only.
@@ -901,13 +940,13 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 **Rationale:** The dual-name approach separates user-facing display names from storage keys. Display names (`original_name_safe`) preserve the user's original filename (sanitized for safety) for email/logging readability. Stored filenames use a deterministic, collision-resistant scheme (`{Ymd}/{submission_id}-{file_index}-{sha16}.{ext}`) that prevents path traversal attacks, ensures uniqueness, and enables content-addressable verification via SHA-256. Private permissions (`0600` files, `0700` dirs) prevent direct web access, forcing controlled retrieval through application logic.
 
 								- Display filename (`original_name_safe`): start from the client-supplied name; strip paths; NFC normalize; strip control characters; collapse redundant whitespace or dots; strip CR/LF; truncate to `uploads.original_maxlen`; fallback to `file.{ext}` if the result is empty.
-								- Stored filename: `{Ymd}/{submission_id}-{file_index}-{sha16}.{ext}` with files `0600`, dirs `0700`; record full SHA-256 in logs.
+								- Stored filename (relative to `${uploads.dir}/eforms-private/uploads/`): `{Ymd}/{submission_id}-{file_index}-{sha16}.{ext}` with files `0600`, dirs `0700`; record full SHA-256 in logs.
 								- `file_index` is the deterministic per-submission upload position (computed from template field order and per-field file order).
 								- Always keep UTF-8 for display; when emitting to email headers, use RFC 5987 `filename*` when needed.
 				- Path collisions are treated as internal errors; implementations MUST NOT overwrite existing files.
 				- Intersection: field `accept[]` ∩ global allow-list must be non-empty → else `EFORMS_ERR_ACCEPT_EMPTY`.
 				- Delete uploads after successful send unless retention applies; if email send fails after files were stored, cleanup per retention policy. On final send failure, delete unless `uploads.retention_seconds>0` (then GC per retention).
-				- GC (normative): the plugin MUST schedule a recurring WP-Cron event (e.g., hourly) to perform garbage collection. GC MUST process a limited batch of files per run (time-boxed or count-boxed) to prevent timeouts even during cron execution. Operators MAY run `wp eforms gc` via system cron for more frequent or controlled pruning.
+				- GC (normative): the plugin MUST NOT schedule WP-Cron. Operators MAY run `wp eforms gc` via system cron (or an equivalent external trigger). GC MUST process a limited batch of files per run (time-boxed or count-boxed) to prevent timeouts even during cron execution.
 				- GC targets: expired token records (past TTL), uploads (past retention), stale throttle window files, and expired ledger `.used` markers.
 				- Ledger GC eligibility (normative): a `${submission_id}.used` marker MAY be deleted when `now >= file_mtime + [TOKEN_TTL_MAX] + [LEDGER_GC_GRACE_SECONDS]`. This conservative rule covers the worst-case token validity window plus a grace period, without requiring a token record lookup.
 				- Provide an idempotent `wp eforms gc` WP-CLI command.
@@ -1017,21 +1056,14 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 		- Minimal logging via `error_log()` is a good ops fallback; JSONL is the primary structured option.
 		- Fail2ban emission isolates raw IP use to a single, explicit channel designed for enforcement.
 		- Fail2ban rotation uses the same timestamped rename scheme as JSONL.
-		- If `logging.fail2ban.file` is relative, resolve it under `uploads.dir` (e.g., `${uploads.dir}/f2b/eforms-f2b.log`).
+		- If `logging.fail2ban.file` is relative, resolve it under `uploads.dir` (e.g., `${uploads.dir}/eforms-private/f2b/eforms-f2b.log`).
 		- Uninstall: when `install.uninstall.purge_logs=true`, also delete the Fail2ban file and rotated siblings.
 		- Header name comparisons are case-insensitive; cap header length at ~1–2 KB before parsing to avoid pathological inputs.
 		- Recommend `logging.mode="minimal"` in setup docs to capture critical failures; provide guidance for switching to `"off"` once stable.
 		- Element ID length cap: cap generated IDs (e.g., `"{form_id}-{field_key}"`) at 128 characters via `Helpers::cap_id()`.
 		- Permissions fallback: create directories `0700` (files `0600`); on failure, fall back once to `0750/0640` and emit a single warning when logging is enabled.
 		- Hidden-token mode does not require JS.
-		- CI scaffolding:
-			- Descriptor resolution test: iterate `Spec::typeDescriptors()`, resolve all handler IDs, and assert each is callable.
-			- Schema parity test: generate JSON Schema from `TEMPLATE_SPEC` (or vice versa) and diff; fail on enum/required/shape drift.
-			- Determinism tests: fixed template + inputs → assert identical error ordering, canonical values, and rendered attribute sets.
-			- TTL alignment test: assert `minted_record.expires - minted_record.issued_at == security.token_ttl_seconds`.
-			- WP-CLI smoke tests:
-				- Command to POST without Origin to confirm hard/missing policy behavior.
-				- Command to POST oversized payload to verify RuntimeCap handling.
+
 
 <a id="sec-email-templates"></a>
 25. EMAIL TEMPLATES (REGISTRY)
@@ -1050,12 +1082,12 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 
 <a id="sec-templates-to-include"></a>
 26. TEMPLATES TO INCLUDE
-	1. [`templates/forms/quote-request.json`](../templates/forms/quote-request.json)
+	1. [`eforms/templates/forms/quote-request.json`](../eforms/templates/forms/quote-request.json)
 		- Canonical “Quote Request” flow with `success.mode="redirect"` to illustrate post-submit navigation.
 		- Demonstrates row-group wrappers for a temporary two-column layout (`row_group` start/end with `class="columns_nomargins"`).
 		- Shows required `tel_us` and `zip_us` fields with autocomplete hints alongside standard `name`/`email` inputs.
 		- Email block includes `include_fields` that capture the submitter IP and applies `display_format_tel="xxx-xxx-xxxx"`.
-	2. [`templates/forms/contact.json`](../templates/forms/contact.json)
+	2. [`eforms/templates/forms/contact.json`](../eforms/templates/forms/contact.json)
 		- Inline-success contact form (`success.mode="inline"`) that thanks the user without redirecting.
 		- Example of injecting sanitized template fragments via `before_html` on the first field.
 		- Highlights placeholder usage, explicit `size` for the email control, and subject templating (`"Contact Form - {{field.name}}"`).

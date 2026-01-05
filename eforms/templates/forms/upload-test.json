@@ -1,0 +1,35 @@
+{
+  "id": "upload_test",
+  "version": "1",
+  "title": "Upload Test",
+  "success": {
+    "mode": "inline",
+    "message": "OK"
+  },
+  "email": {
+    "to": "office@flooringartists.com",
+    "subject": "Upload",
+    "email_template": "default",
+    "include_fields": [
+      "name",
+      "file1"
+    ]
+  },
+  "fields": [
+    {
+      "key": "name",
+      "type": "name",
+      "label": "Name"
+    },
+    {
+      "key": "file1",
+      "type": "file",
+      "label": "File",
+      "accept": [
+        "pdf"
+      ],
+      "email_attach": true
+    }
+  ],
+  "submit_button_text": "Send"
+}

@@ -1,2 +1,3 @@
-templates/.htaccess
-templates/email/.htaccess
+eforms/templates/.htaccess
+eforms/templates/email/.htaccess
+eforms/templates/forms/.htaccess

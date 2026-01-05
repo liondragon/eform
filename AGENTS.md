@@ -16,6 +16,20 @@
 ## 2. Universal Invariants (The Constitution)
 *These rules apply to ALL activities (Coding, Strategy, and Spec Writing).*
 
+### Persona & Communication Stance
+- **Optimize for correctness and long-term leverage, not agreement.** Be direct, critical, and constructive—say when an idea is suboptimal and propose better options.
+- Assume staff-level technical context unless told otherwise.
+
+### SCM Safety
+- **Never use `git reset --hard` or force-push without explicit user permission.** Prefer safe alternatives (`git revert`, new commits, temp branches).
+- If a history rewrite seems necessary, explain the risk and ask first.
+
+### Learnings & Self-Improvement Logs
+- **`learnings.md`:** Project-specific knowledge (quirks, patterns, decisions).
+- **`self-imrov.md`:** Meta-learnings about improving `AGENTS.md` and `agent_docs/*`. When a repeated correction or better approach is found, codify your learnings into `self-imrov.md`.
+- Agents are encouraged to append to these logs without approval; both are append-only (do not delete or rewrite prior entries).
+- Writing to these logs does not grant permission to edit `AGENTS.md` or any file under `agent_docs/` without an explicit user request.
+
 ### Numbers & Anchors
 - **Rule:** Do not restate numeric constants.
 - **Source:** Only Anchors in `docs/Canonical_Spec.md` carry authoritative numbers.
@@ -43,7 +57,7 @@
 - **Refactors:** When refactoring, prefer surgical edits (small, focused patches) over full-file rewrites wherever possible.
 - **Canonical docs only:** NEVER create alternate versions of `docs/Canonical_Spec.md`, the narrative doc (`Overview.md` if present; otherwise `README.md`), or `Implementation_Plan.md` (for example with suffixes like `_v2`, `_draft`, or `_old`); edit the canonical files in place or work in a unified diff per the patch standards instead of creating parallel spec files.
 - **No new canonical docs:** Do not create new top-level files that serve the same purpose (for example `master_spec.md`, `main_overview.md`, `plan_v2.md`) unless the user explicitly requests a separate document.
-- **Prompt files:** Treat `agent_docs/promts/*.md` as configuration prompts; do not edit them unless the user explicitly asks to change prompt behavior.
+- **Prompt files:** Treat `agent_docs/prompts/*.md` as configuration prompts; do not edit them unless the user explicitly asks to change prompt behavior.
 
 ### Documentation Hygiene (Markdown)
 - Preserve existing indentation style within a file in `docs/*.md` to minimize diff churn.
@@ -99,6 +113,7 @@
   - Editing `docs/Canonical_Spec.md` or the narrative doc (`Overview.md`/`README.md`)? → `agent_docs/Documentation_Standards.md` (🔴)
   - Bootstrapping a new spec from the narrative doc (`Overview.md`/`README.md`)? → `agent_docs/Spec_Bootstrap_Guide.md` (🔴)
   - Creating or updating `Implementation_Plan.md`? → `agent_docs/Implementation_Plan_Guide.md`
+  - Creating `docs/Spec_Digest.md` (at Bootstrap → Stable transition)? → `agent_docs/Spec_Digest_Guide.md`
   - Creating or editing guides under `agent_docs/`? → `agent_docs/Doc_Bootstrap_Guide.md`
 - Load `docs/Canonical_Spec.md`, the narrative doc (`Overview.md`/`README.md`), and `Implementation_Plan.md` on‑demand when you need to verify behavior, check Anchors, or understand contracts—not automatically for every task.
 - **No mixed-mode heuristics:** For tasks that span multiple modes (for example, spec + code), rely on user-specified guides via `@agent_docs/...` or a single clarifying question instead of inferring multi-stage workflows (for example, Strategy then Coding) yourself.
@@ -128,7 +143,7 @@
   - **Micro-beading:** When designing a core subsystem/API, you **SHOULD** use the **Micro-Beading (Canonical Trigger)** above to structure the design work.
   - Call out when a user‑proposed design conflicts with stated goals or existing invariants, and suggest the design that best balances Safety, Simplicity, and Velocity when appropriate.
 - **Doc feedback (self‑evolving docs):**
-  - After a non‑trivial task, if you encounter repeated or load‑bearing friction following a guide or spec as described in the Doc Feedback Protocol in `agent_docs/Doc_Bootstrap_Guide.md`, you may surface a short doc‑improvement suggestion to the user and log it to `learnings.md`.
+  - After a non‑trivial task, if you encounter repeated or load‑bearing friction following a guide or spec as described in the Doc Feedback Protocol in `agent_docs/Doc_Bootstrap_Guide.md`, you may surface a short doc‑improvement suggestion to the user and log it to `self-iprov.md`.
   - Do **not** edit docs proactively in this mode; only draft or apply doc diffs when the user explicitly asks for them.
 
 ### 🔵 Trigger: Coding & Implementation
@@ -161,3 +176,11 @@
   - *Rule:* Write `\`\`\`` (escaped) instead of ` ``` ` (raw) for the inner blocks.
   - *Example:* "Change the block to start with `\`\`\`typescript`."
 - **Diff-first iteration:** When the user asks you to work on a saved diff file (for example `docv2.diff`), treat that diff as the only editable artifact. Do not modify the target files mentioned in the diff until the user explicitly asks to apply/merge that diff.
+
+### Diff-only protocol (apply-clean + UI-truthfulness)
+- **Diff-only definition:** If the user says “diff-only” (or points you at a `*.diff` file to edit), the `*.diff` file is the only writable artifact for the task.
+- **No hidden writes:** In diff-only tasks, do not modify the target files referenced by the diff, and do not create “scratch” files unless explicitly necessary.
+- **Scratch files (if truly unavoidable):** Put them under a clearly-temporary path (e.g. `.codex_tmp/…`) and remove them in the same step; expect some UIs to still report churn if a file existed briefly.
+- **Machine-applyable diffs:** Do not put prose/notes inside a `*.diff` file; keep it strictly patch content so it can be applied by standard tooling.
+- **Must-check apply:** Before finalizing a diff-only change, validate it applies cleanly to the current workspace state using a dry-run (prefer `git apply --check <file>.diff`; otherwise use `patch --dry-run`), and fix the diff until it passes or explicitly report that it fails and why.
+- **Must-report artifacts:** In the final response, explicitly state which file(s) were edited (e.g. “edited `a.diff` only”), whether any target files were modified/applied, and whether the dry-run apply check passed.
