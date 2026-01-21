@@ -5,8 +5,6 @@
  * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
  */
 
-require_once __DIR__ . '/../Enums/SoftReason.php';
-
 class OriginPolicy
 {
     const DEFAULT_SCHEME = 'http';
@@ -47,7 +45,7 @@ class OriginPolicy
 
         if ($mode === 'soft') {
             if ($state !== 'same') {
-                $soft_reasons[] = SoftReason::OriginSoft;
+                $soft_reasons[] = 'origin_soft';
             }
         } elseif ($mode === 'hard') {
             if ($state === 'cross' || $state === 'unknown') {
@@ -56,7 +54,7 @@ class OriginPolicy
                 if ($missing_hard) {
                     $hard_fail = true;
                 } else {
-                    $soft_reasons[] = SoftReason::OriginSoft;
+                    $soft_reasons[] = 'origin_soft';
                 }
             }
         }

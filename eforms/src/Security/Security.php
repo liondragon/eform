@@ -7,7 +7,6 @@
  */
 
 require_once __DIR__ . '/../Config.php';
-require_once __DIR__ . '/../Enums/SoftReason.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
 require_once __DIR__ . '/OriginPolicy.php';
@@ -19,6 +18,7 @@ class Security
     const TOKEN_SUFFIX = '.json';
     const TOKEN_REGEX = '/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i';
     const INSTANCE_ID_REGEX = '/^[A-Za-z0-9_-]{22,32}$/';
+    const SOFT_REASON_ORDER = array('min_fill_time', 'age_advisory', 'js_missing', 'origin_soft');
 
     /**
      * Mint and persist a hidden-mode token record.
@@ -206,7 +206,7 @@ class Security
             'token_ok' => true,
             'hard_fail' => false,
             'require_challenge' => $require_challenge,
-            'soft_reasons' => SoftReason::toStrings($soft_reasons),
+            'soft_reasons' => $soft_reasons,
             'error_code' => '',
         );
     }
@@ -502,7 +502,22 @@ class Security
         if (!is_array($reasons)) {
             return array();
         }
-        return SoftReason::normalize($reasons);
+
+        $unique = array();
+        foreach ($reasons as $reason) {
+            if (is_string($reason) && $reason !== '') {
+                $unique[$reason] = true;
+            }
+        }
+
+        $ordered = array();
+        foreach (self::SOFT_REASON_ORDER as $reason) {
+            if (isset($unique[$reason])) {
+                $ordered[] = $reason;
+            }
+        }
+
+        return $ordered;
     }
 
     private static function challenge_required($config, $soft_reasons)

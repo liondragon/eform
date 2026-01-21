@@ -2,12 +2,10 @@
 /**
  * Structured error container for renderer + submit flows.
  * 
- * PHP 8.1+ version with constructor promotion.
- *
  * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
  */
 
-require_once __DIR__ . '/Enums/ErrorCode.php';
+require_once __DIR__ . '/ErrorCodes.php';
 
 class Errors
 {
@@ -24,7 +22,7 @@ class Errors
     /**
      * Add a global error (stored under _global).
      */
-    public function add_global(string|ErrorCode $code, string $message = ''): void
+    public function add_global(string $code, string $message = ''): void
     {
         $this->global[] = self::error_entry($code, $message);
     }
@@ -32,7 +30,7 @@ class Errors
     /**
      * Add a field error (stored under that field key).
      */
-    public function add_field(string $field_key, string|ErrorCode $code, string $message = ''): void
+    public function add_field(string $field_key, string $code, string $message = ''): void
     {
         if ($field_key === '') {
             $this->add_global($code, $message);
@@ -82,12 +80,10 @@ class Errors
     /**
      * @return array{code: string, message?: string}
      */
-    private static function error_entry(string|ErrorCode $code, string $message): array
+    private static function error_entry(string $code, string $message): array
     {
-        $codeString = $code instanceof ErrorCode ? $code->value : $code;
-
         $entry = [
-            'code' => $codeString,
+            'code' => $code,
         ];
 
         if ($message !== '') {
@@ -95,9 +91,9 @@ class Errors
         }
 
         // Warn in dev so typos are caught early
-        if (defined('WP_DEBUG') && WP_DEBUG && $codeString !== '') {
-            if (!ErrorCode::isKnown($codeString)) {
-                trigger_error('Unknown error code: ' . $codeString, E_USER_WARNING);
+        if (defined('WP_DEBUG') && WP_DEBUG && $code !== '') {
+            if (!ErrorCodes::is_known($code)) {
+                trigger_error('Unknown error code: ' . $code, E_USER_WARNING);
             }
         }
 

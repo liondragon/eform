@@ -1,21 +1,13 @@
 <?php
 /**
- * Stable code surface (append-only) - PHP 8.1+ version.
- *
- * This file provides backward-compatible wrappers around the ErrorCode enum.
- *
- * @deprecated Use ErrorCode enum directly for new code.
+ * Stable code surface (append-only).
  * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
  */
-
-require_once __DIR__ . '/Enums/ErrorCode.php';
 
 class ErrorCodes
 {
     /**
      * All known codes (append-only).
-     *
-     * @deprecated Use ErrorCode::cases() instead.
      */
     const ALL = [
         'EFORMS_CHALLENGE_UNCONFIGURED',
@@ -54,22 +46,17 @@ class ErrorCodes
 
     /**
      * Return true when $code is in the stable surface.
-     *
-     * @deprecated Use ErrorCode::tryFrom($code) !== null
      */
     public static function is_known(string $code): bool
     {
-        return ErrorCode::isKnown($code);
+        return in_array($code, self::ALL, true);
     }
 
     /**
      * Return true when $code is a user-facing error code.
-     *
-     * @deprecated Use ErrorCode::from($code)->isPublicError()
      */
     public static function is_public_error(string $code): bool
     {
-        $enum = ErrorCode::tryFrom($code);
-        return $enum?->isPublicError() ?? false;
+        return str_starts_with($code, 'EFORMS_ERR_');
     }
 }

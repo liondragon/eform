@@ -50,3 +50,120 @@ index 0000000..f2b3fee
 +        return array_map(fn(self $r) => $r->value, $reasons);
 +    }
 +}
+diff --git a/eforms/src/Security/OriginPolicy.php b/eforms/src/Security/OriginPolicy.php
+--- a/eforms/src/Security/OriginPolicy.php
++++ b/eforms/src/Security/OriginPolicy.php
+@@ -4,6 +4,8 @@
+  *
+  * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
+  */
++
++require_once __DIR__ . '/../Enums/SoftReason.php';
+ 
+ class OriginPolicy {
+     const DEFAULT_SCHEME = 'http';
+@@ -43,7 +45,7 @@
+ 
+         if ( $mode === 'soft' ) {
+             if ( $state !== 'same' ) {
+-                $soft_reasons[] = 'origin_soft';
++                $soft_reasons[] = SoftReason::OriginSoft;
+             }
+         } elseif ( $mode === 'hard' ) {
+             if ( $state === 'cross' || $state === 'unknown' ) {
+@@ -52,7 +54,7 @@
+                 if ( $missing_hard ) {
+                     $hard_fail = true;
+                 } else {
+-                    $soft_reasons[] = 'origin_soft';
++                    $soft_reasons[] = SoftReason::OriginSoft;
+                 }
+             }
+         }
+diff --git a/eforms/src/Security/TimingSignals.php b/eforms/src/Security/TimingSignals.php
+--- a/eforms/src/Security/TimingSignals.php
++++ b/eforms/src/Security/TimingSignals.php
+@@ -4,6 +4,8 @@
+  *
+  * Spec: Timing checks (docs/Canonical_Spec.md#sec-timing-checks)
+  */
++
++require_once __DIR__ . '/../Enums/SoftReason.php';
+ 
+ class TimingSignals {
+     /**
+@@ -41,11 +43,11 @@
+         $elapsed = $issued_at > 0 ? max( 0, $now - $issued_at ) : 0;
+ 
+         if ( $min_fill_seconds > 0 && ! $email_retry && $elapsed < $min_fill_seconds ) {
+-            $soft_reasons[] = 'min_fill_time';
++            $soft_reasons[] = SoftReason::MinFillTime;
+         }
+ 
+         if ( $max_form_age_seconds > 0 && $elapsed > $max_form_age_seconds ) {
+-            $soft_reasons[] = 'age_advisory';
++            $soft_reasons[] = SoftReason::AgeAdvisory;
+         }
+ 
+         $js_ok = self::post_string( $post, 'js_ok' );
+@@ -56,7 +58,7 @@
+                     'hard_fail' => true,
+                 );
+             }
+-            $soft_reasons[] = 'js_missing';
++            $soft_reasons[] = SoftReason::JsMissing;
+         }
+ 
+         return array(
+diff --git a/eforms/src/Security/Security.php b/eforms/src/Security/Security.php
+--- a/eforms/src/Security/Security.php
++++ b/eforms/src/Security/Security.php
+@@ -8,6 +8,7 @@
+  */
+ 
+ require_once __DIR__ . '/../Config.php';
++require_once __DIR__ . '/../Enums/SoftReason.php';
+ require_once __DIR__ . '/../Helpers.php';
+ require_once __DIR__ . '/../Uploads/PrivateDir.php';
+ require_once __DIR__ . '/OriginPolicy.php';
+@@ -18,7 +19,6 @@
+     const TOKEN_SUFFIX = '.json';
+     const TOKEN_REGEX = '/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i';
+     const INSTANCE_ID_REGEX = '/^[A-Za-z0-9_-]{22,32}$/';
+-    const SOFT_REASON_ORDER = array( 'min_fill_time', 'age_advisory', 'js_missing', 'origin_soft' );
+ 
+     /**
+      * Mint and persist a hidden-mode token record.
+@@ -201,7 +201,7 @@
+             'token_ok' => true,
+             'hard_fail' => false,
+             'require_challenge' => $require_challenge,
+-            'soft_reasons' => $soft_reasons,
++            'soft_reasons' => SoftReason::toStrings( $soft_reasons ),
+             'error_code' => '',
+         );
+     }
+@@ -481,21 +481,6 @@
+         if ( ! is_array( $reasons ) ) {
+             return array();
+         }
+-
+-        $unique = array();
+-        foreach ( $reasons as $reason ) {
+-            if ( is_string( $reason ) && $reason !== '' ) {
+-                $unique[ $reason ] = true;
+-            }
+-        }
+-
+-        $ordered = array();
+-        foreach ( self::SOFT_REASON_ORDER as $reason ) {
+-            if ( isset( $unique[ $reason ] ) ) {
+-                $ordered[] = $reason;
+-            }
+-        }
+-
+-        return $ordered;
++        return SoftReason::normalize( $reasons );
+     }
+ 
+     private static function challenge_required( $config, $soft_reasons ) {

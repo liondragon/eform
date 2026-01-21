@@ -1,0 +1,488 @@
+diff --git a/eforms/src/Dto/MintResult.php b/eforms/src/Dto/MintResult.php
+new file mode 100644
+index 0000000..7529b32
+--- /dev/null
++++ b/eforms/src/Dto/MintResult.php
+@@ -0,0 +1,72 @@
++<?php
++/**
++ * Immutable mint result DTO.
++ *
++ * Spec: Hidden-mode contract (docs/Canonical_Spec.md#sec-hidden-mode)
++ */
++
++declare(strict_types=1);
++
++require_once __DIR__ . '/../Enums/ErrorCode.php';
++
++readonly class MintResult
++{
++    private function __construct(
++        public bool $ok,
++        public string $token,
++        public string $instanceId,
++        public int $issuedAt,
++        public ?ErrorCode $errorCode,
++    ) {
++    }
++
++    /**
++     * Create a successful mint result.
++     */
++    public static function success(string $token, string $instanceId, int $issuedAt): self
++    {
++        return new self(
++            ok: true,
++            token: $token,
++            instanceId: $instanceId,
++            issuedAt: $issuedAt,
++            errorCode: null,
++        );
++    }
++
++    /**
++     * Create a failed mint result.
++     */
++    public static function fail(ErrorCode $code): self
++    {
++        return new self(
++            ok: false,
++            token: '',
++            instanceId: '',
++            issuedAt: 0,
++            errorCode: $code,
++        );
++    }
++
++    /**
++     * Export to array format for backward compatibility.
++     *
++     * @return array{ok: bool, token?: string, instance_id?: string, issued_at?: int, code?: string}
++     */
++    public function toArray(): array
++    {
++        if ($this->ok) {
++            return [
++                'ok' => true,
++                'token' => $this->token,
++                'instance_id' => $this->instanceId,
++                'issued_at' => $this->issuedAt,
++            ];
++        }
++
++        return [
++            'ok' => false,
++            'code' => $this->errorCode?->value ?? '',
++        ];
++    }
++}
+diff --git a/eforms/src/Dto/SecurityResult.php b/eforms/src/Dto/SecurityResult.php
+new file mode 100644
+index 0000000..104d931
+--- /dev/null
++++ b/eforms/src/Dto/SecurityResult.php
+@@ -0,0 +1,83 @@
++<?php
++/**
++ * Immutable security result DTO.
++ *
++ * Spec: Security (docs/Canonical_Spec.md#sec-security)
++ */
++
++declare(strict_types=1);
++
++require_once __DIR__ . '/../Enums/TokenMode.php';
++require_once __DIR__ . '/../Enums/SoftReason.php';
++require_once __DIR__ . '/../Enums/ErrorCode.php';
++
++readonly class SecurityResult
++{
++    /**
++     * @param list<SoftReason> $softReasons
++     */
++    public function __construct(
++        public TokenMode $mode,
++        public string $submissionId,
++        public bool $tokenOk,
++        public bool $hardFail,
++        public bool $requireChallenge,
++        public array $softReasons = [],
++        public ?ErrorCode $errorCode = null,
++    ) {
++    }
++
++    /**
++     * Create a successful result.
++     *
++     * @param list<SoftReason> $softReasons
++     */
++    public static function success(
++        TokenMode $mode,
++        string $submissionId,
++        array $softReasons = [],
++        bool $requireChallenge = false,
++    ): self {
++        return new self(
++            mode: $mode,
++            submissionId: $submissionId,
++            tokenOk: true,
++            hardFail: false,
++            requireChallenge: $requireChallenge,
++            softReasons: $softReasons,
++        );
++    }
++
++    /**
++     * Create a hard failure result.
++     */
++    public static function fail(ErrorCode $code): self
++    {
++        return new self(
++            mode: TokenMode::Hidden, // Default mode for failures
++            submissionId: '',
++            tokenOk: false,
++            hardFail: true,
++            requireChallenge: false,
++            errorCode: $code,
++        );
++    }
++
++    /**
++     * Export to array format for backward compatibility.
++     *
++     * @return array{mode: string, submission_id: string, token_ok: bool, hard_fail: bool, require_challenge: bool, soft_reasons: list<string>, error_code: string}
++     */
++    public function toArray(): array
++    {
++        return [
++            'mode' => $this->mode->value,
++            'submission_id' => $this->submissionId,
++            'token_ok' => $this->tokenOk,
++            'hard_fail' => $this->hardFail,
++            'require_challenge' => $this->requireChallenge,
++            'soft_reasons' => SoftReason::toValues($this->softReasons),
++            'error_code' => $this->errorCode?->value ?? '',
++        ];
++    }
++}
+diff --git a/eforms/src/Dto/TokenRecord.php b/eforms/src/Dto/TokenRecord.php
+new file mode 100644
+index 0000000..c29d9a0
+--- /dev/null
++++ b/eforms/src/Dto/TokenRecord.php
+@@ -0,0 +1,62 @@
++<?php
++/**
++ * Immutable token record DTO.
++ *
++ * Spec: Hidden-mode contract (docs/Canonical_Spec.md#sec-hidden-mode)
++ */
++
++declare(strict_types=1);
++
++require_once __DIR__ . '/../Enums/TokenMode.php';
++
++readonly class TokenRecord
++{
++    public function __construct(
++        public TokenMode $mode,
++        public string $formId,
++        public string $instanceId,
++        public int $issuedAt,
++        public int $expires,
++    ) {
++    }
++
++    /**
++     * Check if this token has expired.
++     */
++    public function isExpired(?int $now = null): bool
++    {
++        return ($now ?? time()) > $this->expires;
++    }
++
++    /**
++     * Create from legacy array format.
++     *
++     * @param array{mode: string, form_id: string, instance_id: string, issued_at: int, expires: int} $data
++     */
++    public static function fromArray(array $data): self
++    {
++        return new self(
++            mode: TokenMode::from($data['mode']),
++            formId: $data['form_id'],
++            instanceId: $data['instance_id'],
++            issuedAt: $data['issued_at'],
++            expires: $data['expires'],
++        );
++    }
++
++    /**
++     * Export to array format for JSON serialization.
++     *
++     * @return array{mode: string, form_id: string, instance_id: string, issued_at: int, expires: int}
++     */
++    public function toArray(): array
++    {
++        return [
++            'mode' => $this->mode->value,
++            'form_id' => $this->formId,
++            'instance_id' => $this->instanceId,
++            'issued_at' => $this->issuedAt,
++            'expires' => $this->expires,
++        ];
++    }
++}
+diff --git a/eforms/src/Enums/ChallengeMode.php b/eforms/src/Enums/ChallengeMode.php
+new file mode 100644
+index 0000000..5197207
+--- /dev/null
++++ b/eforms/src/Enums/ChallengeMode.php
+@@ -0,0 +1,26 @@
++<?php
++/**
++ * Challenge mode enum.
++ *
++ * Spec: Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge)
++ */
++
++enum ChallengeMode: string
++{
++    case Off = 'off';
++    case Auto = 'auto';
++    case AlwaysPost = 'always_post';
++
++    /**
++     * Parse with legacy alias support.
++     */
++    public static function fromString(string $value): ?self
++    {
++        // Legacy alias: 'always' -> 'always_post'
++        if ($value === 'always') {
++            return self::AlwaysPost;
++        }
++
++        return self::tryFrom($value);
++    }
++}
+diff --git a/eforms/src/Enums/ErrorCode.php b/eforms/src/Enums/ErrorCode.php
+new file mode 100644
+index 0000000..186b08a
+--- /dev/null
++++ b/eforms/src/Enums/ErrorCode.php
+@@ -0,0 +1,63 @@
++<?php
++/**
++ * Error codes enum (append-only stable surface).
++ *
++ * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
++ */
++
++enum ErrorCode: string
++{
++    // Configuration errors
++    case ChallengeUnconfigured = 'EFORMS_CHALLENGE_UNCONFIGURED';
++    case ConfigClamped = 'EFORMS_CONFIG_CLAMPED';
++    case ConfigDropinInvalid = 'EFORMS_CONFIG_DROPIN_INVALID';
++    case ConfigDropinIo = 'EFORMS_CONFIG_DROPIN_IO';
++
++    // Validation/submission errors
++    case AcceptEmpty = 'EFORMS_ERR_ACCEPT_EMPTY';
++    case ChallengeFailed = 'EFORMS_ERR_CHALLENGE_FAILED';
++    case DuplicateFormId = 'EFORMS_ERR_DUPLICATE_FORM_ID';
++    case EmailSend = 'EFORMS_ERR_EMAIL_SEND';
++    case Honeypot = 'EFORMS_ERR_HONEYPOT';
++    case InlineSuccessRequiresNoncacheable = 'EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE';
++    case InvalidFormId = 'EFORMS_ERR_INVALID_FORM_ID';
++    case LedgerIo = 'EFORMS_ERR_LEDGER_IO';
++    case MethodNotAllowed = 'EFORMS_ERR_METHOD_NOT_ALLOWED';
++    case MintFailed = 'EFORMS_ERR_MINT_FAILED';
++    case OriginForbidden = 'EFORMS_ERR_ORIGIN_FORBIDDEN';
++    case RowGroupUnbalanced = 'EFORMS_ERR_ROW_GROUP_UNBALANCED';
++    case SchemaDupKey = 'EFORMS_ERR_SCHEMA_DUP_KEY';
++    case SchemaEnum = 'EFORMS_ERR_SCHEMA_ENUM';
++    case SchemaKey = 'EFORMS_ERR_SCHEMA_KEY';
++    case SchemaObject = 'EFORMS_ERR_SCHEMA_OBJECT';
++    case SchemaRequired = 'EFORMS_ERR_SCHEMA_REQUIRED';
++    case SchemaType = 'EFORMS_ERR_SCHEMA_TYPE';
++    case SchemaUnknownKey = 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY';
++    case StorageUnavailable = 'EFORMS_ERR_STORAGE_UNAVAILABLE';
++    case Throttled = 'EFORMS_ERR_THROTTLED';
++    case Token = 'EFORMS_ERR_TOKEN';
++    case Type = 'EFORMS_ERR_TYPE';
++    case UploadType = 'EFORMS_ERR_UPLOAD_TYPE';
++
++    // Internal/logging codes
++    case Fail2banIo = 'EFORMS_FAIL2BAN_IO';
++    case FinfoUnavailable = 'EFORMS_FINFO_UNAVAILABLE';
++    case LedgerIoInternal = 'EFORMS_LEDGER_IO';
++    case Reserve = 'EFORMS_RESERVE';
++
++    /**
++     * Check if a string code is known.
++     */
++    public static function isKnown(string $code): bool
++    {
++        return self::tryFrom($code) !== null;
++    }
++
++    /**
++     * Check if this is a user-facing error code.
++     */
++    public function isPublicError(): bool
++    {
++        return str_starts_with($this->value, 'EFORMS_ERR_');
++    }
++}
+diff --git a/eforms/src/Enums/HoneypotResponse.php b/eforms/src/Enums/HoneypotResponse.php
+new file mode 100644
+index 0000000..6a4e381
+--- /dev/null
++++ b/eforms/src/Enums/HoneypotResponse.php
+@@ -0,0 +1,12 @@
++<?php
++/**
++ * Honeypot response enum.
++ *
++ * Spec: Honeypot (docs/Canonical_Spec.md#sec-honeypot)
++ */
++
++enum HoneypotResponse: string
++{
++    case StealthSuccess = 'stealth_success';
++    case HardFail = 'hard_fail';
++}
+diff --git a/eforms/src/Enums/IpMode.php b/eforms/src/Enums/IpMode.php
+new file mode 100644
+index 0000000..e3dcaa7
+--- /dev/null
++++ b/eforms/src/Enums/IpMode.php
+@@ -0,0 +1,14 @@
++<?php
++/**
++ * IP handling mode enum.
++ *
++ * Spec: Privacy and IP handling (docs/Canonical_Spec.md#sec-privacy)
++ */
++
++enum IpMode: string
++{
++    case None = 'none';
++    case Masked = 'masked';
++    case Hash = 'hash';
++    case Full = 'full';
++}
+diff --git a/eforms/src/Enums/LoggingMode.php b/eforms/src/Enums/LoggingMode.php
+new file mode 100644
+index 0000000..142e50d
+--- /dev/null
++++ b/eforms/src/Enums/LoggingMode.php
+@@ -0,0 +1,13 @@
++<?php
++/**
++ * Logging mode enum.
++ *
++ * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
++ */
++
++enum LoggingMode: string
++{
++    case Off = 'off';
++    case Minimal = 'minimal';
++    case Jsonl = 'jsonl';
++}
+diff --git a/eforms/src/Enums/OriginMode.php b/eforms/src/Enums/OriginMode.php
+new file mode 100644
+index 0000000..6efcf6e
+--- /dev/null
++++ b/eforms/src/Enums/OriginMode.php
+@@ -0,0 +1,13 @@
++<?php
++/**
++ * Origin mode enum.
++ *
++ * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
++ */
++
++enum OriginMode: string
++{
++    case Off = 'off';
++    case Soft = 'soft';
++    case Hard = 'hard';
++}
+diff --git a/eforms/src/Enums/SoftReason.php b/eforms/src/Enums/SoftReason.php
+new file mode 100644
+index 0000000..b8431e2
+--- /dev/null
++++ b/eforms/src/Enums/SoftReason.php
+@@ -0,0 +1,52 @@
++<?php
++/**
++ * Soft reasons enum (closed set per spec).
++ *
++ * Spec: Spam Decision (docs/Canonical_Spec.md#sec-spam-decision)
++ */
++
++enum SoftReason: string
++{
++    case MinFillTime = 'min_fill_time';
++    case AgeAdvisory = 'age_advisory';
++    case JsMissing = 'js_missing';
++    case OriginSoft = 'origin_soft';
++
++    /**
++     * Normalize and deduplicate soft reasons, preserving canonical order.
++     *
++     * @param array<string|SoftReason> $reasons
++     * @return list<SoftReason>
++     */
++    public static function normalize(array $reasons): array
++    {
++        $unique = [];
++        foreach ($reasons as $reason) {
++            $enum = $reason instanceof self ? $reason : self::tryFrom($reason);
++            if ($enum !== null) {
++                $unique[$enum->value] = $enum;
++            }
++        }
++
++        // Return in canonical order
++        $ordered = [];
++        foreach (self::cases() as $case) {
++            if (isset($unique[$case->value])) {
++                $ordered[] = $case;
++            }
++        }
++
++        return $ordered;
++    }
++
++    /**
++     * Convert array of enums to string values.
++     *
++     * @param list<SoftReason> $reasons
++     * @return list<string>
++     */
++    public static function toValues(array $reasons): array
++    {
++        return array_map(fn(self $r) => $r->value, $reasons);
++    }
++}
+diff --git a/eforms/src/Enums/TokenMode.php b/eforms/src/Enums/TokenMode.php
+new file mode 100644
+index 0000000..c1d11e5
+--- /dev/null
++++ b/eforms/src/Enums/TokenMode.php
+@@ -0,0 +1,12 @@
++<?php
++/**
++ * Token mode enum.
++ *
++ * Spec: Security (docs/Canonical_Spec.md#sec-security)
++ */
++
++enum TokenMode: string
++{
++    case Hidden = 'hidden';
++    case Js = 'js';
++}

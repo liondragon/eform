@@ -5,8 +5,6 @@
  * Spec: Timing checks (docs/Canonical_Spec.md#sec-timing-checks)
  */
 
-require_once __DIR__ . '/../Enums/SoftReason.php';
-
 class TimingSignals
 {
     /**
@@ -45,11 +43,11 @@ class TimingSignals
         $elapsed = $issued_at > 0 ? max(0, $now - $issued_at) : 0;
 
         if ($min_fill_seconds > 0 && !$email_retry && $elapsed < $min_fill_seconds) {
-            $soft_reasons[] = SoftReason::MinFillTime;
+            $soft_reasons[] = 'min_fill_time';
         }
 
         if ($max_form_age_seconds > 0 && $elapsed > $max_form_age_seconds) {
-            $soft_reasons[] = SoftReason::AgeAdvisory;
+            $soft_reasons[] = 'age_advisory';
         }
 
         $js_ok = self::post_string($post, 'js_ok');
@@ -60,7 +58,7 @@ class TimingSignals
                     'hard_fail' => true,
                 );
             }
-            $soft_reasons[] = SoftReason::JsMissing;
+            $soft_reasons[] = 'js_missing';
         }
 
         return array(
