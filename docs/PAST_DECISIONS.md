@@ -62,3 +62,12 @@ On email-failure rerender, renderer includes `eforms_email_retry=1`, and Timing 
 - Email failure UX normative (pre-fill + readonly textarea)
 
 **Deferred**: Making throttle mandatory, deleting `cooldown_seconds`/`hard_multiplier` config keys.
+
+### Applied: Unknown-Keys Drop-in Policy (Phase 0)
+
+When a drop-in config file contains unknown keys, the entire drop-in override is rejected (fail-closed). The spec says "unknown keys MUST be rejected" but doesn't specify whether to reject just the unknown keys or the whole override. We chose fail-closed:
+
+- **Rationale**: A drop-in with typos or stale keys likely has other problems. Silently ignoring unknown keys while applying known keys could produce surprising partial configurations.
+- **Warning**: A single `EFORMS_CONFIG_DROPIN_INVALID` warning is emitted with `{path: '_root', reason: 'unknown_keys', keys: [...]}` listing all unknown paths.
+- **Alternative considered**: "Ignore unknown, keep known" — rejected because it risks silent misconfiguration.
+

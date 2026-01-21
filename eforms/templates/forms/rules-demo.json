@@ -8,7 +8,12 @@
   },
   "email": {
     "to": "test@example.com",
-    "subject": "Rules Demo"
+    "subject": "Rules Demo",
+    "email_template": "default",
+    "include_fields": [
+      "user_email",
+      "confirm_email_checkbox"
+    ]
   },
   "fields": [
     {

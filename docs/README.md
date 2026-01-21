@@ -7,8 +7,3 @@ This guide orients contributors to the eForms documentation set so you can quick
 - `docs/Canonical_Spec.md` — The canonical product specification. Start here for authoritative behaviour, security, and integration details.
 - `docs/roadmap.md` — High-level planning notes, upcoming milestones, and sequencing context.
 - `docs/PAST_DECISIONS.md` — Rationale and history for major architectural choices.
-- `docs/v2_spec_ncid.md` — Work-in-progress notes (non-canonical).
-
-## Regenerating spec excerpts {#sec-regenerating-spec-excerpts}
-
-This repository does not currently include generated spec excerpts. If generated sections are reintroduced, document the source inputs and regeneration command here.

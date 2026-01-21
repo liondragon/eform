@@ -1,0 +1,434 @@
+diff --git a/eforms/src/Enums/ChallengeMode.php b/eforms/src/Enums/ChallengeMode.php
+new file mode 100644
+--- /dev/null
++++ b/eforms/src/Enums/ChallengeMode.php
+@@ -0,0 +1,26 @@
++<?php
++/**
++ * Challenge mode enum.
++ *
++ * Spec: Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge)
++ */
++
++enum ChallengeMode: string
++{
++    case Off = 'off';
++    case Auto = 'auto';
++    case AlwaysPost = 'always_post';
++
++    /**
++     * Parse with legacy alias support.
++     */
++    public static function fromString(string $value): ?self
++    {
++        // Legacy alias: 'always' -> 'always_post'
++        if ($value === 'always') {
++            return self::AlwaysPost;
++        }
++
++        return self::tryFrom($value);
++    }
++}
+diff --git a/eforms/src/Enums/ErrorCode.php b/eforms/src/Enums/ErrorCode.php
+new file mode 100644
+--- /dev/null
++++ b/eforms/src/Enums/ErrorCode.php
+@@ -0,0 +1,63 @@
++<?php
++/**
++ * Error codes enum (append-only stable surface).
++ *
++ * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
++ */
++
++enum ErrorCode: string
++{
++    // Configuration errors
++    case ChallengeUnconfigured = 'EFORMS_CHALLENGE_UNCONFIGURED';
++    case ConfigClamped = 'EFORMS_CONFIG_CLAMPED';
++    case ConfigDropinInvalid = 'EFORMS_CONFIG_DROPIN_INVALID';
++    case ConfigDropinIo = 'EFORMS_CONFIG_DROPIN_IO';
++
++    // Validation/submission errors
++    case AcceptEmpty = 'EFORMS_ERR_ACCEPT_EMPTY';
++    case ChallengeFailed = 'EFORMS_ERR_CHALLENGE_FAILED';
++    case DuplicateFormId = 'EFORMS_ERR_DUPLICATE_FORM_ID';
++    case EmailSend = 'EFORMS_ERR_EMAIL_SEND';
++    case Honeypot = 'EFORMS_ERR_HONEYPOT';
++    case InlineSuccessRequiresNoncacheable = 'EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE';
++    case InvalidFormId = 'EFORMS_ERR_INVALID_FORM_ID';
++    case LedgerIo = 'EFORMS_ERR_LEDGER_IO';
++    case MethodNotAllowed = 'EFORMS_ERR_METHOD_NOT_ALLOWED';
++    case MintFailed = 'EFORMS_ERR_MINT_FAILED';
++    case OriginForbidden = 'EFORMS_ERR_ORIGIN_FORBIDDEN';
++    case RowGroupUnbalanced = 'EFORMS_ERR_ROW_GROUP_UNBALANCED';
++    case SchemaDupKey = 'EFORMS_ERR_SCHEMA_DUP_KEY';
++    case SchemaEnum = 'EFORMS_ERR_SCHEMA_ENUM';
++    case SchemaKey = 'EFORMS_ERR_SCHEMA_KEY';
++    case SchemaObject = 'EFORMS_ERR_SCHEMA_OBJECT';
++    case SchemaRequired = 'EFORMS_ERR_SCHEMA_REQUIRED';
++    case SchemaType = 'EFORMS_ERR_SCHEMA_TYPE';
++    case SchemaUnknownKey = 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY';
++    case StorageUnavailable = 'EFORMS_ERR_STORAGE_UNAVAILABLE';
++    case Throttled = 'EFORMS_ERR_THROTTLED';
++    case Token = 'EFORMS_ERR_TOKEN';
++    case Type = 'EFORMS_ERR_TYPE';
++    case UploadType = 'EFORMS_ERR_UPLOAD_TYPE';
++
++    // Internal/logging codes
++    case Fail2banIo = 'EFORMS_FAIL2BAN_IO';
++    case FinfoUnavailable = 'EFORMS_FINFO_UNAVAILABLE';
++    case LedgerIoInternal = 'EFORMS_LEDGER_IO';
++    case Reserve = 'EFORMS_RESERVE';
++
++    /**
++     * Check if a string code is known.
++     */
++    public static function isKnown(string $code): bool
++    {
++        return self::tryFrom($code) !== null;
++    }
++
++    /**
++     * Check if this is a user-facing error code.
++     */
++    public function isPublicError(): bool
++    {
++        return str_starts_with($this->value, 'EFORMS_ERR_');
++    }
++}
+diff --git a/eforms/src/Enums/LoggingMode.php b/eforms/src/Enums/LoggingMode.php
+new file mode 100644
+--- /dev/null
++++ b/eforms/src/Enums/LoggingMode.php
+@@ -0,0 +1,13 @@
++<?php
++/**
++ * Logging mode enum.
++ *
++ * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
++ */
++
++enum LoggingMode: string
++{
++    case Off = 'off';
++    case Minimal = 'minimal';
++    case Jsonl = 'jsonl';
++}
+diff --git a/eforms/src/Enums/OriginMode.php b/eforms/src/Enums/OriginMode.php
+new file mode 100644
+--- /dev/null
++++ b/eforms/src/Enums/OriginMode.php
+@@ -0,0 +1,13 @@
++<?php
++/**
++ * Origin mode enum.
++ *
++ * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
++ */
++
++enum OriginMode: string
++{
++    case Off = 'off';
++    case Soft = 'soft';
++    case Hard = 'hard';
++}
+diff --git a/eforms/src/Enums/SoftReason.php b/eforms/src/Enums/SoftReason.php
+new file mode 100644
+--- /dev/null
++++ b/eforms/src/Enums/SoftReason.php
+@@ -0,0 +1,51 @@
++<?php
++/**
++ * Soft reasons enum (closed set per spec).
++ *
++ * Spec: Spam Decision (docs/Canonical_Spec.md#sec-spam-decision)
++ */
++
++enum SoftReason: string
++{
++    case MinFillTime = 'min_fill_time';
++    case AgeAdvisory = 'age_advisory';
++    case JsMissing = 'js_missing';
++    case OriginSoft = 'origin_soft';
++
++    /**
++     * Normalize and deduplicate soft reasons, preserving canonical order.
++     *
++     * @param array<string|SoftReason> $reasons
++     * @return list<SoftReason>
++     */
++    public static function normalize(array $reasons): array
++    {
++        $unique = [];
++        foreach ($reasons as $reason) {
++            $enum = $reason instanceof self ? $reason : self::tryFrom($reason);
++            if ($enum !== null) {
++                $unique[$enum->value] = $enum;
++            }
++        }
++
++        $ordered = [];
++        foreach (self::cases() as $case) {
++            if (isset($unique[$case->value])) {
++                $ordered[] = $case;
++            }
++        }
++
++        return $ordered;
++    }
++
++    /**
++     * Convert array of enums to string values.
++     *
++     * @param list<SoftReason> $reasons
++     * @return list<string>
++     */
++    public static function toValues(array $reasons): array
++    {
++        return array_map(fn(self $r) => $r->value, $reasons);
++    }
++}
+diff --git a/eforms/src/Enums/TokenMode.php b/eforms/src/Enums/TokenMode.php
+new file mode 100644
+--- /dev/null
++++ b/eforms/src/Enums/TokenMode.php
+@@ -0,0 +1,12 @@
++<?php
++/**
++ * Token mode enum.
++ *
++ * Spec: Security (docs/Canonical_Spec.md#sec-security)
++ */
++
++enum TokenMode: string
++{
++    case Hidden = 'hidden';
++    case Js = 'js';
++}
+diff --git a/eforms/src/Logging.php b/eforms/src/Logging.php
+--- a/eforms/src/Logging.php
++++ b/eforms/src/Logging.php
+@@ -8,7 +8,8 @@
+  * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
+  */
+ 
+ require_once __DIR__ . '/Config.php';
++require_once __DIR__ . '/Enums/LoggingMode.php';
+ 
+ class Logging {
+     const REQUEST_ID_MAX_BYTES = 128;
+@@ -27,10 +29,11 @@
+         if ( ! self::should_log( $config, $severity ) ) {
+             return;
+         }
+ 
+-        $mode = self::config_value( $config, array( 'logging', 'mode' ), 'off' );
+-        if ( $mode !== 'minimal' ) {
++        $mode_value = self::config_value( $config, array( 'logging', 'mode' ), 'off' );
++        $mode = is_string( $mode_value ) ? LoggingMode::tryFrom( $mode_value ) : null;
++        if ( $mode !== LoggingMode::Minimal ) {
+             return;
+         }
+ 
+         if ( ! is_array( $meta ) ) {
+@@ -87,9 +90,10 @@
+     }
+ 
+     private static function should_log( $config, $severity ) {
+-        $mode = self::config_value( $config, array( 'logging', 'mode' ), 'off' );
+-        if ( $mode === 'off' ) {
++        $mode_value = self::config_value( $config, array( 'logging', 'mode' ), 'off' );
++        $mode = is_string( $mode_value ) ? LoggingMode::tryFrom( $mode_value ) : null;
++        if ( $mode === null || $mode === LoggingMode::Off ) {
+             return false;
+         }
+ 
+         $level = self::config_value( $config, array( 'logging', 'level' ), 0 );
+diff --git a/eforms/src/Security/OriginPolicy.php b/eforms/src/Security/OriginPolicy.php
+--- a/eforms/src/Security/OriginPolicy.php
++++ b/eforms/src/Security/OriginPolicy.php
+@@ -4,6 +4,9 @@
+  *
+  * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
+  */
++
++require_once __DIR__ . '/../Enums/OriginMode.php';
++require_once __DIR__ . '/../Enums/SoftReason.php';
+ 
+ class OriginPolicy {
+     const DEFAULT_SCHEME = 'http';
+@@ -35,24 +38,25 @@
+             }
+         }
+ 
+-        $mode = self::config_string( $config, array( 'security', 'origin_mode' ), 'soft' );
++        $mode_value = self::config_string( $config, array( 'security', 'origin_mode' ), 'soft' );
++        $mode = OriginMode::tryFrom( $mode_value );
+         $missing_hard = self::config_bool( $config, array( 'security', 'origin_missing_hard' ), false );
+ 
+         $hard_fail = false;
+         $soft_reasons = array();
+ 
+-        if ( $mode === 'soft' ) {
++        if ( $mode === OriginMode::Soft ) {
+             if ( $state !== 'same' ) {
+-                $soft_reasons[] = 'origin_soft';
++                $soft_reasons[] = SoftReason::OriginSoft->value;
+             }
+-        } elseif ( $mode === 'hard' ) {
++        } elseif ( $mode === OriginMode::Hard ) {
+             if ( $state === 'cross' || $state === 'unknown' ) {
+                 $hard_fail = true;
+             } elseif ( $state === 'missing' ) {
+                 if ( $missing_hard ) {
+                     $hard_fail = true;
+                 } else {
+-                    $soft_reasons[] = 'origin_soft';
++                    $soft_reasons[] = SoftReason::OriginSoft->value;
+                 }
+             }
+         }
+diff --git a/eforms/src/Security/Security.php b/eforms/src/Security/Security.php
+--- a/eforms/src/Security/Security.php
++++ b/eforms/src/Security/Security.php
+@@ -8,9 +8,12 @@
+  */
+ 
+ require_once __DIR__ . '/../Config.php';
+ require_once __DIR__ . '/../Helpers.php';
++require_once __DIR__ . '/../Enums/ChallengeMode.php';
++require_once __DIR__ . '/../Enums/SoftReason.php';
++require_once __DIR__ . '/../Enums/TokenMode.php';
+ require_once __DIR__ . '/../Uploads/PrivateDir.php';
+ require_once __DIR__ . '/OriginPolicy.php';
+ require_once __DIR__ . '/TimingSignals.php';
+ 
+ class Security {
+@@ -24,8 +27,7 @@
+     const TOKENS_DIR = 'tokens';
+     const TOKEN_SUFFIX = '.json';
+     const TOKEN_REGEX = '/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i';
+     const INSTANCE_ID_REGEX = '/^[A-Za-z0-9_-]{22,32}$/';
+-    const SOFT_REASON_ORDER = array( 'min_fill_time', 'age_advisory', 'js_missing', 'origin_soft' );
+ 
+     /**
+      * Mint and persist a hidden-mode token record.
+@@ -44,9 +46,9 @@
+ 
+     private static function mint_record( $form_id, $mode, $uploads_dir ) {
+         $config = Config::get();
+ 
+-        if ( $mode !== 'hidden' && $mode !== 'js' ) {
++        if ( ! is_string( $mode ) || TokenMode::tryFrom( $mode ) === null ) {
+             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'mode_invalid' );
+         }
+ 
+         if ( ! is_string( $form_id ) || $form_id === '' ) {
+@@ -441,12 +443,13 @@
+         if ( ! is_string( $record['mode'] ) ) {
+             return self::read_failure( 'record_mode_invalid' );
+         }
+ 
+-        $mode = $record['mode'];
+-        if ( $mode !== 'hidden' && $mode !== 'js' ) {
++        $mode_enum = TokenMode::tryFrom( $record['mode'] );
++        if ( $mode_enum === null ) {
+             return self::read_failure( 'record_mode_unknown' );
+         }
++        $mode = $mode_enum->value;
+ 
+         if ( ! is_string( $record['form_id'] ) || $record['form_id'] === '' ) {
+             return self::read_failure( 'record_form_id_invalid' );
+         }
+@@ -479,47 +483,31 @@
+         );
+     }
+ 
+     private static function normalize_soft_reasons( $reasons ) {
+         if ( ! is_array( $reasons ) ) {
+             return array();
+         }
+ 
+-        $unique = array();
+-        foreach ( $reasons as $reason ) {
+-            if ( is_string( $reason ) && $reason !== '' ) {
+-                $unique[ $reason ] = true;
+-            }
+-        }
+-
+-        $ordered = array();
+-        foreach ( self::SOFT_REASON_ORDER as $reason ) {
+-            if ( isset( $unique[ $reason ] ) ) {
+-                $ordered[] = $reason;
+-            }
+-        }
+-
+-        return $ordered;
++        $normalized = SoftReason::normalize( $reasons );
++        return SoftReason::toValues( $normalized );
+     }
+ 
+     private static function challenge_required( $config, $soft_reasons ) {
+-        $mode = 'off';
++        $mode = 'off';
+         if ( is_array( $config ) && isset( $config['challenge'] ) && is_array( $config['challenge'] ) ) {
+             if ( isset( $config['challenge']['mode'] ) && is_string( $config['challenge']['mode'] ) ) {
+                 $mode = $config['challenge']['mode'];
+             }
+         }
+ 
+-        if ( $mode === 'always' ) {
+-            $mode = 'always_post';
+-        }
++        $parsed = ChallengeMode::fromString( $mode );
++        if ( $parsed === ChallengeMode::AlwaysPost ) {
++            return true;
++        }
+ 
+-        if ( $mode === 'always_post' ) {
++        if ( $parsed === ChallengeMode::Auto && is_array( $soft_reasons ) && ! empty( $soft_reasons ) ) {
+             return true;
+         }
+ 
+-        if ( $mode === 'auto' && is_array( $soft_reasons ) && ! empty( $soft_reasons ) ) {
+-            return true;
+-        }
+-
+         return false;
+     }
+diff --git a/eforms/src/Security/TimingSignals.php b/eforms/src/Security/TimingSignals.php
+--- a/eforms/src/Security/TimingSignals.php
++++ b/eforms/src/Security/TimingSignals.php
+@@ -4,6 +4,8 @@
+  *
+  * Spec: Timing checks (docs/Canonical_Spec.md#sec-timing-checks)
+  */
++
++require_once __DIR__ . '/../Enums/SoftReason.php';
+ 
+ class TimingSignals {
+     /**
+@@ -41,11 +43,11 @@
+         $elapsed = $issued_at > 0 ? max( 0, $now - $issued_at ) : 0;
+ 
+         if ( $min_fill_seconds > 0 && ! $email_retry && $elapsed < $min_fill_seconds ) {
+-            $soft_reasons[] = 'min_fill_time';
++            $soft_reasons[] = SoftReason::MinFillTime->value;
+         }
+ 
+         if ( $max_form_age_seconds > 0 && $elapsed > $max_form_age_seconds ) {
+-            $soft_reasons[] = 'age_advisory';
++            $soft_reasons[] = SoftReason::AgeAdvisory->value;
+         }
+ 
+         $js_ok = self::post_string( $post, 'js_ok' );
+@@ -57,7 +59,7 @@
+                     'hard_fail' => true,
+                 );
+             }
+-            $soft_reasons[] = 'js_missing';
++            $soft_reasons[] = SoftReason::JsMissing->value;
+         }
+ 
+         return array(

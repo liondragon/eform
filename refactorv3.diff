@@ -1,0 +1,176 @@
+diff --git a/eforms/src/Enums/SoftReason.php b/eforms/src/Enums/SoftReason.php
+new file mode 100644
+--- /dev/null
++++ b/eforms/src/Enums/SoftReason.php
+@@ -0,0 +1,57 @@
++<?php
++/**
++ * Soft reasons enum (closed set per spec).
++ *
++ * Spec: Spam Decision (docs/Canonical_Spec.md#sec-spam-decision)
++ */
++
++enum SoftReason: string
++{
++    case MinFillTime = 'min_fill_time';
++    case AgeAdvisory = 'age_advisory';
++    case JsMissing = 'js_missing';
++    case OriginSoft = 'origin_soft';
++
++    /**
++     * Normalize and deduplicate soft reasons, preserving canonical order.
++     *
++     * @param array<mixed> $reasons
++     * @return list<SoftReason>
++     */
++    public static function normalize(array $reasons): array
++    {
++        $unique = [];
++        foreach ($reasons as $reason) {
++            if ($reason instanceof self) {
++                $unique[$reason->value] = $reason;
++                continue;
++            }
++
++            if (!is_string($reason)) {
++                continue;
++            }
++
++            $enum = self::tryFrom($reason);
++            if ($enum !== null) {
++                $unique[$enum->value] = $enum;
++            }
++        }
++
++        $ordered = [];
++        foreach (self::cases() as $case) {
++            if (isset($unique[$case->value])) {
++                $ordered[] = $case;
++            }
++        }
++
++        return $ordered;
++    }
++
++    /**
++     * Convert list of enums to string values.
++     *
++     * @param list<SoftReason> $reasons
++     * @return list<string>
++     */
++    public static function toValues(array $reasons): array
++    {
++        return array_map(fn(self $reason) => $reason->value, $reasons);
++    }
++}
+diff --git a/eforms/src/Security/OriginPolicy.php b/eforms/src/Security/OriginPolicy.php
+--- a/eforms/src/Security/OriginPolicy.php
++++ b/eforms/src/Security/OriginPolicy.php
+@@ -4,6 +4,8 @@
+  *
+  * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
+  */
++
++require_once __DIR__ . '/../Enums/SoftReason.php';
+ 
+ class OriginPolicy {
+     const DEFAULT_SCHEME = 'http';
+@@ -38,7 +40,7 @@ class OriginPolicy {
+ 
+         if ( $mode === 'soft' ) {
+             if ( $state !== 'same' ) {
+-                $soft_reasons[] = 'origin_soft';
++                $soft_reasons[] = SoftReason::OriginSoft->value;
+             }
+         } elseif ( $mode === 'hard' ) {
+             if ( $state === 'cross' || $state === 'unknown' ) {
+@@ -48,7 +50,7 @@ class OriginPolicy {
+                 if ( $missing_hard ) {
+                     $hard_fail = true;
+                 } else {
+-                    $soft_reasons[] = 'origin_soft';
++                    $soft_reasons[] = SoftReason::OriginSoft->value;
+                 }
+             }
+         }
+diff --git a/eforms/src/Security/Security.php b/eforms/src/Security/Security.php
+--- a/eforms/src/Security/Security.php
++++ b/eforms/src/Security/Security.php
+@@ -8,17 +8,17 @@
+  */
+ 
+ require_once __DIR__ . '/../Config.php';
+ require_once __DIR__ . '/../Helpers.php';
++require_once __DIR__ . '/../Enums/SoftReason.php';
+ require_once __DIR__ . '/../Uploads/PrivateDir.php';
+ require_once __DIR__ . '/OriginPolicy.php';
+ require_once __DIR__ . '/TimingSignals.php';
+ 
+ class Security {
+     const TOKENS_DIR = 'tokens';
+     const TOKEN_SUFFIX = '.json';
+     const TOKEN_REGEX = '/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i';
+     const INSTANCE_ID_REGEX = '/^[A-Za-z0-9_-]{22,32}$/';
+-    const SOFT_REASON_ORDER = array( 'min_fill_time', 'age_advisory', 'js_missing', 'origin_soft' );
+ 
+     /**
+      * Mint and persist a hidden-mode token record.
+@@ -486,21 +486,8 @@ class Security {
+     private static function normalize_soft_reasons( $reasons ) {
+         if ( ! is_array( $reasons ) ) {
+             return array();
+         }
+ 
+-        $unique = array();
+-        foreach ( $reasons as $reason ) {
+-            if ( is_string( $reason ) && $reason !== '' ) {
+-                $unique[ $reason ] = true;
+-            }
+-        }
+-
+-        $ordered = array();
+-        foreach ( self::SOFT_REASON_ORDER as $reason ) {
+-            if ( isset( $unique[ $reason ] ) ) {
+-                $ordered[] = $reason;
+-            }
+-        }
+-
+-        return $ordered;
++        $normalized = SoftReason::normalize( $reasons );
++        return SoftReason::toValues( $normalized );
+     }
+diff --git a/eforms/src/Security/TimingSignals.php b/eforms/src/Security/TimingSignals.php
+--- a/eforms/src/Security/TimingSignals.php
++++ b/eforms/src/Security/TimingSignals.php
+@@ -4,6 +4,8 @@
+  *
+  * Spec: Timing checks (docs/Canonical_Spec.md#sec-timing-checks)
+  */
++
++require_once __DIR__ . '/../Enums/SoftReason.php';
+ 
+ class TimingSignals {
+     /**
+@@ -41,11 +43,11 @@ class TimingSignals {
+         $elapsed = $issued_at > 0 ? max( 0, $now - $issued_at ) : 0;
+ 
+         if ( $min_fill_seconds > 0 && ! $email_retry && $elapsed < $min_fill_seconds ) {
+-            $soft_reasons[] = 'min_fill_time';
++            $soft_reasons[] = SoftReason::MinFillTime->value;
+         }
+ 
+         if ( $max_form_age_seconds > 0 && $elapsed > $max_form_age_seconds ) {
+-            $soft_reasons[] = 'age_advisory';
++            $soft_reasons[] = SoftReason::AgeAdvisory->value;
+         }
+ 
+         $js_ok = self::post_string( $post, 'js_ok' );
+@@ -57,7 +59,7 @@ class TimingSignals {
+                     'hard_fail' => true,
+                 );
+             }
+-            $soft_reasons[] = 'js_missing';
++            $soft_reasons[] = SoftReason::JsMissing->value;
+         }
+ 
+         return array(

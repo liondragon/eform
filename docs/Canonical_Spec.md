@@ -1006,7 +1006,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Deployment constraint (normative): token records, ledger markers, throttle state, and uploads live under `wp_upload_dir()` and MUST be readable/writable across the render→POST lifecycle. Single-webhead deployments work out of the box. Multi-webhead or containerized deployments MUST mount `${uploads.dir}` as a shared persistent volume that preserves the filesystem semantics required by the ledger reservation contract (atomic exclusive-create); ephemeral container storage is unsupported. If these filesystem semantics cannot be guaranteed, the plugin MUST fail closed with a configuration/runtime error.
 	- Changing type defaults or rules updates behavior globally via registry
 	- Templates remain portable (no callbacks)
-	- Minimum versions: PHP >= 8.0; WordPress >= 5.8 (admin notice + deactivate if unmet)
+	- Minimum versions: PHP >= 8.1; WordPress >= 5.8 (admin notice + deactivate if unmet)
 	- Terminology: use allow-list/deny-list consistently.
 
 <a id="sec-assets"></a>

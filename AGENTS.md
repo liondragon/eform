@@ -1,5 +1,8 @@
 # AGENTS.md — System Kernel & Router
 
+## User Communication and Mindset
+When the user asks for your opinion on an idea (including feedback from others), don’t rush to agree, even if the reasoning seems sound. First, actively look for plausible ways the idea could be wrong or misdirected, and try to derive a better alternative. Then commit to a position: either recommend the improved approach, or agree—but in both cases, explain why with concrete reasoning.
+
 ## 0. Local Overrides & Stack (Template Slots)
 - **Operator preferences (optional):** If `AGENTS_LOCAL.md` exists, use it for communication style, risk callouts, and confirmation gates only; it MUST NOT override `AGENTS.md` invariants, spec authority, safety rules, or tool/sandbox constraints.
 - **Stack conventions (optional):** Follow the repo's documented stack conventions (linting, security hygiene, i18n, framework patterns); do not invent a new stack.
@@ -24,18 +27,15 @@
 - **Never use `git reset --hard` or force-push without explicit user permission.** Prefer safe alternatives (`git revert`, new commits, temp branches).
 - If a history rewrite seems necessary, explain the risk and ask first.
 
-### Learnings & Self-Improvement Logs
-- **`learnings.md`:** Project-specific knowledge (quirks, patterns, decisions).
-- **`self-imrov.md`:** Meta-learnings about improving `AGENTS.md` and `agent_docs/*`. When a repeated correction or better approach is found, codify your learnings into `self-imrov.md`.
-- Agents are encouraged to append to these logs without approval; both are append-only (do not delete or rewrite prior entries).
-- Writing to these logs does not grant permission to edit `AGENTS.md` or any file under `agent_docs/` without an explicit user request.
+### Self-Improvement Logs
+- When a repeated correction or better approach is found, append your learnings and mistakes made into `self-imrov.md` proactively to further improve agent_docs system.
 
 ### Numbers & Anchors
-- **Rule:** Do not restate numeric constants.
-- **Source:** Only Anchors in `docs/Canonical_Spec.md` carry authoritative numbers.
-- **Usage:** Reference by named link (e.g., `[MAX_RETRIES]`) instead of hardcoding.
-- **Immutability:** NEVER change an existing Anchor value in `docs/Canonical_Spec.md` unless the user explicitly says "update the spec Anchor [NAME]". Treat Anchor updates as spec-level behavior changes that require spec review and corresponding test updates; if a value seems wrong, surface it to the user instead of silently adjusting it.
-- **Creation:** Do not create new Anchors in code; define them in `docs/Canonical_Spec.md` via Strategy mode first.
+- **Spec is authoritative:** `docs/Canonical_Spec.md` defines all anchor values. When writing docs or specs, reference anchors by name (e.g., `[MAX_RETRIES]`), not by copying numbers.
+- **Code has exactly one copy:** At implementation time, copy anchor values into a single dedicated constants file (e.g., `Anchors.php`). This is the *only* place anchor values appear in code. Other code references this file—never duplicates the numbers.
+- **Never parse specs at runtime:** Code MUST NOT read or parse spec files. The spec tells humans what values *should* be; developers copy them into the constants file once.
+- **Immutability:** NEVER change an existing Anchor value in `docs/Canonical_Spec.md` unless the user explicitly says "update the spec Anchor [NAME]". If a value seems wrong, surface it to the user. When a spec anchor changes, update both the spec AND the code constants file.
+- **Creation:** Define new Anchors in `docs/Canonical_Spec.md` via Strategy mode first, then add to the code constants file.
 
 ### Configuration & Capabilities
 - **Policy:** Expose only user‑facing, runtime options.
@@ -51,6 +51,7 @@
 - **Facts vs assumptions:** Clearly separate what is verified vs inferred/assumed; for non-obvious claims, cite supporting repo artifacts (file paths + section/Anchor names).
 - **When uncertain:** Say so plainly and propose the fastest verification step (tests/commands) before escalating certainty.
 - **Anti-sycophancy:** Treat user ideas as hypotheses; avoid unearned praise and do not “perform certainty” without evidence.
+- **Anti-critique-inflation:** Do not invent critiques to appear thorough; distinguish preferences from defects and cite evidence for defect claims.
 
 ### File Safety
 - **Rule:** Never delete files, overwrite files without reading them first, or remove/replace entire file contents unless the user explicitly requests that specific destructive action for that specific file path.
@@ -62,7 +63,8 @@
 ### Documentation Hygiene (Markdown)
 - Preserve existing indentation style within a file in `docs/*.md` to minimize diff churn.
 - If explicit heading anchor IDs are present (for example `{#sec-...}`), keep them stable; never rename or reuse them.
-- Do not edit generated blocks between `<!-- BEGIN GENERATED:` and `<!-- END GENERATED:`; update sources + regenerate instead (or ask if tooling is missing).
+- When updating docs or specs, prefer **integrating changes into the existing structure** rather than appending clarifications or “note:” blocks that layer on top of old text.
+
 
 ### Runtime Capabilities & Environment
 - **Project-specific stub:** See `.agent-environment.md` at repo root if present; otherwise treat the harness-provided environment context as authoritative.
@@ -108,7 +110,7 @@
 - **User-specified guides (`@docs` override):** If the user mentions one or more `/docs` files explicitly (for example `@agent_docs/Coding_Guidelines.md`), treat that list as the complete set of guides for the task and do not apply any routing heuristics beyond the context-budget rules in this section.
 - **Explicit user override vs heuristics:** When an explicit user request conflicts with these routing or context-budget heuristics (for example, “review all docs in `agent_docs/` in this run”), treat the user request as primary and use the heuristics only to decide *how* to fulfill it (chunking, summarizing, or warning) rather than whether to do it. Do not silently narrow scope or refuse a safe, explicit request solely because it exceeds the default heuristics. Even with an explicit override, do not try to load all large docs at once; process them in chunks and say so.
 - **Quick routing (pick your mode guide):**
-  - Editing code files (for example `*.py`, `*.ts`, `*.rs`)? → `agent_docs/Coding_Guidelines.md` (🔵)
+  - Editing or reviewing code files (for example `*.py`, `*.ts`, `*.rs`)? → `agent_docs/Coding_Guidelines.md` (🔵)
   - Editing test files? → `agent_docs/Test_Guidelines.md` (🟡)
   - Editing `docs/Canonical_Spec.md` or the narrative doc (`Overview.md`/`README.md`)? → `agent_docs/Documentation_Standards.md` (🔴)
   - Bootstrapping a new spec from the narrative doc (`Overview.md`/`README.md`)? → `agent_docs/Spec_Bootstrap_Guide.md` (🔴)
