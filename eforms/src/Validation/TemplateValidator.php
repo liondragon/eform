@@ -319,6 +319,8 @@ class TemplateValidator {
             self::validate_string( $field, 'pattern', $errors, false );
             self::validate_string( $field, 'before_html', $errors, false );
             self::validate_string( $field, 'after_html', $errors, false );
+            self::validate_html_fragment( $field, 'before_html', $errors );
+            self::validate_html_fragment( $field, 'after_html', $errors );
 
             self::validate_bool( $field, 'required', $errors, false );
             self::validate_bool( $field, 'email_attach', $errors, false );
@@ -435,6 +437,65 @@ class TemplateValidator {
         }
 
         return $sanitized;
+    }
+
+    private static function validate_html_fragment( $field, $key, $errors ) {
+        if ( ! is_array( $field ) || ! isset( $field[ $key ] ) || ! is_string( $field[ $key ] ) ) {
+            return;
+        }
+
+        $value = $field[ $key ];
+        if ( self::fragment_has_inline_style( $value ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+        }
+
+        if ( self::fragment_crosses_row_group_boundary( $value ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+        }
+    }
+
+    private static function fragment_has_inline_style( $value ) {
+        if ( ! is_string( $value ) || $value === '' ) {
+            return false;
+        }
+
+        return preg_match( '/<\\s*style\\b/i', $value ) === 1
+            || preg_match( '/\\sstyle\\s*=\\s*["\']?/i', $value ) === 1;
+    }
+
+    private static function fragment_crosses_row_group_boundary( $value ) {
+        if ( ! is_string( $value ) || $value === '' ) {
+            return false;
+        }
+
+        $matches = array();
+        preg_match_all( '/<\\s*(\\/?)\\s*(div|section)\\b[^>]*>/i', $value, $matches, PREG_SET_ORDER );
+        if ( empty( $matches ) ) {
+            return false;
+        }
+
+        // Ensure fragments do not leak div/section wrappers across row_group boundaries.
+        $stack = array();
+        foreach ( $matches as $match ) {
+            $is_closing = isset( $match[1] ) && $match[1] === '/';
+            $tag = isset( $match[2] ) ? strtolower( $match[2] ) : '';
+
+            if ( ! $is_closing ) {
+                $stack[] = $tag;
+                continue;
+            }
+
+            if ( empty( $stack ) ) {
+                return true;
+            }
+
+            $last = array_pop( $stack );
+            if ( $last !== $tag ) {
+                return true;
+            }
+        }
+
+        return ! empty( $stack );
     }
 
     /**

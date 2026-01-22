@@ -52,6 +52,7 @@ class Config
             'reply_to_address' => '',
             'reply_to_field' => '',
             'html' => false,
+            'suspect_subject_tag' => '[Suspect]',
             'upload_max_attachments' => self::DEFAULT_EMAIL_MAX_ATTACHMENTS,
         ),
         'html5' => array(

@@ -11,7 +11,7 @@
 class FieldRenderers_Textarea {
     public static function render( $descriptor, $field, $value = '', $context = array() ) {
         $attrs = self::build_attributes( $descriptor, $field, $context );
-        $content = $value === null ? '' : (string) $value;
+        $content = $value === null || ! is_scalar( $value ) ? '' : (string) $value;
 
         return self::render_textarea( $attrs, $content );
     }
@@ -86,4 +86,3 @@ class FieldRenderers_Textarea {
         return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
     }
 }
-

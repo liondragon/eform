@@ -161,7 +161,7 @@ if ( ! class_exists( 'Logging' ) ) {
             self::$events = array();
         }
 
-        public static function event( $severity, $code, $meta ) {
+        public static function event( $severity, $code, $meta, $request = null ) {
             self::$events[] = array(
                 'severity' => $severity,
                 'code'     => $code,

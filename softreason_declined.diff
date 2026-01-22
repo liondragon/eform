@@ -1,0 +1,115 @@
+diff --git a/eforms/src/SoftReason.php b/eforms/src/SoftReason.php
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/eforms/src/SoftReason.php
+@@ -0,0 +1,15 @@
++<?php
++/**
++ * Soft reason constants (closed set per spec).
++ *
++ * Spec: Spam Decision (docs/Canonical_Spec.md#sec-spam-decision)
++ */
++
++class SoftReason
++{
++    const MIN_FILL_TIME = 'min_fill_time';
++    const AGE_ADVISORY = 'age_advisory';
++    const JS_MISSING = 'js_missing';
++    const ORIGIN_SOFT = 'origin_soft';
++
++    const ORDER = [self::MIN_FILL_TIME, self::AGE_ADVISORY, self::JS_MISSING, self::ORIGIN_SOFT];
++}
+diff --git a/eforms/src/Security/OriginPolicy.php b/eforms/src/Security/OriginPolicy.php
+--- a/eforms/src/Security/OriginPolicy.php
++++ b/eforms/src/Security/OriginPolicy.php
+@@ -4,6 +4,8 @@
+  *
+  * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
+  */
++
++require_once __DIR__ . '/../SoftReason.php';
+ 
+ class OriginPolicy
+ {
+@@ -45,7 +47,7 @@ class OriginPolicy
+ 
+         if ($mode === 'soft') {
+             if ($state !== 'same') {
+-                $soft_reasons[] = 'origin_soft';
++                $soft_reasons[] = SoftReason::ORIGIN_SOFT;
+             }
+         } elseif ($mode === 'hard') {
+             if ($state === 'cross' || $state === 'unknown') {
+@@ -53,7 +55,7 @@ class OriginPolicy
+                 if ($missing_hard) {
+                     $hard_fail = true;
+                 } else {
+-                    $soft_reasons[] = 'origin_soft';
++                    $soft_reasons[] = SoftReason::ORIGIN_SOFT;
+                 }
+             }
+         }
+diff --git a/eforms/src/Security/TimingSignals.php b/eforms/src/Security/TimingSignals.php
+--- a/eforms/src/Security/TimingSignals.php
++++ b/eforms/src/Security/TimingSignals.php
+@@ -4,6 +4,8 @@
+  *
+  * Spec: Timing checks (docs/Canonical_Spec.md#sec-timing-checks)
+  */
++
++require_once __DIR__ . '/../SoftReason.php';
+ 
+ class TimingSignals
+ {
+@@ -43,11 +45,11 @@ class TimingSignals
+         $elapsed = $issued_at > 0 ? max(0, $now - $issued_at) : 0;
+ 
+         if ($min_fill_seconds > 0 && !$email_retry && $elapsed < $min_fill_seconds) {
+-            $soft_reasons[] = 'min_fill_time';
++            $soft_reasons[] = SoftReason::MIN_FILL_TIME;
+         }
+ 
+         if ($max_form_age_seconds > 0 && $elapsed > $max_form_age_seconds) {
+-            $soft_reasons[] = 'age_advisory';
++            $soft_reasons[] = SoftReason::AGE_ADVISORY;
+         }
+ 
+         $js_ok = self::post_string($post, 'js_ok');
+@@ -58,7 +60,7 @@ class TimingSignals
+                     'hard_fail' => true,
+                 );
+             }
+-            $soft_reasons[] = 'js_missing';
++            $soft_reasons[] = SoftReason::JS_MISSING;
+         }
+ 
+         return array(
+diff --git a/eforms/src/Security/Security.php b/eforms/src/Security/Security.php
+--- a/eforms/src/Security/Security.php
++++ b/eforms/src/Security/Security.php
+@@ -8,6 +8,7 @@
+  */
+ 
+ require_once __DIR__ . '/../Config.php';
++require_once __DIR__ . '/../SoftReason.php';
+ require_once __DIR__ . '/../Helpers.php';
+ require_once __DIR__ . '/../Uploads/PrivateDir.php';
+ require_once __DIR__ . '/OriginPolicy.php';
+@@ -18,7 +19,6 @@ class Security
+     const TOKEN_SUFFIX = '.json';
+     const TOKEN_REGEX = '/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i';
+     const INSTANCE_ID_REGEX = '/^[A-Za-z0-9_-]{22,32}$/';
+-    const SOFT_REASON_ORDER = array('min_fill_time', 'age_advisory', 'js_missing', 'origin_soft');
+ 
+     /**
+      * Mint and persist a hidden-mode token record.
+@@ -508,7 +508,7 @@ class Security
+             }
+         }
+ 
+-        foreach (self::SOFT_REASON_ORDER as $reason) {
++        foreach (SoftReason::ORDER as $reason) {
+             if (isset($unique[$reason])) {
+                 $ordered[] = $reason;
+             }

@@ -4,6 +4,9 @@
 .eforms-row { margin:0 0 1rem; }
 .eforms-error { color:#E6531F; font-weight:bold; line-height:1.3; margin:8px 0 0; }
 .eforms-error-summary { color:#E6531F; margin-bottom:1rem; }
+.eforms-error-summary ul { margin:0; padding-left:1.2rem; }
+.eforms-error-summary li { margin:0 0 0.25rem; }
+.eforms-error-summary a { color:inherit; }
 .eforms-success { color:#2a7a2a; margin-bottom:1rem; }
 .eforms-spinner { display:inline-block; margin-left:.5em; width:1em; height:1em; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:eforms-spin .6s linear infinite; }
 @keyframes eforms-spin { to { transform:rotate(360deg); } }

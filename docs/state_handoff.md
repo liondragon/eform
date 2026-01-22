@@ -3,11 +3,12 @@
 Only "run residue" that isn't captured well by `docs/Implementation_Plan.md`.
 
 ## Non-Obvious Implementation Notes
-- Descriptor handlers: `TemplateValidator` validates handler IDs (`validator_id`/`normalizer_id`/`renderer_id`), but `TemplateContext` resolves them to callables and stores them as `handlers.v` / `handlers.n` / `handlers.r`.
-- Test harness stubs: `eforms/tests/bootstrap.php` defines WP shims (`is_email()`, `apply_filters()`), but `apply_filters()` only forwards the first value argument; it also defines a stub `Logging` class that will shadow the real one unless `eforms/src/Logging.php` is required first.
-- Private uploads + health: `PrivateDir::ensure($uploads_dir)` creates `${uploads.dir}/eforms-private/` + deny files; `StorageHealth::check()` is memoized per request and probes mkdir/rename/`fopen('xb')` semantics (use `StorageHealth::reset_for_tests()` to clear memoization).
-- Upload render/validate are intentionally stubbed and may throw if invoked (preflight can still resolve handlers).
-- `TemplateContext` memoizes contexts in a static cache keyed by `form_id::version`; in unit tests, repeated builds can return cached results unless you vary `id`/`version`.
-- `Security::token_validate()` enforces POST `eforms_token` + `instance_id` regex guards before disk access; `eforms_mode` is optional and only a consistency check.
-- Origin policy checks use `Origin` + server host/scheme to classify same/cross/unknown/missing; in tests set `$_SERVER['HTTP_HOST']` + `$_SERVER['HTTPS']`/`SERVER_PORT` or provide a request header map.
-- `FormRenderer` keeps per-request static state (duplicate `form_id` detection, cache-header warning once); test helpers `reset_for_tests()` and `set_headers_sent_override()` exist, and it rewrites field `name` to `{form_id}[{field_key}]` (appends `[]` for multivalue).
+- Descriptor handlers: `TemplateValidator` validates handler IDs, but `TemplateContext` resolves them to callables and stores them as `handlers.v` / `handlers.n` / `handlers.r`.
+- Test harness gotcha: `eforms/tests/bootstrap.php` stubs `apply_filters()` (only forwards the first `$value` arg) and defines a stub `Logging` class unless `eforms/src/Logging.php` is loaded first.
+- Storage contract probe: `StorageHealth::check()` is memoized per request; it probes atomic mkdir/rename and `fopen('xb')` exclusive-create semantics (test helper: `StorageHealth::reset_for_tests()`).
+- Working tree note: this session introduced several new files (notably under `eforms/src/Email/`), so don’t forget to stage them when committing.
+- Security gate: `Security::token_validate()` regex-validates `eforms_token` + `instance_id` before disk access; posted `eforms_mode` is a consistency check only.
+- Submit pipeline knobs: `SubmitHandler::handle()` supports `overrides` (notably `template_base_dir` and `commit`) for deterministic integration tests; it also auto-selects `{form_id}[...]` payloads when present.
+- Email headers: `Emailer::send()` strips CR/LF + control chars and truncates Subject/From-Name to 255 bytes; From stays on site domain; Reply-To uses `email.reply_to_address` then `email.reply_to_field`.
+- Email-failure rerender: hidden-mode remints via `Security::mint_hidden_record()` and includes `eforms_email_retry=1`; JS-minted rerenders set `data-eforms-remint="1"` and leave token/instance/timestamp empty for forms.js to inject; rerender HTML includes a read-only copy `<textarea>`.
+- Suspect signaling: `SubmitHandler` emits `X-EForms-Soft-Fails` and `X-EForms-Suspect` only when `soft_fail_count > 0` and headers are not already sent; `Emailer` prefixes the subject with `email.suspect_subject_tag` (default `[Suspect]`) for suspect deliveries only.

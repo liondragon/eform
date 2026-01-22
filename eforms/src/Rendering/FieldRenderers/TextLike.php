@@ -12,8 +12,8 @@ class FieldRenderers_TextLike {
     public static function render( $descriptor, $field, $value = '', $context = array() ) {
         $attrs = self::build_attributes( $descriptor, $field, $context );
 
-        if ( ! isset( $attrs['value'] ) && $value !== null ) {
-            $attrs['value'] = $value;
+        if ( ! isset( $attrs['value'] ) && $value !== null && is_scalar( $value ) ) {
+            $attrs['value'] = (string) $value;
         }
 
         return self::render_input( $attrs );
@@ -105,4 +105,3 @@ class FieldRenderers_TextLike {
         return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
     }
 }
-

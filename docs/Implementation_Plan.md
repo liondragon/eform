@@ -6,7 +6,7 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
 - Spec: `docs/Canonical_Spec.md` (STABLE)
 - Digest (invariants checklist): `docs/Spec_Digest.md` (immutable)
 
-**Task cards:** Each checkbox includes `Artifacts/Interfaces/Tests/Depends On/Done When` so execution agents can implement without guessing.
+**Task cards:** Each checkbox includes `Artifacts/Interfaces/Tests/Depends On/Done When` (optionally `Handoff Required`) so execution agents can implement without guessing.
 
 **Repo state (observed):** `eforms/templates/` and `eforms/assets/` exist; the PHP implementation under `eforms/eforms.php` and `eforms/src/` is not present yet.
 
@@ -213,95 +213,108 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
   - `Done When:` GET render loads templates, preflights them, enqueues assets only when a form is present, rejects duplicate form IDs deterministically, and emits hidden-mode security inputs by delegating minting to `Security`; cache-safety headers are applied on responses that embed hidden-mode security inputs; when headers are already sent, GET render fails closed and surfaces `EFORMS_ERR_STORAGE_UNAVAILABLE` without minting; both integration tests pass
   - `Verified via:` `eforms/tests/integration/test_renderer_get_hidden_mode.php`, `eforms/tests/integration/test_cache_safety_hidden_mode_headers_sent.php`, `eforms/tests/smoke/test_bootstrap.php`
 
-- [ ] Honor `assets.css_disable` (Spec: Assets (docs/Canonical_Spec.md#sec-assets); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
+- [x] Honor `assets.css_disable` (Spec: Assets (docs/Canonical_Spec.md#sec-assets); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
   - `Reasoning:` **Low** — Simple config flag check; single conditional for CSS enqueue
   - `Artifacts:` `eforms/src/Rendering/FormRenderer.php` (modify)
   - `Interfaces:` `assets.css_disable`
   - `Tests:` `eforms/tests/integration/test_assets_css_disable.php` (new)
   - `Depends On:` Phase 1 — Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior; Phase 0 — Implement config snapshot bootstrap + override sources
   - `Done When:` when `assets.css_disable=true`, plugin CSS is not enqueued; JS enqueue behavior remains spec-compliant (JS-minted mode still works); `eforms/tests/integration/test_assets_css_disable.php` passes
+  - `Verified via:` `eforms/tests/integration/test_assets_css_disable.php`
 
-- [ ] Implement row-group wrapper emission and HTML fragment enforcement rules (Spec: Row groups (docs/Canonical_Spec.md#sec-template-row-groups); HTML-bearing fields (docs/Canonical_Spec.md#sec-html-fields); Template model (docs/Canonical_Spec.md#sec-template-model), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX])
+- [x] Implement row-group wrapper emission and HTML fragment enforcement rules (Spec: Row groups (docs/Canonical_Spec.md#sec-template-row-groups); HTML-bearing fields (docs/Canonical_Spec.md#sec-html-fields); Template model (docs/Canonical_Spec.md#sec-template-model), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX])
   - `Reasoning:` **Medium** — Balanced wrapper emission requires careful tree tracking; HTML sanitization has security implications
   - `Artifacts:` `eforms/src/Rendering/FormRenderer.php` (modify), `eforms/src/Validation/TemplateValidator.php` (modify)
   - `Interfaces:` Template JSON `row_group` pseudo-fields; `before_html` / `after_html`
   - `Tests:` `eforms/tests/unit/test_row_groups_balance.php` (new), `eforms/tests/unit/test_html_fragment_sanitization.php` (new)
   - `Depends On:` Phase 1 — Implement template schema/envelope validation (unknown keys rejected); Phase 1 — Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior
   - `Done When:` renderer emits balanced wrappers without auto-closing; TemplateValidator enforces HTML fragment constraints (sanitization and any rejection rules defined by the spec); both unit tests pass
+  - `Verified via:` `eforms/tests/unit/test_row_groups_balance.php`, `eforms/tests/unit/test_html_fragment_sanitization.php`
 
-- [ ] Implement accessibility + error rendering contract (Spec: Accessibility (docs/Canonical_Spec.md#sec-accessibility); Assets (docs/Canonical_Spec.md#sec-assets), Anchors: None)
+- [x] Implement accessibility + error rendering contract (Spec: Accessibility (docs/Canonical_Spec.md#sec-accessibility); Assets (docs/Canonical_Spec.md#sec-assets), Anchors: None)
   - `Reasoning:` **Medium** — Coordinated changes across PHP renderer, JS, and CSS with ARIA semantics
   - `Artifacts:` `eforms/src/Rendering/FormRenderer.php` (modify), `eforms/assets/forms.js` (modify), `eforms/assets/forms.css` (modify)
   - `Interfaces:` Error summary markup + focus behavior; ARIA attributes; per-field error rendering
   - `Tests:` `eforms/tests/integration/test_accessibility_error_summary.php` (new)
   - `Depends On:` Phase 1 — Implement built-in field types: choice/select/radio/checkbox + option semantics; Phase 1 — Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior
   - `Done When:` error summary and per-field errors render per spec; JS focus/UX behavior follows spec; `eforms/tests/integration/test_accessibility_error_summary.php` passes
+  - `Verified via:` `eforms/tests/integration/test_accessibility_error_summary.php`
 
 ### Submission pipeline (POST)
 
-- [ ] Implement Normalize stage (pure + deterministic) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [MAX_FIELDS_MAX])
+- [x] Implement Normalize stage (pure + deterministic) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [MAX_FIELDS_MAX])
   - `Reasoning:` **Medium** — Pure/deterministic function; careful attention to option semantics and edge cases
   - `Artifacts:` `eforms/src/Validation/Normalizer.php` (new)
   - `Interfaces:` Field-type normalization rules and option semantics (no rejection in Normalize stage)
   - `Tests:` `eforms/tests/unit/test_normalize_stage.php` (new)
   - `Depends On:` Phase 1 — Implement built-in field types: choice/select/radio/checkbox + option semantics
   - `Done When:` given identical inputs, Normalize emits identical canonical values and emits no hard failures; `eforms/tests/unit/test_normalize_stage.php` passes
+  - `Verified via:` `eforms/tests/unit/test_normalize_stage.php`
 
-- [ ] Implement Validate stage (errors + deterministic ordering) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Template validation (docs/Canonical_Spec.md#sec-template-validation); Cross-field rules (docs/Canonical_Spec.md#sec-cross-field-rules), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
+- [x] Implement Validate stage (errors + deterministic ordering) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Template validation (docs/Canonical_Spec.md#sec-template-validation); Cross-field rules (docs/Canonical_Spec.md#sec-cross-field-rules), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
   - `Reasoning:` **High** — Cross-field rules, deterministic error ordering, stable error surface; high spec compliance pressure
   - `Artifacts:` `eforms/src/Validation/Validator.php` (new)
   - `Interfaces:` Field validation rules, cross-field rules, and stable error ordering contract
   - `Tests:` `eforms/tests/unit/test_validation_determinism.php` (new), `eforms/tests/unit/test_cross_field_rules.php` (new)
   - `Depends On:` Phase 1 — Implement Normalize stage (pure + deterministic)
   - `Done When:` errors are stable/deterministic for identical inputs; cross-field rules match the spec; both unit tests pass
+  - `Verified via:` `eforms/tests/unit/test_validation_determinism.php`, `eforms/tests/unit/test_cross_field_rules.php`
 
-- [ ] Implement Coerce stage (post-validate canonicalization) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [MAX_FIELDS_MAX])
+- [x] Implement Coerce stage (post-validate canonicalization) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [MAX_FIELDS_MAX])
   - `Reasoning:` **Low** — Straightforward post-validate type coercion
   - `Artifacts:` `eforms/src/Validation/Coercer.php` (new)
   - `Interfaces:` Type coercion rules defined by the spec (post-validate)
   - `Tests:` `eforms/tests/unit/test_coerce_stage.php` (new)
   - `Depends On:` Phase 1 — Implement Validate stage (errors + deterministic ordering)
   - `Done When:` Coerce produces canonical typed output for downstream side effects; `eforms/tests/unit/test_coerce_stage.php` passes
+  - `Verified via:` `eforms/tests/unit/test_coerce_stage.php`
 
-- [ ] Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success) (Spec: Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Security (docs/Canonical_Spec.md#sec-security), Anchors: [TOKEN_TTL_MAX])
+- [x] Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success) (Spec: Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Security (docs/Canonical_Spec.md#sec-security), Anchors: [TOKEN_TTL_MAX])
   - `Reasoning:` **High** — Core pipeline ordering per Spec_Digest invariants; security gate → ledger → side effects sequencing is critical
   - `Artifacts:` `eforms/src/Submission/SubmitHandler.php` (new), `eforms/src/Submission/RequestContext.php` (new, optional)
   - `Interfaces:` POST handler for submissions; stable error rerender behavior
   - `Tests:` `eforms/tests/integration/test_post_pipeline_ordering.php` (new), `eforms/tests/integration/test_post_size_cap.php` (new)
   - `Depends On:` Phase 1 — Implement POST size cap helper (effective cap calculation); Phase 1 — Implement `Security::token_validate` for hidden-mode, including tamper guards and `soft_reasons` production; Phase 1 — Implement Coerce stage (post-validate canonicalization)
   - `Done When:` orchestration order matches `docs/Spec_Digest.md`; post-size cap is enforced before side effects; both integration tests pass
+  - `Verified via:` `eforms/tests/integration/test_post_pipeline_ordering.php`, `eforms/tests/integration/test_post_size_cap.php`
 
-- [ ] Implement honeypot behavior (stealth vs hard-fail) including ledger burn rule (Spec: Honeypot (docs/Canonical_Spec.md#sec-honeypot); Security (docs/Canonical_Spec.md#sec-security), Anchors: [TOKEN_TTL_MAX])
+- [x] Implement honeypot behavior (stealth vs hard-fail) including ledger burn rule (Spec: Honeypot (docs/Canonical_Spec.md#sec-honeypot); Security (docs/Canonical_Spec.md#sec-security), Anchors: [TOKEN_TTL_MAX])
   - `Reasoning:` **Medium** — Stealth vs hard-fail logic; ledger burn integration
   - `Artifacts:` `eforms/src/Security/Honeypot.php` (new), `eforms/src/Submission/SubmitHandler.php` (modify)
   - `Interfaces:` Fixed POST name `eforms_hp` and spec-defined response behavior
   - `Tests:` `eforms/tests/integration/test_honeypot_paths.php` (new)
   - `Depends On:` Phase 1 — Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success)
   - `Done When:` honeypot short-circuits before validation/email; ledger burn is attempted only when `token_ok=true`; `eforms/tests/integration/test_honeypot_paths.php` passes
+  - `Verified via:` `eforms/tests/integration/test_honeypot_paths.php`
 
-- [ ] Implement ledger reservation contract and duplicate-submission behavior (Spec: Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
+- [x] Implement ledger reservation contract and duplicate-submission behavior (Spec: Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
   - `Reasoning:` **High** — Concurrency semantics (EEXIST=duplicate), atomic file ops, GC coordination
+  - `Handoff Required:` yes — include EEXIST duplicate semantics, atomic exclusive-create rationale, and how to reproduce concurrency-test failures
   - `Artifacts:` `eforms/src/Submission/Ledger.php` (new)
   - `Interfaces:` Ledger marker pathing and duplicate semantics (EEXIST treated as duplicate)
   - `Tests:` `eforms/tests/integration/test_ledger_reserve_semantics.php` (new)
   - `Depends On:` Phase 1 — Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success)
   - `Done When:` reservation is performed immediately before side effects; non-EEXIST IO failures surface `EFORMS_ERR_LEDGER_IO` and are logged per spec; `eforms/tests/integration/test_ledger_reserve_semantics.php` passes
+  - `Verified via:` `eforms/tests/integration/test_ledger_reserve_semantics.php`
 
-- [ ] Implement email delivery core (no uploads yet) and email-failure rerender contract (Spec: Email delivery (docs/Canonical_Spec.md#sec-email); Email templates (docs/Canonical_Spec.md#sec-email-templates); Templates to include (docs/Canonical_Spec.md#sec-templates-to-include); Email-failure recovery (docs/Canonical_Spec.md#sec-email-failure-recovery); Hidden-mode email-failure recovery (docs/Canonical_Spec.md#sec-hidden-email-failure); Error handling (docs/Canonical_Spec.md#sec-error-handling); Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post), Anchors: [TOKEN_TTL_MAX])
+- [x] Implement email delivery core (no uploads yet) and email-failure rerender contract (Spec: Email delivery (docs/Canonical_Spec.md#sec-email); Email templates (docs/Canonical_Spec.md#sec-email-templates); Templates to include (docs/Canonical_Spec.md#sec-templates-to-include); Email-failure recovery (docs/Canonical_Spec.md#sec-email-failure-recovery); Hidden-mode email-failure recovery (docs/Canonical_Spec.md#sec-hidden-email-failure); Error handling (docs/Canonical_Spec.md#sec-error-handling); Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post), Anchors: [TOKEN_TTL_MAX])
   - `Reasoning:` **High** — Header sanitization, Reply-To precedence, template token expansion; failure recovery with token reminting
+  - `Handoff Required:` yes — include email header sanitization rules, token reminting behavior (hidden vs JS-minted), and how to reproduce email-failure rerender tests
   - `Artifacts:` `eforms/src/Email/Emailer.php` (new), `eforms/src/Email/Templates.php` (new)
   - `Interfaces:` Template `email` block contract; `wp_mail()` usage; stable email-failure behavior
   - `Tests:` `eforms/tests/integration/test_email_headers_sanitization.php` (new), `eforms/tests/integration/test_email_failure_rerender.php` (new)
   - `Depends On:` Phase 1 — Implement ledger reservation contract and duplicate-submission behavior; Phase 1 — Implement minimal logging mode with request correlation id
   - `Done When:` email assembly follows spec rules (header sanitization, Reply-To precedence, template token expansion); on send failure the pipeline rerenders with a fresh token per mode contract and logs required fields; both integration tests pass
+  - `Verified via:` `eforms/tests/integration/test_email_headers_sanitization.php`, `eforms/tests/integration/test_email_failure_rerender.php`
 
-- [ ] Implement suspect handling signaling (headers + subject tagging) (Spec: Suspect handling (docs/Canonical_Spec.md#sec-suspect-handling); Spam decision (docs/Canonical_Spec.md#sec-spam-decision), Anchors: None)
+- [x] Implement suspect handling signaling (headers + subject tagging) (Spec: Suspect handling (docs/Canonical_Spec.md#sec-suspect-handling); Spam decision (docs/Canonical_Spec.md#sec-spam-decision), Anchors: None)
   - `Reasoning:` **Low** — Header/subject modification; minimal logic
   - `Artifacts:` `eforms/src/Submission/SubmitHandler.php` (modify), `eforms/src/Email/Emailer.php` (modify)
   - `Interfaces:` Response headers (`X-EForms-Soft-Fails`, `X-EForms-Suspect`) and any spec-defined subject tagging behavior
   - `Tests:` `eforms/tests/integration/test_suspect_signaling.php` (new)
   - `Depends On:` Phase 1 — Implement `Security::token_validate` for hidden-mode, including tamper guards and `soft_reasons` production; Phase 1 — Implement email delivery core (no uploads yet) and email-failure rerender contract
   - `Done When:` suspect/soft-fail signaling matches the spec across success + rerender responses; `eforms/tests/integration/test_suspect_signaling.php` passes
+  - `Verified via:` `eforms/tests/integration/test_suspect_signaling.php`
 
 - [ ] Implement PRG success behavior (inline vs redirect) and cache-safety headers for success URLs (Spec: Success behavior (docs/Canonical_Spec.md#sec-success); Success modes (docs/Canonical_Spec.md#sec-success-modes); Inline success flow (docs/Canonical_Spec.md#sec-success-flow); Redirect safety (docs/Canonical_Spec.md#sec-redirect-safety); Cache-safety (docs/Canonical_Spec.md#sec-cache-safety), Anchors: None)
   - `Reasoning:` **Medium** — Inline vs redirect modes; cache-safety enforcement on success paths
