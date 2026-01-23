@@ -316,13 +316,14 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
   - `Done When:` suspect/soft-fail signaling matches the spec across success + rerender responses; `eforms/tests/integration/test_suspect_signaling.php` passes
   - `Verified via:` `eforms/tests/integration/test_suspect_signaling.php`
 
-- [ ] Implement PRG success behavior (inline vs redirect) and cache-safety headers for success URLs (Spec: Success behavior (docs/Canonical_Spec.md#sec-success); Success modes (docs/Canonical_Spec.md#sec-success-modes); Inline success flow (docs/Canonical_Spec.md#sec-success-flow); Redirect safety (docs/Canonical_Spec.md#sec-redirect-safety); Cache-safety (docs/Canonical_Spec.md#sec-cache-safety), Anchors: None)
+- [x] Implement PRG success behavior (inline vs redirect) and cache-safety headers for success URLs (Spec: Success behavior (docs/Canonical_Spec.md#sec-success); Success modes (docs/Canonical_Spec.md#sec-success-modes); Inline success flow (docs/Canonical_Spec.md#sec-success-flow); Redirect safety (docs/Canonical_Spec.md#sec-redirect-safety); Cache-safety (docs/Canonical_Spec.md#sec-cache-safety), Anchors: None)
   - `Reasoning:` **Medium** — Inline vs redirect modes; cache-safety enforcement on success paths
   - `Artifacts:` `eforms/src/Submission/Success.php` (new), `eforms/src/Rendering/FormRenderer.php` (modify)
   - `Interfaces:` `success.mode`, `?eforms_success={form_id}` query arg behavior, redirects via `wp_safe_redirect`
   - `Tests:` `eforms/tests/integration/test_success_inline_flow.php` (new), `eforms/tests/integration/test_success_redirect_flow.php` (new)
   - `Depends On:` Phase 1 — Implement email delivery core (no uploads yet) and email-failure rerender contract
   - `Done When:` success responses satisfy cache-safety rules; inline success is rejected when combined with cacheable render per spec; both integration tests pass
+  - `Verified via:` `eforms/tests/integration/test_success_inline_flow.php`, `eforms/tests/integration/test_success_redirect_flow.php`
 
 ---
 
@@ -348,7 +349,7 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
   - `Done When:` endpoint matches the spec contract (method, content type, cache headers, cookie/CORS prohibitions, status/error surface); post-size cap is enforced; `eforms/tests/integration/test_mint_endpoint_contract.php` passes
   - `Verified via:` `eforms/tests/integration/test_mint_endpoint_contract.php`
 
-- [ ] Implement JS-minted token injection + remint behavior in `forms.js` (Spec: Assets (docs/Canonical_Spec.md#sec-assets); JS-minted email-failure recovery (docs/Canonical_Spec.md#sec-js-email-failure); JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode), Anchors: [TOKEN_TTL_MAX])
+- [x] Implement JS-minted token injection + remint behavior in `forms.js` (Spec: Assets (docs/Canonical_Spec.md#sec-assets); JS-minted email-failure recovery (docs/Canonical_Spec.md#sec-js-email-failure); JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode), Anchors: [TOKEN_TTL_MAX])
   - `Reasoning:` **Medium** — Client-side injection logic; remint marker handling; moderate complexity but mostly isolated
   - `Artifacts:` `eforms/assets/forms.js` (new), `eforms/src/Rendering/FormRenderer.php` (modify)
   - `Interfaces:` JS-minted mode form markup; `data-eforms-remint` marker

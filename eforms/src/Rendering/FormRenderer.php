@@ -8,18 +8,21 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../Anchors.php';
 require_once __DIR__ . '/../Errors.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Security/StorageHealth.php';
+require_once __DIR__ . '/../Submission/Success.php';
 if ( ! class_exists( 'Logging' ) ) {
     require_once __DIR__ . '/../Logging.php';
 }
 
 class FormRenderer {
     private static $rendered_form_ids = array();
+    private static $success_banner_shown = array();
     private static $logged_header_warning = false;
     private static $logged_input_vars_warning = false;
     private static $headers_sent_override = null;
@@ -64,6 +67,13 @@ class FormRenderer {
 
         if ( $cacheable && self::is_inline_success( $context ) ) {
             return self::render_error( 'EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE' );
+        }
+
+        if ( self::should_show_success_banner( $form_id, $context ) ) {
+            self::mark_success_banner_shown( $form_id );
+            self::mark_rendered( $form_id );
+            self::ensure_cache_headers( true );
+            return Success::render_banner( $context );
         }
 
         $mode = $cacheable ? 'js' : 'hidden';
@@ -134,6 +144,7 @@ class FormRenderer {
      */
     public static function reset_for_tests() {
         self::$rendered_form_ids = array();
+        self::$success_banner_shown = array();
         self::$logged_header_warning = false;
         self::$logged_input_vars_warning = false;
         self::$headers_sent_override = null;
@@ -247,6 +258,36 @@ class FormRenderer {
 
     private static function mark_rendered( $form_id ) {
         self::$rendered_form_ids[ $form_id ] = true;
+    }
+
+    /**
+     * Check if success banner should be shown for this form.
+     *
+     * Spec: Show banner only in the first instance in source order; suppress subsequent duplicates.
+     *
+     * @param string $form_id Form identifier.
+     * @param array $context Template context.
+     * @return bool True if success banner should be shown.
+     */
+    private static function should_show_success_banner( $form_id, $context ) {
+        if ( isset( self::$success_banner_shown[ $form_id ] ) ) {
+            return false;
+        }
+
+        if ( ! self::is_inline_success( $context ) ) {
+            return false;
+        }
+
+        return Success::is_inline_success_request( $form_id );
+    }
+
+    /**
+     * Mark success banner as shown for form.
+     *
+     * @param string $form_id Form identifier.
+     */
+    private static function mark_success_banner_shown( $form_id ) {
+        self::$success_banner_shown[ $form_id ] = true;
     }
 
     private static function is_inline_success( $context ) {
@@ -415,6 +456,8 @@ class FormRenderer {
             ? $email_failure['email_failure_summary']
             : '';
         $email_failure_remint = is_array( $email_failure ) && ! empty( $email_failure['email_failure_remint'] );
+        // Educational note: expose TTL max so forms.js can cap sessionStorage reuse.
+        $token_ttl_max = class_exists( 'Anchors' ) ? Anchors::get( 'TOKEN_TTL_MAX' ) : null;
 
         $attrs = array(
             'class' => 'eforms-form eforms-form-' . $form_id,
@@ -423,6 +466,9 @@ class FormRenderer {
 
         if ( $email_failure_remint ) {
             $attrs['data-eforms-remint'] = '1';
+        }
+        if ( is_int( $token_ttl_max ) && $token_ttl_max > 0 ) {
+            $attrs['data-eforms-token-ttl-max'] = (string) $token_ttl_max;
         }
 
         if ( ! empty( $context['has_uploads'] ) ) {

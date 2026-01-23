@@ -20,6 +20,7 @@ require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Security/StorageHealth.php';
 require_once __DIR__ . '/../Email/Emailer.php';
 require_once __DIR__ . '/Ledger.php';
+require_once __DIR__ . '/Success.php';
 require_once __DIR__ . '/../Validation/Coercer.php';
 require_once __DIR__ . '/../Validation/Normalizer.php';
 require_once __DIR__ . '/../Validation/Validator.php';
@@ -101,7 +102,8 @@ class SubmitHandler {
                 return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
             }
 
-            return self::honeypot_success_result( $security, $security_meta, $trace, $trace_on );
+            $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
+            return self::honeypot_success_result( $security, $security_meta, $success_config, $resolved_form_id, $trace, $trace_on );
         }
 
         if ( ! self::token_ok( $security ) ) {
@@ -150,6 +152,9 @@ class SubmitHandler {
         $ok = is_array( $commit ) && array_key_exists( 'ok', $commit ) ? (bool) $commit['ok'] : true;
         $status = is_array( $commit ) && isset( $commit['status'] ) ? (int) $commit['status'] : 200;
 
+        $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
+        $success_mode = isset( $success_config['mode'] ) && is_string( $success_config['mode'] ) ? $success_config['mode'] : 'inline';
+
         $result = array(
             'ok' => $ok,
             'status' => $status,
@@ -161,6 +166,12 @@ class SubmitHandler {
             'errors' => null,
             'security' => $security_meta,
             'commit' => $commit,
+            'success' => array(
+                'mode' => $success_mode,
+                'message' => isset( $success_config['message'] ) ? $success_config['message'] : '',
+                'redirect_url' => isset( $success_config['redirect_url'] ) ? $success_config['redirect_url'] : '',
+            ),
+            'form_id' => $resolved_form_id,
         );
 
         if ( $trace_on ) {
@@ -168,6 +179,31 @@ class SubmitHandler {
         }
 
         return $result;
+    }
+
+    /**
+     * Perform PRG redirect after successful submission.
+     *
+     * Spec: PRG status is fixed at 303. Success responses MUST satisfy cache-safety.
+     *
+     * @param array $result Result from handle() with ok=true.
+     * @param array $options Optional overrides for testing.
+     * @return array Redirect result from Success class.
+     */
+    public static function do_success_redirect( $result, $options = array() ) {
+        if ( ! is_array( $result ) || empty( $result['ok'] ) ) {
+            return array( 'ok' => false, 'reason' => 'not_success' );
+        }
+
+        $form_id = isset( $result['form_id'] ) && is_string( $result['form_id'] ) ? $result['form_id'] : '';
+        $success = isset( $result['success'] ) && is_array( $result['success'] ) ? $result['success'] : array();
+
+        $context = array(
+            'id' => $form_id,
+            'success' => $success,
+        );
+
+        return Success::redirect( $context, $options );
     }
 
     private static function call_security( $overrides, &$trace, $trace_on, $post, $form_id, $request, $uploads_dir, $config ) {
@@ -456,7 +492,11 @@ class SubmitHandler {
         return $result;
     }
 
-    private static function honeypot_success_result( $security, $security_meta, $trace, $trace_on ) {
+    private static function honeypot_success_result( $security, $security_meta, $success_config, $form_id, $trace, $trace_on ) {
+        $success_config = is_array( $success_config ) ? $success_config : array();
+        $success_mode = isset( $success_config['mode'] ) && is_string( $success_config['mode'] ) ? $success_config['mode'] : 'inline';
+        $form_id = is_string( $form_id ) ? $form_id : '';
+
         $result = array(
             'ok' => true,
             'status' => 200,
@@ -472,6 +512,13 @@ class SubmitHandler {
                 'status' => 200,
                 'committed' => false,
             ),
+            // Educational note: stealth honeypot paths should mirror success metadata.
+            'success' => array(
+                'mode' => $success_mode,
+                'message' => isset( $success_config['message'] ) ? $success_config['message'] : '',
+                'redirect_url' => isset( $success_config['redirect_url'] ) ? $success_config['redirect_url'] : '',
+            ),
+            'form_id' => $form_id,
         );
 
         if ( $trace_on ) {
