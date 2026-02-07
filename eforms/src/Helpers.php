@@ -125,17 +125,20 @@ class Helpers
     /**
      * Derive the throttle key from a resolved client IP.
      */
-    public static function throttle_key(mixed $request): string
+    public static function throttle_key(mixed $request, ?array $config = null): string
     {
         self::ensure_config();
 
-        $ip = match (true) {
-            is_string($request) => $request,
-            is_array($request) && isset($request['client_ip']) => $request['client_ip'],
-            is_object($request) && isset($request->client_ip) => $request->client_ip,
-            is_object($request) && method_exists($request, 'get_client_ip') => $request->get_client_ip(),
-            default => '',
-        };
+        if (!class_exists('ClientIp')) {
+            require_once __DIR__ . '/Privacy/ClientIp.php';
+        }
+
+        $ip = '';
+        if (is_string($request)) {
+            $ip = trim($request);
+        } else {
+            $ip = ClientIp::resolve($request, $config);
+        }
 
         if (!is_string($ip) || $ip === '') {
             throw new InvalidArgumentException('Resolved client IP is required.');

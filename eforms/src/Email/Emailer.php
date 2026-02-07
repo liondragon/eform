@@ -12,6 +12,7 @@
 
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Helpers.php';
+require_once __DIR__ . '/../Privacy/ClientIp.php';
 require_once __DIR__ . '/../Validation/FieldTypes/TextLike.php';
 require_once __DIR__ . '/Templates.php';
 if ( ! class_exists( 'Logging' ) ) {
@@ -66,7 +67,7 @@ class Emailer {
         $meta = self::build_meta( $form_id, $submission_id, $security, $request, $config );
         $values = is_array( $values ) ? $values : array();
         $canonical = self::build_email_values( $context, $values, $display_format );
-        $include_fields = self::include_fields_list( $email );
+        $include_fields = self::include_fields_list( $email, $config );
 
         $tokens = self::token_map( $canonical['fields'], $meta );
         $subject = self::expand_tokens( $subject_tpl, $tokens );
@@ -99,6 +100,14 @@ class Emailer {
 
         $body = self::expand_tokens( $rendered['body'], $tokens );
         $body = self::normalize_body( $body, $is_html );
+        $attachment_policy = self::select_attachments( $context, $values, $config );
+        $attachments = isset( $attachment_policy['attachments'] ) && is_array( $attachment_policy['attachments'] )
+            ? $attachment_policy['attachments']
+            : array();
+        $overflow_names = isset( $attachment_policy['overflow_names'] ) && is_array( $attachment_policy['overflow_names'] )
+            ? $attachment_policy['overflow_names']
+            : array();
+        $body = self::append_attachment_overflow_summary( $body, $overflow_names, $is_html );
 
         $headers = self::build_headers( $config, $values, $canonical['fields'], $email, $request );
         if ( $headers === null ) {
@@ -118,7 +127,7 @@ class Emailer {
 
         try {
             if ( function_exists( 'wp_mail' ) ) {
-                $ok = (bool) wp_mail( $to_list, $subject, $body, $headers, array() );
+                $ok = (bool) wp_mail( $to_list, $subject, $body, $headers, $attachments );
             }
         } catch ( Throwable $exception ) {
             $error_class = get_class( $exception );
@@ -135,6 +144,8 @@ class Emailer {
                 'to' => $to_list,
                 'headers' => $headers,
                 'body' => $body,
+                'attachments' => $attachments,
+                'attachments_overflow' => $overflow_names,
             ) );
         }
 
@@ -145,6 +156,8 @@ class Emailer {
             'body' => $body,
             'headers' => $headers,
             'to' => $to_list,
+            'attachments' => $attachments,
+            'attachments_overflow' => $overflow_names,
         );
     }
 
@@ -167,7 +180,7 @@ class Emailer {
         $meta = self::build_meta( $form_id, $submission_id, $security, $request, $config );
         $values = is_array( $values ) ? $values : array();
         $canonical = self::build_email_values( $context, $values, $display_format );
-        $include_fields = self::include_fields_list( $email );
+        $include_fields = self::include_fields_list( $email, $config );
 
         $lines = array();
         $lines[] = 'Form: ' . $meta['form_id'];
@@ -227,10 +240,8 @@ class Emailer {
 
     private static function build_meta( $form_id, $submission_id, $security, $request, $config ) {
         $submitted_at = gmdate( 'c' );
-        $ip = self::present_ip( self::resolve_client_ip( $request ), $config );
-        if ( $ip === '' ) {
-            $ip = '';
-        }
+        $resolved_ip = ClientIp::resolve( $request, $config );
+        $ip = ClientIp::present( $resolved_ip, $config );
 
         return array(
             'submitted_at' => $submitted_at,
@@ -308,6 +319,13 @@ class Emailer {
     }
 
     private static function upload_names( $value ) {
+        if ( self::is_upload_item( $value ) && isset( $value['original_name_safe'] ) && is_string( $value['original_name_safe'] ) ) {
+            $single = trim( $value['original_name_safe'] );
+            if ( $single !== '' ) {
+                return array( $single );
+            }
+        }
+
         $names = array();
         if ( is_array( $value ) ) {
             foreach ( $value as $entry ) {
@@ -328,14 +346,18 @@ class Emailer {
         return $entries;
     }
 
-    private static function include_fields_list( $email ) {
+    private static function include_fields_list( $email, $config ) {
         if ( ! is_array( $email ) || ! isset( $email['include_fields'] ) || ! is_array( $email['include_fields'] ) ) {
             return array();
         }
 
         $out = array();
+        $include_ip = ClientIp::should_include_email_ip( $config );
         foreach ( $email['include_fields'] as $entry ) {
             if ( is_string( $entry ) ) {
+                if ( $entry === 'ip' && ! $include_ip ) {
+                    continue;
+                }
                 $out[] = $entry;
             }
         }
@@ -398,6 +420,219 @@ class Emailer {
 
         $body = str_replace( array( "\r\n", "\r" ), "\n", $body );
         return $body;
+    }
+
+    private static function select_attachments( $context, $values, $config ) {
+        $values = is_array( $values ) ? $values : array();
+        $fields = array();
+        if ( is_array( $context ) && isset( $context['fields'] ) && is_array( $context['fields'] ) ) {
+            $fields = $context['fields'];
+        }
+
+        $max_attachments = self::upload_max_attachments( $config );
+        $max_email_bytes = self::upload_max_email_bytes( $config );
+
+        $attachments = array();
+        $overflow_names = array();
+        $attached_bytes = 0;
+
+        foreach ( $fields as $field ) {
+            if ( ! is_array( $field ) ) {
+                continue;
+            }
+
+            $type = isset( $field['type'] ) && is_string( $field['type'] ) ? $field['type'] : '';
+            if ( $type !== 'file' && $type !== 'files' ) {
+                continue;
+            }
+
+            if ( empty( $field['email_attach'] ) ) {
+                continue;
+            }
+
+            $key = isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
+            if ( $key === '' || ! array_key_exists( $key, $values ) ) {
+                continue;
+            }
+
+            $items = self::normalize_upload_items( $values[ $key ] );
+            foreach ( $items as $item ) {
+                $path = self::upload_stored_path( $item );
+                if ( $path === '' ) {
+                    continue;
+                }
+
+                $name = self::upload_display_name( $item, $path );
+                $size = self::upload_attachment_bytes( $item, $path );
+
+                if ( count( $attachments ) >= $max_attachments ) {
+                    if ( $name !== '' ) {
+                        $overflow_names[] = $name;
+                    }
+                    continue;
+                }
+
+                if ( $attached_bytes + $size > $max_email_bytes ) {
+                    if ( $name !== '' ) {
+                        $overflow_names[] = $name;
+                    }
+                    continue;
+                }
+
+                $attachments[] = $path;
+                $attached_bytes += $size;
+            }
+        }
+
+        return array(
+            'attachments' => $attachments,
+            'overflow_names' => self::stable_unique_names( $overflow_names ),
+            'attached_bytes' => $attached_bytes,
+        );
+    }
+
+    private static function normalize_upload_items( $value ) {
+        if ( self::is_upload_item( $value ) ) {
+            return array( $value );
+        }
+
+        if ( ! is_array( $value ) ) {
+            return array();
+        }
+
+        $items = array();
+        foreach ( $value as $entry ) {
+            if ( self::is_upload_item( $entry ) ) {
+                $items[] = $entry;
+            }
+        }
+
+        return $items;
+    }
+
+    private static function is_upload_item( $value ) {
+        return is_array( $value )
+            && array_key_exists( 'original_name', $value )
+            && array_key_exists( 'original_name_safe', $value )
+            && array_key_exists( 'tmp_name', $value )
+            && array_key_exists( 'error', $value )
+            && array_key_exists( 'size', $value );
+    }
+
+    private static function upload_stored_path( $item ) {
+        if ( ! is_array( $item ) ) {
+            return '';
+        }
+
+        if ( ! isset( $item['stored'] ) || ! is_array( $item['stored'] ) ) {
+            return '';
+        }
+
+        $path = isset( $item['stored']['path'] ) && is_string( $item['stored']['path'] ) ? $item['stored']['path'] : '';
+        $path = trim( $path );
+        if ( $path === '' || ! is_file( $path ) ) {
+            return '';
+        }
+
+        return $path;
+    }
+
+    private static function upload_display_name( $item, $path ) {
+        if ( is_array( $item ) && isset( $item['original_name_safe'] ) && is_string( $item['original_name_safe'] ) ) {
+            $name = trim( $item['original_name_safe'] );
+            if ( $name !== '' ) {
+                return $name;
+            }
+        }
+
+        if ( is_array( $item ) && isset( $item['original_name'] ) && is_string( $item['original_name'] ) ) {
+            $name = trim( $item['original_name'] );
+            if ( $name !== '' ) {
+                return $name;
+            }
+        }
+
+        $base = basename( $path );
+        return is_string( $base ) ? $base : '';
+    }
+
+    private static function upload_attachment_bytes( $item, $path ) {
+        if ( is_array( $item ) && isset( $item['stored'] ) && is_array( $item['stored'] ) && isset( $item['stored']['bytes'] ) && is_numeric( $item['stored']['bytes'] ) ) {
+            $bytes = (int) $item['stored']['bytes'];
+            return $bytes > 0 ? $bytes : 0;
+        }
+
+        $size = @filesize( $path );
+        if ( ! is_numeric( $size ) ) {
+            return 0;
+        }
+
+        $bytes = (int) $size;
+        return $bytes > 0 ? $bytes : 0;
+    }
+
+    private static function upload_max_attachments( $config ) {
+        $value = self::config_value( $config, array( 'email', 'upload_max_attachments' ) );
+        if ( ! is_numeric( $value ) ) {
+            $value = Config::DEFAULT_EMAIL_MAX_ATTACHMENTS;
+        }
+
+        $limit = (int) $value;
+        if ( $limit < 0 ) {
+            return 0;
+        }
+
+        return $limit;
+    }
+
+    private static function upload_max_email_bytes( $config ) {
+        $value = self::config_value( $config, array( 'uploads', 'max_email_bytes' ) );
+        if ( ! is_numeric( $value ) ) {
+            $value = Config::DEFAULT_UPLOAD_MAX_EMAIL_BYTES;
+        }
+
+        $limit = (int) $value;
+        if ( $limit < 0 ) {
+            return 0;
+        }
+
+        return $limit;
+    }
+
+    private static function append_attachment_overflow_summary( $body, $overflow_names, $is_html ) {
+        if ( ! is_array( $overflow_names ) || empty( $overflow_names ) ) {
+            return $body;
+        }
+
+        $summary = 'Attachments omitted due to limits: ' . implode( ', ', $overflow_names );
+
+        if ( $is_html ) {
+            $line = '<p>' . htmlspecialchars( $summary, ENT_QUOTES ) . '</p>';
+            return rtrim( $body ) . "\n" . $line;
+        }
+
+        return rtrim( $body ) . "\n\n" . $summary;
+    }
+
+    private static function stable_unique_names( $names ) {
+        $out = array();
+        $seen = array();
+
+        foreach ( $names as $name ) {
+            if ( ! is_string( $name ) ) {
+                continue;
+            }
+
+            $name = trim( $name );
+            if ( $name === '' || isset( $seen[ $name ] ) ) {
+                continue;
+            }
+
+            $seen[ $name ] = true;
+            $out[] = $name;
+        }
+
+        return $out;
     }
 
     private static function build_headers( $config, $values, $canonical_fields, $email, $request ) {
@@ -645,82 +880,6 @@ class Emailer {
         }
 
         Logging::event( 'warning', 'EFORMS_ERR_EMAIL_SEND', $meta, $request );
-    }
-
-    private static function resolve_client_ip( $request ) {
-        if ( is_array( $request ) && isset( $request['client_ip'] ) && is_string( $request['client_ip'] ) ) {
-            return trim( $request['client_ip'] );
-        }
-
-        if ( is_object( $request ) ) {
-            if ( isset( $request->client_ip ) && is_string( $request->client_ip ) ) {
-                return trim( $request->client_ip );
-            }
-            if ( method_exists( $request, 'get_client_ip' ) ) {
-                $value = $request->get_client_ip();
-                if ( is_string( $value ) ) {
-                    return trim( $value );
-                }
-            }
-        }
-
-        return '';
-    }
-
-    private static function present_ip( $ip, $config ) {
-        if ( ! is_string( $ip ) || $ip === '' ) {
-            return '';
-        }
-
-        $mode = self::config_value( $config, array( 'privacy', 'ip_mode' ) );
-        $mode = is_string( $mode ) ? $mode : 'none';
-
-        if ( $mode === 'none' ) {
-            return '';
-        }
-
-        if ( $mode === 'full' ) {
-            return $ip;
-        }
-
-        if ( $mode === 'hash' ) {
-            return hash( 'sha256', $ip );
-        }
-
-        if ( strpos( $ip, ':' ) !== false ) {
-            return self::mask_ipv6( $ip );
-        }
-
-        return self::mask_ipv4( $ip );
-    }
-
-    private static function mask_ipv4( $ip ) {
-        $parts = explode( '.', $ip );
-        if ( count( $parts ) !== 4 ) {
-            return '';
-        }
-
-        $parts[3] = '0';
-        return implode( '.', $parts );
-    }
-
-    private static function mask_ipv6( $ip ) {
-        $ip = strtolower( $ip );
-        $parts = explode( ':', $ip );
-        if ( count( $parts ) < 3 ) {
-            return '';
-        }
-
-        $out = array();
-        foreach ( $parts as $index => $part ) {
-            if ( $index < 3 ) {
-                $out[] = $part;
-                continue;
-            }
-            $out[] = '0';
-        }
-
-        return implode( ':', $out );
     }
 
     private static function config_bool( $config, $path, $default ) {

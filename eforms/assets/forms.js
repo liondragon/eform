@@ -35,6 +35,11 @@
 
     function getFormMode(form) {
         var input = form.querySelector('input[name="eforms_mode"]');
+        var attr = form.getAttribute('data-eforms-mode');
+        // Prefer server-provided data attribute to keep mixed-mode pages consistent.
+        if (attr === 'js' || attr === 'hidden') {
+            return attr;
+        }
         if (input && typeof input.value === 'string') {
             return input.value;
         }

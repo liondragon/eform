@@ -53,6 +53,10 @@ class FormRenderer {
         }
 
         $context = $context_result['context'];
+        if ( class_exists( 'Logging' ) && method_exists( 'Logging', 'remember_descriptors' ) ) {
+            $descriptors = isset( $context['descriptors'] ) && is_array( $context['descriptors'] ) ? $context['descriptors'] : array();
+            Logging::remember_descriptors( $descriptors );
+        }
         if ( is_array( $template['template'] ) && isset( $template['template']['submit_button_text'] ) && is_string( $template['template']['submit_button_text'] ) ) {
             $context['submit_button_text'] = $template['template']['submit_button_text'];
         }
@@ -77,11 +81,16 @@ class FormRenderer {
         }
 
         $mode = $cacheable ? 'js' : 'hidden';
-        if ( is_array( $security_override ) && isset( $security_override['mode'] ) ) {
+        $override_mode = '';
+        if ( is_array( $security_override ) && isset( $security_override['mode'] ) && is_string( $security_override['mode'] ) ) {
             $override_mode = $security_override['mode'];
-            if ( $override_mode === 'hidden' || $override_mode === 'js' ) {
-                $mode = $override_mode;
+        }
+        if ( $override_mode !== '' ) {
+            if ( $override_mode !== 'hidden' && $override_mode !== 'js' ) {
+                // Educational note: keep mode selection server-owned by rejecting invalid overrides.
+                return self::render_error( 'EFORMS_ERR_SCHEMA_OBJECT' );
             }
+            $mode = $override_mode;
         }
 
         $needs_cache_headers = self::needs_cache_headers( $mode );
@@ -115,14 +124,16 @@ class FormRenderer {
             $security['timestamp'] = (string) $mint['issued_at'];
         }
 
-        self::mark_rendered( $form_id );
-        self::enqueue_assets( $config );
-
         $errors = self::parse_errors( $opts );
         $values = self::parse_values( $opts );
+        $require_challenge = self::parse_require_challenge( $opts );
+        $challenge = self::resolve_challenge( $opts, $errors, $config, $require_challenge );
         $email_retry = self::parse_email_retry( $opts );
         $email_failure_summary = self::parse_email_failure_summary( $opts );
         $email_failure_remint = self::parse_email_failure_remint( $opts );
+
+        self::mark_rendered( $form_id );
+        self::enqueue_assets( $config, ! empty( $challenge['render'] ) );
 
         return self::render_form(
             $context,
@@ -131,6 +142,7 @@ class FormRenderer {
             $config,
             $errors,
             $values,
+            $challenge,
             array(
                 'email_retry' => $email_retry,
                 'email_failure_summary' => $email_failure_summary,
@@ -226,6 +238,49 @@ class FormRenderer {
         }
 
         return array();
+    }
+
+    private static function parse_require_challenge( $opts ) {
+        if ( is_array( $opts ) && isset( $opts['require_challenge'] ) ) {
+            return (bool) $opts['require_challenge'];
+        }
+
+        return false;
+    }
+
+    private static function resolve_challenge( $opts, $errors, $config, $require_challenge ) {
+        $render = (bool) $require_challenge;
+
+        if ( ! $render && self::has_error_code( $errors, 'EFORMS_ERR_CHALLENGE_FAILED' ) ) {
+            $render = true;
+        }
+
+        if ( is_array( $opts ) && isset( $opts['challenge'] ) && is_array( $opts['challenge'] ) ) {
+            if ( isset( $opts['challenge']['render'] ) ) {
+                $render = (bool) $opts['challenge']['render'];
+            }
+        }
+
+        $provider = 'turnstile';
+        $site_key = '';
+        if ( is_array( $config ) && isset( $config['challenge'] ) && is_array( $config['challenge'] ) ) {
+            if ( isset( $config['challenge']['provider'] ) && is_string( $config['challenge']['provider'] ) && $config['challenge']['provider'] !== '' ) {
+                $provider = $config['challenge']['provider'];
+            }
+            if ( isset( $config['challenge']['site_key'] ) && is_string( $config['challenge']['site_key'] ) ) {
+                $site_key = trim( $config['challenge']['site_key'] );
+            }
+        }
+
+        if ( $provider !== 'turnstile' || $site_key === '' ) {
+            $render = false;
+        }
+
+        return array(
+            'render' => $render,
+            'provider' => $provider,
+            'site_key' => $site_key,
+        );
     }
 
     private static function parse_email_retry( $opts ) {
@@ -416,7 +471,7 @@ class FormRenderer {
         return '';
     }
 
-    private static function enqueue_assets( $config ) {
+    private static function enqueue_assets( $config, $challenge_rendered ) {
         $css_disabled = false;
         if ( is_array( $config ) && isset( $config['assets'] ) && is_array( $config['assets'] ) ) {
             if ( isset( $config['assets']['css_disable'] ) ) {
@@ -438,6 +493,21 @@ class FormRenderer {
             $ver = filemtime( $js_path );
             wp_enqueue_script( 'eforms', $url, array(), $ver, true );
         }
+
+        if ( $challenge_rendered && function_exists( 'wp_enqueue_script' ) ) {
+            wp_enqueue_script(
+                'eforms-turnstile',
+                'https://challenges.cloudflare.com/turnstile/v0/api.js',
+                array(),
+                null,
+                true
+            );
+
+            if ( function_exists( 'wp_script_add_data' ) ) {
+                wp_script_add_data( 'eforms-turnstile', 'defer', true );
+                wp_script_add_data( 'eforms-turnstile', 'crossorigin', 'anonymous' );
+            }
+        }
     }
 
     private static function asset_url( $relative ) {
@@ -449,7 +519,7 @@ class FormRenderer {
         return $relative;
     }
 
-    private static function render_form( $context, $mode, $security, $config, $errors, $values, $email_failure ) {
+    private static function render_form( $context, $mode, $security, $config, $errors, $values, $challenge, $email_failure ) {
         $form_id = isset( $context['id'] ) ? $context['id'] : '';
         $email_retry = is_array( $email_failure ) && ! empty( $email_failure['email_retry'] );
         $email_failure_summary = is_array( $email_failure ) && isset( $email_failure['email_failure_summary'] )
@@ -463,6 +533,8 @@ class FormRenderer {
             'class' => 'eforms-form eforms-form-' . $form_id,
             'method' => 'post',
         );
+        // Educational note: expose the server-selected mode so mixed-mode pages stay deterministic.
+        $attrs['data-eforms-mode'] = $mode;
 
         if ( $email_failure_remint ) {
             $attrs['data-eforms-remint'] = '1';
@@ -512,6 +584,11 @@ class FormRenderer {
             return self::render_error( 'EFORMS_ERR_SCHEMA_OBJECT' );
         }
         $parts[] = $fields_html;
+
+        $challenge_html = self::render_challenge_widget( $challenge );
+        if ( $challenge_html !== '' ) {
+            $parts[] = $challenge_html;
+        }
 
         $submit = isset( $context['submit_button_text'] ) && is_string( $context['submit_button_text'] )
             ? $context['submit_button_text']
@@ -799,6 +876,27 @@ class FormRenderer {
         }
 
         return array();
+    }
+
+    private static function has_error_code( $errors, $code ) {
+        $errors = self::normalize_errors( $errors );
+        if ( ! is_array( $errors ) || ! is_string( $code ) || $code === '' ) {
+            return false;
+        }
+
+        foreach ( $errors as $entries ) {
+            if ( ! is_array( $entries ) ) {
+                continue;
+            }
+
+            foreach ( $entries as $entry ) {
+                if ( is_array( $entry ) && isset( $entry['code'] ) && $entry['code'] === $code ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static function has_any_errors( $errors ) {
@@ -1100,6 +1198,27 @@ class FormRenderer {
         return '<input ' . self::attrs_to_string( $attrs ) . ' />';
     }
 
+    private static function render_challenge_widget( $challenge ) {
+        if ( ! is_array( $challenge ) || empty( $challenge['render'] ) ) {
+            return '';
+        }
+
+        $provider = isset( $challenge['provider'] ) && is_string( $challenge['provider'] ) ? $challenge['provider'] : '';
+        $site_key = isset( $challenge['site_key'] ) && is_string( $challenge['site_key'] ) ? $challenge['site_key'] : '';
+        if ( $provider !== 'turnstile' || $site_key === '' ) {
+            return '';
+        }
+
+        $attrs = array(
+            'class' => 'cf-turnstile',
+            'data-sitekey' => $site_key,
+        );
+
+        return '<div class="eforms-challenge" data-eforms-challenge="turnstile"><div '
+            . self::attrs_to_string( $attrs )
+            . '></div></div>';
+    }
+
     private static function attrs_to_string( $attrs ) {
         $parts = array();
         foreach ( $attrs as $key => $value ) {
@@ -1153,6 +1272,10 @@ class FormRenderer {
 
         if ( $code === 'EFORMS_ERR_DUPLICATE_FORM_ID' ) {
             return 'Form configuration error: duplicate form id on page.';
+        }
+
+        if ( $code === 'EFORMS_ERR_THROTTLED' ) {
+            return 'Please wait a moment and try again.';
         }
 
         return 'Form configuration error.';

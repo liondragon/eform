@@ -10,6 +10,7 @@ require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
 require_once __DIR__ . '/OriginPolicy.php';
+require_once __DIR__ . '/Throttle.php';
 require_once __DIR__ . '/TimingSignals.php';
 
 class Security
@@ -18,6 +19,7 @@ class Security
     const TOKEN_SUFFIX = '.json';
     const TOKEN_REGEX = '/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i';
     const INSTANCE_ID_REGEX = '/^[A-Za-z0-9_-]{22,32}$/';
+    const TURNSTILE_RESPONSE_FIELD = 'cf-turnstile-response';
     const SOFT_REASON_ORDER = array('min_fill_time', 'age_advisory', 'js_missing', 'origin_soft');
 
     /**
@@ -27,9 +29,9 @@ class Security
      * @param string|null $uploads_dir Optional override for tests.
      * @return array { ok, token, instance_id, issued_at, expires } on success; { ok:false, code, reason } on failure.
      */
-    public static function mint_hidden_record($form_id, $uploads_dir = null)
+    public static function mint_hidden_record($form_id, $uploads_dir = null, $request = null)
     {
-        return self::mint_record($form_id, 'hidden', $uploads_dir);
+        return self::mint_record($form_id, 'hidden', $uploads_dir, $request);
     }
 
     /**
@@ -39,12 +41,26 @@ class Security
      * @param string|null $uploads_dir Optional override for tests.
      * @return array { ok, token, instance_id, issued_at, expires } on success; { ok:false, code, reason } on failure.
      */
-    public static function mint_js_record($form_id, $uploads_dir = null)
+    public static function mint_js_record($form_id, $uploads_dir = null, $request = null)
     {
-        return self::mint_record($form_id, 'js', $uploads_dir);
+        return self::mint_record($form_id, 'js', $uploads_dir, $request);
     }
 
-    private static function mint_record($form_id, $mode, $uploads_dir)
+    /**
+     * Run throttling when enabled.
+     *
+     * @param mixed $request Optional request object/array.
+     * @param string|null $uploads_dir Optional uploads dir override.
+     * @param array|null $config Optional config snapshot.
+     * @return array { ok, code, retry_after?, reason? }
+     */
+    public static function enforce_throttle($request = null, $uploads_dir = null, $config = null)
+    {
+        $config = is_array($config) ? $config : Config::get();
+        return Throttle::check($request, $config, $uploads_dir);
+    }
+
+    private static function mint_record($form_id, $mode, $uploads_dir, $request)
     {
         $config = Config::get();
 
@@ -67,6 +83,20 @@ class Security
 
         if (!is_writable($uploads_dir)) {
             return self::failure('EFORMS_ERR_STORAGE_UNAVAILABLE', 'uploads_dir_unwritable');
+        }
+
+        $throttle = self::enforce_throttle($request, $uploads_dir, $config);
+        if (empty($throttle['ok'])) {
+            if (isset($throttle['code']) && $throttle['code'] === 'throttled') {
+                return self::failure(
+                    'EFORMS_ERR_THROTTLED',
+                    'throttled',
+                    array('retry_after' => self::throttle_retry_after($throttle))
+                );
+            }
+
+            $reason = isset($throttle['reason']) && is_string($throttle['reason']) ? $throttle['reason'] : 'throttle_failed';
+            return self::failure('EFORMS_ERR_STORAGE_UNAVAILABLE', $reason);
         }
 
         $private = PrivateDir::ensure($uploads_dir);
@@ -179,6 +209,15 @@ class Security
             return self::hard_fail_result('EFORMS_ERR_TOKEN');
         }
 
+        $throttle = self::enforce_throttle($request, $uploads_dir, $config);
+        if (empty($throttle['ok'])) {
+            if (isset($throttle['code']) && $throttle['code'] === 'throttled') {
+                return self::hard_fail_result('EFORMS_ERR_THROTTLED', self::throttle_retry_after($throttle));
+            }
+
+            return self::hard_fail_result('EFORMS_ERR_STORAGE_UNAVAILABLE');
+        }
+
         $origin_eval = OriginPolicy::evaluate($request, $config);
         if (!empty($origin_eval['hard_fail'])) {
             return self::hard_fail_result('EFORMS_ERR_ORIGIN_FORBIDDEN');
@@ -199,6 +238,7 @@ class Security
 
         $soft_reasons = self::normalize_soft_reasons($soft_reasons);
         $require_challenge = self::challenge_required($config, $soft_reasons);
+        $challenge_response_present = self::challenge_response_present($post);
 
         return array(
             'mode' => $validated['mode'],
@@ -206,6 +246,7 @@ class Security
             'token_ok' => true,
             'hard_fail' => false,
             'require_challenge' => $require_challenge,
+            'challenge_response_present' => $challenge_response_present,
             'soft_reasons' => $soft_reasons,
             'error_code' => '',
         );
@@ -345,13 +386,23 @@ class Security
         return false;
     }
 
-    private static function failure($code, $reason)
+    private static function failure($code, $reason, $extra = array())
     {
-        return array(
+        $result = array(
             'ok' => false,
             'code' => $code,
             'reason' => $reason,
         );
+
+        if (is_array($extra)) {
+            foreach ($extra as $key => $value) {
+                if (is_string($key) && $key !== '') {
+                    $result[$key] = $value;
+                }
+            }
+        }
+
+        return $result;
     }
 
     private static function write_failure($reason)
@@ -362,7 +413,7 @@ class Security
         );
     }
 
-    private static function hard_fail_result($code)
+    private static function hard_fail_result($code, $retry_after = 0)
     {
         return array(
             'mode' => '',
@@ -372,7 +423,17 @@ class Security
             'require_challenge' => false,
             'soft_reasons' => array(),
             'error_code' => $code,
+            'retry_after' => is_numeric($retry_after) ? max(0, (int) $retry_after) : 0,
         );
+    }
+
+    private static function throttle_retry_after($result)
+    {
+        if (is_array($result) && isset($result['retry_after']) && is_numeric($result['retry_after'])) {
+            return max(1, (int) $result['retry_after']);
+        }
+
+        return 1;
     }
 
     private static function post_string($post, $key)
@@ -542,6 +603,20 @@ class Security
         }
 
         return false;
+    }
+
+    private static function challenge_response_present($post)
+    {
+        if (!is_array($post) || !isset($post[self::TURNSTILE_RESPONSE_FIELD])) {
+            return false;
+        }
+
+        $value = $post[self::TURNSTILE_RESPONSE_FIELD];
+        if (!is_scalar($value)) {
+            return false;
+        }
+
+        return trim((string) $value) !== '';
     }
 
     private static function log_token_failure($reason, $meta)

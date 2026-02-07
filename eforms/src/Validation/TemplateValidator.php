@@ -16,6 +16,7 @@ require_once __DIR__ . '/ValidatorRegistry.php';
 require_once __DIR__ . '/NormalizerRegistry.php';
 require_once __DIR__ . '/../Rendering/RendererRegistry.php';
 require_once __DIR__ . '/EmailTemplateRegistry.php';
+require_once __DIR__ . '/../Uploads/UploadPolicy.php';
 
 class TemplateValidator {
     const ROOT_KEYS = array(
@@ -344,6 +345,16 @@ class TemplateValidator {
                 }
             }
 
+            if ( isset( $field['type'] ) && ( $field['type'] === 'file' || $field['type'] === 'files' ) ) {
+                $accept_defined = array_key_exists( 'accept', $field );
+                $accept_value = $accept_defined ? $field['accept'] : null;
+
+                $tokens = UploadPolicy::resolve_tokens( $accept_value, ! $accept_defined );
+                if ( empty( $tokens ) ) {
+                    $errors->add_global( 'EFORMS_ERR_ACCEPT_EMPTY' );
+                }
+            }
+
             if ( isset( $field['options'] ) ) {
                 self::validate_options( $field['options'], $errors );
             }
@@ -431,6 +442,13 @@ class TemplateValidator {
 
             if ( isset( $field['after_html'] ) && is_string( $field['after_html'] ) ) {
                 $field['after_html'] = self::sanitize_html_fragment( $field['after_html'] );
+            }
+
+            if ( isset( $field['type'] ) && ( $field['type'] === 'file' || $field['type'] === 'files' ) ) {
+                if ( isset( $field['accept'] ) && is_array( $field['accept'] ) ) {
+                    // Educational note: normalize tokens once so validators/renderers share the same list.
+                    $field['accept'] = UploadPolicy::normalize_accept_tokens( $field['accept'] );
+                }
             }
 
             $sanitized[] = $field;

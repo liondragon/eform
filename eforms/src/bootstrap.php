@@ -30,6 +30,21 @@ if ( ! function_exists( 'eforms_register_autoloader' ) ) {
     }
 }
 
+if ( ! function_exists( 'eforms_define_finfo_guard' ) ) {
+    /**
+     * Define a deterministic flag when fileinfo is unavailable.
+     */
+    function eforms_define_finfo_guard() {
+        if ( defined( 'EFORMS_FINFO_UNAVAILABLE' ) ) {
+            return;
+        }
+
+        if ( ! function_exists( 'finfo_open' ) ) {
+            define( 'EFORMS_FINFO_UNAVAILABLE', true );
+        }
+    }
+}
+
 if ( ! function_exists( 'eforms_error_message' ) ) {
     /**
      * Resolve a stable error message for a known error code.
@@ -37,6 +52,10 @@ if ( ! function_exists( 'eforms_error_message' ) ) {
     function eforms_error_message( $code ) {
         if ( $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' ) {
             return 'Form configuration error: server storage is unavailable.';
+        }
+
+        if ( $code === 'EFORMS_ERR_THROTTLED' ) {
+            return 'Please wait a moment and try again.';
         }
 
         return 'Form configuration error.';
@@ -200,12 +219,14 @@ if ( ! function_exists( 'eforms_register_cli' ) ) {
 
 if ( ! function_exists( 'eforms_cli_gc' ) ) {
     /**
-     * Stub handler for wp eforms gc.
+     * Handler for `wp eforms gc`.
      */
-    function eforms_cli_gc() {
-        if ( class_exists( 'WP_CLI' ) ) {
-            WP_CLI::warning( 'eForms GC is not implemented yet.' );
+    function eforms_cli_gc( $args = array(), $assoc_args = array() ) {
+        if ( ! class_exists( 'GcCommand' ) ) {
+            require_once __DIR__ . '/Cli/GcCommand.php';
         }
+
+        return GcCommand::invoke( $args, $assoc_args );
     }
 }
 
@@ -238,6 +259,7 @@ if ( ! function_exists( 'eforms_bootstrap' ) ) {
         $booted = true;
 
         eforms_register_autoloader();
+        eforms_define_finfo_guard();
         eforms_register_hooks();
     }
 }

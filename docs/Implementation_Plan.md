@@ -357,7 +357,7 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
   - `Depends On:` Phase 2 — Implement `/eforms/mint` endpoint contract; Phase 1 — Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior
   - `Done When:` JS injects token metadata only into empty hidden fields, blocks submission until mint succeeds, and performs remint flow when marker is present; manual script steps are complete and produce expected results
 
-- [ ] Enforce mixed-mode page behavior in client + server (Spec: Assets (docs/Canonical_Spec.md#sec-assets); Submission protection (docs/Canonical_Spec.md#sec-submission-protection); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MAX])
+- [x] Enforce mixed-mode page behavior in client + server (Spec: Assets (docs/Canonical_Spec.md#sec-assets); Submission protection (docs/Canonical_Spec.md#sec-submission-protection); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MAX])
   - `Reasoning:` **Medium** — Coexistence rules for hidden + JS-minted forms on same page
   - `Artifacts:` `eforms/assets/forms.js` (modify), `eforms/src/Rendering/FormRenderer.php` (modify)
   - `Interfaces:` Coexistence of hidden-mode and JS-minted forms on one page
@@ -380,37 +380,41 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
 
 ### Work items
 
-- [ ] Implement upload accept-token policy and upload validation (Spec: Uploads accept-token policy (docs/Canonical_Spec.md#sec-uploads-accept-tokens); Default accept tokens callout (docs/Canonical_Spec.md#sec-uploads-accept-defaults); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX])
+- [x] Implement upload accept-token policy and upload validation (Spec: Uploads accept-token policy (docs/Canonical_Spec.md#sec-uploads-accept-tokens); Default accept tokens callout (docs/Canonical_Spec.md#sec-uploads-accept-defaults); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX])
   - `Reasoning:` **High** — MIME validation, intersection rules, security-sensitive file handling
-  - `Artifacts:` `eforms/src/Uploads/UploadPolicy.php` (new), `eforms/src/Validation/Validator.php` (modify)
+  - `Artifacts:` `eforms/src/Uploads/UploadPolicy.php` (new), `eforms/src/Validation/Validator.php` (modify), `eforms/src/Validation/TemplateValidator.php` (modify), `eforms/src/bootstrap.php` (modify)
   - `Interfaces:` Template upload descriptors (`file` / `files`) and their per-field overrides
   - `Tests:` `eforms/tests/integration/test_upload_accept_tokens.php` (new)
   - `Depends On:` Phase 1 — Implement Validate stage (errors + deterministic ordering); Phase 1 — Implement storage health check and private-dir hardening for `${uploads.dir}/eforms-private/`
   - `Done When:` accept-token intersection rules are enforced; unsupported types fail with the stable upload error codes; upload attempts fail deterministically when required server capabilities are unavailable; `eforms/tests/integration/test_upload_accept_tokens.php` passes
+  - `Verified via:` `eforms/tests/integration/test_upload_accept_tokens.php`
 
-- [ ] Implement upload storage, move-after-ledger, and retention hooks (Spec: Uploads filename policy (docs/Canonical_Spec.md#sec-uploads-filenames); Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
+- [x] Implement upload storage, move-after-ledger, and retention hooks (Spec: Uploads filename policy (docs/Canonical_Spec.md#sec-uploads-filenames); Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
   - `Reasoning:` **High** — Atomic file ops, collision handling, temp→private path timing
   - `Artifacts:` `eforms/src/Uploads/UploadStore.php` (new), `eforms/src/Submission/SubmitHandler.php` (modify)
   - `Interfaces:` Private uploads directory layout under `${uploads.dir}/eforms-private/`
   - `Tests:` `eforms/tests/integration/test_upload_move_after_ledger.php` (new)
   - `Depends On:` Phase 3 — Implement upload accept-token policy and upload validation; Phase 1 — Implement ledger reservation contract and duplicate-submission behavior
   - `Done When:` files are never moved into private storage before ledger reservation; collisions are treated as internal errors (no overwrites); `eforms/tests/integration/test_upload_move_after_ledger.php` passes
+  - `Verified via:` `eforms/tests/integration/test_upload_move_after_ledger.php`
 
-- [ ] Implement email attachments policy (Spec: Email delivery (docs/Canonical_Spec.md#sec-email); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: None)
+- [x] Implement email attachments policy (Spec: Email delivery (docs/Canonical_Spec.md#sec-email); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: None)
   - `Reasoning:` **Medium** — Bounded attachments, overflow handling
   - `Artifacts:` `eforms/src/Email/Emailer.php` (modify)
   - `Interfaces:` `email_attach` per upload descriptor; include_fields behavior for upload keys
   - `Tests:` `eforms/tests/integration/test_email_attachments_policy.php` (new)
   - `Depends On:` Phase 3 — Implement upload storage, move-after-ledger, and retention hooks; Phase 1 — Implement email delivery core (no uploads yet) and email-failure rerender contract
   - `Done When:` attachments are bounded per spec; overflow is summarized in the email body; temp upload paths are never persisted or logged; `eforms/tests/integration/test_email_attachments_policy.php` passes
+  - `Verified via:` `eforms/tests/integration/test_email_attachments_policy.php`
 
-- [ ] Implement `wp eforms gc` for tokens, ledger markers, uploads, and throttle state (Spec: Uploads (docs/Canonical_Spec.md#sec-uploads); Throttling (docs/Canonical_Spec.md#sec-throttling); Anchors (docs/Canonical_Spec.md#sec-anchors), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
+- [x] Implement `wp eforms gc` for tokens, ledger markers, uploads, and throttle state (Spec: Uploads (docs/Canonical_Spec.md#sec-uploads); Throttling (docs/Canonical_Spec.md#sec-throttling); Anchors (docs/Canonical_Spec.md#sec-anchors), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
   - `Reasoning:` **High** — Idempotency, single-run locking, cross-subsystem cleanup (tokens, ledger, uploads, throttle)
   - `Artifacts:` `eforms/src/Cli/GcCommand.php` (new), `eforms/src/Gc/GcRunner.php` (new)
   - `Interfaces:` `wp eforms gc`
   - `Tests:` `eforms/tests/integration/test_gc_dry_run.php` (new)
   - `Depends On:` Phase 3 — Implement upload storage, move-after-ledger, and retention hooks; Phase 1 — Implement ledger reservation contract and duplicate-submission behavior
   - `Done When:` GC is idempotent, locked to a single run, supports dry-run reporting, and deletes only artifacts eligible under the spec’s timing/eligibility rules; `eforms/tests/integration/test_gc_dry_run.php` passes
+  - `Verified via:` `eforms/tests/integration/test_gc_dry_run.php`
 
 ---
 
@@ -427,45 +431,50 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
 
 ### Work items
 
-- [ ] Implement file-based throttling including `Retry-After` calculation and entrypoint semantics (Spec: Throttling (docs/Canonical_Spec.md#sec-throttling); Security (docs/Canonical_Spec.md#sec-security), Anchors: [THROTTLE_MAX_PER_MIN_MIN], [THROTTLE_MAX_PER_MIN_MAX], [THROTTLE_COOLDOWN_MIN], [THROTTLE_COOLDOWN_MAX])
+- [x] Implement file-based throttling including `Retry-After` calculation and entrypoint semantics (Spec: Throttling (docs/Canonical_Spec.md#sec-throttling); Security (docs/Canonical_Spec.md#sec-security), Anchors: [THROTTLE_MAX_PER_MIN_MIN], [THROTTLE_MAX_PER_MIN_MAX], [THROTTLE_COOLDOWN_MIN], [THROTTLE_COOLDOWN_MAX])
   - `Reasoning:` **High** — Rate limiting with Retry-After, file-lock semantics, entrypoint-specific behavior
   - `Artifacts:` `eforms/src/Security/Throttle.php` (new), `eforms/src/Security/Security.php` (modify)
   - `Interfaces:` POST submit throttling behavior; `/eforms/mint` throttling behavior
   - `Tests:` `eforms/tests/integration/test_throttle_retry_after.php` (new)
   - `Depends On:` Phase 2 — Implement `/eforms/mint` endpoint contract; Phase 1 — Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success)
   - `Done When:` throttle runs before minting and before normalize/validate on POST; lock-failure behavior matches the spec; only throttle impl + GC touch throttle files; `eforms/tests/integration/test_throttle_retry_after.php` passes
+  - `Verified via:` `eforms/tests/integration/test_throttle_retry_after.php`
 
-- [ ] Implement adaptive challenge render + verify flow (Turnstile provider) (Spec: Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [CHALLENGE_TIMEOUT_MIN], [CHALLENGE_TIMEOUT_MAX])
+- [x] Implement adaptive challenge render + verify flow (Turnstile provider) (Spec: Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [CHALLENGE_TIMEOUT_MIN], [CHALLENGE_TIMEOUT_MAX])
   - `Reasoning:` **High** — External provider integration, render-on-rerender-only constraint, verification timing
   - `Artifacts:` `eforms/src/Security/Challenge.php` (new), `eforms/src/Security/Security.php` (modify), `eforms/src/Rendering/FormRenderer.php` (modify)
   - `Interfaces:` challenge mode/provider config; challenge render-on-rerender contract
   - `Tests:` `eforms/tests/integration/test_challenge_rerender_only.php` (new)
   - `Depends On:` Phase 4 — Implement file-based throttling including `Retry-After` calculation and entrypoint semantics; Phase 1 — Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success)
   - `Done When:` challenge is never rendered on initial GET; verification happens before ledger reserve; unconfigured required challenge fails with the spec-defined deterministic error; `eforms/tests/integration/test_challenge_rerender_only.php` passes
+  - `Verified via:` `eforms/tests/integration/test_challenge_rerender_only.php`
 
-- [ ] Implement JSONL logging mode + retention/rotation + fail2ban emission channel (Spec: Logging (docs/Canonical_Spec.md#sec-logging); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: [LOGGING_LEVEL_MIN], [LOGGING_LEVEL_MAX], [RETENTION_DAYS_MIN], [RETENTION_DAYS_MAX])
+- [x] Implement JSONL logging mode + retention/rotation + fail2ban emission channel (Spec: Logging (docs/Canonical_Spec.md#sec-logging); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: [LOGGING_LEVEL_MIN], [LOGGING_LEVEL_MAX], [RETENTION_DAYS_MIN], [RETENTION_DAYS_MAX])
   - `Reasoning:` **Medium** — Schema evolution (append-only), privacy rules, desc_sha1 fingerprinting
   - `Artifacts:` `eforms/src/Logging/JsonlLogger.php` (new), `eforms/src/Logging/Fail2banLogger.php` (new), `eforms/src/Logging.php` (modify)
   - `Interfaces:` `logging.mode=jsonl`, `logging.fail2ban.*` outputs
   - `Tests:` `eforms/tests/integration/test_logging_jsonl_schema.php` (new), `eforms/tests/integration/test_fail2ban_line_format.php` (new), `eforms/tests/integration/test_logging_desc_sha1.php` (new)
   - `Depends On:` Phase 1 — Implement minimal logging mode with request correlation id; Phase 0 — Implement config numeric clamping via named Anchors
   - `Done When:` JSONL/minimal/fail2ban sinks honor privacy rules; retention pruning obeys config clamps; when `logging.level=2`, emitted events include the per-request `desc_sha1` descriptor fingerprint per spec; machine-readable schemas evolve append-only; all integration tests pass
+  - `Verified via:` `eforms/tests/integration/test_logging_jsonl_schema.php`, `eforms/tests/integration/test_fail2ban_line_format.php`, `eforms/tests/integration/test_logging_desc_sha1.php`
 
-- [ ] Implement privacy client-IP resolution and presentation rules (Spec: Privacy and IP handling (docs/Canonical_Spec.md#sec-privacy); Throttling (docs/Canonical_Spec.md#sec-throttling); Logging (docs/Canonical_Spec.md#sec-logging), Anchors: None)
+- [x] Implement privacy client-IP resolution and presentation rules (Spec: Privacy and IP handling (docs/Canonical_Spec.md#sec-privacy); Throttling (docs/Canonical_Spec.md#sec-throttling); Logging (docs/Canonical_Spec.md#sec-logging), Anchors: None)
   - `Reasoning:` **Medium** — Trusted proxy rules, split between resolution and presentation
   - `Artifacts:` `eforms/src/Privacy/ClientIp.php` (new)
   - `Interfaces:` `privacy.*` config affecting log/email IP presentation
   - `Tests:` `eforms/tests/unit/test_client_ip_resolution.php` (new)
   - `Depends On:` Phase 4 — Implement file-based throttling including `Retry-After` calculation and entrypoint semantics; Phase 4 — Implement JSONL logging mode + retention/rotation + fail2ban emission channel
   - `Done When:` resolved client IP is derived per trusted-proxy rules; throttle and fail2ban use resolved IP regardless of presentation mode; emails/logs honor presentation mode; `eforms/tests/unit/test_client_ip_resolution.php` passes
+  - `Verified via:` `eforms/tests/unit/test_client_ip_resolution.php`, `eforms/tests/integration/test_throttle_retry_after.php`
 
-- [ ] Implement uninstall purge behavior (Spec: Architecture and file layout (docs/Canonical_Spec.md#sec-architecture); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
+- [x] Implement uninstall purge behavior (Spec: Architecture and file layout (docs/Canonical_Spec.md#sec-architecture); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
   - `Reasoning:` **Low** — Config-driven purge flags; straightforward conditional cleanup
   - `Artifacts:` `eforms/uninstall.php` (new)
   - `Interfaces:` uninstall behavior (purge flags)
   - `Tests:` `eforms/tests/integration/test_uninstall_purge_flags.php` (new)
   - `Depends On:` Phase 0 — Implement config snapshot bootstrap + override sources
   - `Done When:` uninstall reads purge flags via Config bootstrap as specified; deletes only what the spec allows when flags are enabled; `eforms/tests/integration/test_uninstall_purge_flags.php` passes
+  - `Verified via:` `eforms/tests/integration/test_uninstall_purge_flags.php`
 
 ---
 

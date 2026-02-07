@@ -8,3 +8,4 @@
 - When asked to “implement the next unchecked task”, don’t eyeball: programmatically list unchecked checkboxes, pick the first in file order, and quote that exact line before making code changes (IDE selection is not a task selector unless the user says so).
 - For gotcha-heavy tasks (ledger/email/cache/atomic IO), mark the task card with `Handoff Required: yes — <must-write notes>` so the executor records sharp edges in `docs/state_handoff.md` before continuing.
 - When using `apply_patch`, never paste patch markers (e.g., "*** End Patch") or escaped newline sequences (like `\n+`) into Markdown content; write literal newlines and re-open the file immediately if the output looks “patch-like”.
+- For security/throttle entrypoint work, test each real caller path (hidden GET without explicit request object, `/eforms/mint` with request object, POST submit) because key resolution can silently diverge when one path relies on `$_SERVER` fallback.

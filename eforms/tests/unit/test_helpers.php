@@ -61,9 +61,15 @@ $expected = hash( 'sha256', $ip );
 eforms_test_assert( Helpers::throttle_key( $ip ) === $expected, 'Helpers::throttle_key should hash the IP.' );
 
 $threw = false;
+$had_remote = isset( $_SERVER['REMOTE_ADDR'] );
+$remote_backup = $had_remote ? $_SERVER['REMOTE_ADDR'] : null;
+unset( $_SERVER['REMOTE_ADDR'] );
 try {
     Helpers::throttle_key( array() );
 } catch ( InvalidArgumentException $e ) {
     $threw = true;
+}
+if ( $had_remote ) {
+    $_SERVER['REMOTE_ADDR'] = $remote_backup;
 }
 eforms_test_assert( $threw, 'Helpers::throttle_key should reject missing IPs.' );

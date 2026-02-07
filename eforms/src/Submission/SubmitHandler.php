@@ -15,10 +15,12 @@ require_once __DIR__ . '/../Errors.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Security/PostSize.php';
+require_once __DIR__ . '/../Security/Challenge.php';
 require_once __DIR__ . '/../Security/Honeypot.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Security/StorageHealth.php';
 require_once __DIR__ . '/../Email/Emailer.php';
+require_once __DIR__ . '/../Uploads/UploadStore.php';
 require_once __DIR__ . '/Ledger.php';
 require_once __DIR__ . '/Success.php';
 require_once __DIR__ . '/../Validation/Coercer.php';
@@ -78,6 +80,10 @@ class SubmitHandler {
         }
 
         $context = $context_result['context'];
+        if ( class_exists( 'Logging' ) && method_exists( 'Logging', 'remember_descriptors' ) ) {
+            $descriptors = isset( $context['descriptors'] ) && is_array( $context['descriptors'] ) ? $context['descriptors'] : array();
+            Logging::remember_descriptors( $descriptors );
+        }
         $post = self::post_payload( $request );
         $files = self::files_payload( $request );
 
@@ -110,7 +116,21 @@ class SubmitHandler {
             $code = isset( $security['error_code'] ) && is_string( $security['error_code'] ) && $security['error_code'] !== ''
                 ? $security['error_code']
                 : 'EFORMS_ERR_TOKEN';
-            return self::fail( $code, 400, $trace, $trace_on );
+            $status = 400;
+            $headers = array();
+            if ( $code === 'EFORMS_ERR_THROTTLED' ) {
+                $status = 429;
+                $retry_after = self::security_retry_after( $security );
+                if ( $retry_after > 0 ) {
+                    $headers['Retry-After'] = (string) $retry_after;
+                }
+            } elseif ( $code === 'EFORMS_CHALLENGE_UNCONFIGURED' ) {
+                $status = 500;
+            } elseif ( $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' ) {
+                $status = 500;
+            }
+
+            return self::fail( $code, $status, $trace, $trace_on, $headers );
         }
 
         $soft_fail_count = self::soft_fail_count( $security );
@@ -127,11 +147,19 @@ class SubmitHandler {
         }
 
         $coerced = self::call_coerce( $overrides, $trace, $trace_on, $context, $validated );
+        $challenge = self::call_challenge( $overrides, $trace, $trace_on, $post, $request, $config, $security );
+        if ( ! self::challenge_ok( $challenge ) ) {
+            $code = self::challenge_error_code( $challenge );
+            if ( $code === 'EFORMS_CHALLENGE_UNCONFIGURED' ) {
+                return self::fail( $code, 500, $trace, $trace_on );
+            }
 
-        if ( ! empty( $security['require_challenge'] ) ) {
+            $security['require_challenge'] = self::challenge_required( $challenge );
             $errors = self::errors_for_code( 'EFORMS_ERR_CHALLENGE_FAILED' );
             return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
         }
+
+        $security = self::apply_challenge_result( $security, $challenge );
 
         // Reserve ledger marker before any side effects.
         $ledger = self::call_ledger_reserve( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
@@ -148,9 +176,12 @@ class SubmitHandler {
         if ( self::commit_email_failed( $commit ) ) {
             return self::email_failure_result( $commit, $context, $coerced, $security, $resolved_form_id, $uploads_dir, $request, $config, $trace, $trace_on );
         }
+        if ( ! self::commit_ok( $commit ) ) {
+            return self::fail( self::commit_error_code( $commit ), self::commit_status( $commit ), $trace, $trace_on );
+        }
 
-        $ok = is_array( $commit ) && array_key_exists( 'ok', $commit ) ? (bool) $commit['ok'] : true;
-        $status = is_array( $commit ) && isset( $commit['status'] ) ? (int) $commit['status'] : 200;
+        $ok = self::commit_ok( $commit );
+        $status = self::commit_status( $commit );
 
         $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
         $success_mode = isset( $success_config['mode'] ) && is_string( $success_config['mode'] ) ? $success_config['mode'] : 'inline';
@@ -162,7 +193,7 @@ class SubmitHandler {
             'submission_id' => isset( $security['submission_id'] ) ? $security['submission_id'] : '',
             'soft_reasons' => isset( $security['soft_reasons'] ) && is_array( $security['soft_reasons'] ) ? $security['soft_reasons'] : array(),
             'require_challenge' => ! empty( $security['require_challenge'] ),
-            'values' => self::extract_values( $coerced ),
+            'values' => self::commit_values( $commit, $coerced ),
             'errors' => null,
             'security' => $security_meta,
             'commit' => $commit,
@@ -258,6 +289,28 @@ class SubmitHandler {
         return Coercer::coerce( $context, $validated );
     }
 
+    private static function call_challenge( $overrides, &$trace, $trace_on, $post, $request, $config, $security ) {
+        if ( ! self::challenge_verification_needed( $security, $post ) ) {
+            return array(
+                'ok' => true,
+                'required' => false,
+                'error_code' => '',
+                'soft_reasons' => isset( $security['soft_reasons'] ) && is_array( $security['soft_reasons'] ) ? $security['soft_reasons'] : array(),
+            );
+        }
+
+        if ( $trace_on ) {
+            $trace[] = 'challenge';
+        }
+
+        $callable = self::override_callable( $overrides, 'challenge' );
+        if ( $callable ) {
+            return call_user_func( $callable, $post, $request, $config, $security );
+        }
+
+        return Challenge::verify( $post, $request, $config, $security );
+    }
+
     private static function call_commit( $overrides, &$trace, $trace_on, $context, $coerced, $security, $request, $config ) {
         if ( $trace_on ) {
             $trace[] = 'commit';
@@ -272,23 +325,49 @@ class SubmitHandler {
     }
 
     private static function default_commit( $context, $coerced, $security, $request, $config ) {
-        $values = self::extract_values( $coerced );
+        $uploads_dir = self::uploads_dir( $config );
+        $submission_id = is_array( $security ) && isset( $security['submission_id'] ) && is_string( $security['submission_id'] )
+            ? $security['submission_id']
+            : '';
+
+        $move = UploadStore::move_after_ledger( $context, $coerced, $submission_id, $uploads_dir );
+        if ( ! is_array( $move ) || empty( $move['ok'] ) ) {
+            return array(
+                'ok' => false,
+                'status' => 500,
+                'error_code' => 'EFORMS_ERR_STORAGE_UNAVAILABLE',
+                'reason' => is_array( $move ) && isset( $move['reason'] ) ? $move['reason'] : 'upload_move_failed',
+            );
+        }
+
+        $values = isset( $move['values'] ) && is_array( $move['values'] )
+            ? $move['values']
+            : self::extract_values( $coerced );
+        $stored = isset( $move['stored'] ) && is_array( $move['stored'] ) ? $move['stored'] : array();
+
         $email = Emailer::send( $context, $values, $security, $request, $config );
 
         if ( ! is_array( $email ) || empty( $email['ok'] ) ) {
+            UploadStore::apply_retention( $stored, $config );
             return array(
                 'ok' => false,
                 'status' => 500,
                 'email_failed' => true,
                 'email' => $email,
+                'values' => $values,
+                'stored' => $stored,
             );
         }
+
+        UploadStore::apply_retention( $stored, $config );
 
         return array(
             'ok' => true,
             'status' => 200,
             'committed' => true,
             'email' => $email,
+            'values' => $values,
+            'stored' => $stored,
         );
     }
 
@@ -305,8 +384,44 @@ class SubmitHandler {
         return is_array( $commit ) && ! empty( $commit['email_failed'] );
     }
 
+    private static function commit_ok( $commit ) {
+        if ( ! is_array( $commit ) ) {
+            return false;
+        }
+
+        if ( ! array_key_exists( 'ok', $commit ) ) {
+            return true;
+        }
+
+        return (bool) $commit['ok'];
+    }
+
+    private static function commit_error_code( $commit ) {
+        if ( is_array( $commit ) && isset( $commit['error_code'] ) && is_string( $commit['error_code'] ) && $commit['error_code'] !== '' ) {
+            return $commit['error_code'];
+        }
+
+        return 'EFORMS_ERR_STORAGE_UNAVAILABLE';
+    }
+
+    private static function commit_status( $commit ) {
+        if ( is_array( $commit ) && isset( $commit['status'] ) && is_numeric( $commit['status'] ) ) {
+            return (int) $commit['status'];
+        }
+
+        return self::commit_ok( $commit ) ? 200 : 500;
+    }
+
+    private static function commit_values( $commit, $fallback ) {
+        if ( is_array( $commit ) && isset( $commit['values'] ) && is_array( $commit['values'] ) ) {
+            return $commit['values'];
+        }
+
+        return self::extract_values( $fallback );
+    }
+
     private static function email_failure_result( $commit, $context, $coerced, $security, $form_id, $uploads_dir, $request, $config, $trace, $trace_on ) {
-        $values = self::extract_values( $coerced );
+        $values = self::commit_values( $commit, $coerced );
         $security_result = self::email_failure_security( $security, $form_id, $uploads_dir );
         if ( ! $security_result['ok'] ) {
             return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
@@ -423,6 +538,56 @@ class SubmitHandler {
         return is_array( $validated ) && ! empty( $validated['ok'] );
     }
 
+    private static function challenge_verification_needed( $security, $post ) {
+        if ( ! is_array( $security ) ) {
+            return false;
+        }
+
+        if ( ! empty( $security['require_challenge'] ) ) {
+            return true;
+        }
+
+        if ( ! empty( $security['challenge_response_present'] ) ) {
+            return true;
+        }
+
+        return Challenge::has_provider_response( $post );
+    }
+
+    private static function challenge_ok( $challenge ) {
+        return is_array( $challenge ) && ! empty( $challenge['ok'] );
+    }
+
+    private static function challenge_error_code( $challenge ) {
+        if ( is_array( $challenge ) && isset( $challenge['error_code'] ) && is_string( $challenge['error_code'] ) && $challenge['error_code'] !== '' ) {
+            return $challenge['error_code'];
+        }
+
+        return 'EFORMS_ERR_CHALLENGE_FAILED';
+    }
+
+    private static function challenge_required( $challenge ) {
+        return is_array( $challenge ) && ! empty( $challenge['required'] );
+    }
+
+    private static function apply_challenge_result( $security, $challenge ) {
+        if ( ! is_array( $security ) ) {
+            $security = array();
+        }
+
+        if ( ! is_array( $challenge ) ) {
+            $security['require_challenge'] = false;
+            return $security;
+        }
+
+        $security['require_challenge'] = ! empty( $challenge['required'] );
+        if ( isset( $challenge['soft_reasons'] ) && is_array( $challenge['soft_reasons'] ) ) {
+            $security['soft_reasons'] = $challenge['soft_reasons'];
+        }
+
+        return $security;
+    }
+
     private static function token_ok( $security ) {
         return is_array( $security )
             && ! empty( $security['token_ok'] )
@@ -528,7 +693,7 @@ class SubmitHandler {
         return $result;
     }
 
-    private static function fail( $code, $status, $trace, $trace_on ) {
+    private static function fail( $code, $status, $trace, $trace_on, $headers = array() ) {
         $errors = self::errors_for_code( $code );
         $result = array(
             'ok' => false,
@@ -536,6 +701,10 @@ class SubmitHandler {
             'error_code' => $code,
             'errors' => $errors,
         );
+
+        if ( is_array( $headers ) && ! empty( $headers ) ) {
+            $result['headers'] = $headers;
+        }
 
         if ( $trace_on ) {
             $result['trace'] = $trace;
@@ -580,6 +749,14 @@ class SubmitHandler {
         }
 
         return '';
+    }
+
+    private static function security_retry_after( $security ) {
+        if ( is_array( $security ) && isset( $security['retry_after'] ) && is_numeric( $security['retry_after'] ) ) {
+            return max( 1, (int) $security['retry_after'] );
+        }
+
+        return 0;
     }
 
     private static function reserved_keys() {
