@@ -148,10 +148,10 @@ Helper scripts under `bin/wp-cli/` exercise a couple of security scenarios. Run
 them from the WordPress root where this plugin is installed:
 
 ```sh
-# Submit without an Origin header; expects "Security check failed." in response
+# Submit without an Origin header; expects HTTP 403 + EFORMS_ERR_ORIGIN_FORBIDDEN
 wp eval-file wp-content/plugins/eform/bin/wp-cli/post-no-origin.php
 
-# Send a payload above the configured limit; expects HTTP 413
+# Send a payload above the configured limit; expects HTTP 400 + EFORMS_ERR_MINT_FAILED
 wp eval-file wp-content/plugins/eform/bin/wp-cli/post-oversized.php
 ```
 

@@ -1,0 +1,13 @@
+{
+  "name": "eforms-e2e",
+  "private": true,
+  "description": "Dev-only browser checks for eForms JS behavior",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:list": "npx playwright test --list",
+    "install:browsers": "npx playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

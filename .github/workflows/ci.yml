@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: wordpress
+          MYSQL_USER: wordpress
+          MYSQL_PASSWORD: wordpress
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uwordpress -pwordpress"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Run canonical unit + integration tests
+        run: |
+          set -euo pipefail
+          find eforms/tests/unit eforms/tests/integration -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php
+
+      - name: Install WP-CLI
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+          chmod +x /usr/local/bin/wp
+          wp --info
+
+      - name: Provision WordPress runtime
+        env:
+          WP_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          set -euo pipefail
+
+          mkdir -p "${WP_ROOT}"
+          wp core download --path="${WP_ROOT}" --skip-content
+          wp config create \
+            --path="${WP_ROOT}" \
+            --dbname=wordpress \
+            --dbuser=wordpress \
+            --dbpass=wordpress \
+            --dbhost=127.0.0.1 \
+            --skip-check \
+            --extra-php <<'PHP'
+          define('FS_METHOD', 'direct');
+          define('WP_DEBUG', true);
+          define('WP_DEBUG_DISPLAY', false);
+          PHP
+
+          wp --path="${WP_ROOT}" core install \
+            --url="http://example.test" \
+            --title="eForms CI" \
+            --admin_user=admin \
+            --admin_password=admin \
+            --admin_email=admin@example.test \
+            --skip-email
+
+          mkdir -p "${WP_ROOT}/wp-content/plugins"
+          cp -R "${GITHUB_WORKSPACE}/eforms" "${WP_ROOT}/wp-content/plugins/eform"
+          wp --path="${WP_ROOT}" plugin activate eform
+
+      - name: Smoke REST surface (/eforms/mint): missing Origin
+        env:
+          WP_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          set -euo pipefail
+          wp --path="${WP_ROOT}" eval-file "wp-content/plugins/eform/bin/wp-cli/post-no-origin.php"
+
+      - name: Smoke REST surface (/eforms/mint): oversized body
+        env:
+          WP_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          set -euo pipefail
+          wp --path="${WP_ROOT}" eval-file "wp-content/plugins/eform/bin/wp-cli/post-oversized.php"
+
+      - name: Smoke WP-CLI surface (wp eforms gc)
+        env:
+          WP_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          set -euo pipefail
+          wp --path="${WP_ROOT}" eforms gc --dry-run --limit=1
+
+      - name: Setup Node.js for E2E
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: eforms/tests/e2e/package-lock.json
+
+      - name: Install E2E dependencies
+        run: |
+          set -euo pipefail
+          cd eforms/tests/e2e
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Prepare E2E fixture pages + web server
+        env:
+          WP_ROOT: ${{ runner.temp }}/wordpress
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+
+          JS_PAGE_ID=$(wp --path="${WP_ROOT}" post create \
+            --post_type=page \
+            --post_status=publish \
+            --post_title='E2E JS Minted' \
+            --post_content='[eform id="contact" cacheable="true"]' \
+            --porcelain)
+
+          MIXED_PAGE_ID=$(wp --path="${WP_ROOT}" post create \
+            --post_type=page \
+            --post_status=publish \
+            --post_title='E2E Mixed Mode' \
+            --post_content=$'[eform id="contact" cacheable="false"]\n[eform id="quote-request" cacheable="true"]' \
+            --porcelain)
+
+          wp --path="${WP_ROOT}" option update permalink_structure '/%postname%/'
+          wp --path="${WP_ROOT}" rewrite flush --hard
+
+          wp --path="${WP_ROOT}" server --host=127.0.0.1 --port=8080 >"${RUNNER_TEMP}/wp-server.log" 2>&1 &
+          echo "WP_SERVER_PID=$!" >> "${GITHUB_ENV}"
+
+          echo "EFORMS_E2E_BASE_URL=http://127.0.0.1:8080" >> "${GITHUB_ENV}"
+          echo "EFORMS_E2E_JS_PAGE_URL=http://127.0.0.1:8080/?p=${JS_PAGE_ID}" >> "${GITHUB_ENV}"
+          echo "EFORMS_E2E_MIXED_PAGE_URL=http://127.0.0.1:8080/?p=${MIXED_PAGE_ID}" >> "${GITHUB_ENV}"
+          echo "WP_SERVER_LOG=${RUNNER_TEMP}/wp-server.log" >> "${GITHUB_ENV}"
+
+          for i in $(seq 1 40); do
+            if curl -fsS "http://127.0.0.1:8080/" >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "WordPress web server did not become ready." >&2
+          exit 1
+
+      - name: Run browser E2E checks
+        run: |
+          set -euo pipefail
+          cd eforms/tests/e2e
+          npm test
+
+      - name: Print WP server log on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          if [ -f "${WP_SERVER_LOG:-}" ]; then
+            echo "----- wp server log -----"
+            cat "${WP_SERVER_LOG}"
+          fi
+
+      - name: Stop WP server
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${WP_SERVER_PID:-}" ]; then
+            kill "${WP_SERVER_PID}" || true
+          fi

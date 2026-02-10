@@ -5,3 +5,6 @@ vendor/
 tests/tmp/
 tests/*.log
 tests/*.out
+eforms/tests/e2e/node_modules/
+eforms/tests/e2e/test-results/
+eforms/tests/e2e/playwright-report/

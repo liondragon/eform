@@ -8,7 +8,7 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
 
 **Task cards:** Each checkbox includes `Artifacts/Interfaces/Tests/Depends On/Done When` (optionally `Handoff Required`) so execution agents can implement without guessing.
 
-**Repo state (observed):** `eforms/templates/` and `eforms/assets/` exist; the PHP implementation under `eforms/eforms.php` and `eforms/src/` is not present yet.
+**Repo state (observed):** `eforms/templates/`, `eforms/assets/`, `eforms/eforms.php`, and `eforms/src/` are present and implemented; this plan is retained as the execution/verification ledger.
 
 ---
 
@@ -484,7 +484,7 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
 - Anchored clamp invariants in `docs/Canonical_Spec.md#sec-anchors` → `eforms/tests/unit/test_config_bootstrap.php`.
 - Hidden-mode lifecycle (render/mint/POST/rerender/success) → `eforms/tests/integration/test_renderer_get_hidden_mode.php`, `eforms/tests/integration/test_token_validate_hidden_mode.php`, `eforms/tests/integration/test_success_*`.
 - Cache-safety edge: hidden-mode refuses to embed tokens when headers are already sent → `eforms/tests/integration/test_cache_safety_hidden_mode_headers_sent.php`.
-- JS-minted lifecycle (`/eforms/mint`, client injection, remint marker) → `eforms/tests/integration/test_mint_endpoint_contract.php` + manual E2E scripts under `eforms/tests/e2e/`.
+- JS-minted lifecycle (`/eforms/mint`, client injection, remint marker) → `eforms/tests/integration/test_mint_endpoint_contract.php` + automated browser checks under `eforms/tests/e2e/specs/`.
 - Upload lifecycle + GC eligibility → `eforms/tests/integration/test_upload_*` + `eforms/tests/integration/test_gc_dry_run.php`.
 - Assets opt-out: `assets.css_disable` honored → `eforms/tests/integration/test_assets_css_disable.php`.
 - Logging level 2: `desc_sha1` emitted → `eforms/tests/integration/test_logging_desc_sha1.php`.
@@ -500,7 +500,7 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
 - Rerender invariants: validation/challenge rerender preserves required state; email-failure recovery follows mode-specific behavior (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge); Email-failure recovery (docs/Canonical_Spec.md#sec-email-failure-recovery), Anchors: [TOKEN_TTL_MAX])
   - Verified via: `eforms/tests/integration/test_email_failure_rerender.php`, `eforms/tests/integration/test_challenge_rerender_only.php`
 - Cacheable pages + JS-minted mode: GET renders without embedded secrets; client mints; server enforces `/eforms/mint` contract (Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode); Cache-safety (docs/Canonical_Spec.md#sec-cache-safety); Origin policy (docs/Canonical_Spec.md#sec-origin-policy), Anchors: None)
-  - Verified via: `eforms/tests/integration/test_mint_endpoint_contract.php` + manual E2E scripts under `eforms/tests/e2e/`
+  - Verified via: `eforms/tests/integration/test_mint_endpoint_contract.php`, `eforms/tests/e2e/specs/js_minted_injection.spec.js`, `eforms/tests/e2e/specs/mixed_mode_page.spec.js`
 - Uploads lifecycle: accept-token policy → validate → move-after-ledger → email attachments → GC eligibility (Spec: Uploads accept-token policy (docs/Canonical_Spec.md#sec-uploads-accept-tokens); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
   - Verified via: `eforms/tests/integration/test_upload_accept_tokens.php`, `eforms/tests/integration/test_upload_move_after_ledger.php`, `eforms/tests/integration/test_email_attachments_policy.php`, `eforms/tests/integration/test_gc_dry_run.php`
 - Optional defenses: throttle and challenge enforce entrypoint-specific behavior when enabled (Spec: Throttling (docs/Canonical_Spec.md#sec-throttling); Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge), Anchors: [THROTTLE_MAX_PER_MIN_MIN], [THROTTLE_MAX_PER_MIN_MAX], [THROTTLE_COOLDOWN_MIN], [THROTTLE_COOLDOWN_MAX])
@@ -523,24 +523,30 @@ This document decomposes `docs/Canonical_Spec.md` into phased implementation wor
 
 ## Known debt & open questions
 
-- [ ] Decide test execution strategy for WordPress-specific paths (pure-PHP harness vs WP integration harness) (Spec: Test/QA checklist (docs/Canonical_Spec.md#sec-test-qa), Anchors: None)
+- [x] Decide test execution strategy for WordPress-specific paths (pure-PHP harness vs WP integration harness) (Spec: Test/QA checklist (docs/Canonical_Spec.md#sec-test-qa), Anchors: None)
+  - `Decision:` Hybrid strategy — canonical pure-PHP harness command for unit+integration checks; WordPress-runtime smoke remains a targeted lane for public surfaces.
   - `Artifacts:` `eforms/tests/README.md` (new), `eforms/tests/integration/` (confirm conventions), `eforms/tests/bootstrap.php` (modify as needed)
   - `Interfaces:` None
   - `Tests:` N/A (decision task; impacts how other tests run)
   - `Depends On:` None
   - `Done When:` the chosen strategy is documented in `eforms/tests/README.md` with a single canonical command to run unit + integration checks
-- [ ] Decide how to exercise the REST endpoint and WP-CLI surfaces in CI (Spec: Public surfaces index (docs/Canonical_Spec.md#sec-objective), Anchors: None)
+  - `Verified via:` `eforms/tests/README.md`
+- [x] Decide how to exercise the REST endpoint and WP-CLI surfaces in CI (Spec: Public surfaces index (docs/Canonical_Spec.md#sec-objective), Anchors: None)
+  - `Decision:` CI provisions a minimal WordPress runtime, runs REST smoke checks via `wp eval-file` scripts, and runs `wp eforms gc --dry-run` for the CLI surface.
   - `Artifacts:` `.github/workflows/ci.yml` (new), `eforms/bin/wp-cli/` (new, if using WP-CLI smoke scripts)
   - `Interfaces:` `POST /eforms/mint`, `wp eforms gc`
   - `Tests:` `eforms/bin/wp-cli/post-no-origin.php` (new), `eforms/bin/wp-cli/post-oversized.php` (new)
   - `Depends On:` None
   - `Done When:` CI runs at least one smoke exercise for each surface and fails when observed behavior deviates from the spec-defined contract
-- [ ] Concretize the manual E2E scripts into automated browser checks (if desired) without changing runtime behavior (Spec: Assets (docs/Canonical_Spec.md#sec-assets), Anchors: None)
+  - `Verified via:` `.github/workflows/ci.yml`, `eforms/bin/wp-cli/post-no-origin.php`, `eforms/bin/wp-cli/post-oversized.php`
+- [x] Concretize the manual E2E scripts into automated browser checks (if desired) without changing runtime behavior (Spec: Assets (docs/Canonical_Spec.md#sec-assets), Anchors: None)
+  - `Decision:` Add a thin Playwright lane for critical browser-only JS behaviors (JS-minted injection/session reuse + mixed-mode handling + mint-failure UX isolation); keep full business logic verification in existing unit/integration suites.
   - `Artifacts:` `eforms/tests/e2e/` (extend), `eforms/tests/e2e/README.md` (new)
   - `Interfaces:` JS-minted injection behavior and mixed-mode page handling
   - `Tests:` `eforms/tests/e2e/` (automated checks replacing the manual scripts)
   - `Depends On:` Phase 2 — Implement JS-minted token injection + remint behavior in `forms.js`; Phase 2 — Enforce mixed-mode page behavior in client + server
   - `Done When:` JS behaviors are exercised automatically (no new runtime surfaces or config), and failures produce actionable diagnostics
+  - `Verified via:` `eforms/tests/e2e/specs/js_minted_injection.spec.js`, `eforms/tests/e2e/specs/mixed_mode_page.spec.js`, `.github/workflows/ci.yml`
 
 ---
 
