@@ -1,556 +1,453 @@
-# Implementation Plan — electronic_forms
-
-This document decomposes `docs/Canonical_Spec.md` into phased implementation work items. It is **non-normative**: it must not introduce behavior beyond the spec.
-
-**Authoritative inputs:**
-- Spec: `docs/Canonical_Spec.md` (STABLE)
-- Digest (invariants checklist): `docs/Spec_Digest.md` (immutable)
-
-**Task cards:** Each checkbox includes `Artifacts/Interfaces/Tests/Depends On/Done When` (optionally `Handoff Required`) so execution agents can implement without guessing.
-
-**Repo state (observed):** `eforms/templates/`, `eforms/assets/`, `eforms/eforms.php`, and `eforms/src/` are present and implemented; this plan is retained as the execution/verification ledger.
-
----
-
-## Phase 0 — Bootstrap (minimal runnable skeleton)
-
-**Goals**
-- Establish the plugin entry points, core utilities, and config snapshot so later phases can build behavior without reshaping foundations.
-
-**Non-Goals**
-- End-to-end submission handling.
-
-**Acceptance**
-- Plugin can load without fatals and can render a deterministic “not yet implemented” configuration error for the public surfaces.
-
-### Work items
-
-- [x] Scaffold plugin entry points + autoload boundaries (Spec: Architecture and file layout (docs/Canonical_Spec.md#sec-architecture); Public surfaces index (docs/Canonical_Spec.md#sec-objective); Lazy-load lifecycle (components & triggers) (docs/Canonical_Spec.md#sec-lazy-load-matrix), Anchors: None)
-  - `Artifacts:` `eforms/eforms.php` (new), `eforms/src/` (new dir), `eforms/src/bootstrap.php` (new, optional)
-  - `Interfaces:` `[eform]`, `eform_render($slug, $opts)` (stubbed), `POST /eforms/mint` (stubbed), `wp eforms gc` (stubbed)
-  - `Tests:` `eforms/tests/smoke/test_bootstrap.php` (new)
-  - `Depends On:` None
-  - `Done When:` plugin loads in the chosen WordPress smoke harness; all public surfaces fail closed with spec-defined deterministic error codes (no white screens)
-
-- [x] Implement `Helpers` primitives used across subsystems (Spec: Central Registries (docs/Canonical_Spec.md#sec-central-registries); Shared lifecycle and storage contract (docs/Canonical_Spec.md#sec-shared-lifecycle); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MAX])
-  - `Artifacts:` `eforms/src/Helpers.php` (new)
-  - `Interfaces:` None
-  - `Tests:` `eforms/tests/unit/test_helpers.php` (new)
-  - `Depends On:` Phase 0 — Scaffold plugin entry points + autoload boundaries
-  - `Done When:` helpers required by the spec exist (notably sharding/key derivation/canonicalization helpers) and `eforms/tests/unit/test_helpers.php` passes
-
-- [x] Implement config snapshot bootstrap + override sources (Spec: Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
-  - `Artifacts:` `eforms/src/Config.php` (new)
-  - `Interfaces:` `${WP_CONTENT_DIR}/eforms.config.php`, `eforms_config` filter
-  - `Tests:` `eforms/tests/unit/test_config_bootstrap.php` (new)
-  - `Depends On:` Phase 0 — Scaffold plugin entry points + autoload boundaries
-  - `Done When:` `Config::get()` produces a frozen per-request snapshot; unknown keys are rejected; drop-in failure behavior matches the spec; `eforms/tests/unit/test_config_bootstrap.php` passes
-
-- [x] Implement config schema validation (types/enums/bools + per-key fallback) (Spec: Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
-  - `Artifacts:` `eforms/src/Config.php` (modify)
-  - `Interfaces:` None (internal enforcement of config constraints)
-  - `Tests:` `eforms/tests/unit/test_config_validation.php` (new)
-  - `Depends On:` Phase 0 — Implement config snapshot bootstrap + override sources
-  - `Done When:` invalid enums/booleans/types in merged config are rejected deterministically by falling back to defaults before clamping; drop-in-derived validation errors emit `EFORMS_CONFIG_DROPIN_INVALID` with `{ path, reason }` when logging is enabled; `eforms/tests/unit/test_config_validation.php` passes
-
-- [x] Implement config numeric clamping via named Anchors (Spec: Anchors (docs/Canonical_Spec.md#sec-anchors); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: [MIN_FILL_SECONDS_MIN], [MIN_FILL_SECONDS_MAX], [TOKEN_TTL_MIN], [TOKEN_TTL_MAX], [MAX_FORM_AGE_MIN], [MAX_FORM_AGE_MAX], [CHALLENGE_TIMEOUT_MIN], [CHALLENGE_TIMEOUT_MAX], [THROTTLE_MAX_PER_MIN_MIN], [THROTTLE_MAX_PER_MIN_MAX], [THROTTLE_COOLDOWN_MIN], [THROTTLE_COOLDOWN_MAX], [LOGGING_LEVEL_MIN], [LOGGING_LEVEL_MAX], [RETENTION_DAYS_MIN], [RETENTION_DAYS_MAX], [MAX_FIELDS_MIN], [MAX_FIELDS_MAX], [MAX_OPTIONS_MIN], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MIN], [MAX_MULTIVALUE_MAX])
-  - `Artifacts:` `eforms/src/Config.php` (modify)
-  - `Interfaces:` None
-  - `Tests:` `eforms/tests/unit/test_config_clamps.php` (new)
-  - `Depends On:` Phase 0 — Implement config snapshot bootstrap + override sources
-  - `Done When:` numeric config values clamp according to the spec’s constraints table; `eforms/tests/unit/test_config_clamps.php` passes (table-driven coverage)
-
-- [x] Implement compatibility guards (min versions + shared uploads semantics) (Spec: Compatibility and updates (docs/Canonical_Spec.md#sec-compatibility); Shared lifecycle and storage contract (docs/Canonical_Spec.md#sec-shared-lifecycle), Anchors: None)
-  - `Artifacts:` `eforms/src/Compat.php` (new), `eforms/eforms.php` (modify)
-  - `Interfaces:` Activation/load-time failure behavior (admin notice + deactivate when unmet)
-  - `Tests:` `eforms/tests/smoke/test_compat_guards.php` (new), `eforms/tests/smoke/test_compat_guards.md` (new, manual checklist)
-  - `Depends On:` Phase 0 — Scaffold plugin entry points + autoload boundaries
-  - `Done When:` minimum PHP/WP version checks and shared-upload semantics guardrails match the spec; `eforms/tests/smoke/test_compat_guards.php` passes; manual checklist steps are documented in `eforms/tests/smoke/test_compat_guards.md`
-
-- [x] Define stable error-code surface + structured error containers (Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
-  - `Artifacts:` `eforms/src/ErrorCodes.php` (new), `eforms/src/Errors.php` (new)
-  - `Interfaces:` Error codes listed in §Error handling (append-only contract)
-  - `Tests:` `eforms/tests/unit/test_error_codes_append_only.php` (new)
-  - `Depends On:` Phase 0 — Scaffold plugin entry points + autoload boundaries
-  - `Done When:` errors can be represented as `_global` + per-field errors; emitted codes match the stable surface defined by the spec; `eforms/tests/unit/test_error_codes_append_only.php` passes
-
-- [x] Set up a minimal test harness suitable for pure-PHP unit tests (Spec: DRY principles (docs/Canonical_Spec.md#sec-dry-principles), Anchors: None)
-  - `Artifacts:` `eforms/tests/` (new dir), `eforms/tests/bootstrap.php` (new)
-  - `Interfaces:` None
-  - `Tests:` (this task creates the harness)
-  - `Depends On:` Phase 0 — Scaffold plugin entry points + autoload boundaries
-  - `Done When:` unit tests can run in CI/local without requiring a full WordPress runtime; WordPress-specific behavior is deferred to later integration/E2E tasks
-
----
-
-## Phase 1 — Core path (hidden-mode render → POST → PRG)
-
-**Goals**
-- Implement the deterministic render + submit pipeline for non-cacheable forms (hidden-mode), including ledger dedupe, email delivery, error rerender, and cache-safety.
-
-**Non-Goals**
-- JS-minted mode and `/eforms/mint` beyond stubs.
-- Optional throttling and adaptive challenge (unless required by baseline config defaults).
-
-**Acceptance**
-- The pipeline order and prohibitions in `docs/Spec_Digest.md` that apply to hidden-mode are satisfied.
-
-### Contracts & data models
-
-- [x] Implement template loader + JSON decoding + version gate (Spec: Template JSON (docs/Canonical_Spec.md#sec-template-json); Template versioning (docs/Canonical_Spec.md#sec-template-versioning), Anchors: None)
-  - `Artifacts:` `eforms/src/Rendering/TemplateLoader.php` (new)
-  - `Interfaces:` Shipped JSON templates under `eforms/templates/forms/`
-  - `Tests:` `eforms/tests/unit/test_template_loader.php` (new)
-  - `Depends On:` Phase 0 — Implement `Helpers` primitives used across subsystems; Phase 0 — Implement config snapshot bootstrap + override sources; Phase 0 — Define stable error-code surface + structured error containers
-  - `Done When:` templates load deterministically from disk (including filename/slug allow-list); JSON parse failures produce deterministic configuration errors; `eforms/tests/unit/test_template_loader.php` passes
-
-- [x] Implement template schema/envelope validation (unknown keys rejected) (Spec: Template model (docs/Canonical_Spec.md#sec-template-model); Template JSON (docs/Canonical_Spec.md#sec-template-json); Template validation (docs/Canonical_Spec.md#sec-template-validation), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
-  - `Artifacts:` `eforms/src/Validation/TemplateValidator.php` (new)
-  - `Interfaces:` Template envelope/schema contract (additionalProperties/unknown keys rejected at every level)
-  - `Tests:` `eforms/tests/unit/test_template_schema_validation.php` (new)
-  - `Depends On:` Phase 1 — Implement template loader + JSON decoding + version gate
-  - `Done When:` schema violations are rejected deterministically (unknown keys, required keys, enums, conditional requirements, row_group balance, and email block requirements such as `is_email()` and `email_template` registry); `eforms/tests/unit/test_template_schema_validation.php` passes
-
-- [x] Implement internal registries (field types, validators, normalizers/coercers, renderers) with deterministic handler resolution (Spec: Central registries (docs/Canonical_Spec.md#sec-central-registries), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
-  - `Artifacts:` `eforms/src/Validation/FieldTypeRegistry.php` (new), `eforms/src/Validation/ValidatorRegistry.php` (new), `eforms/src/Validation/NormalizerRegistry.php` (new), `eforms/src/Rendering/RendererRegistry.php` (new)
-  - `Interfaces:` None
-  - `Tests:` `eforms/tests/unit/test_registry_resolution.php` (new)
-  - `Depends On:` Phase 0 — Define stable error-code surface + structured error containers; Phase 0 — Implement `Helpers` primitives used across subsystems
-  - `Done When:` unknown handler IDs fail fast with deterministic exceptions that are surfaced as configuration errors; `eforms/tests/unit/test_registry_resolution.php` passes
-
-- [x] Implement built-in field types: text-like inputs + tel formatting (Spec: Field types (docs/Canonical_Spec.md#sec-field-types); Template model fields (docs/Canonical_Spec.md#sec-template-model-fields); display_format_tel tokens (docs/Canonical_Spec.md#sec-display-format-tel), Anchors: None)
-  - `Artifacts:` `eforms/src/Validation/FieldTypes/` (new dir), `eforms/src/Rendering/FieldRenderers/` (new dir), `eforms/src/Validation/FieldTypeRegistry.php` (modify), `eforms/src/Rendering/RendererRegistry.php` (modify)
-  - `Interfaces:` Text-like and input-variant field descriptors (including `zip_us`, `zip`, `number`, `range`, `date`) and their default behaviors
-  - `Tests:` `eforms/tests/unit/test_field_types_text_like.php` (new)
-  - `Depends On:` Phase 1 — Implement internal registries (field types, validators, normalizers/coercers, renderers) with deterministic handler resolution
-  - `Done When:` text-like built-ins resolve deterministically via registries; per-type defaults and attribute/hint emission match the spec; `eforms/tests/unit/test_field_types_text_like.php` passes
-
-- [x] Implement built-in field types: textarea + long text semantics (Spec: Field types (docs/Canonical_Spec.md#sec-field-types); Template model fields (docs/Canonical_Spec.md#sec-template-model-fields), Anchors: None)
-  - `Artifacts:` `eforms/src/Validation/FieldTypes/` (modify), `eforms/src/Rendering/FieldRenderers/` (modify), `eforms/src/Validation/FieldTypeRegistry.php` (modify), `eforms/src/Rendering/RendererRegistry.php` (modify)
-  - `Interfaces:` Built-in textarea type defaults and validation/rendering rules
-  - `Tests:` `eforms/tests/unit/test_field_types_textarea.php` (new)
-  - `Depends On:` Phase 1 — Implement built-in field types: text-like inputs + tel formatting
-  - `Done When:` textarea built-in resolves deterministically, applies spec-defined defaults/constraints, and renders required attributes; `eforms/tests/unit/test_field_types_textarea.php` passes
-
-- [x] Implement built-in field types: choice/select/radio/checkbox + option semantics (Spec: Field types (docs/Canonical_Spec.md#sec-field-types); Template options (docs/Canonical_Spec.md#sec-template-options); Template model fields (docs/Canonical_Spec.md#sec-template-model-fields), Anchors: [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
-  - `Artifacts:` `eforms/src/Validation/FieldTypes/` (modify), `eforms/src/Rendering/FieldRenderers/` (modify), `eforms/src/Validation/FieldTypeRegistry.php` (modify), `eforms/src/Rendering/RendererRegistry.php` (modify)
-  - `Interfaces:` Choice field option schema, multivalue semantics, and rendering defaults
-  - `Tests:` `eforms/tests/unit/test_field_types_choice.php` (new)
-  - `Depends On:` Phase 1 — Implement built-in field types: textarea + long text semantics
-  - `Done When:` choice built-ins enforce option semantics deterministically and render stable attributes; `eforms/tests/unit/test_field_types_choice.php` passes
-
-- [x] Implement template semantic preflight (key uniqueness, reserved keys, handler IDs resolved) (Spec: Template model (docs/Canonical_Spec.md#sec-template-model); Template validation (docs/Canonical_Spec.md#sec-template-validation); Template model fields (docs/Canonical_Spec.md#sec-template-model-fields), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
-  - `Artifacts:` `eforms/src/Validation/TemplateValidator.php` (modify)
-  - `Interfaces:` Template-level invariants (unique `fields[].key`, reserved keys, `include_fields` references, deterministic handler resolution)
-  - `Tests:` `eforms/tests/unit/test_template_semantic_preflight.php` (new)
-  - `Depends On:` Phase 1 — Implement template schema/envelope validation (unknown keys rejected); Phase 1 — Implement built-in field types: choice/select/radio/checkbox + option semantics
-  - `Done When:` semantic invariants fail deterministically (including `include_fields` referencing unknown keys); handler IDs resolve to registered built-ins and unknown IDs surface stable configuration errors; `eforms/tests/unit/test_template_semantic_preflight.php` passes
-
-- [x] Implement per-request `TemplateContext` with resolved descriptors and `has_uploads` flag (Spec: Template model (docs/Canonical_Spec.md#sec-template-model); Request lifecycle GET (docs/Canonical_Spec.md#sec-request-lifecycle-get), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
-  - `Artifacts:` `eforms/src/Rendering/TemplateContext.php` (new)
-  - `Interfaces:` None
-  - `Tests:` `eforms/tests/unit/test_template_context.php` (new)
-  - `Depends On:` Phase 1 — Implement template semantic preflight (key uniqueness, reserved keys, handler IDs resolved)
-  - `Done When:` renderer and validator can share the same resolved descriptor objects without re-merging on POST; `eforms/tests/unit/test_template_context.php` passes
-
-- [x] Add unit tests: shipped fixtures preflight + registry completeness (Spec: Template validation (docs/Canonical_Spec.md#sec-template-validation); Templates to include (docs/Canonical_Spec.md#sec-templates-to-include); Central registries (docs/Canonical_Spec.md#sec-central-registries), Anchors: None)
-  - `Artifacts:` `eforms/tests/unit/test_shipped_templates_preflight.php` (new)
-  - `Interfaces:` Shipped JSON templates under `eforms/templates/forms/`
-  - `Tests:` `eforms/tests/unit/test_shipped_templates_preflight.php` (new)
-  - `Depends On:` Phase 1 — Implement template loader + JSON decoding + version gate; Phase 1 — Implement template schema/envelope validation (unknown keys rejected); Phase 1 — Implement internal registries (field types, validators, normalizers/coercers, renderers) with deterministic handler resolution
-  - `Done When:` every shipped template passes TemplateValidator preflight; all declared types/handler IDs resolve deterministically; `eforms/tests/unit/test_shipped_templates_preflight.php` passes
-  - `Verified via:` `eforms/tests/unit/test_shipped_templates_preflight.php`
-
-- [x] Implement minimal logging mode with request correlation id (Spec: Logging (docs/Canonical_Spec.md#sec-logging), Anchors: [LOGGING_LEVEL_MIN], [LOGGING_LEVEL_MAX])
-  - `Artifacts:` `eforms/src/Logging.php` (new)
-  - `Interfaces:` `eforms_request_id` filter; request-id header resolution; stable log fields
-  - `Tests:` `eforms/tests/unit/test_request_id_resolution.php` (new)
-  - `Depends On:` Phase 0 — Implement config snapshot bootstrap + override sources
-  - `Done When:` every emitted log event includes `request_id`; minimal logging redacts per spec; log emission is lazy and respects `logging.mode`; `eforms/tests/unit/test_request_id_resolution.php` passes
-
-### Security (hidden-mode)
-
-- [x] Implement storage health check and private-dir hardening for `${uploads.dir}/eforms-private/` (Spec: Shared lifecycle and storage contract (docs/Canonical_Spec.md#sec-shared-lifecycle); Cache-safety (docs/Canonical_Spec.md#sec-cache-safety); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: None)
-  - `Artifacts:` `eforms/src/Security/StorageHealth.php` (new), `eforms/src/Uploads/PrivateDir.php` (new)
-  - `Interfaces:` None
-  - `Tests:` `eforms/tests/integration/test_storage_health_check.php` (new)
-  - `Depends On:` Phase 0 — Implement `Helpers` primitives used across subsystems; Phase 0 — Implement config snapshot bootstrap + override sources
-  - `Done When:` health check is memoized per request; failures prevent token minting and surface `EFORMS_ERR_STORAGE_UNAVAILABLE` per spec; `eforms/tests/integration/test_storage_health_check.php` passes
-  - `Verified via:` `eforms/tests/integration/test_storage_health_check.php`
-
-- [x] Implement hidden-mode token minting + record persistence (Spec: Hidden-mode contract (docs/Canonical_Spec.md#sec-hidden-mode); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX])
-  - `Artifacts:` `eforms/src/Security/Security.php` (new)
-  - `Interfaces:` Hidden-mode token record storage and the hidden security inputs rendered into forms
-  - `Tests:` `eforms/tests/integration/test_security_mint_hidden_record.php` (new)
-  - `Depends On:` Phase 1 — Implement storage health check and private-dir hardening for `${uploads.dir}/eforms-private/`
-  - `Done When:` minting persists token records atomically per storage contract; renderer embeds returned metadata without generating/altering it; `eforms/tests/integration/test_security_mint_hidden_record.php` passes
-  - `Verified via:` `eforms/tests/integration/test_security_mint_hidden_record.php`
-
-- [x] Implement `Security::token_validate` for hidden-mode, including tamper guards and `soft_reasons` production (Spec: Lifecycle quickstart (docs/Canonical_Spec.md#sec-lifecycle-quickstart); Security (docs/Canonical_Spec.md#sec-security); Origin policy (docs/Canonical_Spec.md#sec-origin-policy); Timing checks (docs/Canonical_Spec.md#sec-timing-checks); Spam decision (docs/Canonical_Spec.md#sec-spam-decision), Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX], [MIN_FILL_SECONDS_MIN], [MIN_FILL_SECONDS_MAX], [MAX_FORM_AGE_MIN], [MAX_FORM_AGE_MAX])
-  - `Artifacts:` `eforms/src/Security/Security.php` (modify), `eforms/src/Security/OriginPolicy.php` (new), `eforms/src/Security/TimingSignals.php` (new)
-  - `Interfaces:` `soft_reasons` closed set; token failure codes
-  - `Tests:` `eforms/tests/integration/test_token_validate_hidden_mode.php` (new)
-  - `Depends On:` Phase 1 — Implement hidden-mode token minting + record persistence; Phase 1 — Implement minimal logging mode with request correlation id
-  - `Done When:` security gate runs before normalize/validate; hard failures abort before side effects; `soft_reasons` is deduplicated and limited to the spec-defined closed set; `eforms/tests/integration/test_token_validate_hidden_mode.php` passes
-  - `Verified via:` `eforms/tests/integration/test_token_validate_hidden_mode.php`
-
-- [x] Implement POST size cap helper (effective cap calculation) (Spec: POST size cap (docs/Canonical_Spec.md#sec-post-size-cap); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
-  - `Artifacts:` `eforms/src/Security/PostSize.php` (new)
-  - `Interfaces:` None
-  - `Tests:` `eforms/tests/unit/test_post_size_cap_calc.php` (new)
-  - `Depends On:` Phase 0 — Implement config snapshot bootstrap + override sources
-  - `Done When:` effective cap logic matches spec rules (includes INI cap handling) and `eforms/tests/unit/test_post_size_cap_calc.php` passes
-  - `Verified via:` `eforms/tests/unit/test_post_size_cap_calc.php`
-
-### Rendering (GET and rerender)
-
-- [x] Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior (Spec: Request lifecycle GET (docs/Canonical_Spec.md#sec-request-lifecycle-get); Success behavior (docs/Canonical_Spec.md#sec-success); Cache-safety (docs/Canonical_Spec.md#sec-cache-safety), Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX])
-  - `Reasoning:` **High** — Complex orchestration: template loading, security tokens, cache-safety headers, duplicate detection across request lifecycle
-  - `Artifacts:` `eforms/src/Rendering/FormRenderer.php` (new), `eforms/src/bootstrap.php` (modify)
-  - `Interfaces:` `[eform]`, `eform_render($slug, $opts)`
-  - `Tests:` `eforms/tests/integration/test_renderer_get_hidden_mode.php` (new), `eforms/tests/integration/test_cache_safety_hidden_mode_headers_sent.php` (new), `eforms/tests/smoke/test_bootstrap.php` (modify)
-  - `Depends On:` Phase 1 — Implement per-request `TemplateContext` with resolved descriptors and `has_uploads` flag; Phase 1 — Implement hidden-mode token minting + record persistence
-  - `Done When:` GET render loads templates, preflights them, enqueues assets only when a form is present, rejects duplicate form IDs deterministically, and emits hidden-mode security inputs by delegating minting to `Security`; cache-safety headers are applied on responses that embed hidden-mode security inputs; when headers are already sent, GET render fails closed and surfaces `EFORMS_ERR_STORAGE_UNAVAILABLE` without minting; both integration tests pass
-  - `Verified via:` `eforms/tests/integration/test_renderer_get_hidden_mode.php`, `eforms/tests/integration/test_cache_safety_hidden_mode_headers_sent.php`, `eforms/tests/smoke/test_bootstrap.php`
-
-- [x] Honor `assets.css_disable` (Spec: Assets (docs/Canonical_Spec.md#sec-assets); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
-  - `Reasoning:` **Low** — Simple config flag check; single conditional for CSS enqueue
-  - `Artifacts:` `eforms/src/Rendering/FormRenderer.php` (modify)
-  - `Interfaces:` `assets.css_disable`
-  - `Tests:` `eforms/tests/integration/test_assets_css_disable.php` (new)
-  - `Depends On:` Phase 1 — Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior; Phase 0 — Implement config snapshot bootstrap + override sources
-  - `Done When:` when `assets.css_disable=true`, plugin CSS is not enqueued; JS enqueue behavior remains spec-compliant (JS-minted mode still works); `eforms/tests/integration/test_assets_css_disable.php` passes
-  - `Verified via:` `eforms/tests/integration/test_assets_css_disable.php`
-
-- [x] Implement row-group wrapper emission and HTML fragment enforcement rules (Spec: Row groups (docs/Canonical_Spec.md#sec-template-row-groups); HTML-bearing fields (docs/Canonical_Spec.md#sec-html-fields); Template model (docs/Canonical_Spec.md#sec-template-model), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX])
-  - `Reasoning:` **Medium** — Balanced wrapper emission requires careful tree tracking; HTML sanitization has security implications
-  - `Artifacts:` `eforms/src/Rendering/FormRenderer.php` (modify), `eforms/src/Validation/TemplateValidator.php` (modify)
-  - `Interfaces:` Template JSON `row_group` pseudo-fields; `before_html` / `after_html`
-  - `Tests:` `eforms/tests/unit/test_row_groups_balance.php` (new), `eforms/tests/unit/test_html_fragment_sanitization.php` (new)
-  - `Depends On:` Phase 1 — Implement template schema/envelope validation (unknown keys rejected); Phase 1 — Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior
-  - `Done When:` renderer emits balanced wrappers without auto-closing; TemplateValidator enforces HTML fragment constraints (sanitization and any rejection rules defined by the spec); both unit tests pass
-  - `Verified via:` `eforms/tests/unit/test_row_groups_balance.php`, `eforms/tests/unit/test_html_fragment_sanitization.php`
-
-- [x] Implement accessibility + error rendering contract (Spec: Accessibility (docs/Canonical_Spec.md#sec-accessibility); Assets (docs/Canonical_Spec.md#sec-assets), Anchors: None)
-  - `Reasoning:` **Medium** — Coordinated changes across PHP renderer, JS, and CSS with ARIA semantics
-  - `Artifacts:` `eforms/src/Rendering/FormRenderer.php` (modify), `eforms/assets/forms.js` (modify), `eforms/assets/forms.css` (modify)
-  - `Interfaces:` Error summary markup + focus behavior; ARIA attributes; per-field error rendering
-  - `Tests:` `eforms/tests/integration/test_accessibility_error_summary.php` (new)
-  - `Depends On:` Phase 1 — Implement built-in field types: choice/select/radio/checkbox + option semantics; Phase 1 — Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior
-  - `Done When:` error summary and per-field errors render per spec; JS focus/UX behavior follows spec; `eforms/tests/integration/test_accessibility_error_summary.php` passes
-  - `Verified via:` `eforms/tests/integration/test_accessibility_error_summary.php`
-
-### Submission pipeline (POST)
-
-- [x] Implement Normalize stage (pure + deterministic) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [MAX_FIELDS_MAX])
-  - `Reasoning:` **Medium** — Pure/deterministic function; careful attention to option semantics and edge cases
-  - `Artifacts:` `eforms/src/Validation/Normalizer.php` (new)
-  - `Interfaces:` Field-type normalization rules and option semantics (no rejection in Normalize stage)
-  - `Tests:` `eforms/tests/unit/test_normalize_stage.php` (new)
-  - `Depends On:` Phase 1 — Implement built-in field types: choice/select/radio/checkbox + option semantics
-  - `Done When:` given identical inputs, Normalize emits identical canonical values and emits no hard failures; `eforms/tests/unit/test_normalize_stage.php` passes
-  - `Verified via:` `eforms/tests/unit/test_normalize_stage.php`
-
-- [x] Implement Validate stage (errors + deterministic ordering) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Template validation (docs/Canonical_Spec.md#sec-template-validation); Cross-field rules (docs/Canonical_Spec.md#sec-cross-field-rules), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
-  - `Reasoning:` **High** — Cross-field rules, deterministic error ordering, stable error surface; high spec compliance pressure
-  - `Artifacts:` `eforms/src/Validation/Validator.php` (new)
-  - `Interfaces:` Field validation rules, cross-field rules, and stable error ordering contract
-  - `Tests:` `eforms/tests/unit/test_validation_determinism.php` (new), `eforms/tests/unit/test_cross_field_rules.php` (new)
-  - `Depends On:` Phase 1 — Implement Normalize stage (pure + deterministic)
-  - `Done When:` errors are stable/deterministic for identical inputs; cross-field rules match the spec; both unit tests pass
-  - `Verified via:` `eforms/tests/unit/test_validation_determinism.php`, `eforms/tests/unit/test_cross_field_rules.php`
-
-- [x] Implement Coerce stage (post-validate canonicalization) (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [MAX_FIELDS_MAX])
-  - `Reasoning:` **Low** — Straightforward post-validate type coercion
-  - `Artifacts:` `eforms/src/Validation/Coercer.php` (new)
-  - `Interfaces:` Type coercion rules defined by the spec (post-validate)
-  - `Tests:` `eforms/tests/unit/test_coerce_stage.php` (new)
-  - `Depends On:` Phase 1 — Implement Validate stage (errors + deterministic ordering)
-  - `Done When:` Coerce produces canonical typed output for downstream side effects; `eforms/tests/unit/test_coerce_stage.php` passes
-  - `Verified via:` `eforms/tests/unit/test_coerce_stage.php`
-
-- [x] Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success) (Spec: Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Security (docs/Canonical_Spec.md#sec-security), Anchors: [TOKEN_TTL_MAX])
-  - `Reasoning:` **High** — Core pipeline ordering per Spec_Digest invariants; security gate → ledger → side effects sequencing is critical
-  - `Artifacts:` `eforms/src/Submission/SubmitHandler.php` (new), `eforms/src/Submission/RequestContext.php` (new, optional)
-  - `Interfaces:` POST handler for submissions; stable error rerender behavior
-  - `Tests:` `eforms/tests/integration/test_post_pipeline_ordering.php` (new), `eforms/tests/integration/test_post_size_cap.php` (new)
-  - `Depends On:` Phase 1 — Implement POST size cap helper (effective cap calculation); Phase 1 — Implement `Security::token_validate` for hidden-mode, including tamper guards and `soft_reasons` production; Phase 1 — Implement Coerce stage (post-validate canonicalization)
-  - `Done When:` orchestration order matches `docs/Spec_Digest.md`; post-size cap is enforced before side effects; both integration tests pass
-  - `Verified via:` `eforms/tests/integration/test_post_pipeline_ordering.php`, `eforms/tests/integration/test_post_size_cap.php`
-
-- [x] Implement honeypot behavior (stealth vs hard-fail) including ledger burn rule (Spec: Honeypot (docs/Canonical_Spec.md#sec-honeypot); Security (docs/Canonical_Spec.md#sec-security), Anchors: [TOKEN_TTL_MAX])
-  - `Reasoning:` **Medium** — Stealth vs hard-fail logic; ledger burn integration
-  - `Artifacts:` `eforms/src/Security/Honeypot.php` (new), `eforms/src/Submission/SubmitHandler.php` (modify)
-  - `Interfaces:` Fixed POST name `eforms_hp` and spec-defined response behavior
-  - `Tests:` `eforms/tests/integration/test_honeypot_paths.php` (new)
-  - `Depends On:` Phase 1 — Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success)
-  - `Done When:` honeypot short-circuits before validation/email; ledger burn is attempted only when `token_ok=true`; `eforms/tests/integration/test_honeypot_paths.php` passes
-  - `Verified via:` `eforms/tests/integration/test_honeypot_paths.php`
-
-- [x] Implement ledger reservation contract and duplicate-submission behavior (Spec: Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
-  - `Reasoning:` **High** — Concurrency semantics (EEXIST=duplicate), atomic file ops, GC coordination
-  - `Handoff Required:` yes — include EEXIST duplicate semantics, atomic exclusive-create rationale, and how to reproduce concurrency-test failures
-  - `Artifacts:` `eforms/src/Submission/Ledger.php` (new)
-  - `Interfaces:` Ledger marker pathing and duplicate semantics (EEXIST treated as duplicate)
-  - `Tests:` `eforms/tests/integration/test_ledger_reserve_semantics.php` (new)
-  - `Depends On:` Phase 1 — Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success)
-  - `Done When:` reservation is performed immediately before side effects; non-EEXIST IO failures surface `EFORMS_ERR_LEDGER_IO` and are logged per spec; `eforms/tests/integration/test_ledger_reserve_semantics.php` passes
-  - `Verified via:` `eforms/tests/integration/test_ledger_reserve_semantics.php`
-
-- [x] Implement email delivery core (no uploads yet) and email-failure rerender contract (Spec: Email delivery (docs/Canonical_Spec.md#sec-email); Email templates (docs/Canonical_Spec.md#sec-email-templates); Templates to include (docs/Canonical_Spec.md#sec-templates-to-include); Email-failure recovery (docs/Canonical_Spec.md#sec-email-failure-recovery); Hidden-mode email-failure recovery (docs/Canonical_Spec.md#sec-hidden-email-failure); Error handling (docs/Canonical_Spec.md#sec-error-handling); Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post), Anchors: [TOKEN_TTL_MAX])
-  - `Reasoning:` **High** — Header sanitization, Reply-To precedence, template token expansion; failure recovery with token reminting
-  - `Handoff Required:` yes — include email header sanitization rules, token reminting behavior (hidden vs JS-minted), and how to reproduce email-failure rerender tests
-  - `Artifacts:` `eforms/src/Email/Emailer.php` (new), `eforms/src/Email/Templates.php` (new)
-  - `Interfaces:` Template `email` block contract; `wp_mail()` usage; stable email-failure behavior
-  - `Tests:` `eforms/tests/integration/test_email_headers_sanitization.php` (new), `eforms/tests/integration/test_email_failure_rerender.php` (new)
-  - `Depends On:` Phase 1 — Implement ledger reservation contract and duplicate-submission behavior; Phase 1 — Implement minimal logging mode with request correlation id
-  - `Done When:` email assembly follows spec rules (header sanitization, Reply-To precedence, template token expansion); on send failure the pipeline rerenders with a fresh token per mode contract and logs required fields; both integration tests pass
-  - `Verified via:` `eforms/tests/integration/test_email_headers_sanitization.php`, `eforms/tests/integration/test_email_failure_rerender.php`
-
-- [x] Implement suspect handling signaling (headers + subject tagging) (Spec: Suspect handling (docs/Canonical_Spec.md#sec-suspect-handling); Spam decision (docs/Canonical_Spec.md#sec-spam-decision), Anchors: None)
-  - `Reasoning:` **Low** — Header/subject modification; minimal logic
-  - `Artifacts:` `eforms/src/Submission/SubmitHandler.php` (modify), `eforms/src/Email/Emailer.php` (modify)
-  - `Interfaces:` Response headers (`X-EForms-Soft-Fails`, `X-EForms-Suspect`) and any spec-defined subject tagging behavior
-  - `Tests:` `eforms/tests/integration/test_suspect_signaling.php` (new)
-  - `Depends On:` Phase 1 — Implement `Security::token_validate` for hidden-mode, including tamper guards and `soft_reasons` production; Phase 1 — Implement email delivery core (no uploads yet) and email-failure rerender contract
-  - `Done When:` suspect/soft-fail signaling matches the spec across success + rerender responses; `eforms/tests/integration/test_suspect_signaling.php` passes
-  - `Verified via:` `eforms/tests/integration/test_suspect_signaling.php`
-
-- [x] Implement PRG success behavior (inline vs redirect) and cache-safety headers for success URLs (Spec: Success behavior (docs/Canonical_Spec.md#sec-success); Success modes (docs/Canonical_Spec.md#sec-success-modes); Inline success flow (docs/Canonical_Spec.md#sec-success-flow); Redirect safety (docs/Canonical_Spec.md#sec-redirect-safety); Cache-safety (docs/Canonical_Spec.md#sec-cache-safety), Anchors: None)
-  - `Reasoning:` **Medium** — Inline vs redirect modes; cache-safety enforcement on success paths
-  - `Artifacts:` `eforms/src/Submission/Success.php` (new), `eforms/src/Rendering/FormRenderer.php` (modify)
-  - `Interfaces:` `success.mode`, `?eforms_success={form_id}` query arg behavior, redirects via `wp_safe_redirect`
-  - `Tests:` `eforms/tests/integration/test_success_inline_flow.php` (new), `eforms/tests/integration/test_success_redirect_flow.php` (new)
-  - `Depends On:` Phase 1 — Implement email delivery core (no uploads yet) and email-failure rerender contract
-  - `Done When:` success responses satisfy cache-safety rules; inline success is rejected when combined with cacheable render per spec; both integration tests pass
-  - `Verified via:` `eforms/tests/integration/test_success_inline_flow.php`, `eforms/tests/integration/test_success_redirect_flow.php`
-
----
-
-## Phase 2 — Cacheable pages (JS-minted mode + `/eforms/mint`)
-
-**Goals**
-- Implement JS-minted mode end-to-end, including the REST mint endpoint and client-side token injection.
-
-**Non-Goals**
-- Upload storage and email attachments.
-
-**Acceptance**
-- `/eforms/mint` matches the contract (method, content type, cache headers, cookie/CORS prohibitions, status/error surface).
-
-### Work items
-
-- [x] Implement `/eforms/mint` endpoint contract (Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode); Throttling (docs/Canonical_Spec.md#sec-throttling); Security (docs/Canonical_Spec.md#sec-security), Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX], [THROTTLE_MAX_PER_MIN_MIN], [THROTTLE_MAX_PER_MIN_MAX], [THROTTLE_COOLDOWN_MIN], [THROTTLE_COOLDOWN_MAX])
-  - `Reasoning:` **High** — REST contract: method, content-type, cache headers, cookie/CORS prohibitions, throttle integration
-  - `Artifacts:` `eforms/src/Security/MintEndpoint.php` (new), `eforms/src/Security/Security.php` (modify), `eforms/src/bootstrap.php` (modify)
-  - `Interfaces:` `POST /eforms/mint` REST endpoint (JSON-only responses)
-  - `Tests:` `eforms/tests/integration/test_mint_endpoint_contract.php` (new)
-  - `Depends On:` Phase 1 — Implement storage health check and private-dir hardening for `${uploads.dir}/eforms-private/`; Phase 1 — Implement POST size cap helper (effective cap calculation); Phase 0 — Implement config snapshot bootstrap + override sources; Phase 0 — Implement `Helpers` primitives used across subsystems
-  - `Done When:` endpoint matches the spec contract (method, content type, cache headers, cookie/CORS prohibitions, status/error surface); post-size cap is enforced; `eforms/tests/integration/test_mint_endpoint_contract.php` passes
-  - `Verified via:` `eforms/tests/integration/test_mint_endpoint_contract.php`
-
-- [x] Implement JS-minted token injection + remint behavior in `forms.js` (Spec: Assets (docs/Canonical_Spec.md#sec-assets); JS-minted email-failure recovery (docs/Canonical_Spec.md#sec-js-email-failure); JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode), Anchors: [TOKEN_TTL_MAX])
-  - `Reasoning:` **Medium** — Client-side injection logic; remint marker handling; moderate complexity but mostly isolated
-  - `Artifacts:` `eforms/assets/forms.js` (new), `eforms/src/Rendering/FormRenderer.php` (modify)
-  - `Interfaces:` JS-minted mode form markup; `data-eforms-remint` marker
-  - `Tests:` `eforms/tests/e2e/test_js_minted_injection.md` (new, manual script)
-  - `Depends On:` Phase 2 — Implement `/eforms/mint` endpoint contract; Phase 1 — Implement `FormRenderer` GET render (hidden-mode) with duplicate form-id detection and `novalidate` behavior
-  - `Done When:` JS injects token metadata only into empty hidden fields, blocks submission until mint succeeds, and performs remint flow when marker is present; manual script steps are complete and produce expected results
-
-- [x] Enforce mixed-mode page behavior in client + server (Spec: Assets (docs/Canonical_Spec.md#sec-assets); Submission protection (docs/Canonical_Spec.md#sec-submission-protection); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MAX])
-  - `Reasoning:` **Medium** — Coexistence rules for hidden + JS-minted forms on same page
-  - `Artifacts:` `eforms/assets/forms.js` (modify), `eforms/src/Rendering/FormRenderer.php` (modify)
-  - `Interfaces:` Coexistence of hidden-mode and JS-minted forms on one page
-  - `Tests:` `eforms/tests/e2e/test_mixed_mode_page.md` (new, manual script)
-  - `Depends On:` Phase 2 — Implement JS-minted token injection + remint behavior in `forms.js`
-  - `Done When:` JS calls `/eforms/mint` only for cacheable forms; renderer does not allow client-driven mode selection; duplicate form IDs remain a hard configuration error; manual script steps are complete and produce expected results
-
----
-
-## Phase 3 — Uploads + GC
-
-**Goals**
-- Implement upload validation/storage, email attachments, and operator-driven garbage collection.
-
-**Non-Goals**
-- Expanding accept-token policy beyond what the spec defines.
-
-**Acceptance**
-- Upload lifecycle matches the digest invariants: uploads remain in temp until ledger reserve succeeds; GC removes expired artifacts per the spec.
-
-### Work items
-
-- [x] Implement upload accept-token policy and upload validation (Spec: Uploads accept-token policy (docs/Canonical_Spec.md#sec-uploads-accept-tokens); Default accept tokens callout (docs/Canonical_Spec.md#sec-uploads-accept-defaults); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX])
-  - `Reasoning:` **High** — MIME validation, intersection rules, security-sensitive file handling
-  - `Artifacts:` `eforms/src/Uploads/UploadPolicy.php` (new), `eforms/src/Validation/Validator.php` (modify), `eforms/src/Validation/TemplateValidator.php` (modify), `eforms/src/bootstrap.php` (modify)
-  - `Interfaces:` Template upload descriptors (`file` / `files`) and their per-field overrides
-  - `Tests:` `eforms/tests/integration/test_upload_accept_tokens.php` (new)
-  - `Depends On:` Phase 1 — Implement Validate stage (errors + deterministic ordering); Phase 1 — Implement storage health check and private-dir hardening for `${uploads.dir}/eforms-private/`
-  - `Done When:` accept-token intersection rules are enforced; unsupported types fail with the stable upload error codes; upload attempts fail deterministically when required server capabilities are unavailable; `eforms/tests/integration/test_upload_accept_tokens.php` passes
-  - `Verified via:` `eforms/tests/integration/test_upload_accept_tokens.php`
-
-- [x] Implement upload storage, move-after-ledger, and retention hooks (Spec: Uploads filename policy (docs/Canonical_Spec.md#sec-uploads-filenames); Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
-  - `Reasoning:` **High** — Atomic file ops, collision handling, temp→private path timing
-  - `Artifacts:` `eforms/src/Uploads/UploadStore.php` (new), `eforms/src/Submission/SubmitHandler.php` (modify)
-  - `Interfaces:` Private uploads directory layout under `${uploads.dir}/eforms-private/`
-  - `Tests:` `eforms/tests/integration/test_upload_move_after_ledger.php` (new)
-  - `Depends On:` Phase 3 — Implement upload accept-token policy and upload validation; Phase 1 — Implement ledger reservation contract and duplicate-submission behavior
-  - `Done When:` files are never moved into private storage before ledger reservation; collisions are treated as internal errors (no overwrites); `eforms/tests/integration/test_upload_move_after_ledger.php` passes
-  - `Verified via:` `eforms/tests/integration/test_upload_move_after_ledger.php`
-
-- [x] Implement email attachments policy (Spec: Email delivery (docs/Canonical_Spec.md#sec-email); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: None)
-  - `Reasoning:` **Medium** — Bounded attachments, overflow handling
-  - `Artifacts:` `eforms/src/Email/Emailer.php` (modify)
-  - `Interfaces:` `email_attach` per upload descriptor; include_fields behavior for upload keys
-  - `Tests:` `eforms/tests/integration/test_email_attachments_policy.php` (new)
-  - `Depends On:` Phase 3 — Implement upload storage, move-after-ledger, and retention hooks; Phase 1 — Implement email delivery core (no uploads yet) and email-failure rerender contract
-  - `Done When:` attachments are bounded per spec; overflow is summarized in the email body; temp upload paths are never persisted or logged; `eforms/tests/integration/test_email_attachments_policy.php` passes
-  - `Verified via:` `eforms/tests/integration/test_email_attachments_policy.php`
-
-- [x] Implement `wp eforms gc` for tokens, ledger markers, uploads, and throttle state (Spec: Uploads (docs/Canonical_Spec.md#sec-uploads); Throttling (docs/Canonical_Spec.md#sec-throttling); Anchors (docs/Canonical_Spec.md#sec-anchors), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
-  - `Reasoning:` **High** — Idempotency, single-run locking, cross-subsystem cleanup (tokens, ledger, uploads, throttle)
-  - `Artifacts:` `eforms/src/Cli/GcCommand.php` (new), `eforms/src/Gc/GcRunner.php` (new)
-  - `Interfaces:` `wp eforms gc`
-  - `Tests:` `eforms/tests/integration/test_gc_dry_run.php` (new)
-  - `Depends On:` Phase 3 — Implement upload storage, move-after-ledger, and retention hooks; Phase 1 — Implement ledger reservation contract and duplicate-submission behavior
-  - `Done When:` GC is idempotent, locked to a single run, supports dry-run reporting, and deletes only artifacts eligible under the spec’s timing/eligibility rules; `eforms/tests/integration/test_gc_dry_run.php` passes
-  - `Verified via:` `eforms/tests/integration/test_gc_dry_run.php`
-
----
-
-## Phase 4 — Optional defenses + full observability
-
-**Goals**
-- Implement optional throttling, adaptive challenge, and structured logging/Fail2ban emission.
-
-**Non-Goals**
-- Adding new providers or new configuration surfaces not already in the spec.
-
-**Acceptance**
-- Optional features are capability-gated and default OFF, and do not change baseline behavior unless enabled by config.
-
-### Work items
-
-- [x] Implement file-based throttling including `Retry-After` calculation and entrypoint semantics (Spec: Throttling (docs/Canonical_Spec.md#sec-throttling); Security (docs/Canonical_Spec.md#sec-security), Anchors: [THROTTLE_MAX_PER_MIN_MIN], [THROTTLE_MAX_PER_MIN_MAX], [THROTTLE_COOLDOWN_MIN], [THROTTLE_COOLDOWN_MAX])
-  - `Reasoning:` **High** — Rate limiting with Retry-After, file-lock semantics, entrypoint-specific behavior
-  - `Artifacts:` `eforms/src/Security/Throttle.php` (new), `eforms/src/Security/Security.php` (modify)
-  - `Interfaces:` POST submit throttling behavior; `/eforms/mint` throttling behavior
-  - `Tests:` `eforms/tests/integration/test_throttle_retry_after.php` (new)
-  - `Depends On:` Phase 2 — Implement `/eforms/mint` endpoint contract; Phase 1 — Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success)
-  - `Done When:` throttle runs before minting and before normalize/validate on POST; lock-failure behavior matches the spec; only throttle impl + GC touch throttle files; `eforms/tests/integration/test_throttle_retry_after.php` passes
-  - `Verified via:` `eforms/tests/integration/test_throttle_retry_after.php`
-
-- [x] Implement adaptive challenge render + verify flow (Turnstile provider) (Spec: Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge); Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline), Anchors: [CHALLENGE_TIMEOUT_MIN], [CHALLENGE_TIMEOUT_MAX])
-  - `Reasoning:` **High** — External provider integration, render-on-rerender-only constraint, verification timing
-  - `Artifacts:` `eforms/src/Security/Challenge.php` (new), `eforms/src/Security/Security.php` (modify), `eforms/src/Rendering/FormRenderer.php` (modify)
-  - `Interfaces:` challenge mode/provider config; challenge render-on-rerender contract
-  - `Tests:` `eforms/tests/integration/test_challenge_rerender_only.php` (new)
-  - `Depends On:` Phase 4 — Implement file-based throttling including `Retry-After` calculation and entrypoint semantics; Phase 1 — Implement SubmitHandler POST orchestration (security gate → normalize/validate/coerce → ledger → side effects → success)
-  - `Done When:` challenge is never rendered on initial GET; verification happens before ledger reserve; unconfigured required challenge fails with the spec-defined deterministic error; `eforms/tests/integration/test_challenge_rerender_only.php` passes
-  - `Verified via:` `eforms/tests/integration/test_challenge_rerender_only.php`
-
-- [x] Implement JSONL logging mode + retention/rotation + fail2ban emission channel (Spec: Logging (docs/Canonical_Spec.md#sec-logging); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: [LOGGING_LEVEL_MIN], [LOGGING_LEVEL_MAX], [RETENTION_DAYS_MIN], [RETENTION_DAYS_MAX])
-  - `Reasoning:` **Medium** — Schema evolution (append-only), privacy rules, desc_sha1 fingerprinting
-  - `Artifacts:` `eforms/src/Logging/JsonlLogger.php` (new), `eforms/src/Logging/Fail2banLogger.php` (new), `eforms/src/Logging.php` (modify)
-  - `Interfaces:` `logging.mode=jsonl`, `logging.fail2ban.*` outputs
-  - `Tests:` `eforms/tests/integration/test_logging_jsonl_schema.php` (new), `eforms/tests/integration/test_fail2ban_line_format.php` (new), `eforms/tests/integration/test_logging_desc_sha1.php` (new)
-  - `Depends On:` Phase 1 — Implement minimal logging mode with request correlation id; Phase 0 — Implement config numeric clamping via named Anchors
-  - `Done When:` JSONL/minimal/fail2ban sinks honor privacy rules; retention pruning obeys config clamps; when `logging.level=2`, emitted events include the per-request `desc_sha1` descriptor fingerprint per spec; machine-readable schemas evolve append-only; all integration tests pass
-  - `Verified via:` `eforms/tests/integration/test_logging_jsonl_schema.php`, `eforms/tests/integration/test_fail2ban_line_format.php`, `eforms/tests/integration/test_logging_desc_sha1.php`
-
-- [x] Implement privacy client-IP resolution and presentation rules (Spec: Privacy and IP handling (docs/Canonical_Spec.md#sec-privacy); Throttling (docs/Canonical_Spec.md#sec-throttling); Logging (docs/Canonical_Spec.md#sec-logging), Anchors: None)
-  - `Reasoning:` **Medium** — Trusted proxy rules, split between resolution and presentation
-  - `Artifacts:` `eforms/src/Privacy/ClientIp.php` (new)
-  - `Interfaces:` `privacy.*` config affecting log/email IP presentation
-  - `Tests:` `eforms/tests/unit/test_client_ip_resolution.php` (new)
-  - `Depends On:` Phase 4 — Implement file-based throttling including `Retry-After` calculation and entrypoint semantics; Phase 4 — Implement JSONL logging mode + retention/rotation + fail2ban emission channel
-  - `Done When:` resolved client IP is derived per trusted-proxy rules; throttle and fail2ban use resolved IP regardless of presentation mode; emails/logs honor presentation mode; `eforms/tests/unit/test_client_ip_resolution.php` passes
-  - `Verified via:` `eforms/tests/unit/test_client_ip_resolution.php`, `eforms/tests/integration/test_throttle_retry_after.php`
-
-- [x] Implement uninstall purge behavior (Spec: Architecture and file layout (docs/Canonical_Spec.md#sec-architecture); Configuration (docs/Canonical_Spec.md#sec-configuration), Anchors: None)
-  - `Reasoning:` **Low** — Config-driven purge flags; straightforward conditional cleanup
-  - `Artifacts:` `eforms/uninstall.php` (new)
-  - `Interfaces:` uninstall behavior (purge flags)
-  - `Tests:` `eforms/tests/integration/test_uninstall_purge_flags.php` (new)
-  - `Depends On:` Phase 0 — Implement config snapshot bootstrap + override sources
-  - `Done When:` uninstall reads purge flags via Config bootstrap as specified; deletes only what the spec allows when flags are enabled; `eforms/tests/integration/test_uninstall_purge_flags.php` passes
-  - `Verified via:` `eforms/tests/integration/test_uninstall_purge_flags.php`
-
----
-
-## Test plan (mapping invariants → tests)
-
-- `docs/Spec_Digest.md` prohibitions and ordering → `eforms/tests/integration/` suites for security gate ordering, ledger reservation placement, and side-effects gating.
-- Anchored clamp invariants in `docs/Canonical_Spec.md#sec-anchors` → `eforms/tests/unit/test_config_bootstrap.php`.
-- Hidden-mode lifecycle (render/mint/POST/rerender/success) → `eforms/tests/integration/test_renderer_get_hidden_mode.php`, `eforms/tests/integration/test_token_validate_hidden_mode.php`, `eforms/tests/integration/test_success_*`.
-- Cache-safety edge: hidden-mode refuses to embed tokens when headers are already sent → `eforms/tests/integration/test_cache_safety_hidden_mode_headers_sent.php`.
-- JS-minted lifecycle (`/eforms/mint`, client injection, remint marker) → `eforms/tests/integration/test_mint_endpoint_contract.php` + automated browser checks under `eforms/tests/e2e/specs/`.
-- Upload lifecycle + GC eligibility → `eforms/tests/integration/test_upload_*` + `eforms/tests/integration/test_gc_dry_run.php`.
-- Assets opt-out: `assets.css_disable` honored → `eforms/tests/integration/test_assets_css_disable.php`.
-- Logging level 2: `desc_sha1` emitted → `eforms/tests/integration/test_logging_desc_sha1.php`.
-
----
-
-## Minimal integration test matrix (high-signal flows)
-
-- Hidden-mode end-to-end: GET render → token mint/persist → POST → PRG success (Spec: Request lifecycle GET (docs/Canonical_Spec.md#sec-request-lifecycle-get); Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post); Success behavior (docs/Canonical_Spec.md#sec-success), Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX])
-  - Verified via: `eforms/tests/integration/test_renderer_get_hidden_mode.php`, `eforms/tests/integration/test_security_mint_hidden_record.php`, `eforms/tests/integration/test_post_pipeline_ordering.php`, `eforms/tests/integration/test_success_inline_flow.php`
-- Duplicate prevention: repeat POST with same submission identity is handled deterministically (Spec: Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract); Security invariants (docs/Canonical_Spec.md#sec-security-invariants), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
-  - Verified via: `eforms/tests/integration/test_ledger_reserve_semantics.php`
-- Rerender invariants: validation/challenge rerender preserves required state; email-failure recovery follows mode-specific behavior (Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline); Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge); Email-failure recovery (docs/Canonical_Spec.md#sec-email-failure-recovery), Anchors: [TOKEN_TTL_MAX])
-  - Verified via: `eforms/tests/integration/test_email_failure_rerender.php`, `eforms/tests/integration/test_challenge_rerender_only.php`
-- Cacheable pages + JS-minted mode: GET renders without embedded secrets; client mints; server enforces `/eforms/mint` contract (Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode); Cache-safety (docs/Canonical_Spec.md#sec-cache-safety); Origin policy (docs/Canonical_Spec.md#sec-origin-policy), Anchors: None)
-  - Verified via: `eforms/tests/integration/test_mint_endpoint_contract.php`, `eforms/tests/e2e/specs/js_minted_injection.spec.js`, `eforms/tests/e2e/specs/mixed_mode_page.spec.js`
-- Uploads lifecycle: accept-token policy → validate → move-after-ledger → email attachments → GC eligibility (Spec: Uploads accept-token policy (docs/Canonical_Spec.md#sec-uploads-accept-tokens); Uploads (docs/Canonical_Spec.md#sec-uploads), Anchors: [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
-  - Verified via: `eforms/tests/integration/test_upload_accept_tokens.php`, `eforms/tests/integration/test_upload_move_after_ledger.php`, `eforms/tests/integration/test_email_attachments_policy.php`, `eforms/tests/integration/test_gc_dry_run.php`
-- Optional defenses: throttle and challenge enforce entrypoint-specific behavior when enabled (Spec: Throttling (docs/Canonical_Spec.md#sec-throttling); Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge), Anchors: [THROTTLE_MAX_PER_MIN_MIN], [THROTTLE_MAX_PER_MIN_MAX], [THROTTLE_COOLDOWN_MIN], [THROTTLE_COOLDOWN_MAX])
-  - Verified via: `eforms/tests/integration/test_throttle_retry_after.php`, `eforms/tests/integration/test_challenge_rerender_only.php`
-- Observability/privacy: request correlation and privacy rules hold across log sinks (Spec: Logging (docs/Canonical_Spec.md#sec-logging); Privacy and IP handling (docs/Canonical_Spec.md#sec-privacy), Anchors: [LOGGING_LEVEL_MIN], [LOGGING_LEVEL_MAX], [RETENTION_DAYS_MIN], [RETENTION_DAYS_MAX])
-  - Verified via: `eforms/tests/unit/test_request_id_resolution.php`, `eforms/tests/integration/test_logging_jsonl_schema.php`, `eforms/tests/integration/test_fail2ban_line_format.php`, `eforms/tests/unit/test_client_ip_resolution.php`
-
----
-
-## Delivery checklist (done means)
-
-- Every public surface in `docs/Canonical_Spec.md#sec-objective` is implemented and smoke-exercised (shortcode/template tag, REST surface, CLI surface, uninstall behavior).
-- Deterministic error behavior holds: stable error-code surface is append-only, error ordering is deterministic, and fail-closed paths do not white-screen (Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling), Anchors: None).
-- Spec digest invariants are upheld end-to-end (pipeline ordering, side-effect gating, cache-safety constraints) (Spec: `docs/Spec_Digest.md`, Anchors: None).
-- “Minimal integration test matrix” flows pass (or are explicitly deferred under “Known debt & open questions” with rationale).
-- Optional defenses remain default OFF and capability-gated; enabling them changes behavior only as specified (Spec: Security (docs/Canonical_Spec.md#sec-security); Throttling (docs/Canonical_Spec.md#sec-throttling); Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge), Anchors: None).
-- No numeric constants are duplicated outside the spec; implementation and tests reference named Anchors where constraints apply (Spec: Anchors (docs/Canonical_Spec.md#sec-anchors), Anchors: None).
-
----
-
-## Known debt & open questions
-
-- [x] Decide test execution strategy for WordPress-specific paths (pure-PHP harness vs WP integration harness) (Spec: Test/QA checklist (docs/Canonical_Spec.md#sec-test-qa), Anchors: None)
-  - `Decision:` Hybrid strategy — canonical pure-PHP harness command for unit+integration checks; WordPress-runtime smoke remains a targeted lane for public surfaces.
-  - `Artifacts:` `eforms/tests/README.md` (new), `eforms/tests/integration/` (confirm conventions), `eforms/tests/bootstrap.php` (modify as needed)
-  - `Interfaces:` None
-  - `Tests:` N/A (decision task; impacts how other tests run)
-  - `Depends On:` None
-  - `Done When:` the chosen strategy is documented in `eforms/tests/README.md` with a single canonical command to run unit + integration checks
-  - `Verified via:` `eforms/tests/README.md`
-- [x] Decide how to exercise the REST endpoint and WP-CLI surfaces in CI (Spec: Public surfaces index (docs/Canonical_Spec.md#sec-objective), Anchors: None)
-  - `Decision:` CI provisions a minimal WordPress runtime, runs REST smoke checks via `wp eval-file` scripts, and runs `wp eforms gc --dry-run` for the CLI surface.
-  - `Artifacts:` `.github/workflows/ci.yml` (new), `eforms/bin/wp-cli/` (new, if using WP-CLI smoke scripts)
-  - `Interfaces:` `POST /eforms/mint`, `wp eforms gc`
-  - `Tests:` `eforms/bin/wp-cli/post-no-origin.php` (new), `eforms/bin/wp-cli/post-oversized.php` (new)
-  - `Depends On:` None
-  - `Done When:` CI runs at least one smoke exercise for each surface and fails when observed behavior deviates from the spec-defined contract
-  - `Verified via:` `.github/workflows/ci.yml`, `eforms/bin/wp-cli/post-no-origin.php`, `eforms/bin/wp-cli/post-oversized.php`
-- [x] Concretize the manual E2E scripts into automated browser checks (if desired) without changing runtime behavior (Spec: Assets (docs/Canonical_Spec.md#sec-assets), Anchors: None)
-  - `Decision:` Add a thin Playwright lane for critical browser-only JS behaviors (JS-minted injection/session reuse + mixed-mode handling + mint-failure UX isolation); keep full business logic verification in existing unit/integration suites.
-  - `Artifacts:` `eforms/tests/e2e/` (extend), `eforms/tests/e2e/README.md` (new)
-  - `Interfaces:` JS-minted injection behavior and mixed-mode page handling
-  - `Tests:` `eforms/tests/e2e/` (automated checks replacing the manual scripts)
-  - `Depends On:` Phase 2 — Implement JS-minted token injection + remint behavior in `forms.js`; Phase 2 — Enforce mixed-mode page behavior in client + server
-  - `Done When:` JS behaviors are exercised automatically (no new runtime surfaces or config), and failures produce actionable diagnostics
-  - `Verified via:` `eforms/tests/e2e/specs/js_minted_injection.spec.js`, `eforms/tests/e2e/specs/mixed_mode_page.spec.js`, `.github/workflows/ci.yml`
-
----
-
-## Plan maintenance
-
-- Checkboxes are the canonical execution tracker for this spec. Completed items should be marked `[x]` and preserved.
-- If `docs/Canonical_Spec.md` changes behavior/contracts, add `[ ] Rebase plan to current spec` at the top of Phase 0 before adding new work.
+# Implementation Plan — electronic_forms Greenfield-Style Refactor
+
+This plan replaces the prior completed-task ledger with a refactor plan for the existing implementation. It uses a greenfield-style standard for ownership and verification: reshape the current code toward the target architecture directly, without preserving broken intermediate seams. It is non-normative: it decomposes the current spec and the latest architecture audit findings into execution tasks, but it does not introduce behavior beyond `docs/Canonical_Spec.md`.
+
+## Scope
+
+- Refactor the existing WordPress plugin from the public surfaces inward: shortcode/template tag render, public POST handling, `/eforms/mint`, `wp eforms gc`, uninstall behavior, and operator documentation.
+- Treat the audit findings as architecture constraints for the refactor:
+  - one public request lifecycle owner must call `SubmitHandler` and handle rerender/PRG;
+  - one canonical form identity must map shortcode slug, template filename stem, rendered `form_id`, token record `form_id`, POST namespace, ledger path, and logs;
+  - no shipped template may rely on stubbed renderer/validator/normalizer paths;
+  - JS-minted mode must use a runtime-resolved endpoint and be install-context safe;
+  - verification must include WordPress-facing smoke/E2E coverage, not only direct class tests.
+- Greenfield-style refactor rule: use existing working code where it belongs, but do not add compatibility adapters, dual-write paths, fallback readers, or legacy bridges unless the user explicitly asks for compatibility.
+
+## Source of Truth
+
+- Spec: `docs/Canonical_Spec.md` (`<!-- SPEC_STATUS: STABLE -->`)
+- Digest: `docs/Spec_Digest.md`
+- Narrative: `docs/overview.md`
+- Audit input: architecture audit findings from this session, treated as implementation-risk evidence only.
+
+## Host Contracts
+
+- WordPress shortcode API: `[eform id="..." cacheable="..."]`
+- WordPress template tag: `eform_render($slug, $opts)`
+- WordPress REST API: `POST /eforms/mint`
+- WordPress request lifecycle hooks used by the public submit controller
+- WordPress `wp_mail()`, `wp_safe_redirect()`, `nocache_headers()`, `wp_upload_dir()`, script enqueue/localization APIs, and WP-CLI registration
+- Filesystem semantics under `${uploads.dir}`: atomic temp-write/rename, exclusive-create, `0700` dirs, `0600` files
+
+## Verification Baseline
+
+Verification Command:
+
+```bash
+find eforms/tests/unit eforms/tests/integration eforms/tests/smoke -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php
+```
+
+Browser Verification Command:
+
+```bash
+cd eforms/tests/e2e && npm test
+```
+
+Current baseline observed before this plan rewrite:
+- Pure PHP unit/integration lane passed.
+- Smoke lane passed.
+- WordPress-runtime end-to-end public POST coverage is not yet sufficient; P0.T2 makes this an executable gate before public lifecycle tasks can be marked done.
+
+## Discovery Snapshot
+
+- `docs/Architecture_Router.md` and `docs/Owner_Index.md` are absent. Because this refactor is cross-module and ownership-sensitive, P0.T1 creates the owner map before implementation tasks move ownership or introduce new public lifecycle seams.
+- Existing likely owners from repo evidence:
+  - Bootstrap/public hook registration: `eforms/src/bootstrap.php`
+  - GET/rerender markup: `eforms/src/Rendering/FormRenderer.php`
+  - Submission orchestration: `eforms/src/Submission/SubmitHandler.php`
+  - Token mint/validate/origin/throttle/challenge: `eforms/src/Security/*`
+  - Template load/context/schema: `eforms/src/Rendering/TemplateLoader.php`, `eforms/src/Rendering/TemplateContext.php`, `eforms/src/Validation/TemplateValidator.php`
+  - Upload policy/storage: `eforms/src/Uploads/*`
+  - Browser runtime: `eforms/assets/forms.js`
+- Missing or weak owner paths from audit:
+  - no public WordPress POST controller calls `SubmitHandler`;
+  - template filename stem and template `id` disagree in shipped fixtures;
+  - upload field rendering/registry paths still include not-implemented stubs;
+  - `forms.js` hardcodes `/eforms/mint`;
+  - README install requirements drift from the spec and repo tooling.
+
+## Digest Core
+
+The following fixed excerpt from `docs/Spec_Digest.md` must be reused during execution:
+
+- [ ] Pipeline order: Security gate → Normalize → Validate → Coerce → Challenge verify → Ledger reserve → side effects (email/uploads/logging) → PRG/redirect. Hard failures abort before side effects. → [§Security](../docs/Canonical_Spec.md#sec-security)
+- [ ] Challenge verification before ledger reserve; never on initial GET, only on POST rerender. → [§Challenge](../docs/Canonical_Spec.md#sec-challenge)
+- [ ] Throttle enforcement before token mint. → [§Security](../docs/Canonical_Spec.md#sec-security)
+- [ ] Ledger reserve immediately precedes email, upload moves, logging; treats EEXIST as duplicate. → [§Ledger](../docs/Canonical_Spec.md#sec-ledger-contract)
+- [ ] All writes: temp file → atomic rename in same directory. Ledger via exclusive-create (fopen xb). Fail hard if unsupported. → [§Filesystem](../docs/Canonical_Spec.md#sec-filesystem-semantics)
+- [ ] Uploads stay in temp until ledger reserve succeeds; then move to private storage. → [§Uploads](../docs/Canonical_Spec.md#sec-uploads)
+- [ ] Email fail after ledger reserve → mint fresh token, burn original in ledger, allow immediate retry. → [§Security](../docs/Canonical_Spec.md#sec-security)
+- [ ] Tokens reuse on error rerender; no rotation until success (except email failure case). → [§Security](../docs/Canonical_Spec.md#sec-security)
+- [ ] Same form_id on page twice is config error; fail fast. → [§Public Surfaces](../docs/Canonical_Spec.md#sec-public-surfaces)
+- [ ] /eforms/mint never sets cookies; must emit Cache-Control: no-store. → [§Mint](../docs/Canonical_Spec.md#sec-mint-endpoint)
+- [ ] /eforms/mint never emits CORS headers. → [§Mint](../docs/Canonical_Spec.md#sec-mint-endpoint)
+- [ ] forms.js calls /eforms/mint only for cacheable=true forms; never for hidden-mode. → [§JavaScript](../docs/Canonical_Spec.md#sec-javascript)
+- [ ] forms.js fills empty token fields only; never overwrites populated fields. → [§JavaScript](../docs/Canonical_Spec.md#sec-javascript)
+- [ ] All submissions route through single Security gate; no side-channel paths. → [§Security](../docs/Canonical_Spec.md#sec-security)
+- [ ] Token hard-fail always aborts before ledger reserve; no ledger write on token fail. → [§Ledger](../docs/Canonical_Spec.md#sec-ledger-contract)
+- [ ] Validation deterministic; error order: global → field (struct/type/required/constraint/cross). Collect all errors. → [§Validation](../docs/Canonical_Spec.md#sec-template-validation)
+- [ ] Redirects via wp_safe_redirect; same-origin only. → [§Success](../docs/Canonical_Spec.md#sec-success)
+- [ ] PRG success status: 303 See Other; must satisfy cache-safety rules. → [§Success](../docs/Canonical_Spec.md#sec-success)
+
+## Seam Guards
+
+- Public POST owner guard: `rg -n 'SubmitHandler::handle|do_success_redirect' eforms/src eforms/eforms.php`
+  - Expected after P1.T2: only the public request controller and direct tests call these entry points.
+  - Run gate: P1 phase checkpoint.
+- Form-id guard: `php eforms/tests/tools/assert-template-slugs.php`
+  - Expected after P1.T1: every `templates/forms/{form_id}.json` has matching `"id":"{form_id}"`.
+  - Run gate: task completion gate.
+- Upload-stub guard: `rg -n 'not implemented|Upload rendering not implemented|Upload normalization not implemented|Upload validation not implemented|scaffold|stubbed' eforms/src eforms/eforms.php`
+  - Expected after P2.T1: no matches in runtime code.
+  - Run gate: task completion gate.
+- Mint endpoint guard: `rg -n "MINT_ENDPOINT = '/eforms/mint'|['\\\"]/eforms/mint" eforms/assets eforms/src`
+  - Expected after P3.T1: no hardcoded browser endpoint; server-side route registration references are allowed.
+  - Run gate: task completion gate.
+
+## Phase 0 — Refactor Rails and Ownership Maps
+
+Goals:
+- Make ownership and verification explicit before changing runtime behavior.
+- Establish a WordPress-runtime harness that can prove public surfaces, not just class-level behavior.
+
+Acceptance:
+- Owner docs exist.
+- The primary verification command is runnable.
+- The WordPress-runtime smoke lane can prove shortcode render, public POST, `/eforms/mint`, PRG, and asset localization.
+
+### Work Items
+
+- [ ] P0.T1 Create owner registry and architecture router (Spec: Architecture and file layout; Request lifecycle; Logging; Uploads, Anchors: None)
+  - `Type:` `seam-refactor`
+  - `Artifacts:` `docs/Architecture_Router.md` (new), `docs/Owner_Index.md` (new), `docs/Implementation_Plan.md` (update task state only after verification)
+  - `Interfaces:` none
+  - `Owner:` `docs/Owner_Index.md` owns canonical owner entries; `docs/Architecture_Router.md` owns capability routing.
+  - `Depends On:` none
+  - `Boundary Decision:` introduce new shared layer; keeping ownership implicit already hid the public POST gap, and extending only README/spec would not give executors a concrete owner map.
+  - `Existing Owner Evidence:` current repo has subsystem owners but no owner registry; see Discovery Snapshot.
+  - `Docs Consulted:` `docs/Canonical_Spec.md`, `docs/Spec_Digest.md`, `docs/overview.md`
+  - `Reuse Target:` existing subsystem boundaries named in Discovery Snapshot
+  - `No-Fallback Rule:` do not use ad hoc comments or README prose as the owner registry.
+  - `Contract Carriers to Re-evaluate:` README architecture section, module doc comments, existing tests that assume direct class-only submission.
+  - `Guard Strategy:` owner docs must contain the runtime owners named by the public lifecycle and upload/browser tasks before those tasks start.
+  - `Replacement:` implicit ownership assumptions -> explicit owner docs
+  - `Superseded Seams:` none in runtime; this is planning/ownership infrastructure.
+  - `Removal Proof:` `test -f docs/Architecture_Router.md && test -f docs/Owner_Index.md`
+  - `Complexity Budget:` add 2 docs, no runtime code
+  - `Done When:` public request lifecycle, renderer, security, validation, upload, browser runtime, logging, GC, and uninstall owners are named with allowed entry points and forbidden duplicate paths.
+  - `Verified via:` `rg -n 'PublicRequestController|FormRenderer|SubmitHandler|MintEndpoint|UploadStore|forms.js|GcRunner' docs/Owner_Index.md docs/Architecture_Router.md`
+  - `Reasoning:` `high`
+
+- [ ] P0.T2 Add WordPress-runtime public surface harness (Spec: Public surfaces index; Request lifecycle GET/POST; JS-minted mode contract; Success behavior, Anchors: None)
+  - `Type:` `standard`
+  - `Artifacts:` `eforms/tests/wp-runtime/` (new or equivalent), `eforms/tests/README.md`, optional harness scripts under `eforms/tests/tools/`
+  - `Interfaces:` `[eform]`, `eform_render()`, public POST, `/eforms/mint`, PRG redirect
+  - `Owner:` `eforms/tests/wp-runtime/` owns real WordPress public-surface verification.
+  - `Depends On:` P0.T1
+  - `Done When:` there is a runnable local or CI-friendly command that boots WordPress or a faithful WP runtime fixture, renders a form through shortcode, submits it through the public request path, verifies PRG, and verifies `/eforms/mint` headers/body.
+  - `Verified via:` documented command in `eforms/tests/README.md` plus one passing wp-runtime smoke test
+  - `Reasoning:` `high`
+
+- [ ] P0.T3 Define refactor cleanup guards (Source: architecture audit findings; Spec: Request lifecycle; Uploads; Assets, Anchors: None)
+  - `Type:` `seam-refactor`
+  - `Artifacts:` `eforms/tests/tools/assert-template-slugs.php` (new), `eforms/tests/README.md`, optional guard scripts
+  - `Interfaces:` none
+  - `Owner:` test tools own static absence checks for greenfield-style refactor invariants.
+  - `Depends On:` P0.T1
+  - `Boundary Decision:` introduce guard tooling; keeping these as manual review items allowed completed tests to miss public lifecycle and stub issues.
+  - `Existing Owner Evidence:` no current command proves template slug equality, no runtime-code stub absence command, no public POST single-owner guard.
+  - `Docs Consulted:` `docs/Spec_Digest.md`, `docs/Canonical_Spec.md`
+  - `Reuse Target:` documented `Verification Command`, `Seam Guards`
+  - `No-Fallback Rule:` do not mark affected tasks complete with only direct class tests.
+  - `Contract Carriers to Re-evaluate:` test README, existing smoke tests, audit-derived grep guards.
+  - `Guard Strategy:` each cleanup invariant gets a named command and run gate in the Seam Guards section.
+  - `Replacement:` manual audit-only checks -> runnable guard scripts/commands
+  - `Superseded Seams:` none
+  - `Removal Proof:` Seam Guards section commands exist and are referenced by relevant tasks.
+  - `Complexity Budget:` add guard scripts only; no runtime code
+  - `Done When:` each audit finding has a guard or test path that fails before the fix and passes after the fix.
+  - `Verified via:` `php eforms/tests/tools/assert-template-slugs.php` and the listed `rg` guards
+  - `Reasoning:` `medium`
+
+## Phase 1 — First Public End-to-End Slice
+
+Goals:
+- Ship the smallest useful path first: hidden-mode GET render -> real public POST -> security/validation/ledger/email -> PRG -> success banner.
+- Collapse identity and request lifecycle ownership before adding optional paths.
+
+Acceptance:
+- A real WordPress request can submit the shipped `contact` form through one public controller and reach PRG.
+- No direct, duplicate, or side-channel POST path bypasses `SubmitHandler`.
+- Slug, template id, token record form_id, field namespace, and ledger form_id are identical.
+
+Phase Ownership Charter:
+- `Canonical Owner:` `eforms/src/Submission/PublicRequestController.php` owns public POST detection, request extraction, rerender orchestration, response headers, and PRG handoff.
+- `Allowed Seams:` shortcode/template tag render through `FormRenderer`; POST processing through `SubmitHandler`; redirect through `Success`.
+- `Kill List:` unhandled same-page raw POSTs, direct hook-level submission logic outside `PublicRequestController`, template id/filename mismatches.
+
+### Work Items
+
+- [ ] P1.T1 Enforce canonical form identity (Spec: Template JSON; Request lifecycle GET/POST; Submission Protection for Public Forms, Anchors: None)
+  - `Type:` `seam-refactor`
+  - `Artifacts:` `eforms/src/Rendering/TemplateLoader.php`, `eforms/src/Validation/TemplateValidator.php`, `eforms/src/Rendering/TemplateContext.php`, `eforms/templates/forms/*.json`, `eforms/tests/unit/test_shipped_templates_preflight.php`, `eforms/tests/tools/assert-template-slugs.php`
+  - `Interfaces:` template filenames, `[eform id="slug"]`, rendered `form_id`, POST namespace, token records, ledger paths, log metadata
+  - `Owner:` `TemplateLoader` owns filename-stem loading; `TemplateValidator` owns `template.id === filename stem` validation; `TemplateContext` exposes the canonical id to all consumers.
+  - `Depends On:` P0.T3
+  - `Boundary Decision:` extend existing owner; keeping this local in renderer would miss POST/security/logging, and a new identity layer is unnecessary because template loading already owns filename stem.
+  - `Existing Owner Evidence:` `TemplateLoader::load($form_id)` maps slug to `templates/forms/{form_id}.json`; `FormRenderer` and `SubmitHandler` consume `TemplateContext` id.
+  - `Docs Consulted:` `docs/Canonical_Spec.md#sec-template-json`, `docs/Canonical_Spec.md#sec-request-lifecycle-get`, `docs/Owner_Index.md`
+  - `Reuse Target:` `TemplateLoader` + `TemplateValidator` + `TemplateContext`
+  - `No-Fallback Rule:` no slug transforms, underscore/dash aliases, or alternate POST namespace mapping.
+  - `Contract Carriers to Re-evaluate:` shipped templates, token record tests, ledger path tests, log metadata tests, README shortcode examples.
+  - `Guard Strategy:` template slug guard plus public lifecycle tests prove the same id crosses render, token, POST, ledger, and logs.
+  - `Replacement:` mismatched fixture ids -> exact filename-stem ids
+  - `Superseded Seams:` implicit template `id` trust without filename check
+  - `Removal Proof:` `php eforms/tests/tools/assert-template-slugs.php`
+  - `Complexity Budget:` one validation rule, fixture id updates, no compatibility aliases
+  - `Done When:` every shipped template id equals its filename stem; invalid mismatch prevents render/mint/submit with deterministic configuration error; no runtime path accepts a different id for the same template.
+  - `Verified via:` `php eforms/tests/tools/assert-template-slugs.php`; `eforms/tests/unit/test_template_loader.php`; `eforms/tests/unit/test_shipped_templates_preflight.php`
+  - `Reasoning:` `high`
+
+- [ ] P1.T2 Implement public POST controller (Spec: Request lifecycle POST; Success behavior; Cache-safety; Error handling, Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX])
+  - `Type:` `seam-refactor`
+  - `Artifacts:` `eforms/src/Submission/PublicRequestController.php` (new), `eforms/src/bootstrap.php`, `eforms/src/Submission/SubmitHandler.php`, `eforms/src/Submission/Success.php`, `eforms/tests/wp-runtime/*`
+  - `Interfaces:` public same-page form POST, HTTP status, cache headers, PRG 303, validation rerender
+  - `Owner:` `PublicRequestController` owns WordPress POST detection and response orchestration; `SubmitHandler` remains the pipeline owner.
+  - `Depends On:` P1.T1
+  - `Boundary Decision:` introduce new shared layer; keeping POST handling in bootstrap makes lifecycle logic procedural and hard to test, while extending `SubmitHandler` would mix WordPress response ownership into the pure pipeline owner.
+  - `Existing Owner Evidence:` `SubmitHandler::handle()` orchestrates pipeline but no WordPress hook currently calls it.
+  - `Docs Consulted:` `docs/Canonical_Spec.md#sec-request-lifecycle-post`, `docs/Canonical_Spec.md#sec-success`, `docs/Owner_Index.md`
+  - `Reuse Target:` `SubmitHandler::handle()`, `SubmitHandler::do_success_redirect()`, `FormRenderer::render()`, `Success`
+  - `No-Fallback Rule:` no second POST handler in shortcode, REST mint endpoint, bootstrap closure, or template tag.
+  - `Contract Carriers to Re-evaluate:` bootstrap hook tests, success redirect tests, validation rerender tests, cache-header tests, README architecture section.
+  - `Guard Strategy:` public POST owner guard plus wp-runtime POST tests prove only the controller owns WordPress-facing POST orchestration.
+  - `Candidate Scope:` `eforms/src/bootstrap.php`, `eforms/src/Submission/*`, `eforms/src/Rendering/FormRenderer.php`, public-surface tests.
+  - `Leftover Checks:` Public POST owner guard; `rg -n '$_POST|REQUEST_METHOD|wp_safe_redirect|header\\(' eforms/src eforms/eforms.php` reviewed for expected controller-owned usage.
+  - `Exception Revalidation:` keep `SubmitHandler` direct calls in unit/integration tests only; revalidate via Public POST owner guard at phase close.
+  - `Closure Buckets:` public POST detection, rerender response, success redirect, cache headers.
+  - `Replacement:` unhandled raw same-page POST -> single public request controller
+  - `Superseded Seams:` direct class-only submission path as the only executable path
+  - `Removal Proof:` Public POST owner guard shows only `PublicRequestController` and tests call `SubmitHandler`.
+  - `Complexity Budget:` add one controller and hook wiring; no duplicate pipeline logic
+  - `Done When:` a real POST is detected before template output, routed through `SubmitHandler`, validation errors rerender via `FormRenderer`, success invokes PRG 303, and headers/status are set according to the spec without `exit`/`die`.
+  - `Verified via:` wp-runtime hidden-mode submit test; `eforms/tests/integration/test_post_pipeline_ordering.php`; Public POST owner guard
+  - `Reasoning:` `high`
+
+- [ ] P1.T3 Prove hidden-mode public lifecycle end to end (Spec: Request lifecycle GET/POST; Security invariants; Ledger reservation contract; Success behavior, Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX], [LEDGER_GC_GRACE_SECONDS])
+  - `Type:` `standard`
+  - `Artifacts:` `eforms/tests/wp-runtime/test_hidden_mode_public_lifecycle.php` (new or equivalent), `eforms/tests/integration/test_success_inline_flow.php`, `eforms/tests/integration/test_ledger_reserve_semantics.php`
+  - `Interfaces:` `[eform id="contact" cacheable="false"]`, POST body, PRG, inline success query
+  - `Owner:` `PublicRequestController` owns public lifecycle; `SubmitHandler` owns pipeline.
+  - `Depends On:` P1.T2
+  - `Done When:` one real WordPress-facing test renders hidden-mode form, extracts hidden token metadata, posts valid data, reserves ledger exactly once, sends mail via stubbed `wp_mail`, receives 303, and follow-up GET shows the success banner.
+  - `Verified via:` wp-runtime hidden-mode public lifecycle test; `find eforms/tests/unit eforms/tests/integration eforms/tests/smoke -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php`
+  - `Reasoning:` `high`
+
+- [ ] P1.T4 Prove failure rerenders and duplicate suppression through public path (Spec: Error handling; Ledger reservation contract; Email-failure recovery; Challenge, Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX])
+  - `Type:` `standard`
+  - `Artifacts:` `eforms/tests/wp-runtime/test_public_failure_paths.php` (new or equivalent), existing integration tests for challenge/email/ledger
+  - `Interfaces:` validation error rerender, duplicate token error, email failure rerender, challenge rerender
+  - `Owner:` `PublicRequestController` owns response orchestration; `SubmitHandler` owns failure classification.
+  - `Depends On:` P1.T3
+  - `Done When:` public tests cover invalid field rerender, duplicate replay rejection, email-send failure fresh-token rerender, and challenge-required rerender without ledger reservation.
+  - `Verified via:` wp-runtime failure-path test; `eforms/tests/integration/test_email_failure_rerender.php`; `eforms/tests/integration/test_challenge_rerender_only.php`; `eforms/tests/integration/test_ledger_reserve_semantics.php`
+  - `Reasoning:` `high`
+
+## Phase 2 — Complete Field and Upload Pipeline
+
+Goals:
+- Ensure every shipped field type renders, normalizes, validates, coerces, emails, and logs without stubs.
+- Make upload support complete or remove upload templates from shipped public fixtures before release. For this refactor, prefer completing the spec-defined upload path instead of carrying stubs or test-only shipped fixtures.
+
+Acceptance:
+- No runtime `not implemented` upload paths remain.
+- `upload-test` can render and submit through the public lifecycle when uploads are enabled.
+- Uploads remain in temp until ledger reservation and never leak `tmp_name` to email/log output.
+
+### Work Items
+
+- [ ] P2.T1 Implement upload field render/normalize/validate path (Spec: Uploads; Template model fields; Validation pipeline; Request lifecycle POST, Anchors: None)
+  - `Type:` `shared-ui-runtime`
+  - `Artifacts:` `eforms/src/Rendering/FieldRenderers/Upload.php`, `eforms/src/Validation/Normalizer.php`, `eforms/src/Validation/Validator.php`, `eforms/src/Uploads/UploadPolicy.php`, `eforms/src/Uploads/UploadStore.php`, `eforms/src/Rendering/RendererRegistry.php`, `eforms/src/Validation/*Registry.php`, upload tests
+  - `Interfaces:` file/files field markup, `multipart/form-data`, `accept`, upload validation errors, email attachments
+  - `Owner:` Upload field behavior is shared by field registries plus `UploadPolicy`/`UploadStore`; no local template-specific upload owner.
+  - `Depends On:` P1.T3
+  - `Existing Owner Evidence:` upload policy/storage classes exist; upload renderer/registry stubs are present.
+  - `Docs Consulted:` `docs/Canonical_Spec.md#sec-uploads`, `docs/Canonical_Spec.md#sec-template-model-fields`, `docs/Owner_Index.md`
+  - `Reuse Target:` `UploadPolicy`, `UploadStore`, existing field registry pattern
+  - `Boundary Decision:` extend existing owner; keeping upload behavior local to renderer would bypass validation/storage policy, and introducing a new upload facade is unnecessary unless existing `UploadPolicy`/`UploadStore` cannot carry the contract.
+  - `Selector Reuse:` existing eForms field/control naming and error-summary conventions
+  - `Selector Delta:` none
+  - `Style Delta:` none
+  - `UI Completion Gate:` `upload-test` renders a file input with `accept`, required/error state, and field-summary links.
+  - `Consumer Status:` live consumer `upload-test`; staged second consumer `files` fixture/test if not shipped.
+  - `No-Fallback Rule:` no template-specific upload renderer, no direct `$_FILES` handling outside normalization/upload owners.
+  - `Contract Carriers to Re-evaluate:` upload templates, upload policy tests, email attachment tests, normalization/validation tests, public lifecycle tests.
+  - `Guard Strategy:` Upload-stub guard plus upload move/email tests prove no stub or temp-path leak remains.
+  - `Done When:` file/files controls render; uploaded files validate by accept/extension/MIME/size; valid files move only after ledger reserve; invalid files rerender with deterministic errors; no stub exceptions remain.
+  - `Verified via:` `eforms/tests/integration/test_upload_accept_tokens.php`; `eforms/tests/integration/test_upload_move_after_ledger.php`; `eforms/tests/integration/test_email_attachments_policy.php`; Upload-stub guard
+  - `Reasoning:` `high`
+
+- [ ] P2.T2 Prove shipped templates are production-usable fixtures (Spec: Template JSON; Templates to include; Request lifecycle GET, Anchors: [MAX_FIELDS_MAX], [MAX_OPTIONS_MAX], [MAX_MULTIVALUE_MAX])
+  - `Type:` `standard`
+  - `Artifacts:` `eforms/templates/forms/*.json`, `eforms/tests/unit/test_shipped_templates_preflight.php`, wp-runtime render tests
+  - `Interfaces:` shipped form templates
+  - `Owner:` `TemplateValidator` owns fixture preflight; `FormRenderer` owns renderability.
+  - `Depends On:` P2.T1
+  - `Done When:` every shipped template passes preflight, renders successfully, and either submits in wp-runtime tests or is explicitly marked test-only outside shipped public examples.
+  - `Verified via:` `eforms/tests/unit/test_shipped_templates_preflight.php`; wp-runtime render-all-shipped-templates test; Form-id guard
+  - `Reasoning:` `medium`
+
+## Phase 3 — Cacheable Mode and Browser Runtime
+
+Goals:
+- Make JS-minted cacheable pages reliable across WordPress install contexts.
+- Preserve cacheability while keeping token minting fail-closed and same-origin.
+
+Acceptance:
+- Browser code receives endpoint/config from PHP; it does not hardcode root-relative `/eforms/mint`.
+- Cacheable forms block submit until mint succeeds, remint after email failure, and never mint for hidden-mode forms.
+- Activation/install behavior makes the pretty endpoint usable or provides a reliable REST fallback per spec-compatible routing.
+
+### Work Items
+
+- [ ] P3.T1 Resolve mint endpoint from WordPress runtime (Spec: JS-minted mode contract; Assets; Compatibility and updates, Anchors: None)
+  - `Type:` `shared-ui-runtime`
+  - `Artifacts:` `eforms/assets/forms.js`, `eforms/src/Rendering/FormRenderer.php`, `eforms/src/bootstrap.php`, activation hook wiring if needed, e2e specs
+  - `Interfaces:` browser POST to `/eforms/mint`, script-localized runtime config, cacheable form token injection
+  - `Owner:` `FormRenderer`/asset enqueue owns browser runtime configuration; `MintEndpoint` owns server response.
+  - `Depends On:` P1.T2
+  - `Existing Owner Evidence:` browser currently owns endpoint as a constant; bootstrap owns route registration.
+  - `Docs Consulted:` `docs/Canonical_Spec.md#sec-js-mint-mode`, `docs/Canonical_Spec.md#sec-assets`, `docs/Owner_Index.md`
+  - `Reuse Target:` WordPress script enqueue/localization and existing `MintEndpoint`
+  - `Boundary Decision:` extend existing owner; keeping the endpoint hardcoded in `forms.js` breaks install-context safety, while a new browser endpoint abstraction would duplicate WordPress enqueue/localization ownership.
+  - `Selector Reuse:` existing `data-eforms-mode`, token hidden inputs
+  - `Selector Delta:` only add data/config required to carry endpoint if localization is unavailable
+  - `Style Delta:` none
+  - `UI Completion Gate:` JS-minted form can mint on a subdirectory install and after activation without manual rewrite repair.
+  - `Consumer Status:` live cacheable form; mixed-mode page e2e
+  - `No-Fallback Rule:` no hardcoded browser root path and no CORS workaround.
+  - `Contract Carriers to Re-evaluate:` browser e2e specs, mint endpoint integration tests, bootstrap route tests, README cacheable-mode docs.
+  - `Guard Strategy:` Mint endpoint guard plus root/subdirectory browser tests prove runtime-resolved endpoint usage.
+  - `Done When:` endpoint URL is server-provided; pretty rewrite is flushed on activation if used; browser tests pass for root and subdirectory/base-url contexts.
+  - `Verified via:` Browser Verification Command; Mint endpoint guard; `eforms/tests/integration/test_mint_endpoint_contract.php`
+  - `Reasoning:` `high`
+
+- [ ] P3.T2 Complete JS-minted behavior and failure UX (Spec: JS-minted mode contract; Assets; Email-failure recovery, Anchors: [TOKEN_TTL_MIN], [TOKEN_TTL_MAX])
+  - `Type:` `standard`
+  - `Artifacts:` `eforms/assets/forms.js`, `eforms/tests/e2e/specs/js_minted_injection.spec.js`, `eforms/tests/e2e/specs/mixed_mode_page.spec.js`, integration tests for mint
+  - `Interfaces:` JS-minted hidden fields, sessionStorage token cache, `data-eforms-remint`, generic mint error summary
+  - `Owner:` `forms.js` owns browser mint/injection state; `MintEndpoint` owns token response.
+  - `Depends On:` P3.T1
+  - `Done When:` JS-minted forms mint only when empty, never overwrite populated token fields, cache per form id until expiry, clear/remint on email failure, block submit on failure, and show deterministic generic error.
+  - `Verified via:` Browser Verification Command; `eforms/tests/integration/test_mint_endpoint_contract.php`; `eforms/tests/integration/test_throttle_retry_after.php`
+  - `Reasoning:` `medium`
+
+## Phase 4 — Security, Ops, and Observability Closure
+
+Goals:
+- Close cross-cutting invariants after public lifecycle, uploads, and browser runtime are live.
+- Prove operational tooling is release-usable for small real sites.
+
+Acceptance:
+- Origin, throttle, challenge, ledger, logging, fail2ban, GC, uninstall, and compatibility guards work through the public lifecycle.
+- Docs and tests prove real operator paths and failure modes.
+
+### Work Items
+
+- [ ] P4.T1 Prove security ordering through public paths (Spec: Security; Origin policy; Throttling; Challenge; Ledger reservation contract, Anchors: [MIN_FILL_SECONDS_MIN], [MIN_FILL_SECONDS_MAX], [THROTTLE_MAX_PER_MIN_MIN], [THROTTLE_MAX_PER_MIN_MAX], [CHALLENGE_TIMEOUT_MIN], [CHALLENGE_TIMEOUT_MAX])
+  - `Type:` `standard`
+  - `Artifacts:` public lifecycle security tests, `eforms/src/Security/*`, `eforms/src/Submission/SubmitHandler.php`
+  - `Interfaces:` token validation, origin hard/soft fail, throttle 429/Retry-After, challenge rerender, ledger duplicate handling
+  - `Owner:` `Security` owns security gate; `SubmitHandler` owns ordering; `PublicRequestController` owns HTTP response orchestration.
+  - `Depends On:` P3.T2
+  - `Done When:` public tests prove hard failures abort before ledger/side effects, challenge verifies before ledger, throttle applies to mint and POST, and duplicate reservation returns the specified token error.
+  - `Verified via:` wp-runtime security-path tests; `eforms/tests/integration/test_post_pipeline_ordering.php`; `eforms/tests/integration/test_honeypot_paths.php`; `eforms/tests/integration/test_challenge_rerender_only.php`; `eforms/tests/integration/test_throttle_retry_after.php`
+  - `Reasoning:` `high`
+
+- [ ] P4.T2 Prove logging, fail2ban, GC, and uninstall operational paths (Spec: Logging; Uploads; Compatibility and updates; Public surfaces index, Anchors: [RETENTION_DAYS_MIN], [RETENTION_DAYS_MAX], [LEDGER_GC_GRACE_SECONDS])
+  - `Type:` `standard`
+  - `Artifacts:` `eforms/src/Logging.php`, `eforms/src/Logging/*`, `eforms/src/Gc/GcRunner.php`, `eforms/src/Cli/GcCommand.php`, `eforms/uninstall.php`, ops tests
+  - `Interfaces:` `eforms_request_id`, logging modes, fail2ban file emission, `wp eforms gc`, uninstall purge flags
+  - `Owner:` `Logging` owns emitted events; `GcRunner` owns artifact pruning; `uninstall.php` owns uninstall purge behavior.
+  - `Depends On:` P4.T1
+  - `Done When:` public submit/mint failures include request id in logs, fail2ban emits only configured `EFORMS_ERR_*` lines with raw IP, GC prunes expired artifacts without fresh marker deletion, and uninstall respects purge flags.
+  - `Verified via:` `eforms/tests/integration/test_logging_jsonl_schema.php`; `eforms/tests/integration/test_fail2ban_line_format.php`; `eforms/tests/integration/test_gc_dry_run.php`; `eforms/tests/integration/test_uninstall_purge_flags.php`
+  - `Reasoning:` `medium`
+
+- [ ] P4.T3 Prove compatibility and cache-safety boundaries (Spec: Compatibility and updates; Cache-safety; Request lifecycle GET/POST, Anchors: None)
+  - `Type:` `standard`
+  - `Artifacts:` `eforms/src/Compat.php`, `eforms/src/Rendering/FormRenderer.php`, `eforms/src/Submission/PublicRequestController.php`, smoke tests
+  - `Interfaces:` activation/load guard, hidden-mode no-store headers, success no-store headers, mint no-store headers
+  - `Owner:` `Compat` owns platform guard; render/controller/mint owners each own their response cache headers.
+  - `Depends On:` P4.T2
+  - `Done When:` PHP/WP minimums match spec, uploads semantics fail closed, hidden-mode token pages never mint after headers are sent, and success/mint responses emit required cache headers.
+  - `Verified via:` `eforms/tests/smoke/test_compat_guards.php`; `eforms/tests/integration/test_cache_safety_hidden_mode_headers_sent.php`; wp-runtime cache-header assertions
+  - `Reasoning:` `medium`
+
+## Phase 5 — Operator Readiness and Documentation Sync
+
+Goals:
+- Make install, configuration, and contributor instructions match the implemented plugin.
+- Remove scaffold/stub language from release-facing docs and runtime metadata.
+
+Acceptance:
+- README, docs, plugin header, and test docs agree with the spec and actual commands.
+- A small-site operator can install, configure, render, submit, enable cacheable mode, schedule GC, and troubleshoot failures from canonical docs.
+
+### Work Items
+
+- [ ] P5.T1 Sync release-facing docs and plugin metadata (Spec: Compatibility and updates; Configuration; Public surfaces index, Anchors: None)
+  - `Type:` `standard`
+  - `Artifacts:` `README.md`, `docs/overview.md`, `docs/README.md`, `eforms/eforms.php`, `eforms/tests/README.md`
+  - `Interfaces:` install requirements, contributor test commands, plugin description, runtime public surfaces
+  - `Owner:` README owns operator quickstart; docs overview owns narrative; plugin header owns WordPress admin metadata.
+  - `Depends On:` P4.T3
+  - `Done When:` PHP minimum is consistent with spec/runtime, no nonexistent Composer workflow is documented unless `composer.json` exists, no scaffold/stub wording remains in runtime metadata, and test commands match actual harnesses.
+  - `Verified via:` `rg -n 'PHP 8\\.0|composer install|scaffold|stubbed|not implemented' README.md docs eforms/eforms.php eforms/src eforms/tests/README.md`
+  - `Reasoning:` `low`
+
+- [ ] P5.T2 Run release broad gates and close plan verification (Spec: all implemented public surfaces, Anchors: all referenced Anchors)
+  - `Type:` `standard`
+  - `Artifacts:` `docs/Implementation_Plan.md`, all test reports/output, optional release checklist
+  - `Interfaces:` all public surfaces
+  - `Owner:` implementation plan owns completion state; test harness owners own proof.
+  - `Depends On:` P5.T1
+  - `Done When:` all checked tasks include `Verified via` evidence, broad gates pass, seam guards pass, and any residual issue is recorded under Known Debt & Open Questions with trigger and verification hook.
+  - `Verified via:` Verification Command; Browser Verification Command; all Seam Guards
+  - `Reasoning:` `high`
+
+## Invariant Matrix
+
+| Invariant | Positive Proof | Negative Proof |
+|---|---|---|
+| Public POST uses one controller and routes through `SubmitHandler` | P1.T3 wp-runtime lifecycle test | P1.T2 Public POST owner guard |
+| Canonical form identity is one value across filename/id/render/POST/token/ledger/logs | P1.T1 form-id unit and public lifecycle tests | P1.T1 Form-id guard rejects mismatches |
+| Security gate runs before normalize/validate/ledger/side effects | P4.T1 pipeline ordering tests | P4.T1 hard-failure tests assert no ledger/email/upload writes |
+| Challenge verifies before ledger and never renders on initial GET | P4.T1 challenge success/failure tests | P4.T1 initial GET challenge absence assertion |
+| Ledger reservation immediately precedes side effects and duplicate EEXIST suppresses replay | P1.T3/P4.T1 ledger reservation tests | P1.T4 duplicate replay public test |
+| Email failure after ledger burns original token and rerenders with fresh retry token | P1.T4 email-failure public rerender test | P1.T4 asserts original token cannot be reused |
+| Uploads stay temporary until ledger reserve and never expose `tmp_name` in email/logs | P2.T1 upload move and email attachment tests | P2.T1 assertions that body/logs lack tmp paths |
+| JS-minted forms mint only through `/eforms/mint` and never for hidden-mode forms | P3.T2 mixed-mode E2E | P3.T2 route-intercept assertion: hidden-mode emits zero mint requests |
+| `/eforms/mint` is same-origin, no-store, no CORS, JSON-only | P3.T1/P3.T2 mint endpoint tests | P4.T1 cross-origin/missing-origin rejection tests |
+| No runtime stubs or scaffold paths remain | P2.T1 upload-stub guard; P5.T1 docs metadata scan | P2.T1/P5.T1 zero-match guards |
+
+## Verification Summary
+
+- Task-level verification is authoritative. Use this section only as a map.
+- Broad gate after each phase: Verification Command.
+- Browser/cacheable gate after Phase 3 and release: Browser Verification Command.
+- Seam guards run at their stated task or phase gates.
+- Before closing each phase, run a failure-branch sweep against the cited spec sections using: `if|when|unless|except|already|missing|expired|duplicate|retry|limit|invalid|cannot|fails|denied|conflict`.
+
+## Known Debt & Open Questions
+
+- None currently accepted for this greenfield-style refactor.
+- Compatibility bridges for legacy template ids, old POST paths, or hardcoded browser endpoints are intentionally out of scope. If compatibility is later required, add an Open Question before implementation with explicit options and a removal trigger.
+
+## Plan Maintenance
+
+- Execute one unchecked task at a time.
+- Mark a task `[x]` only after its `Done When`, `Verified via`, and applicable seam guards pass.
+- If `docs/Canonical_Spec.md` changes in a behavior-affecting way, add `[ ] Rebase plan to current spec` before continuing.
+- Preserve completed task text; append new tasks rather than rewriting checked history.
