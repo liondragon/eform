@@ -76,6 +76,15 @@ $codes  = eforms_test_error_codes( $result['errors'] );
 eforms_test_assert( $result['ok'] === false, 'Non-string version should fail fast.' );
 eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_TYPE', $codes, true ), 'Non-string version should map to EFORMS_ERR_SCHEMA_TYPE.' );
 
+// Given a template whose id does not match its filename stem...
+// When TemplateLoader loads it...
+// Then it rejects the mismatch before render or submit can diverge.
+file_put_contents( $tmp_dir . '/mismatch.json', '{"id":"other","version":"1"}' );
+$result = TemplateLoader::load( 'mismatch', $tmp_dir );
+$codes  = eforms_test_error_codes( $result['errors'] );
+eforms_test_assert( $result['ok'] === false, 'Template id must match the filename stem.' );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_KEY', $codes, true ), 'Template id mismatch should map to EFORMS_ERR_SCHEMA_KEY.' );
+
 // Given a template without version...
 // When TemplateLoader loads it...
 // Then it falls back to filemtime().
@@ -86,4 +95,3 @@ $expected_mtime = (string) filemtime( $noversion_path );
 $result = TemplateLoader::load( 'noversion', $tmp_dir );
 eforms_test_assert( $result['ok'] === true, 'Missing version should fall back to filemtime.' );
 eforms_test_assert( $result['version'] === $expected_mtime, 'Version fallback should use filemtime().' );
-

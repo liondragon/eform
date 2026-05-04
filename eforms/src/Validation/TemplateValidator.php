@@ -210,6 +210,32 @@ class TemplateValidator {
         return $errors;
     }
 
+    /**
+     * Validate that a decoded template carries the filename-stem form id.
+     *
+     * @param mixed $template Decoded template data.
+     * @param string $expected_id Filename stem selected by TemplateLoader.
+     * @param Errors $errors Error container to append to.
+     */
+    public static function validate_template_id( $template, $expected_id, $errors ) {
+        if ( ! ( $errors instanceof Errors ) ) {
+            return;
+        }
+
+        if ( ! is_array( $template ) || ! isset( $template['id'] ) ) {
+            return;
+        }
+
+        if ( ! is_string( $expected_id ) || $expected_id === '' ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_KEY' );
+            return;
+        }
+
+        if ( ! is_string( $template['id'] ) || $template['id'] !== $expected_id ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_KEY' );
+        }
+    }
+
     private static function validate_success_block( $success, $errors ) {
         if ( ! is_array( $success ) ) {
             $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );

@@ -141,6 +141,14 @@ $response = MintEndpoint::handle( $request );
 eforms_test_assert( $response['status'] === 400, 'Mint should reject missing form id.' );
 eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_INVALID_FORM_ID', 'Mint should return invalid form id.' );
 
+// Given a legacy alias-style form id...
+// When the endpoint runs...
+// Then it does not mint through an alternate identity path.
+$request['params'] = array( 'f' => 'contact_us' );
+$response = MintEndpoint::handle( $request );
+eforms_test_assert( $response['status'] === 400, 'Mint should reject non-canonical form aliases.' );
+eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_INVALID_FORM_ID', 'Mint alias rejection should use invalid form id.' );
+
 // Given a cross-origin request...
 // When the endpoint runs...
 // Then it hard-fails with origin forbidden.

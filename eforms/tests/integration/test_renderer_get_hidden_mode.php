@@ -98,8 +98,8 @@ if ( function_exists( 'header_remove' ) ) {
 $output = FormRenderer::render( 'contact', array() );
 eforms_test_assert( is_string( $output ), 'Renderer should return HTML.' );
 eforms_test_assert(
-    strpos( $output, 'eforms-form-contact_us' ) !== false,
-    'Renderer should emit the form class with template id.'
+    strpos( $output, 'eforms-form-contact' ) !== false,
+    'Renderer should emit the form class with the canonical form id.'
 );
 eforms_test_assert(
     strpos( $output, 'name="eforms_mode" value="hidden"' ) !== false,

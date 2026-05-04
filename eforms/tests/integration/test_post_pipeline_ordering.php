@@ -141,5 +141,60 @@ eforms_test_assert(
     'Pipeline stages should execute in deterministic order.'
 );
 
+// Given a template whose id differs from its filename stem...
+// When SubmitHandler loads the selected form...
+// Then submission fails before security or side effects can run.
+$mismatch_dir = eforms_test_tmp_root( 'eforms-submit-mismatch' );
+mkdir( $mismatch_dir, 0700, true );
+file_put_contents(
+    $mismatch_dir . '/mismatch.json',
+    json_encode(
+        array(
+            'id' => 'other',
+            'version' => '1',
+            'title' => 'Mismatch',
+            'success' => array(
+                'mode' => 'inline',
+                'message' => 'Thanks.',
+            ),
+            'email' => array(
+                'to' => 'demo@example.com',
+                'subject' => 'Demo',
+                'email_template' => 'default',
+                'include_fields' => array( 'name' ),
+            ),
+            'fields' => array(
+                array(
+                    'key' => 'name',
+                    'type' => 'text',
+                    'label' => 'Name',
+                ),
+            ),
+            'submit_button_text' => 'Send',
+        )
+    )
+);
+$mismatch_trace = array();
+$mismatch_result = SubmitHandler::handle(
+    'mismatch',
+    array(
+        'post' => array(
+            'mismatch' => array( 'name' => 'Ada' ),
+        ),
+        'files' => array(),
+    ),
+    array(
+        'template_base_dir' => $mismatch_dir,
+        'security' => function () use ( &$mismatch_trace ) {
+            $mismatch_trace[] = 'security';
+            return array( 'token_ok' => true );
+        },
+    )
+);
+eforms_test_assert( $mismatch_result['ok'] === false, 'SubmitHandler should reject template id mismatches.' );
+eforms_test_assert( $mismatch_result['error_code'] === 'EFORMS_ERR_SCHEMA_KEY', 'Submit mismatch should surface a deterministic config error.' );
+eforms_test_assert( $mismatch_trace === array(), 'Submit mismatch should fail before security or side effects.' );
+
 eforms_test_remove_tree( $uploads_dir );
 eforms_test_remove_tree( $template_dir );
+eforms_test_remove_tree( $mismatch_dir );

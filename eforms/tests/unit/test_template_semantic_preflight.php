@@ -88,6 +88,16 @@ $errors = TemplateValidator::validate_template_envelope( $template );
 $codes  = eforms_test_collect_codes( $errors );
 eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_KEY', $codes, true ), 'Invalid key slug should emit EFORMS_ERR_SCHEMA_KEY.' );
 
+// Given a template id that differs from the filename stem...
+// When TemplateValidator checks identity...
+// Then it emits the deterministic schema key error used by loader-owned surfaces.
+$template = eforms_test_base_template();
+$template['id'] = 'other-demo';
+$errors = new Errors();
+TemplateValidator::validate_template_id( $template, 'demo', $errors );
+$codes = eforms_test_collect_codes( $errors );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_KEY', $codes, true ), 'Template id mismatches should emit EFORMS_ERR_SCHEMA_KEY.' );
+
 // Given an unknown handler id...
 // When TemplateValidator resolves handlers...
 // Then it emits a configuration error.
@@ -104,4 +114,3 @@ TemplateValidator::validate_descriptor_handlers(
 );
 $codes = eforms_test_collect_codes( $errors );
 eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'Unknown handler ids should emit EFORMS_ERR_SCHEMA_OBJECT.' );
-

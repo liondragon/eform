@@ -10,6 +10,7 @@
  */
 
 require_once __DIR__ . '/../Errors.php';
+require_once __DIR__ . '/../Validation/TemplateValidator.php';
 
 class TemplateLoader {
     const SLUG_PATTERN = '/^[a-z0-9-]+$/';
@@ -57,6 +58,11 @@ class TemplateLoader {
             return self::result( false, null, null, $path, $errors );
         }
 
+        TemplateValidator::validate_template_id( $decoded, $form_id, $errors );
+        if ( $errors->any() ) {
+            return self::result( false, null, null, $path, $errors );
+        }
+
         $version = self::normalize_version( $decoded, $path, $errors );
         if ( $version === null ) {
             return self::result( false, null, null, $path, $errors );
@@ -101,4 +107,3 @@ class TemplateLoader {
         );
     }
 }
-

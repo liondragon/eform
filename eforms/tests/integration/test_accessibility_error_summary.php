@@ -50,11 +50,11 @@ eforms_test_assert(
     'Global error message should appear in the summary.'
 );
 eforms_test_assert(
-    strpos( $output, 'href="#quote_request-name"' ) !== false,
+    strpos( $output, 'href="#quote-request-name"' ) !== false,
     'Summary should link to the invalid control.'
 );
 eforms_test_assert(
-    strpos( $output, 'id="error-quote_request-name"' ) !== false,
+    strpos( $output, 'id="error-quote-request-name"' ) !== false,
     'Field error span should be rendered.'
 );
 eforms_test_assert(
@@ -62,11 +62,11 @@ eforms_test_assert(
     'Invalid field should include aria-invalid="true".'
 );
 eforms_test_assert(
-    strpos( $output, 'aria-describedby="error-quote_request-name"' ) !== false,
+    strpos( $output, 'aria-describedby="error-quote-request-name"' ) !== false,
     'Invalid field should reference its error via aria-describedby.'
 );
 eforms_test_assert(
-    strpos( $output, 'for="quote_request-name"' ) !== false,
+    strpos( $output, 'for="quote-request-name"' ) !== false,
     'Field label should target the input id.'
 );
 eforms_test_assert(

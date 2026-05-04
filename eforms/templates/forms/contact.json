@@ -1,5 +1,5 @@
 {
-  "id": "contact_us",
+  "id": "contact",
   "version": "1",
   "title": "Contact Us",
   "success": { "mode": "inline", "message": "Thanks! We got your message." },

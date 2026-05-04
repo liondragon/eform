@@ -43,7 +43,7 @@ if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
 // ---- Test 1: Success::redirect returns inline URL with form_id query param ----
 
 $context_inline = array(
-    'id' => 'contact_us',
+    'id' => 'contact',
     'success' => array(
         'mode' => 'inline',
         'message' => 'Thanks for your message!',
@@ -60,7 +60,7 @@ $result = Success::redirect( $context_inline, $options );
 eforms_test_assert( $result['ok'] === true, 'Inline success redirect should return ok=true.' );
 eforms_test_assert( $result['status'] === 303, 'Inline success redirect should use status 303.' );
 eforms_test_assert(
-    strpos( $result['location'], 'eforms_success=contact_us' ) !== false,
+    strpos( $result['location'], 'eforms_success=contact' ) !== false,
     'Inline success URL should contain ?eforms_success={form_id}.'
 );
 eforms_test_assert(
@@ -87,7 +87,7 @@ eforms_test_assert(
     'Inline success should preserve all existing query params.'
 );
 eforms_test_assert(
-    strpos( $result_with_query['location'], 'eforms_success=contact_us' ) !== false,
+    strpos( $result_with_query['location'], 'eforms_success=contact' ) !== false,
     'Inline success should add the eforms_success param.'
 );
 
@@ -108,10 +108,10 @@ eforms_test_assert(
 
 // ---- Test 4: Success::is_inline_success_request detects query param ----
 
-$_GET = array( 'eforms_success' => 'contact_us' );
+$_GET = array( 'eforms_success' => 'contact' );
 
 eforms_test_assert(
-    Success::is_inline_success_request( 'contact_us' ) === true,
+    Success::is_inline_success_request( 'contact' ) === true,
     'is_inline_success_request should return true for matching form_id.'
 );
 eforms_test_assert(
@@ -122,7 +122,7 @@ eforms_test_assert(
 $_GET = array();
 
 eforms_test_assert(
-    Success::is_inline_success_request( 'contact_us' ) === false,
+    Success::is_inline_success_request( 'contact' ) === false,
     'is_inline_success_request should return false when query param is absent.'
 );
 
@@ -155,7 +155,7 @@ Config::reset_for_tests();
 FormRenderer::reset_for_tests();
 
 // Simulate inline success GET request
-$_GET = array( 'eforms_success' => 'contact_us' );
+$_GET = array( 'eforms_success' => 'contact' );
 
 $html = FormRenderer::render( 'contact', array(
     'cacheable' => false,
@@ -203,7 +203,7 @@ eforms_test_assert(
 
 FormRenderer::reset_for_tests();
 
-$_GET = array( 'eforms_success' => 'quote_request' );
+$_GET = array( 'eforms_success' => 'quote-request' );
 
 // quote-request template exists and uses inline mode
 // But first check if it's really inline

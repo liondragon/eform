@@ -242,6 +242,10 @@ if ( ! function_exists( 'eforms_register_hooks' ) ) {
         if ( function_exists( 'add_action' ) ) {
             add_action( 'init', 'eforms_register_rewrite_rule' );
             add_action( 'rest_api_init', 'eforms_register_rest_routes' );
+            if ( ! class_exists( 'PublicRequestController' ) ) {
+                require_once __DIR__ . '/Submission/PublicRequestController.php';
+            }
+            add_action( 'template_redirect', array( 'PublicRequestController', 'handle_template_redirect' ), 0 );
             add_action( 'init', 'eforms_register_cli', 20 );
         }
     }
