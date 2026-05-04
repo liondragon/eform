@@ -13,6 +13,7 @@ Quick reference for implementers. Each surface links to its authoritative sectio
 | `[eform id="..." cacheable="..."]` | Shortcode | Renders a form; `cacheable` selects token mode | [Request Lifecycle → GET](#sec-request-lifecycle-get) |
 | `eform_render($slug, $opts)` | Template tag | PHP equivalent of shortcode | [Request Lifecycle → GET](#sec-request-lifecycle-get) |
 | `POST /eforms/mint` | REST endpoint | Mints JS-mode tokens for cacheable pages | [JS-minted mode contract](#sec-js-mint-mode) |
+| `window.eformsSettings.mintEndpoint` | Browser config | Endpoint URL consumed by forms.js for JS-mode token minting | [Assets](#sec-assets) |
 | `${WP_CONTENT_DIR}/eforms.config.php` | Drop-in file | Optional runtime config override source | [Configuration](#sec-configuration) |
 | `eforms_config` | Filter | Optional runtime config override hook | [Configuration](#sec-configuration) |
 | `eforms_request_id` | Filter | Optional request correlation override for logs | [Logging](#sec-logging) |
@@ -476,7 +477,7 @@ Notes (normative):
 <a id="sec-js-email-failure"></a>Email-failure recovery (JS-minted, normative):
 - When `EFORMS_ERR_EMAIL_SEND` occurs after ledger reservation, the rerender MUST include `data-eforms-remint="1"` on the form element.
 - On this rerender, Renderer MUST leave the token, instance, and timestamp hidden fields empty so forms.js can inject without overwriting.
-- forms.js MUST detect this marker on DOMContentLoaded, clear the cached token for that `form_id` from sessionStorage, call `/eforms/mint` to obtain a fresh token, inject the new `{token, instance_id, timestamp}` into the form, and re-enable submission.
+- forms.js MUST detect this marker on DOMContentLoaded, clear the cached token for that `form_id` from sessionStorage, call the configured mint endpoint to obtain a fresh token, inject the new `{token, instance_id, timestamp}` into the form, and re-enable submission.
 - The original token remains burned in the ledger.
 
 **Duplicate form IDs (normative):**
@@ -538,7 +539,7 @@ Notes (normative):
 	- Hard checks first: honeypot, token/origin hard failures, and hard throttle. Any hard fail stops processing.
 	- `soft_reasons` (closed set, deduplicated): `min_fill_time` | `age_advisory` | `js_missing` | `origin_soft`. Producers MUST use only these labels; unknown labels are an implementation bug.
 	- Scoring (computed, not stored): let `soft_fail_count = |soft_reasons|`. Decision: if `soft_fail_count >= spam.soft_fail_threshold` → spam-fail; else if `soft_fail_count > 0` → deliver as suspect; else deliver normal.
-	- Spam-fail behavior: short-circuit before validation/email; respond per `security.honeypot_response` (stealth_success or hard_fail); log with `spam_decision=fail` and the triggering `soft_reasons`.
+	- Spam-fail behavior: short-circuit before validation/email; respond per `security.honeypot_response` (stealth_success or hard_fail). Hard-fail responses use `EFORMS_ERR_SPAM`; all spam-fail paths log with `spam_decision=fail` and the triggering `soft_reasons`.
 	- `spam.soft_fail_threshold` is clamped at bootstrap to a minimum of 1.
 	- Default: see the Defaults note in [Configuration: Domains, Constraints, and Defaults](#sec-configuration).
 	- Accessibility note: `js_hard_mode=true` blocks non-JS users; keep opt-in.
@@ -997,7 +998,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- "This file type isn't allowed."
 	- "File upload failed. Please try again."
 	- Re-render after errors passes the mode-specific security metadata defined in [Security → Submission Protection for Public Forms](#sec-submission-protection) back to Renderer (hidden: `{eforms_token, instance_id, timestamp}`; JS-minted: `{eforms_token, instance_id, timestamp}`).
-	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_THROTTLED, EFORMS_ERR_DUPLICATE_FORM_ID, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_LEDGER_IO, EFORMS_ERR_STORAGE_UNAVAILABLE, EFORMS_ERR_INVALID_FORM_ID, EFORMS_ERR_ORIGIN_FORBIDDEN, EFORMS_ERR_MINT_FAILED, EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE).
+	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_SPAM, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_THROTTLED, EFORMS_ERR_DUPLICATE_FORM_ID, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_LEDGER_IO, EFORMS_ERR_STORAGE_UNAVAILABLE, EFORMS_ERR_INVALID_FORM_ID, EFORMS_ERR_ORIGIN_FORBIDDEN, EFORMS_ERR_MINT_FAILED, EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE).
 	- Large form advisory via logs.
 	- "This form was already submitted or has expired - please reload the page." maps to EFORMS_ERR_TOKEN.
 
@@ -1013,12 +1014,13 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 23. ASSETS (CSS & JS)
 	- Enqueued only when a form is rendered; version strings via filemtime().
 	- forms.js provides js_ok="1" on DOM Ready, submit-lock/disabled state, error-summary focus, and first-invalid focus. Required for cacheable pages (JS-minted mode); otherwise optional unless `security.js_hard_mode=true`.
-	- JS-minted token injection (normative): forms.js MUST, on DOMContentLoaded, ensure each JS-minted form has a token by issuing a POST to `/eforms/mint` with form-encoded body `f={form_id}`, inject `token` into `eforms_token`, inject `instance_id` into the hidden instance field, and inject `timestamp` into the hidden timestamp field. forms.js MUST block submission until minting succeeds and MUST NOT overwrite a non-empty `eforms_token`. forms.js SHOULD reuse the minted token across refreshes/back-navigation within the same tab (e.g., sessionStorage keyed by `{form_id}`) until expiry; if cached state is unavailable, mint a fresh token.
+	- FormRenderer MUST publish `window.eformsSettings.mintEndpoint` before forms.js executes; in WordPress it resolves from `rest_url('eforms/mint')`, with `/eforms/mint` only as the non-WP/static fallback.
+	- JS-minted token injection (normative): forms.js MUST, on DOMContentLoaded, ensure each JS-minted form has a token by issuing a POST to the configured mint endpoint with form-encoded body `f={form_id}`, inject `token` into `eforms_token`, inject `instance_id` into the hidden instance field, and inject `timestamp` into the hidden timestamp field. forms.js MUST block submission until minting succeeds and MUST NOT overwrite a non-empty `eforms_token`. forms.js SHOULD reuse the minted token across refreshes/back-navigation within the same tab (e.g., sessionStorage keyed by `{form_id}`) until expiry; if cached state is unavailable, mint a fresh token.
 
-	- Mixed-mode pages (normative): forms.js MUST only call `/eforms/mint` for JS-minted forms (cacheable=true) and MUST NOT call it for hidden-mode forms; each form is handled independently.
+	- Mixed-mode pages (normative): forms.js MUST only call the configured mint endpoint for JS-minted forms (cacheable=true) and MUST NOT call it for hidden-mode forms; each form is handled independently.
 	- Injection safety (normative): forms.js MUST NOT overwrite a non-empty `eforms_token`, `instance_id`, or `timestamp` field; it may only fill empty fields.
 	- Mint failure UX (normative): on mint failure, forms.js MUST keep submission blocked for that form and surface a deterministic generic error message in the error summary container.
-	- Email-failure remint (normative): When a form element has `data-eforms-remint="1"`, forms.js MUST clear the cached token for that `form_id` from sessionStorage, POST to `/eforms/mint`, inject the fresh `{token, instance_id, timestamp}`, remove the `data-eforms-remint` attribute, and re-enable submission. This occurs on DOMContentLoaded before the normal injection logic.
+	- Email-failure remint (normative): When a form element has `data-eforms-remint="1"`, forms.js MUST clear the cached token for that `form_id` from sessionStorage, POST to the configured mint endpoint, inject the fresh `{token, instance_id, timestamp}`, remove the `data-eforms-remint` attribute, and re-enable submission. This occurs on DOMContentLoaded before the normal injection logic.
 
 	- assets.css_disable=true lets themes opt out
 	- On submit failure, focus the first control with an error

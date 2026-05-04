@@ -26,11 +26,11 @@ Spec: Security invariants (docs/Canonical_Spec.md#sec-security-invariants)
 ## Scenario B: Mint calls
 
 1. Reload the page and watch the Network tab.
-2. Confirm only one POST to `/eforms/mint` occurs, and it corresponds to the JS-minted form id.
-3. Confirm no `/eforms/mint` request fires for the hidden-mode form.
+2. Confirm only one POST to the configured mint endpoint occurs, and it corresponds to the JS-minted form id.
+3. Confirm no mint request fires for the hidden-mode form.
 
 ## Scenario C: Independent handling
 
-1. Block `/eforms/mint` (devtools request blocking) and reload the page.
+1. Block the configured mint endpoint (devtools request blocking) and reload the page.
 2. Confirm the JS-minted form shows the generic mint error and remains blocked.
 3. Confirm the hidden-mode form remains renderable with its prefilled security fields.

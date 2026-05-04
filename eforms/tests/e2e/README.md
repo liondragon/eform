@@ -9,7 +9,7 @@ They are test-only tooling and do not affect plugin runtime dependencies.
 
 ## Scope
 
-- JS-minted token injection (`/eforms/mint` call + hidden-field injection)
+- JS-minted token injection (configured mint endpoint call + hidden-field injection)
 - SessionStorage reuse on reload (no remint while cached token is valid)
 - Mixed-mode page behavior (only JS form mints; hidden form remains server-token mode)
 - Mint-failure UX isolation (JS form blocked with deterministic error; hidden form still usable)
@@ -23,7 +23,7 @@ They are test-only tooling and do not affect plugin runtime dependencies.
   - Mixed-mode page:
     - `[eform id="contact" cacheable="false"]`
     - `[eform id="quote-request" cacheable="true"]`
-- Permalink rules flushed so `/eforms/mint` resolves
+- Permalink rules flushed so the mint endpoint resolves
 
 ## Install
 

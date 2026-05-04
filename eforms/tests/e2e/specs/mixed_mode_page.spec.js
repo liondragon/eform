@@ -19,8 +19,11 @@ function hiddenValue(formHtml, name) {
   return match ? match[1] : null;
 }
 
-function mintPath(url) {
-  return new URL(url).pathname === '/eforms/mint';
+function mintEndpointRequest(url) {
+  const parsed = new URL(url);
+  const pathname = parsed.pathname.replace(/\/+$/, '');
+  return pathname.endsWith('/eforms/mint') ||
+    parsed.searchParams.get('rest_route') === '/eforms/mint';
 }
 
 test('mixed-mode page keeps server-owned modes and mints only JS form', async ({ page, request }) => {
@@ -50,7 +53,7 @@ test('mixed-mode page keeps server-owned modes and mints only JS form', async ({
 
   let mintPosts = 0;
   page.on('request', (req) => {
-    if (req.method() === 'POST' && mintPath(req.url())) {
+    if (req.method() === 'POST' && mintEndpointRequest(req.url())) {
       mintPosts += 1;
     }
   });
@@ -75,7 +78,7 @@ test('mixed-mode page blocks only JS form when mint fails', async ({ browser }) 
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  await page.route('**/eforms/mint', (route) => route.abort());
+  await page.route((url) => mintEndpointRequest(url.toString()), (route) => route.abort());
   await page.goto(mixedUrl, { waitUntil: 'domcontentloaded' });
 
   const hiddenForm = page.locator('form.eforms-form-contact[data-eforms-mode="hidden"]');

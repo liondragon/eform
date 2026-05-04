@@ -26,6 +26,7 @@ class FormRenderer {
     private static $logged_header_warning = false;
     private static $logged_input_vars_warning = false;
     private static $headers_sent_override = null;
+    private static $script_settings_enqueued = false;
 
     /**
      * Render a form by slug (template filename stem).
@@ -160,6 +161,7 @@ class FormRenderer {
         self::$logged_header_warning = false;
         self::$logged_input_vars_warning = false;
         self::$headers_sent_override = null;
+        self::$script_settings_enqueued = false;
     }
 
     /**
@@ -492,6 +494,7 @@ class FormRenderer {
             $url = self::asset_url( 'assets/forms.js' );
             $ver = filemtime( $js_path );
             wp_enqueue_script( 'eforms', $url, array(), $ver, true );
+            self::enqueue_script_settings();
         }
 
         if ( $challenge_rendered && function_exists( 'wp_enqueue_script' ) ) {
@@ -517,6 +520,46 @@ class FormRenderer {
         }
 
         return $relative;
+    }
+
+    private static function enqueue_script_settings() {
+        if ( self::$script_settings_enqueued || ! function_exists( 'wp_add_inline_script' ) ) {
+            return;
+        }
+
+        $json = self::json_encode( self::mint_endpoint_url() );
+        if ( $json === '' ) {
+            return;
+        }
+
+        wp_add_inline_script(
+            'eforms',
+            'window.eformsSettings = window.eformsSettings || {};'
+                . 'window.eformsSettings.mintEndpoint = ' . $json . ';',
+            'before'
+        );
+        self::$script_settings_enqueued = true;
+    }
+
+    private static function mint_endpoint_url() {
+        if ( function_exists( 'rest_url' ) ) {
+            $url = rest_url( 'eforms/mint' );
+            if ( is_string( $url ) && $url !== '' ) {
+                return $url;
+            }
+        }
+
+        return '/eforms/mint';
+    }
+
+    private static function json_encode( $value ) {
+        if ( function_exists( 'wp_json_encode' ) ) {
+            $json = wp_json_encode( $value );
+        } else {
+            $json = json_encode( $value );
+        }
+
+        return is_string( $json ) ? $json : '';
     }
 
     private static function render_form( $context, $mode, $security, $config, $errors, $values, $challenge, $email_failure ) {

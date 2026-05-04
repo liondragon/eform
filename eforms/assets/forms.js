@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    var MINT_ENDPOINT = '/eforms/mint';
+    var DEFAULT_MINT_ENDPOINT = '/eforms/mint';
     var MINT_ERROR_MESSAGE = 'This form is temporarily unavailable. Please reload the page.';
 
     function forEachNode(list, callback) {
@@ -15,6 +15,15 @@
 
     function nowSeconds() {
         return Math.floor(Date.now() / 1000);
+    }
+
+    function mintEndpoint() {
+        var settings = window.eformsSettings;
+        if (settings && typeof settings.mintEndpoint === 'string' && settings.mintEndpoint !== '') {
+            return settings.mintEndpoint;
+        }
+
+        return DEFAULT_MINT_ENDPOINT;
     }
 
     function getFormId(form) {
@@ -306,7 +315,7 @@
         var body = 'f=' + encodeURIComponent(formId);
 
         if (window.fetch) {
-            fetch(MINT_ENDPOINT, {
+            fetch(mintEndpoint(), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
@@ -338,7 +347,7 @@
         }
 
         var xhr = new XMLHttpRequest();
-        xhr.open('POST', MINT_ENDPOINT, true);
+        xhr.open('POST', mintEndpoint(), true);
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== 4) {

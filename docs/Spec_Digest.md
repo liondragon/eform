@@ -41,7 +41,7 @@
 - [ ] Never overwrite existing files; treat collisions as hard errors. → [§Filesystem](../docs/Canonical_Spec.md#sec-filesystem-semantics)
 - [ ] GC only deletes .used markers older than retention window (not fresh). → [§Ledger](../docs/Canonical_Spec.md#sec-ledger-contract)
 - [ ] Never schedule WP-Cron for GC; require manual wp eforms gc. → [§GC](../docs/Canonical_Spec.md#sec-gc)
-- [ ] forms.js calls /eforms/mint only for cacheable=true forms; never for hidden-mode. → [§JavaScript](../docs/Canonical_Spec.md#sec-javascript)
+- [ ] forms.js calls the configured mint endpoint only for cacheable=true forms; never for hidden-mode. → [§JavaScript](../docs/Canonical_Spec.md#sec-javascript)
 - [ ] forms.js fills empty token fields only; never overwrites populated fields. → [§JavaScript](../docs/Canonical_Spec.md#sec-javascript)
 
 ## Security & Data Integrity (MUST)

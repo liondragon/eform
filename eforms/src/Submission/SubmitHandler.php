@@ -96,10 +96,10 @@ class SubmitHandler {
                 $trace[] = 'honeypot';
             }
 
-            // Honeypot short-circuit: cleanup uploads and (if token_ok) burn the ledger entry.
+            // Spam short-circuit: cleanup uploads and (if token_ok) burn the ledger entry.
             Honeypot::cleanup_uploads( $files );
             if ( self::token_ok( $security ) ) {
-                self::call_honeypot_burn( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
+                self::call_spam_ledger_burn( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
             }
             Honeypot::log_event( $resolved_form_id, $security, $honeypot['response'], $request );
 
@@ -134,7 +134,29 @@ class SubmitHandler {
         }
 
         $soft_fail_count = self::soft_fail_count( $security );
-        self::emit_soft_fail_headers( $soft_fail_count, self::is_suspect( $soft_fail_count, $config ) );
+        $spam_threshold = self::spam_soft_fail_threshold( $config );
+        $is_suspect = self::is_suspect_count( $soft_fail_count, $spam_threshold );
+        if ( $is_suspect ) {
+            self::emit_soft_fail_headers( $soft_fail_count, true );
+        }
+
+        if ( self::is_spam_fail_count( $soft_fail_count, $spam_threshold ) ) {
+            if ( $trace_on ) {
+                $trace[] = 'spam';
+            }
+
+            Honeypot::cleanup_uploads( $files );
+            self::call_spam_ledger_burn( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
+            self::log_spam_fail( $resolved_form_id, $security, $honeypot['response'], $soft_fail_count, $spam_threshold, $request );
+
+            if ( $honeypot['response'] === 'hard_fail' ) {
+                $errors = self::errors_for_code( 'EFORMS_ERR_SPAM' );
+                return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
+            }
+
+            $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
+            return self::honeypot_success_result( $security, $security_meta, $success_config, $resolved_form_id, $trace, $trace_on );
+        }
 
         $form_post = self::form_payload( $post, $resolved_form_id );
         $form_files = self::form_files_payload( $files, $resolved_form_id );
@@ -509,7 +531,7 @@ class SubmitHandler {
         Logging::event( 'error', 'EFORMS_ERR_EMAIL_SEND', $meta, $request );
     }
 
-    private static function call_honeypot_burn( $overrides, $form_id, $submission_id, $uploads_dir, $request, $config ) {
+    private static function call_spam_ledger_burn( $overrides, $form_id, $submission_id, $uploads_dir, $request, $config ) {
         $callable = self::override_callable( $overrides, 'honeypot_burn' );
         if ( $callable ) {
             return call_user_func( $callable, $form_id, $submission_id, $uploads_dir, $request, $config );
@@ -906,13 +928,16 @@ class SubmitHandler {
         return count( $security['soft_reasons'] );
     }
 
-    private static function is_suspect( $soft_fail_count, $config ) {
+    private static function is_suspect_count( $soft_fail_count, $threshold ) {
         if ( $soft_fail_count <= 0 ) {
             return false;
         }
 
-        $threshold = self::spam_soft_fail_threshold( $config );
         return $soft_fail_count < $threshold;
+    }
+
+    private static function is_spam_fail_count( $soft_fail_count, $threshold ) {
+        return $soft_fail_count > 0 && $soft_fail_count >= $threshold;
     }
 
     private static function spam_soft_fail_threshold( $config ) {
@@ -943,6 +968,25 @@ class SubmitHandler {
         if ( $is_suspect ) {
             header( 'X-EForms-Suspect: 1' );
         }
+    }
+
+    private static function log_spam_fail( $form_id, $security, $response, $soft_fail_count, $threshold, $request ) {
+        if ( ! class_exists( 'Logging' ) ) {
+            return;
+        }
+
+        $meta = array(
+            'form_id' => is_string( $form_id ) ? $form_id : '',
+            'submission_id' => isset( $security['submission_id'] ) && is_string( $security['submission_id'] ) ? $security['submission_id'] : '',
+            'mode' => isset( $security['mode'] ) && is_string( $security['mode'] ) ? $security['mode'] : '',
+            'spam_decision' => 'fail',
+            'soft_reasons' => isset( $security['soft_reasons'] ) && is_array( $security['soft_reasons'] ) ? $security['soft_reasons'] : array(),
+            'soft_fail_count' => (int) $soft_fail_count,
+            'threshold' => (int) $threshold,
+            'stealth' => $response === Honeypot::RESPONSE_STEALTH_SUCCESS,
+        );
+
+        Logging::event( 'warning', 'EFORMS_ERR_SPAM', $meta, $request );
     }
 
     private static function error_code_from_result( $result ) {

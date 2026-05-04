@@ -1,7 +1,10 @@
 const { test, expect } = require('@playwright/test');
 
-function mintPath(url) {
-  return new URL(url).pathname === '/eforms/mint';
+function mintEndpointRequest(url) {
+  const parsed = new URL(url);
+  const pathname = parsed.pathname.replace(/\/+$/, '');
+  return pathname.endsWith('/eforms/mint') ||
+    parsed.searchParams.get('rest_route') === '/eforms/mint';
 }
 
 test('JS-minted form injects token and reuses session token on reload', async ({ page }) => {
@@ -12,7 +15,7 @@ test('JS-minted form injects token and reuses session token on reload', async ({
 
   let mintPosts = 0;
   page.on('request', (request) => {
-    if (request.method() === 'POST' && mintPath(request.url())) {
+    if (request.method() === 'POST' && mintEndpointRequest(request.url())) {
       mintPosts += 1;
     }
   });
