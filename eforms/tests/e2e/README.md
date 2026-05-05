@@ -10,7 +10,7 @@ They are test-only tooling and do not affect plugin runtime dependencies.
 ## Scope
 
 - JS-minted token injection (configured mint endpoint call + hidden-field injection)
-- SessionStorage reuse on reload (no remint while cached token is valid)
+- SessionStorage reuse on reload (no mint request while cached token is valid)
 - Mixed-mode page behavior (only JS form mints; hidden form remains server-token mode)
 - Mint-failure UX isolation (JS form blocked with deterministic error; hidden form still usable)
 

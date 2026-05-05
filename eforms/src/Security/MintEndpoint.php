@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/OriginPolicy.php';
 require_once __DIR__ . '/PostSize.php';
@@ -46,7 +47,7 @@ class MintEndpoint {
             return self::result( 403, $headers, array( 'error' => 'EFORMS_ERR_ORIGIN_FORBIDDEN' ) );
         }
 
-        $form_id = self::param_value( $request, 'f' );
+        $form_id = self::param_value( $request, FormProtocol::MINT_FORM_PARAM );
         if ( ! self::is_valid_form_id( $form_id ) ) {
             return self::result( 400, $headers, array( 'error' => 'EFORMS_ERR_INVALID_FORM_ID' ) );
         }
@@ -77,10 +78,10 @@ class MintEndpoint {
             200,
             $headers,
             array(
-                'token' => $mint['token'],
-                'instance_id' => $mint['instance_id'],
-                'timestamp' => $mint['issued_at'],
-                'expires' => $mint['expires'],
+                FormProtocol::MINT_RESPONSE_TOKEN => $mint['token'],
+                FormProtocol::MINT_RESPONSE_INSTANCE_ID => $mint['instance_id'],
+                FormProtocol::MINT_RESPONSE_TIMESTAMP => $mint['issued_at'],
+                FormProtocol::MINT_RESPONSE_EXPIRES => $mint['expires'],
             )
         );
     }

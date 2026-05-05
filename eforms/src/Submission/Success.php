@@ -4,8 +4,7 @@
  *
  * Spec: Success behavior (docs/Canonical_Spec.md#sec-success)
  * Spec: Success modes (docs/Canonical_Spec.md#sec-success-modes)
- * Spec: Inline success flow (docs/Canonical_Spec.md#sec-success-flow)
- * Spec: Redirect safety (docs/Canonical_Spec.md#sec-redirect-safety)
+ * Spec: Result page success flow (docs/Canonical_Spec.md#sec-success-flow)
  * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
  */
 
@@ -14,91 +13,38 @@ if ( ! class_exists( 'Logging' ) ) {
 }
 
 class Success {
+    const RESULT_PARAM = 'eforms_result';
+    const FORM_PARAM = 'eforms_form';
+    const RESULT_SUCCESS = 'success';
+    const RESULT_EMAIL_FAILURE = 'email_failure';
+
     private static $logged_cache_warning = false;
 
     /**
      * Execute PRG redirect after successful submission.
      *
      * Spec: PRG status is fixed at 303. Success responses MUST satisfy cache-safety.
-     * Spec: Redirects via wp_safe_redirect; same-origin only.
+     * Spec: Redirects via wp_safe_redirect to the plugin-owned result page.
      *
      * @param array $context Template context with success configuration.
      * @param array $options Optional overrides for testing.
      * @return array Result with ok, status, location.
      */
     public static function redirect( $context, $options = array() ) {
-        $mode = self::get_mode( $context );
         $form_id = self::get_form_id( $context );
 
-        if ( $mode === 'inline' ) {
-            return self::redirect_inline( $form_id, $options );
-        }
-
-        if ( $mode === 'redirect' ) {
-            $redirect_url = self::get_redirect_url( $context );
-            return self::redirect_external( $redirect_url, $options );
-        }
-
-        return self::redirect_inline( $form_id, $options );
+        return self::redirect_result( self::RESULT_SUCCESS, $form_id, $options );
     }
 
     /**
-     * Execute inline success redirect (back to same URL with query param).
-     *
-     * Spec: On successful POST, redirect with ?eforms_success={form_id} (303).
+     * Execute email-failure redirect to the plugin-owned result page.
      *
      * @param string $form_id Form identifier.
      * @param array $options Optional overrides for testing.
      * @return array Result with ok, status, location.
      */
-    public static function redirect_inline( $form_id, $options = array() ) {
-        $current_url = self::get_current_url( $options );
-        if ( $current_url === '' ) {
-            return self::fail( 'no_current_url' );
-        }
-
-        $success_url = self::build_inline_success_url( $current_url, $form_id );
-        return self::perform_redirect( $success_url, 303, $options );
-    }
-
-    /**
-     * Execute redirect success (to configured URL).
-     *
-     * Spec: wp_safe_redirect(redirect_url, 303). Destination renders its own success UX.
-     *
-     * @param string $redirect_url Target URL.
-     * @param array $options Optional overrides for testing.
-     * @return array Result with ok, status, location.
-     */
-    public static function redirect_external( $redirect_url, $options = array() ) {
-        if ( ! is_string( $redirect_url ) || $redirect_url === '' ) {
-            return self::fail( 'no_redirect_url' );
-        }
-
-        if ( ! self::is_same_origin( $redirect_url, $options ) ) {
-            return self::fail( 'cross_origin' );
-        }
-
-        return self::perform_redirect( $redirect_url, 303, $options );
-    }
-
-    /**
-     * Check if current request is an inline success display request.
-     *
-     * @param string $form_id Form identifier to check.
-     * @return bool True if ?eforms_success={form_id} is present.
-     */
-    public static function is_inline_success_request( $form_id ) {
-        if ( ! isset( $_GET['eforms_success'] ) ) {
-            return false;
-        }
-
-        $param = $_GET['eforms_success'];
-        if ( ! is_string( $param ) ) {
-            return false;
-        }
-
-        return $param === $form_id;
+    public static function redirect_email_failure( $form_id, $options = array() ) {
+        return self::redirect_result( self::RESULT_EMAIL_FAILURE, $form_id, $options );
     }
 
     /**
@@ -120,17 +66,58 @@ class Success {
         return 'Thank you for your submission.';
     }
 
-    /**
-     * Render the inline success banner HTML.
-     *
-     * @param array $context Template context.
-     * @return string HTML for success banner.
-     */
-    public static function render_banner( $context ) {
-        $message = self::get_message( $context );
-        $escaped = self::escape_html( $message );
+    public static function redirect_result( $result_type, $form_id, $options = array() ) {
+        if ( ! self::is_result_type( $result_type ) ) {
+            return self::fail( 'invalid_result' );
+        }
 
-        return '<div class="eforms-success-banner" role="status" aria-live="polite">' . $escaped . '</div>';
+        if ( ! is_string( $form_id ) || $form_id === '' ) {
+            return self::fail( 'no_form_id' );
+        }
+
+        $current_url = self::get_current_url( $options );
+        if ( $current_url === '' ) {
+            return self::fail( 'no_current_url' );
+        }
+
+        $result_url = self::build_result_url( $current_url, $form_id, $result_type );
+        return self::perform_redirect( $result_url, 303, $options );
+    }
+
+    public static function parse_result_request( $query = null ) {
+        $source = is_array( $query ) ? $query : ( isset( $_GET ) && is_array( $_GET ) ? $_GET : array() );
+
+        $result_type = isset( $source[ self::RESULT_PARAM ] ) && is_string( $source[ self::RESULT_PARAM ] )
+            ? $source[ self::RESULT_PARAM ]
+            : '';
+        $form_id = isset( $source[ self::FORM_PARAM ] ) && is_string( $source[ self::FORM_PARAM ] )
+            ? $source[ self::FORM_PARAM ]
+            : '';
+
+        if ( ! self::is_result_type( $result_type ) || $form_id === '' ) {
+            return null;
+        }
+
+        return array(
+            'result' => $result_type,
+            'form_id' => $form_id,
+        );
+    }
+
+    public static function is_result_type( $result_type ) {
+        return $result_type === self::RESULT_SUCCESS || $result_type === self::RESULT_EMAIL_FAILURE;
+    }
+
+    public static function get_result_message( $result_type, $context ) {
+        if ( $result_type === self::RESULT_EMAIL_FAILURE ) {
+            if ( function_exists( 'eforms_error_message' ) ) {
+                return eforms_error_message( 'EFORMS_ERR_EMAIL_SEND' );
+            }
+
+            return 'We couldn\'t send your request right now. Please try again in a few minutes.';
+        }
+
+        return self::get_message( $context );
     }
 
     /**
@@ -155,28 +142,6 @@ class Success {
     }
 
     /**
-     * Get success mode from context.
-     *
-     * @param array $context Template context.
-     * @return string Mode: 'inline' or 'redirect'.
-     */
-    private static function get_mode( $context ) {
-        if ( ! is_array( $context ) || ! isset( $context['success'] ) || ! is_array( $context['success'] ) ) {
-            return 'inline';
-        }
-
-        $success = $context['success'];
-        if ( isset( $success['mode'] ) && is_string( $success['mode'] ) ) {
-            $mode = strtolower( trim( $success['mode'] ) );
-            if ( $mode === 'redirect' ) {
-                return 'redirect';
-            }
-        }
-
-        return 'inline';
-    }
-
-    /**
      * Get form ID from context.
      *
      * @param array $context Template context.
@@ -185,25 +150,6 @@ class Success {
     private static function get_form_id( $context ) {
         if ( is_array( $context ) && isset( $context['id'] ) && is_string( $context['id'] ) ) {
             return $context['id'];
-        }
-
-        return '';
-    }
-
-    /**
-     * Get redirect URL from context.
-     *
-     * @param array $context Template context.
-     * @return string Redirect URL.
-     */
-    private static function get_redirect_url( $context ) {
-        if ( ! is_array( $context ) || ! isset( $context['success'] ) || ! is_array( $context['success'] ) ) {
-            return '';
-        }
-
-        $success = $context['success'];
-        if ( isset( $success['redirect_url'] ) && is_string( $success['redirect_url'] ) ) {
-            return $success['redirect_url'];
         }
 
         return '';
@@ -273,13 +219,14 @@ class Success {
     }
 
     /**
-     * Build inline success URL with query parameter.
+     * Build plugin-owned result URL with query parameters.
      *
      * @param string $base_url Current URL.
      * @param string $form_id Form identifier.
-     * @return string URL with ?eforms_success={form_id}.
+     * @param string $result_type Result page type.
+     * @return string URL with result query parameters.
      */
-    private static function build_inline_success_url( $base_url, $form_id ) {
+    private static function build_result_url( $base_url, $form_id, $result_type ) {
         $parts = parse_url( $base_url );
         if ( ! is_array( $parts ) ) {
             return $base_url;
@@ -294,8 +241,12 @@ class Success {
         parse_str( $query, $params );
 
         unset( $params['eforms_email_retry'] );
+        unset( $params['eforms_success'] );
+        unset( $params[ self::RESULT_PARAM ] );
+        unset( $params[ self::FORM_PARAM ] );
 
-        $params['eforms_success'] = $form_id;
+        $params[ self::RESULT_PARAM ] = $result_type;
+        $params[ self::FORM_PARAM ] = $form_id;
 
         $new_query = http_build_query( $params, '', '&', PHP_QUERY_RFC3986 );
 
@@ -305,154 +256,6 @@ class Success {
         }
 
         return $url;
-    }
-
-    /**
-     * Check if URL is same-origin.
-     *
-     * Spec: wp_safe_redirect; same-origin only (scheme/host/port).
-     *
-     * @param string $url URL to check.
-     * @param array $options Optional overrides.
-     * @return bool True if same-origin.
-     */
-    private static function is_same_origin( $url, $options = array() ) {
-        $parts = parse_url( $url );
-        if ( ! is_array( $parts ) ) {
-            return false;
-        }
-
-        $has_host = isset( $parts['host'] );
-        $has_scheme = isset( $parts['scheme'] );
-        $has_port = isset( $parts['port'] );
-
-        // Educational note: only relative URLs are accepted without a host.
-        if ( ! $has_host ) {
-            return ! $has_scheme && ! $has_port;
-        }
-
-        $current_host = self::get_host();
-        if ( $current_host === '' && is_array( $options ) && isset( $options['host'] ) ) {
-            $current_host = $options['host'];
-        }
-
-        if ( $current_host === '' ) {
-            return false;
-        }
-
-        $target_host = strtolower( $parts['host'] );
-        $current_host_lower = strtolower( $current_host );
-
-        $target_host_only = self::strip_port( $target_host );
-        $current_host_only = self::strip_port( $current_host_lower );
-
-        if ( $target_host_only !== $current_host_only ) {
-            return false;
-        }
-
-        $current_scheme = self::get_scheme();
-
-        if ( is_array( $options ) && isset( $options['scheme'] ) ) {
-            $current_scheme = $options['scheme'];
-        }
-
-        $current_scheme = strtolower( $current_scheme );
-        $target_scheme = $has_scheme ? strtolower( $parts['scheme'] ) : $current_scheme;
-
-        if ( $target_scheme !== $current_scheme ) {
-            return false;
-        }
-
-        $current_port = self::get_current_port( $current_scheme, $current_host, $options );
-        $target_port = self::get_target_port( $parts, $target_scheme );
-
-        return $current_port === $target_port;
-    }
-
-    /**
-     * Strip port from host string.
-     *
-     * @param string $host Host possibly with port.
-     * @return string Host without port.
-     */
-    private static function strip_port( $host ) {
-        $pos = strpos( $host, ':' );
-        if ( $pos !== false ) {
-            return substr( $host, 0, $pos );
-        }
-        return $host;
-    }
-
-    /**
-     * Resolve current request port.
-     *
-     * @param string $scheme Current scheme.
-     * @param string $host Current host (possibly with port).
-     * @param array $options Optional overrides.
-     * @return int Current port.
-     */
-    private static function get_current_port( $scheme, $host, $options ) {
-        if ( is_array( $options ) && isset( $options['port'] ) && is_numeric( $options['port'] ) ) {
-            return (int) $options['port'];
-        }
-
-        $host_port = self::port_from_host( $host );
-        if ( $host_port !== null ) {
-            return $host_port;
-        }
-
-        if ( isset( $_SERVER['SERVER_PORT'] ) && is_numeric( $_SERVER['SERVER_PORT'] ) ) {
-            return (int) $_SERVER['SERVER_PORT'];
-        }
-
-        return self::default_port( $scheme );
-    }
-
-    /**
-     * Resolve target port from URL parts.
-     *
-     * @param array $parts Parsed URL.
-     * @param string $scheme Target scheme.
-     * @return int Target port.
-     */
-    private static function get_target_port( $parts, $scheme ) {
-        if ( isset( $parts['port'] ) && is_numeric( $parts['port'] ) ) {
-            return (int) $parts['port'];
-        }
-
-        return self::default_port( $scheme );
-    }
-
-    /**
-     * Extract port from host when provided as host:port.
-     *
-     * @param string $host Host string.
-     * @return int|null Port if present.
-     */
-    private static function port_from_host( $host ) {
-        if ( ! is_string( $host ) || $host === '' ) {
-            return null;
-        }
-
-        if ( substr_count( $host, ':' ) !== 1 ) {
-            return null;
-        }
-
-        if ( preg_match( '/:(\\d+)$/', $host, $matches ) ) {
-            return (int) $matches[1];
-        }
-
-        return null;
-    }
-
-    /**
-     * Default ports for HTTP schemes.
-     *
-     * @param string $scheme Scheme name.
-     * @return int Default port.
-     */
-    private static function default_port( $scheme ) {
-        return strtolower( $scheme ) === 'https' ? 443 : 80;
     }
 
     /**

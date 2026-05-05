@@ -98,15 +98,11 @@ foreach ( $files as $path ) {
     }
 }
 
-// Given the declared field type list...
-// When resolving each declared field type...
+// Given the registry-owned field type list...
+// When resolving each supported field type...
 // Then the registry resolves every built-in type.
-$field_types = TemplateValidator::FIELD_TYPES;
+$field_types = FieldTypeRegistry::supported_types();
 foreach ( $field_types as $type ) {
-    if ( $type === 'row_group' ) {
-        continue;
-    }
-
     $descriptor = null;
     try {
         $descriptor = FieldTypeRegistry::resolve( $type );

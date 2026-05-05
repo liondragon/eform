@@ -1,0 +1,11 @@
+# Owner Index
+
+Reusable owner map only. Behavior remains authoritative in `docs/Canonical_Spec.md`.
+
+| Artifact / Feature | Canonical Owner | Allowed Extension Path | Forbidden Local Seams | Verification Hook |
+|--------------------|-----------------|------------------------|-----------------------|-------------------|
+| Real field types | `eforms/src/Validation/FieldTypeRegistry.php` | Add descriptor support through field-type classes, then expose through `FieldTypeRegistry::supported_types()` and handler registries. | Validator-local field type arrays; tests that treat `TemplateValidator` as the source of field-type truth. | `rg -n "FIELD_TYPES|supported_types|is_supported" eforms/src eforms/tests` |
+| Form control and JS mint protocol names | `eforms/src/FormProtocol.php` | Add shared PHP/JS names to `FormProtocol` and route PHP emitters/consumers or `forms.js` through its browser settings. | Local reserved-key maps in validators/controllers; hardcoded PHP↔JS mint keys where both runtimes must agree. | `rg -n "reserved_keys\\(|RESERVED_KEYS|FormProtocol|eformsSettings\\.protocol" eforms/src eforms/assets eforms/tests` |
+| Row group pseudo-fields | `eforms/src/Validation/TemplateValidator.php` | Extend row-group validation/rendering as markup structure, not as a field descriptor. | Adding `row_group` to `FieldTypeRegistry`; descriptor handlers for row groups. | `rg -n "row_group|FieldTypeRegistry::supported_types" eforms/src eforms/tests` |
+| Result-page query handling | `eforms/src/Submission/Success.php` | Extend `eforms_result`/`eforms_form` URL behavior in `Success`; consume result-page GETs through `PublicRequestController`. | Reintroducing `eforms_success`, form JSON page-template paths, or arbitrary redirect destinations as live result-page routing. | `rg -n "eforms_success|eforms_result|Success::" eforms/src eforms/tests` |
+| Email meta production | `eforms/src/Email/Emailer.php` | Add produced email meta in `Emailer`; update template validation only for allowed `include_fields` references. | Treating email meta as generic form protocol state; duplicating produced meta maps in unrelated owners. | `rg -n "include_fields|submitted_at|submission_id|build_meta" eforms/src eforms/tests` |

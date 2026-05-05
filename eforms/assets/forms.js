@@ -3,6 +3,29 @@
 
     var DEFAULT_MINT_ENDPOINT = '/eforms/mint';
     var MINT_ERROR_MESSAGE = 'This form is temporarily unavailable. Please reload the page.';
+    var DEFAULT_PROTOCOL = {
+        hiddenFields: {
+            mode: 'eforms_mode',
+            token: 'eforms_token',
+            instance_id: 'instance_id',
+            timestamp: 'timestamp',
+            js_ok: 'js_ok'
+        },
+        dataAttributes: {
+            mode: 'data-eforms-mode',
+            token_ttl_max: 'data-eforms-token-ttl-max'
+        },
+        mint: {
+            formParam: 'f',
+            response: {
+                token: 'token',
+                instance_id: 'instance_id',
+                timestamp: 'timestamp',
+                expires: 'expires'
+            }
+        },
+        storageTokenPrefix: 'eforms:token:'
+    };
 
     function forEachNode(list, callback) {
         if (!list || !callback) {
@@ -26,6 +49,52 @@
         return DEFAULT_MINT_ENDPOINT;
     }
 
+    function protocol() {
+        var settings = window.eformsSettings;
+        if (settings && settings.protocol && typeof settings.protocol === 'object') {
+            return settings.protocol;
+        }
+
+        return DEFAULT_PROTOCOL;
+    }
+
+    function hiddenFieldName(key) {
+        var names = protocol().hiddenFields;
+        if (names && typeof names[key] === 'string' && names[key] !== '') {
+            return names[key];
+        }
+
+        return DEFAULT_PROTOCOL.hiddenFields[key];
+    }
+
+    function dataAttributeName(key) {
+        var attrs = protocol().dataAttributes;
+        if (attrs && typeof attrs[key] === 'string' && attrs[key] !== '') {
+            return attrs[key];
+        }
+
+        return DEFAULT_PROTOCOL.dataAttributes[key];
+    }
+
+    function mintResponseKey(key) {
+        var mint = protocol().mint;
+        var response = mint && mint.response ? mint.response : null;
+        if (response && typeof response[key] === 'string' && response[key] !== '') {
+            return response[key];
+        }
+
+        return DEFAULT_PROTOCOL.mint.response[key];
+    }
+
+    function mintFormParam() {
+        var mint = protocol().mint;
+        if (mint && typeof mint.formParam === 'string' && mint.formParam !== '') {
+            return mint.formParam;
+        }
+
+        return DEFAULT_PROTOCOL.mint.formParam;
+    }
+
     function getFormId(form) {
         if (!form) {
             return '';
@@ -43,8 +112,8 @@
     }
 
     function getFormMode(form) {
-        var input = form.querySelector('input[name="eforms_mode"]');
-        var attr = form.getAttribute('data-eforms-mode');
+        var input = form.querySelector('input[name="' + hiddenFieldName('mode') + '"]');
+        var attr = form.getAttribute(dataAttributeName('mode'));
         // Prefer server-provided data attribute to keep mixed-mode pages consistent.
         if (attr === 'js' || attr === 'hidden') {
             return attr;
@@ -56,7 +125,7 @@
     }
 
     function setJsOk(form) {
-        var input = form.querySelector('input[name="js_ok"]');
+        var input = form.querySelector('input[name="' + hiddenFieldName('js_ok') + '"]');
         if (input) {
             input.value = '1';
         }
@@ -99,9 +168,9 @@
 
     function getTokenFields(form) {
         return {
-            token: form.querySelector('input[name="eforms_token"]'),
-            instance: form.querySelector('input[name="instance_id"]'),
-            timestamp: form.querySelector('input[name="timestamp"]')
+            token: form.querySelector('input[name="' + hiddenFieldName('token') + '"]'),
+            instance: form.querySelector('input[name="' + hiddenFieldName('instance_id') + '"]'),
+            timestamp: form.querySelector('input[name="' + hiddenFieldName('timestamp') + '"]')
         };
     }
 
@@ -150,11 +219,16 @@
     }
 
     function storageKey(formId) {
-        return 'eforms:token:' + formId;
+        var prefix = protocol().storageTokenPrefix;
+        if (typeof prefix !== 'string' || prefix === '') {
+            prefix = DEFAULT_PROTOCOL.storageTokenPrefix;
+        }
+
+        return prefix + formId;
     }
 
     function tokenTtlMax(form) {
-        var raw = form.getAttribute('data-eforms-token-ttl-max');
+        var raw = form.getAttribute(dataAttributeName('token_ttl_max'));
         if (!raw) {
             return 0;
         }
@@ -179,10 +253,10 @@
                 return null;
             }
 
-            var token = typeof payload.token === 'string' ? payload.token : '';
-            var instanceId = typeof payload.instance_id === 'string' ? payload.instance_id : '';
-            var timestamp = parseInt(payload.timestamp, 10);
-            var expires = parseInt(payload.expires, 10);
+            var token = typeof payload[mintResponseKey('token')] === 'string' ? payload[mintResponseKey('token')] : '';
+            var instanceId = typeof payload[mintResponseKey('instance_id')] === 'string' ? payload[mintResponseKey('instance_id')] : '';
+            var timestamp = parseInt(payload[mintResponseKey('timestamp')], 10);
+            var expires = parseInt(payload[mintResponseKey('expires')], 10);
             if (!token || !instanceId || isNaN(timestamp) || isNaN(expires)) {
                 window.sessionStorage.removeItem(storageKey(formId));
                 return null;
@@ -220,18 +294,6 @@
             window.sessionStorage.setItem(storageKey(formId), JSON.stringify(payload));
         } catch (error) {
             // Ignore storage failures (private mode or quota) to avoid breaking UX.
-        }
-    }
-
-    function clearCachedToken(formId) {
-        if (!storageAvailable()) {
-            return;
-        }
-
-        try {
-            window.sessionStorage.removeItem(storageKey(formId));
-        } catch (error) {
-            // Ignore storage failures; remint flow will continue.
         }
     }
 
@@ -295,10 +357,10 @@
             return null;
         }
 
-        var token = typeof payload.token === 'string' ? payload.token : '';
-        var instanceId = typeof payload.instance_id === 'string' ? payload.instance_id : '';
-        var timestamp = parseInt(payload.timestamp, 10);
-        var expires = parseInt(payload.expires, 10);
+        var token = typeof payload[mintResponseKey('token')] === 'string' ? payload[mintResponseKey('token')] : '';
+        var instanceId = typeof payload[mintResponseKey('instance_id')] === 'string' ? payload[mintResponseKey('instance_id')] : '';
+        var timestamp = parseInt(payload[mintResponseKey('timestamp')], 10);
+        var expires = parseInt(payload[mintResponseKey('expires')], 10);
         if (!token || !instanceId || isNaN(timestamp) || isNaN(expires)) {
             return null;
         }
@@ -312,7 +374,7 @@
     }
 
     function mintToken(formId, callback) {
-        var body = 'f=' + encodeURIComponent(formId);
+        var body = encodeURIComponent(mintFormParam()) + '=' + encodeURIComponent(formId);
 
         if (window.fetch) {
             fetch(mintEndpoint(), {
@@ -407,7 +469,6 @@
             return;
         }
 
-        var needsRemint = form.getAttribute('data-eforms-remint') === '1';
         var ttlMax = tokenTtlMax(form);
         var mixedFields = !areFieldsEmpty(fields) && !areFieldsComplete(fields);
 
@@ -420,14 +481,7 @@
             return;
         }
 
-        if (needsRemint && !areFieldsEmpty(fields)) {
-            setMintState(form, 'failed');
-            disableSubmitButtons(form);
-            showMintError(form);
-            return;
-        }
-
-        if (areFieldsComplete(fields) && !needsRemint) {
+        if (areFieldsComplete(fields)) {
             setMintState(form, 'ready');
             return;
         }
@@ -435,18 +489,12 @@
         disableSubmitButtons(form);
         setMintState(form, 'pending');
 
-        if (needsRemint) {
-            clearCachedToken(formId);
-        }
-
-        if (!needsRemint) {
-            var cached = readCachedToken(formId, ttlMax);
-            if (cached) {
-                injectMintedToken(fields, cached);
-                setMintState(form, 'ready');
-                enableSubmitButtons(form);
-                return;
-            }
+        var cached = readCachedToken(formId, ttlMax);
+        if (cached) {
+            injectMintedToken(fields, cached);
+            setMintState(form, 'ready');
+            enableSubmitButtons(form);
+            return;
         }
 
         // Educational note: JS-minted forms block submit until the mint call succeeds.
@@ -459,9 +507,6 @@
 
             injectMintedToken(fields, payload);
             writeCachedToken(formId, payload);
-            if (needsRemint) {
-                form.removeAttribute('data-eforms-remint');
-            }
             setMintState(form, 'ready');
             enableSubmitButtons(form);
         });

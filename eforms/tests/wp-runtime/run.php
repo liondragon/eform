@@ -50,6 +50,7 @@ $GLOBALS['eforms_wp_runtime_nocache'] = 0;
 $GLOBALS['eforms_wp_runtime_assets'] = array();
 $GLOBALS['eforms_wp_runtime_status'] = 200;
 $GLOBALS['eforms_wp_runtime_mail_should_fail'] = false;
+$GLOBALS['eforms_wp_runtime_last_template'] = '';
 
 if ( ! function_exists( 'eforms_wp_runtime_assert' ) ) {
     function eforms_wp_runtime_assert( $condition, $message ) {
@@ -237,6 +238,22 @@ if ( ! function_exists( 'wp_mail' ) ) {
     }
 }
 
+if ( ! function_exists( 'get_option' ) ) {
+    function get_option( $name, $default = false ) {
+        if ( $name === 'admin_email' ) {
+            return 'admin@example.test';
+        }
+
+        return $default;
+    }
+}
+
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return 'https://example.test';
+    }
+}
+
 if ( ! function_exists( 'wp_safe_redirect' ) ) {
     function wp_safe_redirect( $location, $status = 302 ) {
         $GLOBALS['eforms_wp_runtime_redirects'][] = array(
@@ -288,6 +305,18 @@ if ( ! function_exists( 'esc_attr' ) ) {
 if ( ! function_exists( 'esc_url' ) ) {
     function esc_url( $value ) {
         return filter_var( (string) $value, FILTER_SANITIZE_URL );
+    }
+}
+
+if ( ! function_exists( 'get_header' ) ) {
+    function get_header() {
+        echo '<header>Theme Header</header>';
+    }
+}
+
+if ( ! function_exists( 'get_footer' ) ) {
+    function get_footer() {
+        echo '<footer>Theme Footer</footer>';
     }
 }
 
@@ -396,6 +425,7 @@ if ( ! function_exists( 'eforms_wp_runtime_ledger_count' ) ) {
 if ( ! function_exists( 'eforms_wp_runtime_render_controller_response' ) ) {
     function eforms_wp_runtime_render_controller_response() {
         $template = apply_filters( 'template_include', '' );
+        $GLOBALS['eforms_wp_runtime_last_template'] = is_string( $template ) ? $template : '';
         if ( ! is_string( $template ) || $template === '' || ! is_readable( $template ) ) {
             return '';
         }
@@ -423,12 +453,34 @@ if ( ! function_exists( 'eforms_wp_runtime_public_hidden_post' ) ) {
         $response = PublicRequestController::last_response();
         eforms_wp_runtime_assert( is_array( $response ), 'PublicRequestController should capture handled POST responses.' );
         $body = eforms_wp_runtime_render_controller_response();
+        if ( $body === '' && isset( $response['render'] ) && $response['render'] === 'local' ) {
+            $body = eforms_wp_runtime_shortcode( isset( $response['form_id'] ) ? $response['form_id'] : 'contact', false );
+        }
 
         return array(
             'status' => isset( $response['status'] ) ? (int) $response['status'] : 0,
             'location' => isset( $response['location'] ) ? $response['location'] : '',
             'result' => isset( $response['result'] ) ? $response['result'] : null,
             'body' => $body,
+            'template' => isset( $GLOBALS['eforms_wp_runtime_last_template'] ) ? $GLOBALS['eforms_wp_runtime_last_template'] : '',
+        );
+    }
+}
+
+if ( ! function_exists( 'eforms_wp_runtime_result_get' ) ) {
+    function eforms_wp_runtime_result_get( $get ) {
+        eforms_wp_runtime_reset_request( $get );
+        eforms_wp_runtime_do_action( 'template_redirect' );
+        $response = PublicRequestController::last_response();
+        eforms_wp_runtime_assert( is_array( $response ), 'PublicRequestController should capture handled result GET responses.' );
+        $body = eforms_wp_runtime_render_controller_response();
+
+        return array(
+            'status' => isset( $response['status'] ) ? (int) $response['status'] : 0,
+            'location' => isset( $response['location'] ) ? $response['location'] : '',
+            'result' => isset( $response['result'] ) ? $response['result'] : null,
+            'body' => $body,
+            'template' => isset( $GLOBALS['eforms_wp_runtime_last_template'] ) ? $GLOBALS['eforms_wp_runtime_last_template'] : '',
         );
     }
 }
@@ -505,7 +557,13 @@ try {
     $ledger_before_success = eforms_wp_runtime_ledger_count( 'contact' );
     $success_response = eforms_wp_runtime_public_hidden_post( $valid_post );
     eforms_wp_runtime_assert( $success_response['status'] === 303, 'Successful POST should produce a PRG 303 response.' );
-    eforms_wp_runtime_assert( strpos( $success_response['location'], 'eforms_success=contact' ) !== false, 'PRG location should include the success query parameter.' );
+    eforms_wp_runtime_assert( basename( $success_response['template'] ) === 'empty-response-template.php', 'Successful redirect response should use the empty internal template.' );
+    eforms_wp_runtime_assert( $success_response['body'] === '', 'Successful redirect response should not emit a body.' );
+    eforms_wp_runtime_assert( strpos( $success_response['body'], 'Theme Header' ) === false, 'Successful redirect response should not render the theme header.' );
+    eforms_wp_runtime_assert( strpos( $success_response['body'], '<form' ) === false, 'Successful redirect response should not render the form.' );
+    eforms_wp_runtime_assert( strpos( $success_response['body'], 'eforms_token' ) === false, 'Successful redirect response should not mint or emit form tokens.' );
+    eforms_wp_runtime_assert( strpos( $success_response['location'], 'eforms_result=success' ) !== false, 'PRG location should include the success result parameter.' );
+    eforms_wp_runtime_assert( strpos( $success_response['location'], 'eforms_form=contact' ) !== false, 'PRG location should include the form parameter.' );
     eforms_wp_runtime_assert( count( $GLOBALS['eforms_wp_runtime_mail'] ) === 1, 'Successful POST should send one email through wp_mail().' );
     eforms_wp_runtime_assert( eforms_wp_runtime_ledger_count( 'contact' ) === $ledger_before_success + 1, 'Successful POST should reserve exactly one ledger marker.' );
 
@@ -516,14 +574,24 @@ try {
     eforms_wp_runtime_assert( $duplicate_response['status'] === 400, 'Duplicate replay should return HTTP 400.' );
     eforms_wp_runtime_assert( is_array( $duplicate_response['result'] ), 'Duplicate replay should return a structured result.' );
     eforms_wp_runtime_assert( $duplicate_response['result']['error_code'] === 'EFORMS_ERR_TOKEN', 'Duplicate replay should be rejected as a token error.' );
+    eforms_wp_runtime_assert(
+        strpos( $duplicate_response['body'], 'This form was already submitted or has expired - please reload the page.' ) !== false,
+        'Duplicate replay should show the public token-expired message.'
+    );
+    eforms_wp_runtime_assert(
+        strpos( $duplicate_response['body'], 'Form configuration error.' ) === false,
+        'Duplicate replay must not look like a configuration failure.'
+    );
     eforms_wp_runtime_assert( eforms_wp_runtime_ledger_count( 'contact' ) === $ledger_after_success, 'Duplicate replay should not reserve another ledger marker.' );
     eforms_wp_runtime_assert( count( $GLOBALS['eforms_wp_runtime_mail'] ) === $mail_before_duplicate, 'Duplicate replay should not send another email.' );
 
-    eforms_wp_runtime_reset_request( array( 'eforms_success' => 'contact' ) );
-    $banner = eforms_wp_runtime_shortcode( 'contact', false );
-    eforms_wp_runtime_assert( strpos( $banner, 'eforms-success-banner' ) !== false, 'Follow-up GET should show the success banner.' );
-    eforms_wp_runtime_assert( strpos( $banner, 'Thanks! We got your message.' ) !== false, 'Success banner should use the template message.' );
-    eforms_wp_runtime_assert( strpos( $banner, '<form' ) === false, 'Follow-up success display should not render the form.' );
+    $success_page = eforms_wp_runtime_result_get( array( 'eforms_result' => 'success', 'eforms_form' => 'contact' ) );
+    eforms_wp_runtime_assert( $success_page['status'] === 200, 'Follow-up success GET should render HTTP 200.' );
+    eforms_wp_runtime_assert( strpos( $success_page['body'], 'Theme Header' ) !== false, 'Success result page should include the theme header.' );
+    eforms_wp_runtime_assert( strpos( $success_page['body'], 'Theme Footer' ) !== false, 'Success result page should include the theme footer.' );
+    eforms_wp_runtime_assert( strpos( $success_page['body'], 'eforms-result-page-success' ) !== false, 'Follow-up GET should show the success result page.' );
+    eforms_wp_runtime_assert( strpos( $success_page['body'], 'Thanks! We got your message.' ) !== false, 'Success page should use the template message.' );
+    eforms_wp_runtime_assert( strpos( $success_page['body'], '<form' ) === false, 'Follow-up success display should not render the form.' );
 
     eforms_wp_runtime_reset_request();
     $html = eforms_wp_runtime_shortcode( 'contact', false );
@@ -550,16 +618,29 @@ try {
     $ledger_before_email_failure = eforms_wp_runtime_ledger_count( 'contact' );
     $email_failure_response = eforms_wp_runtime_public_hidden_post( $email_failure_post );
     $GLOBALS['eforms_wp_runtime_mail_should_fail'] = false;
-    eforms_wp_runtime_assert( $email_failure_response['status'] === 500, 'Email failure should rerender with HTTP 500.' );
+    eforms_wp_runtime_assert( $email_failure_response['status'] === 303, 'Email failure should PRG to a result page.' );
+    eforms_wp_runtime_assert( basename( $email_failure_response['template'] ) === 'empty-response-template.php', 'Email-failure redirect response should use the empty internal template.' );
+    eforms_wp_runtime_assert( $email_failure_response['body'] === '', 'Email-failure redirect response should not emit a body.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_response['body'], 'Theme Header' ) === false, 'Email-failure redirect response should not render the theme header.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_response['body'], '<form' ) === false, 'Email-failure redirect response should not render the form.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_response['body'], 'Ada Lovelace' ) === false, 'Email-failure redirect response should not include submitted values.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_response['location'], 'eforms_result=email_failure' ) !== false, 'Email failure should redirect to the email-failure result page.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_response['location'], 'eforms_form=contact' ) !== false, 'Email failure result URL should include form id.' );
     eforms_wp_runtime_assert( is_array( $email_failure_response['result'] ), 'Email failure should return a structured result.' );
     eforms_wp_runtime_assert( $email_failure_response['result']['error_code'] === 'EFORMS_ERR_EMAIL_SEND', 'Email failure should use EFORMS_ERR_EMAIL_SEND.' );
-    eforms_wp_runtime_assert( count( $GLOBALS['eforms_wp_runtime_mail'] ) === $mail_before_email_failure + 1, 'Email failure should attempt exactly one email send.' );
+    eforms_wp_runtime_assert( count( $GLOBALS['eforms_wp_runtime_mail'] ) === $mail_before_email_failure + 2, 'Email failure should attempt the original send and one admin notification.' );
     eforms_wp_runtime_assert( eforms_wp_runtime_ledger_count( 'contact' ) === $ledger_before_email_failure + 1, 'Email failure should keep the original ledger reservation committed.' );
-    $fresh_email_token = eforms_wp_runtime_hidden_value( $email_failure_response['body'], 'eforms_token' );
-    eforms_wp_runtime_assert( $fresh_email_token !== '', 'Email failure rerender should include a fresh hidden token.' );
-    eforms_wp_runtime_assert( $fresh_email_token !== $token, 'Email failure rerender should not reuse the burned token.' );
-    eforms_wp_runtime_assert( strpos( $email_failure_response['body'], 'name="eforms_email_retry"' ) !== false, 'Email failure rerender should include the retry marker.' );
-    eforms_wp_runtime_assert( strpos( $email_failure_response['body'], 'eforms-email-failure-copy' ) !== false, 'Email failure rerender should include the copy summary.' );
+    eforms_wp_runtime_assert( $GLOBALS['eforms_wp_runtime_mail'][ $mail_before_email_failure + 1 ]['to'] === 'admin@example.test', 'Email failure should notify the WordPress admin email.' );
+    eforms_wp_runtime_assert( strpos( $GLOBALS['eforms_wp_runtime_mail'][ $mail_before_email_failure + 1 ]['message'], 'Ada Lovelace' ) === false, 'Admin notification should not include submitted field values.' );
+    $email_failure_page = eforms_wp_runtime_result_get( array( 'eforms_result' => 'email_failure', 'eforms_form' => 'contact' ) );
+    eforms_wp_runtime_assert( $email_failure_page['status'] === 200, 'Follow-up email-failure GET should render HTTP 200.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'Theme Header' ) !== false, 'Email failure page should include the theme header.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'Theme Footer' ) !== false, 'Email failure page should include the theme footer.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'eforms-result-page-email-failure' ) !== false, 'Follow-up GET should show the email-failure result page.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'We couldn&#039;t send your request right now. Please try again in a few minutes.' ) !== false, 'Email failure page should show the friendly email failure message.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'Ada Lovelace' ) === false, 'Email failure page should not include submitted values.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_page['body'], '<form' ) === false, 'Email failure page should not render the form.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'eforms-email-failure-copy' ) === false, 'Email failure page should not include a copy summary.' );
 
     eforms_wp_runtime_set_filter(
         'eforms_config',

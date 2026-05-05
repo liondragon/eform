@@ -58,6 +58,14 @@ if ( ! function_exists( 'eforms_error_message' ) ) {
             return 'Please wait a moment and try again.';
         }
 
+        if ( $code === 'EFORMS_ERR_TOKEN' ) {
+            return 'This form was already submitted or has expired - please reload the page.';
+        }
+
+        if ( $code === 'EFORMS_ERR_EMAIL_SEND' ) {
+            return 'We couldn\'t send your request right now. Please try again in a few minutes.';
+        }
+
         return 'Form configuration error.';
     }
 }

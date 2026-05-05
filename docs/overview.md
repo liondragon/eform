@@ -278,26 +278,25 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 **Operator sees:**
 - On duplicate: "This form was already submitted or has expired - please reload the page"
-- On email failure (after ledger reserved): HTTP 500 + `_global` error + fresh token minted + read-only submission summary for manual copy
+- On email failure (after ledger reserved): PRG redirect to a friendly failure page, with a metadata-only admin notice attempted
 - On success: PRG redirect (next stage)
 - **Signals:** Ledger marker created, email sent, JSONL log entry (if enabled)
 
-#### 6. Success — PRG Redirect + Cleanup
+#### 6. Result Pages — PRG Redirect + Cleanup
 
-**Inline mode:**
-1. PRG redirect (303) to same URL with `?eforms_success={form_id}`
-2. On follow-up GET, renderer displays success banner (using `success.message` from template)
+**Success:**
+1. PRG redirect (303) to same URL with result-page query args
+2. On follow-up GET, the plugin renders an internal success page using `success.message` from the form template
 3. Temp uploads deleted (unless `uploads.retention_seconds > 0`)
 
-**Redirect mode:**
-1. Redirect to configured external URL (same-origin only, HTTP 303)
-2. Destination renders its own success UX
-3. Cleanup per retention policy
+**Email failure:**
+1. PRG redirect (303) to same URL with email-failure result-page query args
+2. On follow-up GET, the plugin renders an internal friendly failure page
+3. The failure page does not include the original form, submitted values, or copy-summary UI
 
 **Operator sees:**
-- Inline mode: Success banner above form (idempotent; can revisit/bookmark)
-- Redirect mode: Custom success page
-- Email-failure recovery: Preserved input in read-only textarea for manual copy
+- Success: Theme header/footer with the configured success message
+- Email-failure recovery: Theme header/footer with a friendly retry-later message
 
 ## Operational Behavior & Safety
 
@@ -332,7 +331,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 | Honeypot triggered | Stealth success or hard fail | 200 | Stealth mimics success; hard fail shows generic error |
 | Validation errors | Rerender with errors | 200 | Per-field messages + error summary (first invalid focused) |
 | Throttle exceeded | Hard fail | 429 | "Please wait a moment and try again" + `Retry-After` header |
-| Email send failure (after ledger) | Hard fail + fresh token | 500 | `_global` error + read-only submission summary + new token for retry |
+| Email send failure (after ledger) | Virtual failure page | 303 then 200 | Friendly failure page; no submitted values or retry form |
 | Challenge verification failure | Rerender with challenge | 200 | "Please complete the verification and submit again" |
 | Storage unavailable | Hard fail | 200 (inline) or 500 | "Form configuration error: server storage is unavailable" |
 | Mint failure (JS mode) | Client-side error | - | Submission blocked; generic error in form |
@@ -354,8 +353,6 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 **Mixed-mode pages:** Each form handled independently. Hidden-mode forms work without JS; JS-minted forms require it.
 
 **Mint failure:** Submission stays blocked; generic error appears in form's error summary area.
-
-**Email-failure remint:** When form has `data-eforms-remint="1"` attribute (added after email failure), forms.js clears cached token, calls `/eforms/mint` fresh, reinjects, and re-enables submit.
 
 ### Observability
 
@@ -455,9 +452,9 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
    - *Operator sees: In JSONL log (if enabled): `severity=info`, `code=EFORMS_SUCCESS`, `spam_decision=pass`*
 
 5. **Success (PRG):**
-   - 303 redirect to `/about/?eforms_success=contact`
-   - Follow-up GET displays success banner: "Thank you! We'll be in touch soon."
-   - *Operator sees: Success banner above form; form hidden on this view per template config*
+   - 303 redirect to `/about/?eforms_result=success&eforms_form=contact`
+   - Follow-up GET displays the plugin-owned success page: "Thank you! We'll be in touch soon."
+   - *Operator sees: Theme header/footer around the success message; no WordPress page required*
 
 ## Appendix: Complete Configuration Reference
 
@@ -508,4 +505,3 @@ Exhaustive knob coverage organized by domain (for spec generation and advanced c
 | | `uploads.max_email_bytes` | int | Attachment total cap | Prevents SMTP 552 |
 | | `uploads.retention_seconds` | int | Upload retention after email send | 0 = delete immediately |
 | **Assets** | `assets.css_disable` | bool | Opt out of plugin CSS | Lets themes override |
-

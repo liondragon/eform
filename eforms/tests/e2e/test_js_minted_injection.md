@@ -1,7 +1,6 @@
 # JS-minted token injection (manual)
 
 Spec: Assets (docs/Canonical_Spec.md#sec-assets)
-Spec: JS-minted email-failure recovery (docs/Canonical_Spec.md#sec-js-email-failure)
 Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode)
 
 ## Setup
@@ -22,12 +21,12 @@ Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode)
 1. Refresh the page in the same tab.
 2. Confirm the hidden inputs are populated from session storage without a new mint request (if the cached token has not expired).
 
-## Scenario C: Email-failure remint
+## Scenario C: Email-failure result page
 
 1. Force `Emailer::send()` to fail (e.g., via a test config or by temporarily mocking `wp_mail()` to return false).
-2. Submit the form to trigger the email-failure rerender.
-3. Confirm the form element has `data-eforms-remint="1"` and the hidden token fields are empty on rerender.
-4. Confirm forms.js clears the cached token, calls the configured mint endpoint, injects new values, and removes the `data-eforms-remint` attribute.
+2. Submit the form to trigger the email-failure PRG.
+3. Confirm the POST returns a 303 to a URL with `eforms_result=email_failure` and `eforms_form={form_id}`.
+4. Confirm the follow-up page uses the theme header/footer and does not render a form, submitted values, or copy textarea.
 
 ## Scenario D: Mint failure UX
 

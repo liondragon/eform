@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../../src/bootstrap.php';
 
 require_once __DIR__ . '/../../src/ErrorCodes.php';
 require_once __DIR__ . '/../../src/Errors.php';
@@ -57,6 +58,26 @@ eforms_test_assert( count( $unique ) === count( ErrorCodes::ALL ), 'ErrorCodes::
 foreach ( $baseline as $code ) {
     eforms_test_assert( ErrorCodes::is_known( $code ), 'Missing stable code: ' . $code );
 }
+
+eforms_test_assert(
+    eforms_error_message( 'EFORMS_ERR_EMAIL_SEND' ) === 'We couldn\'t send your request right now. Please try again in a few minutes.',
+    'Email send failures should not use generic configuration copy.'
+);
+
+$email_error_html = eforms_render_error( 'EFORMS_ERR_EMAIL_SEND' );
+eforms_test_assert(
+    strpos( $email_error_html, 'data-eforms-error="EFORMS_ERR_EMAIL_SEND"' ) !== false,
+    'Rendered email failure error should expose the email-send code.'
+);
+eforms_test_assert(
+    strpos( $email_error_html, 'We couldn&#039;t send your request right now. Please try again in a few minutes.' ) !== false
+        || strpos( $email_error_html, 'We couldn\'t send your request right now. Please try again in a few minutes.' ) !== false,
+    'Rendered email failure error should use retry-oriented copy.'
+);
+eforms_test_assert(
+    strpos( $email_error_html, 'Form configuration error.' ) === false,
+    'Rendered email failure error should not use generic configuration copy.'
+);
 
 // Structured error container shape: _global + per-field.
 $errors = new Errors();

@@ -122,14 +122,14 @@ eforms_test_assert(
 );
 eforms_test_assert( $result['require_challenge'] === true, 'Challenge should be required for auto mode with soft reasons.' );
 
-// Given an email retry marker...
+// Given a stale email retry marker...
 // When token_validate runs...
-// Then min_fill_time is bypassed.
+// Then min_fill_time is not bypassed because email failures now use result-page PRG.
 $post['eforms_email_retry'] = '1';
 $result = Security::token_validate( $post, 'contact', array() );
 eforms_test_assert(
-    $result['soft_reasons'] === array( 'age_advisory', 'js_missing', 'origin_soft' ),
-    'Email retry should bypass min_fill_time.'
+    $result['soft_reasons'] === array( 'min_fill_time', 'age_advisory', 'js_missing', 'origin_soft' ),
+    'Stale email retry marker should not bypass min_fill_time.'
 );
 
 eforms_test_remove_tree( $uploads_dir );

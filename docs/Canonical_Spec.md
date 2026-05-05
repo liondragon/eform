@@ -146,7 +146,7 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 >	- Side-effects:
 >	- TemplateValidator sanitizes `before_html` and `after_html` via `wp_kses_post`; the sanitized string becomes canonical, inline styles are forbidden, and fragments may not cross `row_group` boundaries.
 >	- Invalid `autocomplete` tokens are dropped during normalization, template-provided classes are preserved verbatim, and per-field upload overrides are merged into descriptor metadata.
->	- TemplateValidator enforces the reserved-key list so authors cannot collide with `form_id`, `instance_id`, `submission_id`, `eforms_token`, `eforms_hp`, `eforms_mode`, `timestamp`, `js_ok`, `eforms_email_retry`, `ip`, or `submitted_at`.
+>	- TemplateValidator enforces the reserved-key list so authors cannot collide with `form_id`, `instance_id`, `submission_id`, `eforms_token`, `eforms_hp`, `eforms_mode`, `timestamp`, `js_ok`, `ip`, or `submitted_at`.
 >	- Returns:
 >	- `FormRenderer` emits `<form class="eforms-form eforms-form-{form_id}">` with `eforms_mode` metadata and delegates security fields to [Security → Submission Protection for Public Forms](#sec-submission-protection).
 >	- Renderer-generated attributes follow the table below so markup mirrors validator bounds and deterministic per-instance metadata.
@@ -361,13 +361,13 @@ This table routes each lifecycle stage to the normative matrices that govern its
 		- Filesystem semantics assumptions (normative): token records and ledger markers rely on atomic exclusive-create and atomic rename semantics. Record writes MUST use an atomic write pattern (write-to-temp + rename in the same directory) and MUST apply the permissions contract from this section. If these invariants cannot be met, token mint/validate MUST hard-fail; optional features that depend on `flock()` (e.g., throttling/JSONL logging) SHOULD be disabled per their respective sections.
 		- <a id="sec-ledger-contract"></a>Ledger reservation contract
 
-**Rationale:** The file-based ledger uses atomic exclusive-create (`fopen('xb')`) to prevent duplicate submissions without requiring a database. By reserving the ledger marker immediately before side effects (uploads moves, email send), the system guarantees that successful submissions cannot be replayed—even if the user hits back/refresh or retries after network failure. On email failure after reservation, the reservation remains committed; the rerender mints a fresh token to enable immediate retry without reopening a race window.
+**Rationale:** The file-based ledger uses atomic exclusive-create (`fopen('xb')`) to prevent duplicate submissions without requiring a database. By reserving the ledger marker immediately before side effects (uploads moves, email send), the system guarantees that successful submissions cannot be replayed—even if the user hits back/refresh or retries after network failure. On email failure after reservation, the reservation remains committed and the user is routed to a plugin-owned failure page without reopening the consumed token or exposing submitted values.
 
 				- Duplicate suppression reserves `${uploads.dir}/eforms-private/ledger/{form_id}/{h2}/{submission_id}.used` via `fopen('xb')` (or equivalent) immediately before side effects.
 				- Treat `EEXIST` as a duplicate submission.
 				- Treat other filesystem failures as a hard failure (`EFORMS_ERR_LEDGER_IO`) and log `EFORMS_LEDGER_IO`.
 				- Ledger reservations are GC-managed. Once `${submission_id}.used` is created, no code path may delete it except `wp eforms gc`, and GC MUST NOT delete any `.used` marker that might still correspond to an acceptably fresh token (see [Uploads → GC](#sec-uploads) for eligibility rules).
-				- If email send fails after reservation, the token is consumed; a fresh token is minted for the rerender to enable immediate retry (see [Email-failure recovery](#sec-email-failure-recovery)).
+				- If email send fails after reservation, the token is consumed; the request redirects to the virtual email-failure page and no retry token is minted (see [Email-failure recovery](#sec-email-failure-recovery)).
 				- Honeypot short-circuits MAY attempt to burn the same ledger entry only when `token_ok=true`; MUST NOT attempt any ledger write on token failure. Submission IDs for all modes remain colon-free.
 
 		- <a id="sec-security-invariants"></a>Security invariants (apply to hidden/JS-minted):
@@ -375,7 +375,7 @@ This table routes each lifecycle stage to the normative matrices that govern its
   - Minting helpers never evaluate challenge; they consult the configuration snapshot for TTLs and storage paths.
   - Submission identifier: when token validation succeeds, `submission_id` equals the posted `eforms_token`.
   - Error rerenders reuse the persisted token record; tokens are not rotated before success.
-  - Exception: On `EFORMS_ERR_EMAIL_SEND` after ledger reservation, the token is consumed and a fresh token MUST be minted for the rerender. This allows immediate retry without reload while keeping the original token burned in the ledger.
+  - `EFORMS_ERR_EMAIL_SEND` after ledger reservation is not a local error rerender: it redirects to the virtual email-failure page, keeps the original token burned in the ledger, and MUST NOT mint a retry token.
   - Tampering guards are uniform: regex validation precedes disk access; mode/form_id mismatches or cross-mode payloads are hard failures.
 
 <a id="sec-hidden-mode"></a>2. Hidden-mode contract
@@ -439,7 +439,7 @@ Hidden-mode GET rate limiting (normative):
 				- Ledger handling follows [Security invariants](#sec-security-invariants) and [Security → Ledger reservation contract](#sec-ledger-contract).
 				- Hard failures present `EFORMS_ERR_TOKEN` (“This form was already submitted or has expired - please reload the page.”).
 
-		- <a id="sec-hidden-email-failure"></a>Email-failure recovery (normative): When `EFORMS_ERR_EMAIL_SEND` occurs after ledger reservation, the rerender MUST call `Security::mint_hidden_record()` to generate a fresh `{token, instance_id, timestamp}` trio. The original token remains burned in the ledger. This is the sole exception to the "reuse token on error rerender" rule.
+		- <a id="sec-hidden-email-failure"></a>Email-failure recovery (normative): When `EFORMS_ERR_EMAIL_SEND` occurs after ledger reservation, hidden-mode recovery follows [Email-failure recovery](#sec-email-failure-recovery). It MUST NOT render the form, preserve submitted values, or call `Security::mint_hidden_record()` for a retry token.
 
 <a id="sec-js-mint-mode"></a>3. JS-minted mode contract
 > **Contract — `/eforms/mint`**
@@ -475,10 +475,8 @@ Notes (normative):
 - When rate limited, implementations MUST include `Retry-After` with a deterministic value computed from the active fixed window (a positive integer number of seconds).
 
 <a id="sec-js-email-failure"></a>Email-failure recovery (JS-minted, normative):
-- When `EFORMS_ERR_EMAIL_SEND` occurs after ledger reservation, the rerender MUST include `data-eforms-remint="1"` on the form element.
-- On this rerender, Renderer MUST leave the token, instance, and timestamp hidden fields empty so forms.js can inject without overwriting.
-- forms.js MUST detect this marker on DOMContentLoaded, clear the cached token for that `form_id` from sessionStorage, call the configured mint endpoint to obtain a fresh token, inject the new `{token, instance_id, timestamp}` into the form, and re-enable submission.
-- The original token remains burned in the ledger.
+- When `EFORMS_ERR_EMAIL_SEND` occurs after ledger reservation, JS-minted recovery follows [Email-failure recovery](#sec-email-failure-recovery). The original token remains burned in the ledger.
+- Renderer MUST NOT emit an email-failure form rerender, remint marker, submitted-value copy summary, or fresh JS token request for this outcome.
 
 **Duplicate form IDs (normative):**
 - A single page MAY render multiple different forms, but MUST NOT render the same `form_id` twice. Attempting to do so is a configuration error: `EFORMS_ERR_DUPLICATE_FORM_ID`.
@@ -495,7 +493,6 @@ Notes (normative):
 
 <a id="sec-timing-checks"></a>3. Timing Checks
 - min_fill_time: add `"min_fill_time"` to `soft_reasons` when submitted faster than `security.min_fill_seconds`. Measure from the persisted record’s `issued_at` (hidden and JS-minted); rerenders reuse the original timestamp.
-- Email-failure retry bypass (normative): on email-failure rerender, Renderer MUST include `<input type="hidden" name="eforms_email_retry" value="1">`. When this field is present and non-empty in the POST, Timing Checks MUST NOT add `"min_fill_time"` to `soft_reasons`. Note: the fresh token minted on this path has a new `issued_at`; this bypass prevents immediate retries from triggering min_fill_time. Other timing-derived signals (e.g., age_advisory) use the fresh token's timestamp. This marker is UX-driven and client-asserted; it MUST NOT be treated as a security boundary.
 - Max form age: treat as a soft signal: when `now - issued_at` exceeds `security.max_form_age_seconds`, add `"age_advisory"` to `soft_reasons`; never hard-fail on age alone.
 - js_ok flips to "1" on DOM Ready: if missing or != "1", add `"js_missing"` to `soft_reasons` unless `security.js_hard_mode=true` (then HARD FAIL).
 
@@ -609,7 +606,7 @@ Notes (normative):
 	- Unknown-key errors MAY include a best-effort "did you mean …?" suggestion when an unambiguous close match exists.
 	- fields[].key must be unique; duplicates → EFORMS_ERR_SCHEMA_DUP_KEY.
 	- Enum enforcement (field.type, rule.rule, row_group.mode, row_group.tag).
-	- Conditional requirements (redirect mode requires redirect_url; files must have max_files>=1 if present; row_group must omit key).
+	- Conditional requirements (files must have max_files>=1 if present; row_group must omit key).
 	- accept[] ∩ global allow-list must be non-empty; else EFORMS_ERR_ACCEPT_EMPTY.
 	- Row-group object shape must match spec; mis-shapes → EFORMS_ERR_SCHEMA_OBJECT.
 	- Handler resolution: resolve all handler IDs to callables; unknown → deterministic RuntimeException (caught → config error).
@@ -734,13 +731,13 @@ Notes (normative):
 			- <a id="sec-success-modes"></a>Modes (normative summary):
 				| Mode | PRG target | Display rule | Cache guidance |
 				|------|------------|--------------|----------------|
-				| Inline | `303` back to the same URL with `?eforms_success={form_id}`. | Renderer shows the banner when `?eforms_success={form_id}` is present. Show banner only in the first instance in source order; suppress subsequent duplicates. | The success message is idempotent and can be displayed on multiple visits to the URL. |
-				| Redirect | `wp_safe_redirect(redirect_url, 303)`. | Destination renders its own success UX. | No special cache requirements. |
-			- **Constraint (normative):** `success.mode="inline"` MUST NOT be combined with `cacheable="true"`. `FormRenderer` preflight MUST reject this combination with `EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE`.
-			- <a id="sec-success-flow"></a>Inline success flow (normative):
-				1. On successful POST, redirect with `?eforms_success={form_id}` (303).
-				2. On the follow-up GET, renderer checks for the `?eforms_success={form_id}` query parameter and displays the success banner (using `success.message` from template) when present.
-				3. The success banner is displayed based solely on the query parameter; no verification is required. Users can revisit or bookmark the success URL.
+				| Inline or Redirect | `303` back to the same URL with `?eforms_result=success&eforms_form={form_id}`. | `template_include` renders the fixed internal success page template with `success.message`. | The virtual result page is no-store/private and requires no WordPress page. |
+			- `success.redirect_url` MAY remain in templates for schema compatibility but MUST NOT determine the PRG destination.
+			- <a id="sec-success-flow"></a>Result page success flow (normative):
+				1. On successful POST, redirect with `?eforms_result=success&eforms_form={form_id}` (303).
+				2. The handled POST redirect response MUST suppress the remaining WordPress template body and MUST NOT render the original page or form.
+				3. On the follow-up GET, the public controller loads the form context and swaps in `templates/pages/success.php`.
+				4. The success page renders the configured `success.message` and MUST NOT render the form.
 
 <a id="sec-email"></a>
 15. EMAIL DELIVERY
@@ -981,7 +978,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Early enforce RuntimeCap using CONTENT_LENGTH when present; else rely on PHP INI limits and post-facto caps.
 	- Error rerenders and duplicate handling follow [Security → Ledger reservation contract](#sec-ledger-contract). SubmitHandler performs the exclusive-create reservation immediately before side effects, treats `EEXIST` as a duplicate submission, and treats other IO failures as hard failures (`EFORMS_ERR_LEDGER_IO`) while logging `EFORMS_LEDGER_IO` for diagnosis.
 	- On success: after reserving the ledger entry (the `.used` marker stays committed), move stored uploads; send email; log; PRG/redirect; cleanup per retention.
-	- <a id="sec-email-failure-recovery"></a>Email send failure (Emailer::send() returns false or throws) is fatal: abort the success PRG, rerender with a fresh token (see [Hidden-mode email-failure recovery](#sec-hidden-email-failure) and [JS-minted email-failure recovery](#sec-js-email-failure) for mode-specific behavior), surface a `_global` error, log the event at `error` severity, and return HTTP 500. The ledger reservation remains committed; the fresh token enables immediate retry.
+	- <a id="sec-email-failure-recovery"></a>Email send failure (Emailer::send() returns false or throws) is fatal to the normal success path: abort the success PRG, log the event at `error` severity, attempt the metadata-only admin notice, then redirect with `?eforms_result=email_failure&eforms_form={form_id}` (303). The handled POST redirect response MUST suppress the remaining WordPress template body. The ledger reservation remains committed.
 	- No persistence of validation errors/canonical values beyond request.
 	- throttle.enable=true and key available → run throttle; on limit hit → HARD FAIL with HTTP 429 and Retry-After (skip side effects).
 	- Challenge hook: if required (always_post/auto or the Security gate), verify; success removes the relevant labels from `soft_reasons` (hard failures are unaffected).
@@ -990,15 +987,15 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 21. ERROR HANDLING
 	- Errors stored by field_key; global errors under _global
 	- Renderer prints global summary + per-field messages
-- Email send failures MUST surface `_global` ⇒ "We couldn't send your message. Please try again.", respond with HTTP 500, and tag the error as `EFORMS_ERR_EMAIL_SEND`. The log entry for this failure MUST include `form_id`, the transport/provider identifier, any exception class/message, and the correlation/request identifier.
-- On `EFORMS_ERR_EMAIL_SEND` rerender: mint fresh token per [Hidden-mode email-failure recovery](#sec-hidden-email-failure) or [JS-minted email-failure recovery](#sec-js-email-failure); preserve submitted non-file field values; render read-only `<textarea>` with submission content for manual copy (exclude file contents; include `original_name_safe` filenames only; honor `privacy.ip_mode`).
+- Email send failures MUST surface the customer message "We couldn't send your request right now. Please try again in a few minutes." on the virtual email-failure result page and tag the internal result as `EFORMS_ERR_EMAIL_SEND`. The log entry for this failure MUST include `form_id`, the transport/provider identifier, any exception class/message, and the correlation/request identifier; the plugin MUST attempt one metadata-only `wp_mail()` notice to the WordPress admin email without submitted field values.
+- On `EFORMS_ERR_EMAIL_SEND`: redirect to `templates/pages/email-failure.php`; do not preserve submitted field values, mint a retry token, render the form, or render a submitted-content copy summary.
 	- Upload user-facing messages:
 	- "This file exceeds the size limit."
 	- "Too many files."
 	- "This file type isn't allowed."
 	- "File upload failed. Please try again."
 	- Re-render after errors passes the mode-specific security metadata defined in [Security → Submission Protection for Public Forms](#sec-submission-protection) back to Renderer (hidden: `{eforms_token, instance_id, timestamp}`; JS-minted: `{eforms_token, instance_id, timestamp}`).
-	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_SPAM, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_THROTTLED, EFORMS_ERR_DUPLICATE_FORM_ID, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_LEDGER_IO, EFORMS_ERR_STORAGE_UNAVAILABLE, EFORMS_ERR_INVALID_FORM_ID, EFORMS_ERR_ORIGIN_FORBIDDEN, EFORMS_ERR_MINT_FAILED, EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE).
+	- Emit stable error codes (e.g., EFORMS_ERR_TOKEN, EFORMS_ERR_HONEYPOT, EFORMS_ERR_SPAM, EFORMS_ERR_TYPE, EFORMS_ERR_ACCEPT_EMPTY, EFORMS_ERR_THROTTLED, EFORMS_ERR_DUPLICATE_FORM_ID, EFORMS_ERR_ROW_GROUP_UNBALANCED, EFORMS_ERR_SCHEMA_UNKNOWN_KEY, EFORMS_ERR_SCHEMA_ENUM, EFORMS_ERR_SCHEMA_REQUIRED, EFORMS_ERR_SCHEMA_TYPE, EFORMS_ERR_SCHEMA_OBJECT, EFORMS_ERR_UPLOAD_TYPE, EFORMS_ERR_LEDGER_IO, EFORMS_ERR_STORAGE_UNAVAILABLE, EFORMS_ERR_INVALID_FORM_ID, EFORMS_ERR_ORIGIN_FORBIDDEN, EFORMS_ERR_MINT_FAILED).
 	- Large form advisory via logs.
 	- "This form was already submitted or has expired - please reload the page." maps to EFORMS_ERR_TOKEN.
 
@@ -1020,8 +1017,6 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- Mixed-mode pages (normative): forms.js MUST only call the configured mint endpoint for JS-minted forms (cacheable=true) and MUST NOT call it for hidden-mode forms; each form is handled independently.
 	- Injection safety (normative): forms.js MUST NOT overwrite a non-empty `eforms_token`, `instance_id`, or `timestamp` field; it may only fill empty fields.
 	- Mint failure UX (normative): on mint failure, forms.js MUST keep submission blocked for that form and surface a deterministic generic error message in the error summary container.
-	- Email-failure remint (normative): When a form element has `data-eforms-remint="1"`, forms.js MUST clear the cached token for that `form_id` from sessionStorage, POST to the configured mint endpoint, inject the fresh `{token, instance_id, timestamp}`, remove the `data-eforms-remint` attribute, and re-enable submission. This occurs on DOMContentLoaded before the normal injection logic.
-
 	- assets.css_disable=true lets themes opt out
 	- On submit failure, focus the first control with an error
 	- Focus styling (a11y): do not remove outlines unless visible replacement is provided. For inside-the-box focus: outline: 1px solid #b8b8b8 !important; outline-offset: -1px;
@@ -1113,8 +1108,8 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- EFORMS_ERR_STORAGE_UNAVAILABLE - "Form configuration error: server storage is unavailable."
 	- EFORMS_ERR_LEDGER_IO - "Submission failed due to a server error. Please try again."
 	- EFORMS_ERR_UPLOAD_TYPE - "This file type isn't allowed."
-		- EFORMS_ERR_EMAIL_SEND - "We couldn't send your message. Please try again."
-		- EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE - "Inline success requires a non-cacheable page."
+		- EFORMS_ERR_EMAIL_SEND - "We couldn't send your request right now. Please try again in a few minutes."
+		- EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE - "Inline success requires a non-cacheable page." Legacy append-only code; the virtual result page flow does not emit it.
 		- EFORMS_ERR_THROTTLED - "Please wait a moment and try again."
 		- EFORMS_ERR_CHALLENGE_FAILED - "Please complete the verification and submit again."
 		- EFORMS_CHALLENGE_UNCONFIGURED – "Verification unavailable; please try again."

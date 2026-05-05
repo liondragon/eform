@@ -191,14 +191,14 @@ eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_REQUIRED', $codes, true ), 'Mis
 
 // Given redirect mode without redirect_url...
 // When TemplateValidator runs...
-// Then it emits schema required errors.
+// Then it remains structurally valid because virtual result pages ignore redirect_url.
 $redirect_missing = $template;
 $redirect_missing['success'] = array(
     'mode' => 'redirect',
 );
 $errors = TemplateValidator::validate_template_envelope( $redirect_missing );
 $codes  = eforms_test_collect_codes( $errors );
-eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_REQUIRED', $codes, true ), 'Redirect mode should require redirect_url.' );
+eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_REQUIRED', $codes, true ), 'Redirect mode should not require redirect_url.' );
 
 // Given include_fields referencing unknown keys...
 // When TemplateValidator runs...
@@ -235,3 +235,48 @@ $invalid_display_format['email']['display_format_tel'] = 'bad-token';
 $errors = TemplateValidator::validate_template_envelope( $invalid_display_format );
 $codes  = eforms_test_collect_codes( $errors );
 eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'Invalid display_format_tel should be rejected.' );
+
+// Given the registry-owned field type list...
+// When TemplateValidator validates each supported type...
+// Then every real registry type is accepted by schema validation.
+foreach ( FieldTypeRegistry::supported_types() as $field_type ) {
+    $field_type_template = $template;
+    $field_type_template['fields'][0]['type'] = $field_type;
+
+    if ( $field_type === 'select' || $field_type === 'radio' || $field_type === 'checkbox' ) {
+        $field_type_template['fields'][0]['options'] = array(
+            array(
+                'key' => 'yes',
+                'label' => 'Yes',
+            ),
+        );
+    }
+
+    $errors = TemplateValidator::validate_template_envelope( $field_type_template );
+    $codes  = eforms_test_collect_codes( $errors );
+    eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'Registry type ' . $field_type . ' should be accepted.' );
+}
+
+// Given row_group as a pseudo-field...
+// When TemplateValidator validates it...
+// Then it is accepted outside FieldTypeRegistry ownership.
+$row_group_template = $template;
+$row_group_template['fields'] = array(
+    array(
+        'type' => 'row_group',
+        'mode' => 'start',
+    ),
+    array(
+        'key' => 'name',
+        'type' => 'text',
+        'label' => 'Name',
+    ),
+    array(
+        'type' => 'row_group',
+        'mode' => 'end',
+    ),
+);
+$errors = TemplateValidator::validate_template_envelope( $row_group_template );
+$codes  = eforms_test_collect_codes( $errors );
+eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'row_group pseudo-fields should remain valid.' );
+eforms_test_assert( FieldTypeRegistry::is_supported( 'row_group' ) === false, 'row_group should not be a registry field type.' );

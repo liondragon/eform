@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: eForms
- * Description: Electronic forms plugin (scaffold).
- * Version: 0.1.0
+ * Description: Secure, cache-aware electronic forms for WordPress.
+ * Version: 1.0.0
  * Author: eForms Team
  */
 

@@ -14,6 +14,23 @@ require_once __DIR__ . '/FieldTypes/Choice.php';
 require_once __DIR__ . '/FieldTypes/Upload.php';
 
 class FieldTypeRegistry {
+    public static function supported_types() {
+        return array_values(
+            array_unique(
+                array_merge(
+                    FieldTypes_TextLike::SUPPORTED,
+                    array( 'textarea' ),
+                    FieldTypes_Choice::SUPPORTED,
+                    FieldTypes_Upload::SUPPORTED
+                )
+            )
+        );
+    }
+
+    public static function is_supported( $type ) {
+        return is_string( $type ) && in_array( $type, self::supported_types(), true );
+    }
+
     /**
      * Resolve a field type descriptor.
      *

@@ -136,6 +136,12 @@ class Emailer {
         }
 
         if ( ! $ok ) {
+            $phpmailer_message = self::phpmailer_error_info();
+            if ( $error_message === '' && $phpmailer_message !== '' ) {
+                $error_class = 'PHPMailer';
+                $error_message = $phpmailer_message;
+            }
+
             return self::failure( 'wp_mail_failed', array(
                 'transport' => 'wp_mail',
                 'error_class' => $error_class,
@@ -159,55 +165,6 @@ class Emailer {
             'attachments' => $attachments,
             'attachments_overflow' => $overflow_names,
         );
-    }
-
-    /**
-     * Build a plain-text summary for the email-failure copy textarea.
-     */
-    public static function build_copy_summary( $context, $values, $security, $request, $config ) {
-        $email = is_array( $context ) && isset( $context['email'] ) && is_array( $context['email'] )
-            ? $context['email']
-            : array();
-
-        $form_id = is_array( $context ) && isset( $context['id'] ) ? $context['id'] : '';
-        $submission_id = is_array( $security ) && isset( $security['submission_id'] ) ? $security['submission_id'] : '';
-
-        $display_format = '';
-        if ( isset( $email['display_format_tel'] ) && is_string( $email['display_format_tel'] ) ) {
-            $display_format = $email['display_format_tel'];
-        }
-
-        $meta = self::build_meta( $form_id, $submission_id, $security, $request, $config );
-        $values = is_array( $values ) ? $values : array();
-        $canonical = self::build_email_values( $context, $values, $display_format );
-        $include_fields = self::include_fields_list( $email, $config );
-
-        $lines = array();
-        $lines[] = 'Form: ' . $meta['form_id'];
-        $lines[] = 'Submission: ' . $meta['submission_id'];
-        $lines[] = 'Submitted: ' . $meta['submitted_at'];
-        $lines[] = '';
-
-        foreach ( $include_fields as $key ) {
-            if ( isset( $canonical['uploads'][ $key ] ) ) {
-                $names = array();
-                foreach ( $canonical['uploads'][ $key ] as $entry ) {
-                    if ( is_array( $entry ) && isset( $entry['original_name_safe'] ) ) {
-                        $names[] = $entry['original_name_safe'];
-                    }
-                }
-                $value = implode( ', ', $names );
-            } else {
-                $value = isset( $canonical['fields'][ $key ] ) ? $canonical['fields'][ $key ] : '';
-                if ( $value === '' && isset( $meta[ $key ] ) ) {
-                    $value = $meta[ $key ];
-                }
-            }
-
-            $lines[] = $key . ': ' . $value;
-        }
-
-        return implode( "\n", $lines );
     }
 
     public static function handle_wp_mail_failed( $wp_error ) {
@@ -236,6 +193,19 @@ class Emailer {
         if ( function_exists( 'add_action' ) ) {
             add_action( 'wp_mail_failed', array( 'Emailer', 'handle_wp_mail_failed' ), 10, 1 );
         }
+    }
+
+    private static function phpmailer_error_info() {
+        if ( ! isset( $GLOBALS['phpmailer'] ) || ! is_object( $GLOBALS['phpmailer'] ) ) {
+            return '';
+        }
+
+        $phpmailer = $GLOBALS['phpmailer'];
+        if ( ! isset( $phpmailer->ErrorInfo ) || ! is_string( $phpmailer->ErrorInfo ) ) {
+            return '';
+        }
+
+        return $phpmailer->ErrorInfo;
     }
 
     private static function build_meta( $form_id, $submission_id, $security, $request, $config ) {

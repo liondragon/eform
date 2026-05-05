@@ -13,6 +13,8 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Co
 ## Documentation
 
 - [Canonical Spec](docs/Canonical_Spec.md) details the end-to-end submission, security, and rendering requirements the plugin must meet.
+- [Architecture Router](docs/Architecture_Router.md) maps the main owners and runtime lanes without redefining behavior.
+- [Owner Index](docs/Owner_Index.md) lists reusable ownership seams and forbidden local duplicates.
 - [Roadmap](docs/roadmap.md) highlights upcoming milestones, outstanding work, and longer-term ideas.
 - [Past Decisions](docs/PAST_DECISIONS.md) records key design trade-offs and simplifications.
 - [Documentation Guide](docs/README.md) explains how the documentation set is organized.

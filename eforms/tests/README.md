@@ -20,7 +20,7 @@ The WordPress-runtime hidden-mode smoke command is:
 php eforms/tests/wp-runtime/run.php
 ```
 
-This boots a faithful WordPress fixture, renders `[eform id="contact" cacheable="false"]` through the shortcode, submits hidden-mode POST data through the `template_redirect` public controller, verifies validation rerender, verifies PRG, and verifies the follow-up success banner.
+This boots a faithful WordPress fixture, renders `[eform id="contact" cacheable="false"]` through the shortcode, submits hidden-mode POST data through the `template_redirect` public controller, verifies validation rerender, verifies success PRG, and verifies the follow-up virtual success and email-failure result pages.
 
 The shipped-template slug guard is:
 

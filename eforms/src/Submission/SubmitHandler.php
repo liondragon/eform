@@ -12,6 +12,7 @@
 
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Errors.php';
+require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Security/PostSize.php';
@@ -31,6 +32,8 @@ if ( ! class_exists( 'Logging' ) ) {
 }
 
 class SubmitHandler {
+    private static $admin_email_failure_notified = false;
+
     /**
      * Handle a form submission.
      *
@@ -443,16 +446,11 @@ class SubmitHandler {
     }
 
     private static function email_failure_result( $commit, $context, $coerced, $security, $form_id, $uploads_dir, $request, $config, $trace, $trace_on ) {
-        $values = self::commit_values( $commit, $coerced );
-        $security_result = self::email_failure_security( $security, $form_id, $uploads_dir );
-        if ( ! $security_result['ok'] ) {
-            return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
-        }
-
         self::log_email_failure( $commit, $form_id, $security, $request );
+        self::notify_admin_email_failure( $commit, $form_id, $security, $request );
 
         $errors = new Errors();
-        $errors->add_global( 'EFORMS_ERR_EMAIL_SEND', 'We couldn\'t send your message. Please try again.' );
+        $errors->add_global( 'EFORMS_ERR_EMAIL_SEND', 'We couldn\'t send your request right now. Please try again in a few minutes.' );
 
         $result = array(
             'ok' => false,
@@ -461,13 +459,9 @@ class SubmitHandler {
             'errors' => $errors,
             'mode' => isset( $security['mode'] ) ? $security['mode'] : '',
             'submission_id' => isset( $security['submission_id'] ) ? $security['submission_id'] : '',
+            'form_id' => is_string( $form_id ) ? $form_id : '',
+            'email_failed' => true,
             'soft_reasons' => isset( $security['soft_reasons'] ) && is_array( $security['soft_reasons'] ) ? $security['soft_reasons'] : array(),
-            'require_challenge' => ! empty( $security['require_challenge'] ),
-            'security' => $security_result['security'],
-            'values' => $values,
-            'email_retry' => true,
-            'email_failure_summary' => Emailer::build_copy_summary( $context, $values, $security, $request, $config ),
-            'email_failure_remint' => $security_result['remint'],
         );
 
         if ( $trace_on ) {
@@ -475,39 +469,6 @@ class SubmitHandler {
         }
 
         return $result;
-    }
-
-    private static function email_failure_security( $security, $form_id, $uploads_dir ) {
-        $mode = isset( $security['mode'] ) ? $security['mode'] : '';
-
-        if ( $mode === 'hidden' ) {
-            $mint = Security::mint_hidden_record( $form_id, $uploads_dir );
-            if ( ! is_array( $mint ) || empty( $mint['ok'] ) ) {
-                return array( 'ok' => false );
-            }
-
-            return array(
-                'ok' => true,
-                'remint' => false,
-                'security' => array(
-                    'mode' => 'hidden',
-                    'token' => $mint['token'],
-                    'instance_id' => $mint['instance_id'],
-                    'timestamp' => (string) $mint['issued_at'],
-                ),
-            );
-        }
-
-        return array(
-            'ok' => true,
-            'remint' => true,
-            'security' => array(
-                'mode' => 'js',
-                'token' => '',
-                'instance_id' => '',
-                'timestamp' => '',
-            ),
-        );
     }
 
     private static function log_email_failure( $commit, $form_id, $security, $request ) {
@@ -529,6 +490,71 @@ class SubmitHandler {
         );
 
         Logging::event( 'error', 'EFORMS_ERR_EMAIL_SEND', $meta, $request );
+    }
+
+    private static function notify_admin_email_failure( $commit, $form_id, $security, $request ) {
+        if ( self::$admin_email_failure_notified ) {
+            return;
+        }
+
+        if ( ! function_exists( 'wp_mail' ) || ! function_exists( 'get_option' ) ) {
+            return;
+        }
+
+        $admin_email = get_option( 'admin_email' );
+        if ( ! is_string( $admin_email ) || $admin_email === '' ) {
+            return;
+        }
+
+        if ( function_exists( 'is_email' ) && ! is_email( $admin_email ) ) {
+            return;
+        }
+
+        self::$admin_email_failure_notified = true;
+
+        $email = is_array( $commit ) && isset( $commit['email'] ) && is_array( $commit['email'] )
+            ? $commit['email']
+            : array();
+
+        $lines = array(
+            'An eForms submission could not be sent through wp_mail().',
+            '',
+            'This usually indicates a site mail transport configuration issue.',
+            '',
+            'Form: ' . ( is_string( $form_id ) ? $form_id : '' ),
+            'Submission: ' . ( isset( $security['submission_id'] ) && is_string( $security['submission_id'] ) ? $security['submission_id'] : '' ),
+            'Transport: ' . ( isset( $email['transport'] ) && is_string( $email['transport'] ) ? $email['transport'] : 'wp_mail' ),
+            'Reason: ' . ( isset( $email['reason'] ) && is_string( $email['reason'] ) ? $email['reason'] : 'send_failed' ),
+            'Error class: ' . ( isset( $email['error_class'] ) && is_string( $email['error_class'] ) ? $email['error_class'] : '' ),
+            'Error message: ' . ( isset( $email['error_message'] ) && is_string( $email['error_message'] ) ? $email['error_message'] : '' ),
+            'Request URI: ' . self::request_uri_for_admin_notice( $request ),
+        );
+
+        if ( function_exists( 'home_url' ) ) {
+            $home = home_url();
+            if ( is_string( $home ) && $home !== '' ) {
+                $lines[] = 'Site: ' . $home;
+            }
+        }
+
+        // This intentionally uses wp_mail(), so the site mail owner remains WordPress.
+        wp_mail(
+            $admin_email,
+            '[eForms] Site mail delivery failed',
+            implode( "\n", $lines )
+        );
+    }
+
+    private static function request_uri_for_admin_notice( $request ) {
+        if ( is_array( $request ) && isset( $request['uri'] ) && is_string( $request['uri'] ) ) {
+            return $request['uri'];
+        }
+
+        if ( isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ) {
+            return $_SERVER['REQUEST_URI'];
+        }
+
+        return '';
     }
 
     private static function call_spam_ledger_burn( $overrides, $form_id, $submission_id, $uploads_dir, $request, $config ) {
@@ -752,7 +778,7 @@ class SubmitHandler {
         }
 
         $candidates = array();
-        $reserved = self::reserved_keys();
+        $reserved = FormProtocol::reserved_field_key_map();
 
         foreach ( $post as $key => $value ) {
             if ( ! is_string( $key ) || $key === '' ) {
@@ -779,22 +805,6 @@ class SubmitHandler {
         }
 
         return 0;
-    }
-
-    private static function reserved_keys() {
-        return array(
-            'form_id' => true,
-            'instance_id' => true,
-            'submission_id' => true,
-            'eforms_token' => true,
-            'eforms_hp' => true,
-            'eforms_mode' => true,
-            'timestamp' => true,
-            'js_ok' => true,
-            'eforms_email_retry' => true,
-            'ip' => true,
-            'submitted_at' => true,
-        );
     }
 
     private static function post_payload( $request ) {
@@ -844,9 +854,9 @@ class SubmitHandler {
     private static function security_fields( $post, $security ) {
         return array(
             'mode' => isset( $security['mode'] ) ? $security['mode'] : '',
-            'token' => self::post_string( $post, 'eforms_token' ),
-            'instance_id' => self::post_string( $post, 'instance_id' ),
-            'timestamp' => self::post_string( $post, 'timestamp' ),
+            'token' => self::post_string( $post, FormProtocol::FIELD_TOKEN ),
+            'instance_id' => self::post_string( $post, FormProtocol::FIELD_INSTANCE_ID ),
+            'timestamp' => self::post_string( $post, FormProtocol::FIELD_TIMESTAMP ),
         );
     }
 

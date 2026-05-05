@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/../Errors.php';
+require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/FieldTypeRegistry.php';
 require_once __DIR__ . '/ValidatorRegistry.php';
 require_once __DIR__ . '/NormalizerRegistry.php';
@@ -110,29 +111,6 @@ class TemplateValidator {
         'section',
     );
 
-    const FIELD_TYPES = array(
-        'text',
-        'textarea',
-        'email',
-        'url',
-        'tel',
-        'tel_us',
-        'number',
-        'range',
-        'select',
-        'radio',
-        'checkbox',
-        'zip_us',
-        'zip',
-        'file',
-        'files',
-        'date',
-        'name',
-        'first_name',
-        'last_name',
-        'row_group',
-    );
-
     const RULE_TYPES = array(
         'required_if',
         'required_if_any',
@@ -140,20 +118,6 @@ class TemplateValidator {
         'matches',
         'one_of',
         'mutually_exclusive',
-    );
-
-    const RESERVED_KEYS = array(
-        'form_id',
-        'instance_id',
-        'submission_id',
-        'eforms_token',
-        'eforms_hp',
-        'eforms_mode',
-        'timestamp',
-        'js_ok',
-        'eforms_email_retry',
-        'ip',
-        'submitted_at',
     );
 
     const INCLUDE_META_KEYS = array(
@@ -247,12 +211,6 @@ class TemplateValidator {
         self::validate_enum( $success, 'mode', self::SUCCESS_MODES, $errors );
         self::validate_string( $success, 'message', $errors, false );
         self::validate_string( $success, 'redirect_url', $errors, false );
-
-        if ( isset( $success['mode'] ) && $success['mode'] === 'redirect' ) {
-            if ( ! isset( $success['redirect_url'] ) || ! is_string( $success['redirect_url'] ) || $success['redirect_url'] === '' ) {
-                $errors->add_global( 'EFORMS_ERR_SCHEMA_REQUIRED' );
-            }
-        }
     }
 
     private static function validate_email_block( $email, $errors ) {
@@ -337,7 +295,7 @@ class TemplateValidator {
 
             self::validate_unknown_keys( $field, self::FIELD_KEYS, $errors );
             self::require_keys( $field, array( 'type', 'key' ), $errors );
-            self::validate_enum( $field, 'type', self::FIELD_TYPES, $errors );
+            self::validate_field_type( $field, $errors );
             self::validate_string( $field, 'key', $errors );
             self::validate_string( $field, 'label', $errors, false );
             self::validate_string( $field, 'placeholder', $errors, false );
@@ -399,6 +357,7 @@ class TemplateValidator {
         }
 
         $seen = array();
+        $reserved = FormProtocol::reserved_field_key_map();
 
         foreach ( $template['fields'] as $field ) {
             if ( ! is_array( $field ) ) {
@@ -418,7 +377,7 @@ class TemplateValidator {
                 $errors->add_global( 'EFORMS_ERR_SCHEMA_KEY' );
             }
 
-            if ( in_array( $key, self::RESERVED_KEYS, true ) ) {
+            if ( isset( $reserved[ $key ] ) ) {
                 $errors->add_global( 'EFORMS_ERR_SCHEMA_KEY' );
             }
 
@@ -573,7 +532,7 @@ class TemplateValidator {
     private static function validate_row_group( $field, $errors ) {
         self::validate_unknown_keys( $field, self::ROW_GROUP_KEYS, $errors );
         self::require_keys( $field, array( 'type', 'mode' ), $errors );
-        self::validate_enum( $field, 'type', self::FIELD_TYPES, $errors );
+        self::validate_enum( $field, 'type', array( 'row_group' ), $errors );
         self::validate_enum( $field, 'mode', self::ROW_GROUP_MODES, $errors );
 
         if ( isset( $field['tag'] ) ) {
@@ -735,6 +694,22 @@ class TemplateValidator {
         if ( $type === 'one_of' || $type === 'mutually_exclusive' ) {
             self::require_keys( $rule, array( 'fields' ), $errors );
             self::validate_string_array( $rule, 'fields', $errors );
+        }
+    }
+
+    private static function validate_field_type( $field, $errors ) {
+        if ( ! array_key_exists( 'type', $field ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_REQUIRED' );
+            return;
+        }
+
+        if ( ! is_string( $field['type'] ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_TYPE' );
+            return;
+        }
+
+        if ( ! FieldTypeRegistry::is_supported( $field['type'] ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_ENUM' );
         }
     }
 

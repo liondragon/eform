@@ -1,6 +1,6 @@
 <?php
 /**
- * WordPress-facing public POST controller.
+ * WordPress-facing public request controller.
  *
  * Spec: Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post)
  * Spec: Success behavior (docs/Canonical_Spec.md#sec-success)
@@ -8,11 +8,16 @@
  */
 
 require_once __DIR__ . '/../Errors.php';
+require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Rendering/FormRenderer.php';
+require_once __DIR__ . '/../Rendering/TemplateContext.php';
+require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/SubmitHandler.php';
 
 class PublicRequestController {
     private static $captured_response = null;
+    private static $local_rerender = null;
+    private static $result_page = null;
 
     /**
      * WordPress template_redirect callback.
@@ -29,11 +34,15 @@ class PublicRequestController {
     }
 
     /**
-     * Dispatch the current request if it is an eForms public POST.
+     * Dispatch the current request if it is an eForms public request.
      *
      * @return array Controller response metadata.
      */
     public static function dispatch_current_request() {
+        if ( self::request_method() === 'GET' ) {
+            return self::result_page_response();
+        }
+
         if ( self::request_method() !== 'POST' ) {
             return self::not_handled();
         }
@@ -60,7 +69,7 @@ class PublicRequestController {
     }
 
     /**
-     * Template include callback for handled public POST responses.
+     * Template include callback for handled public responses.
      *
      * @param string $template Existing WordPress template path.
      * @return string Internal response template path.
@@ -70,7 +79,25 @@ class PublicRequestController {
             return $template;
         }
 
-        return __DIR__ . '/public-response-template.php';
+        if ( self::$result_page !== null ) {
+            $result_template = isset( self::$result_page['template'] ) && is_string( self::$result_page['template'] )
+                ? self::$result_page['template']
+                : '';
+            return $result_template !== '' ? $result_template : $template;
+        }
+
+        $render = isset( self::$captured_response['render'] ) && is_string( self::$captured_response['render'] )
+            ? self::$captured_response['render']
+            : '';
+        if ( $render === 'redirect' ) {
+            return __DIR__ . '/empty-response-template.php';
+        }
+
+        if ( $render === 'template' ) {
+            return __DIR__ . '/public-response-template.php';
+        }
+
+        return $template;
     }
 
     /**
@@ -94,11 +121,34 @@ class PublicRequestController {
         return self::$captured_response;
     }
 
+    public static function local_rerender_options( $form_id ) {
+        if ( self::$local_rerender === null || ! is_string( $form_id ) || $form_id === '' ) {
+            return null;
+        }
+
+        $stored_form_id = isset( self::$local_rerender['form_id'] ) && is_string( self::$local_rerender['form_id'] )
+            ? self::$local_rerender['form_id']
+            : '';
+        if ( $stored_form_id !== $form_id ) {
+            return null;
+        }
+
+        return isset( self::$local_rerender['options'] ) && is_array( self::$local_rerender['options'] )
+            ? self::$local_rerender['options']
+            : null;
+    }
+
+    public static function result_page_context() {
+        return self::$result_page !== null ? self::$result_page : array();
+    }
+
     /**
      * Test helper.
      */
     public static function reset_for_tests() {
         self::$captured_response = null;
+        self::$local_rerender = null;
+        self::$result_page = null;
     }
 
     private static function success_response( $result ) {
@@ -115,6 +165,7 @@ class PublicRequestController {
 
         return array(
             'handled' => true,
+            'render' => 'redirect',
             'status' => isset( $redirect['status'] ) ? (int) $redirect['status'] : 303,
             'location' => isset( $redirect['location'] ) && is_string( $redirect['location'] ) ? $redirect['location'] : '',
             'body' => '',
@@ -127,27 +178,46 @@ class PublicRequestController {
         $form_id = is_string( $form_id ) ? $form_id : '';
         self::emit_result_headers( $result );
 
-        if ( self::can_rerender( $form_id, $result ) ) {
-            self::send_status( $status );
-            $body = FormRenderer::render(
+        if ( is_array( $result ) && ! empty( $result['email_failed'] ) ) {
+            $redirect = Success::redirect_email_failure(
                 $form_id,
                 array(
-                    'cacheable' => false,
-                    'security' => isset( $result['security'] ) ? $result['security'] : array(),
-                    'errors' => isset( $result['errors'] ) ? $result['errors'] : null,
-                    'values' => isset( $result['values'] ) ? $result['values'] : array(),
-                    'require_challenge' => ! empty( $result['require_challenge'] ),
-                    'email_retry' => ! empty( $result['email_retry'] ),
-                    'email_failure_summary' => isset( $result['email_failure_summary'] ) ? $result['email_failure_summary'] : '',
-                    'email_failure_remint' => ! empty( $result['email_failure_remint'] ),
+                    'current_url' => self::current_url(),
                 )
+            );
+
+            if ( ! is_array( $redirect ) || empty( $redirect['ok'] ) ) {
+                return self::error_response( 'EFORMS_ERR_EMAIL_SEND', 500, $result );
+            }
+
+            return array(
+                'handled' => true,
+                'render' => 'redirect',
+                'status' => isset( $redirect['status'] ) ? (int) $redirect['status'] : 303,
+                'location' => isset( $redirect['location'] ) && is_string( $redirect['location'] ) ? $redirect['location'] : '',
+                'body' => '',
+                'result' => $result,
+            );
+        }
+
+        if ( self::can_rerender( $form_id, $result ) ) {
+            self::send_status( $status );
+            $options = array(
+                'cacheable' => false,
+                'security' => isset( $result['security'] ) ? $result['security'] : array(),
+                'errors' => isset( $result['errors'] ) ? $result['errors'] : null,
+                'values' => isset( $result['values'] ) ? $result['values'] : array(),
+                'require_challenge' => ! empty( $result['require_challenge'] ),
             );
 
             return array(
                 'handled' => true,
+                'render' => 'local',
+                'form_id' => $form_id,
+                'options' => $options,
                 'status' => $status,
                 'location' => '',
-                'body' => $body,
+                'body' => '',
                 'result' => $result,
             );
         }
@@ -171,11 +241,67 @@ class PublicRequestController {
 
         return array(
             'handled' => true,
+            'render' => 'template',
             'status' => (int) $status,
             'location' => '',
             'body' => $body,
             'result' => $result,
         );
+    }
+
+    private static function result_page_response() {
+        $request = Success::parse_result_request();
+        if ( ! is_array( $request ) ) {
+            return self::not_handled();
+        }
+
+        $form_id = isset( $request['form_id'] ) ? $request['form_id'] : '';
+        $result_type = isset( $request['result'] ) ? $request['result'] : '';
+        $context = self::load_result_context( $form_id );
+        if ( $context === null ) {
+            return self::error_response( 'EFORMS_ERR_SCHEMA_REQUIRED', 500 );
+        }
+
+        self::send_status( 200 );
+        Success::emit_cache_headers();
+
+        return array(
+            'handled' => true,
+            'render' => 'result_page',
+            'status' => 200,
+            'location' => '',
+            'body' => '',
+            'result' => array(
+                'ok' => true,
+                'result' => $result_type,
+                'form_id' => $form_id,
+            ),
+            'result_page' => array(
+                'type' => $result_type,
+                'form_id' => $form_id,
+                'context' => $context,
+                'template' => self::result_page_template( $result_type ),
+            ),
+        );
+    }
+
+    private static function load_result_context( $form_id ) {
+        $loaded = TemplateLoader::load( $form_id );
+        if ( ! is_array( $loaded ) || empty( $loaded['ok'] ) ) {
+            return null;
+        }
+
+        $context = TemplateContext::build( $loaded['template'], $loaded['version'] );
+        if ( ! is_array( $context ) || empty( $context['ok'] ) || ! isset( $context['context'] ) || ! is_array( $context['context'] ) ) {
+            return null;
+        }
+
+        return $context['context'];
+    }
+
+    private static function result_page_template( $result_type ) {
+        $name = $result_type === Success::RESULT_EMAIL_FAILURE ? 'email-failure.php' : 'success.php';
+        return dirname( __DIR__, 2 ) . '/templates/pages/' . $name;
     }
 
     private static function can_rerender( $form_id, $result ) {
@@ -188,7 +314,25 @@ class PublicRequestController {
 
     private static function capture_response( $response ) {
         self::$captured_response = $response;
-        if ( function_exists( 'add_filter' ) ) {
+        self::$local_rerender = null;
+        self::$result_page = null;
+
+        $render = isset( $response['render'] ) && is_string( $response['render'] ) ? $response['render'] : '';
+        if ( $render === 'local' ) {
+            self::$local_rerender = array(
+                'form_id' => isset( $response['form_id'] ) && is_string( $response['form_id'] ) ? $response['form_id'] : '',
+                'options' => isset( $response['options'] ) && is_array( $response['options'] ) ? $response['options'] : array(),
+            );
+            return;
+        }
+
+        if ( $render === 'result_page' ) {
+            self::$result_page = isset( $response['result_page'] ) && is_array( $response['result_page'] )
+                ? $response['result_page']
+                : array();
+        }
+
+        if ( ( $render === 'redirect' || $render === 'template' || $render === 'result_page' ) && function_exists( 'add_filter' ) ) {
             add_filter( 'template_include', array( 'PublicRequestController', 'template_include' ), 0 );
         }
     }
@@ -208,7 +352,7 @@ class PublicRequestController {
             return false;
         }
 
-        foreach ( array( 'eforms_token', 'instance_id', 'eforms_mode', 'eforms_hp' ) as $key ) {
+        foreach ( FormProtocol::post_detection_keys() as $key ) {
             if ( array_key_exists( $key, $post ) ) {
                 return true;
             }
@@ -223,7 +367,7 @@ class PublicRequestController {
         }
 
         $candidates = array();
-        $reserved = self::reserved_keys();
+        $reserved = FormProtocol::reserved_field_key_map();
 
         foreach ( $post as $key => $value ) {
             if ( ! is_string( $key ) || $key === '' || isset( $reserved[ $key ] ) ) {
@@ -362,22 +506,6 @@ class PublicRequestController {
 
             header( $name . ': ' . (string) $value );
         }
-    }
-
-    private static function reserved_keys() {
-        return array(
-            'form_id' => true,
-            'instance_id' => true,
-            'submission_id' => true,
-            'eforms_token' => true,
-            'eforms_hp' => true,
-            'eforms_mode' => true,
-            'timestamp' => true,
-            'js_ok' => true,
-            'eforms_email_retry' => true,
-            'ip' => true,
-            'submitted_at' => true,
-        );
     }
 
     private static function escape_attr( $value ) {

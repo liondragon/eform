@@ -10,19 +10,18 @@
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Anchors.php';
 require_once __DIR__ . '/../Errors.php';
+require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Security/StorageHealth.php';
-require_once __DIR__ . '/../Submission/Success.php';
 if ( ! class_exists( 'Logging' ) ) {
     require_once __DIR__ . '/../Logging.php';
 }
 
 class FormRenderer {
     private static $rendered_form_ids = array();
-    private static $success_banner_shown = array();
     private static $logged_header_warning = false;
     private static $logged_input_vars_warning = false;
     private static $headers_sent_override = null;
@@ -37,9 +36,6 @@ class FormRenderer {
      */
     public static function render( $slug, $opts = array() ) {
         $config = Config::get();
-        $cacheable = self::parse_cacheable( $opts );
-        $security_override = self::parse_security_override( $opts );
-        $force_cache_headers = self::parse_force_cache_headers( $opts );
 
         $template = TemplateLoader::load( $slug );
         if ( ! is_array( $template ) || empty( $template['ok'] ) ) {
@@ -66,19 +62,13 @@ class FormRenderer {
             return self::render_error( 'EFORMS_ERR_SCHEMA_REQUIRED' );
         }
 
+        $opts = self::apply_public_rerender_options( $form_id, $opts );
+        $cacheable = self::parse_cacheable( $opts );
+        $security_override = self::parse_security_override( $opts );
+        $force_cache_headers = self::parse_force_cache_headers( $opts );
+
         if ( self::is_duplicate_form_id( $form_id ) ) {
             return self::render_error( 'EFORMS_ERR_DUPLICATE_FORM_ID' );
-        }
-
-        if ( $cacheable && self::is_inline_success( $context ) ) {
-            return self::render_error( 'EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE' );
-        }
-
-        if ( self::should_show_success_banner( $form_id, $context ) ) {
-            self::mark_success_banner_shown( $form_id );
-            self::mark_rendered( $form_id );
-            self::ensure_cache_headers( true );
-            return Success::render_banner( $context );
         }
 
         $mode = $cacheable ? 'js' : 'hidden';
@@ -129,9 +119,6 @@ class FormRenderer {
         $values = self::parse_values( $opts );
         $require_challenge = self::parse_require_challenge( $opts );
         $challenge = self::resolve_challenge( $opts, $errors, $config, $require_challenge );
-        $email_retry = self::parse_email_retry( $opts );
-        $email_failure_summary = self::parse_email_failure_summary( $opts );
-        $email_failure_remint = self::parse_email_failure_remint( $opts );
 
         self::mark_rendered( $form_id );
         self::enqueue_assets( $config, ! empty( $challenge['render'] ) );
@@ -143,12 +130,7 @@ class FormRenderer {
             $config,
             $errors,
             $values,
-            $challenge,
-            array(
-                'email_retry' => $email_retry,
-                'email_failure_summary' => $email_failure_summary,
-                'email_failure_remint' => $email_failure_remint,
-            )
+            $challenge
         );
     }
 
@@ -157,7 +139,6 @@ class FormRenderer {
      */
     public static function reset_for_tests() {
         self::$rendered_form_ids = array();
-        self::$success_banner_shown = array();
         self::$logged_header_warning = false;
         self::$logged_input_vars_warning = false;
         self::$headers_sent_override = null;
@@ -285,28 +266,17 @@ class FormRenderer {
         );
     }
 
-    private static function parse_email_retry( $opts ) {
-        if ( is_array( $opts ) && isset( $opts['email_retry'] ) ) {
-            return (bool) $opts['email_retry'];
+    private static function apply_public_rerender_options( $form_id, $opts ) {
+        if ( ! class_exists( 'PublicRequestController' ) || ! method_exists( 'PublicRequestController', 'local_rerender_options' ) ) {
+            return $opts;
         }
 
-        return false;
-    }
-
-    private static function parse_email_failure_summary( $opts ) {
-        if ( is_array( $opts ) && isset( $opts['email_failure_summary'] ) && is_string( $opts['email_failure_summary'] ) ) {
-            return $opts['email_failure_summary'];
+        $local = PublicRequestController::local_rerender_options( $form_id );
+        if ( ! is_array( $local ) ) {
+            return $opts;
         }
 
-        return '';
-    }
-
-    private static function parse_email_failure_remint( $opts ) {
-        if ( is_array( $opts ) && isset( $opts['email_failure_remint'] ) ) {
-            return (bool) $opts['email_failure_remint'];
-        }
-
-        return false;
+        return array_merge( is_array( $opts ) ? $opts : array(), $local );
     }
 
     private static function is_duplicate_form_id( $form_id ) {
@@ -315,44 +285,6 @@ class FormRenderer {
 
     private static function mark_rendered( $form_id ) {
         self::$rendered_form_ids[ $form_id ] = true;
-    }
-
-    /**
-     * Check if success banner should be shown for this form.
-     *
-     * Spec: Show banner only in the first instance in source order; suppress subsequent duplicates.
-     *
-     * @param string $form_id Form identifier.
-     * @param array $context Template context.
-     * @return bool True if success banner should be shown.
-     */
-    private static function should_show_success_banner( $form_id, $context ) {
-        if ( isset( self::$success_banner_shown[ $form_id ] ) ) {
-            return false;
-        }
-
-        if ( ! self::is_inline_success( $context ) ) {
-            return false;
-        }
-
-        return Success::is_inline_success_request( $form_id );
-    }
-
-    /**
-     * Mark success banner as shown for form.
-     *
-     * @param string $form_id Form identifier.
-     */
-    private static function mark_success_banner_shown( $form_id ) {
-        self::$success_banner_shown[ $form_id ] = true;
-    }
-
-    private static function is_inline_success( $context ) {
-        if ( ! is_array( $context ) || ! isset( $context['success'] ) || ! is_array( $context['success'] ) ) {
-            return false;
-        }
-
-        return isset( $context['success']['mode'] ) && $context['success']['mode'] === 'inline';
     }
 
     private static function needs_cache_headers( $mode ) {
@@ -527,15 +459,17 @@ class FormRenderer {
             return;
         }
 
-        $json = self::json_encode( self::mint_endpoint_url() );
-        if ( $json === '' ) {
+        $endpoint_json = self::json_encode( self::mint_endpoint_url() );
+        $protocol_json = self::json_encode( FormProtocol::browser_settings() );
+        if ( $endpoint_json === '' || $protocol_json === '' ) {
             return;
         }
 
         wp_add_inline_script(
             'eforms',
             'window.eformsSettings = window.eformsSettings || {};'
-                . 'window.eformsSettings.mintEndpoint = ' . $json . ';',
+                . 'window.eformsSettings.mintEndpoint = ' . $endpoint_json . ';'
+                . 'window.eformsSettings.protocol = ' . $protocol_json . ';',
             'before'
         );
         self::$script_settings_enqueued = true;
@@ -562,13 +496,8 @@ class FormRenderer {
         return is_string( $json ) ? $json : '';
     }
 
-    private static function render_form( $context, $mode, $security, $config, $errors, $values, $challenge, $email_failure ) {
+    private static function render_form( $context, $mode, $security, $config, $errors, $values, $challenge ) {
         $form_id = isset( $context['id'] ) ? $context['id'] : '';
-        $email_retry = is_array( $email_failure ) && ! empty( $email_failure['email_retry'] );
-        $email_failure_summary = is_array( $email_failure ) && isset( $email_failure['email_failure_summary'] )
-            ? $email_failure['email_failure_summary']
-            : '';
-        $email_failure_remint = is_array( $email_failure ) && ! empty( $email_failure['email_failure_remint'] );
         // Educational note: expose TTL max so forms.js can cap sessionStorage reuse.
         $token_ttl_max = class_exists( 'Anchors' ) ? Anchors::get( 'TOKEN_TTL_MAX' ) : null;
 
@@ -577,13 +506,10 @@ class FormRenderer {
             'method' => 'post',
         );
         // Educational note: expose the server-selected mode so mixed-mode pages stay deterministic.
-        $attrs['data-eforms-mode'] = $mode;
+        $attrs[ FormProtocol::DATA_MODE ] = $mode;
 
-        if ( $email_failure_remint ) {
-            $attrs['data-eforms-remint'] = '1';
-        }
         if ( is_int( $token_ttl_max ) && $token_ttl_max > 0 ) {
-            $attrs['data-eforms-token-ttl-max'] = (string) $token_ttl_max;
+            $attrs[ FormProtocol::DATA_TOKEN_TTL_MAX ] = (string) $token_ttl_max;
         }
 
         if ( ! empty( $context['has_uploads'] ) ) {
@@ -603,23 +529,16 @@ class FormRenderer {
 
         $parts = array();
         $parts[] = '<form ' . self::attrs_to_string( $attrs ) . '>';
-        $parts[] = self::render_hidden_input( 'eforms_mode', $mode );
-        $parts[] = self::render_hidden_input( 'eforms_token', $security['token'] );
-        $parts[] = self::render_hidden_input( 'instance_id', $security['instance_id'] );
-        $parts[] = self::render_hidden_input( 'timestamp', $security['timestamp'] );
-        $parts[] = self::render_hidden_input( 'js_ok', '' );
-        if ( $email_retry ) {
-            $parts[] = self::render_hidden_input( 'eforms_email_retry', '1' );
-        }
+        $parts[] = self::render_hidden_input( FormProtocol::FIELD_MODE, $mode );
+        $parts[] = self::render_hidden_input( FormProtocol::FIELD_TOKEN, $security['token'] );
+        $parts[] = self::render_hidden_input( FormProtocol::FIELD_INSTANCE_ID, $security['instance_id'] );
+        $parts[] = self::render_hidden_input( FormProtocol::FIELD_TIMESTAMP, $security['timestamp'] );
+        $parts[] = self::render_hidden_input( FormProtocol::FIELD_JS_OK, '' );
         $parts[] = self::render_honeypot( $form_id );
 
         $summary = self::render_error_summary( $context, $errors );
         if ( $summary !== '' ) {
             $parts[] = $summary;
-        }
-
-        if ( is_string( $email_failure_summary ) && $email_failure_summary !== '' ) {
-            $parts[] = self::render_email_failure_copy( $email_failure_summary );
         }
 
         $fields_html = self::render_fields( $context, $errors, $values );
@@ -890,15 +809,6 @@ class FormRenderer {
         }
 
         return '<div class="eforms-error-summary" role="alert" tabindex="-1"><ul>' . implode( '', $items ) . '</ul></div>';
-    }
-
-    private static function render_email_failure_copy( $summary ) {
-        $attrs = array(
-            'class' => 'eforms-email-failure-copy',
-            'readonly' => 'readonly',
-        );
-
-        return '<textarea ' . self::attrs_to_string( $attrs ) . '>' . self::escape_textarea( $summary ) . '</textarea>';
     }
 
     private static function parse_errors( $opts ) {
@@ -1227,12 +1137,13 @@ class FormRenderer {
     }
 
     private static function render_honeypot( $form_id ) {
-        $id = $form_id !== '' ? $form_id . '-eforms_hp' : 'eforms_hp';
+        $id = $form_id !== '' ? $form_id . '-' . FormProtocol::FIELD_HONEYPOT : FormProtocol::FIELD_HONEYPOT;
         $id = Helpers::cap_id( $id );
         $attrs = array(
             'type' => 'text',
-            'name' => 'eforms_hp',
+            'name' => FormProtocol::FIELD_HONEYPOT,
             'id' => $id,
+            'class' => 'eforms-honeypot',
             'autocomplete' => 'off',
             'tabindex' => '-1',
             'aria-hidden' => 'true',
@@ -1319,6 +1230,14 @@ class FormRenderer {
 
         if ( $code === 'EFORMS_ERR_THROTTLED' ) {
             return 'Please wait a moment and try again.';
+        }
+
+        if ( $code === 'EFORMS_ERR_TOKEN' ) {
+            return 'This form was already submitted or has expired - please reload the page.';
+        }
+
+        if ( $code === 'EFORMS_ERR_EMAIL_SEND' ) {
+            return 'We couldn\'t send your request right now. Please try again in a few minutes.';
         }
 
         return 'Form configuration error.';

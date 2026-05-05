@@ -3,8 +3,8 @@
   "version": "1",
   "title": "Quote Request",
   "success": {
-    "mode": "redirect",
-    "redirect_url": "/?page_id=15"
+    "mode": "inline",
+    "message": "Thanks! We got your request."
   },
   "email": {
     "to": "office@flooringartists.com",
@@ -34,7 +34,7 @@
       "type": "email",
       "label": "Email",
       "required": true,
-      "placeholder": "your@email.com",
+      "placeholder": "Your eMail",
       "autocomplete": "email"
     },
     {
@@ -67,8 +67,9 @@
       "key": "message",
       "type": "textarea",
       "label": "Message",
-      "required": true
+      "required": true,
+      "placeholder": "Please describe your project and let us know if there is any urgency"
     }
   ],
-  "submit_button_text": "Send"
+  "submit_button_text": "Send Request"
 }

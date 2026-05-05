@@ -39,10 +39,9 @@ class TimingSignals
 
         $js_hard_mode = self::config_bool($config, array('security', 'js_hard_mode'), false);
 
-        $email_retry = self::post_nonempty($post, 'eforms_email_retry');
         $elapsed = $issued_at > 0 ? max(0, $now - $issued_at) : 0;
 
-        if ($min_fill_seconds > 0 && !$email_retry && $elapsed < $min_fill_seconds) {
+        if ($min_fill_seconds > 0 && $elapsed < $min_fill_seconds) {
             $soft_reasons[] = 'min_fill_time';
         }
 
@@ -65,12 +64,6 @@ class TimingSignals
             'soft_reasons' => $soft_reasons,
             'hard_fail' => $hard_fail,
         );
-    }
-
-    private static function post_nonempty($post, $key)
-    {
-        $value = self::post_string($post, $key);
-        return $value !== '';
     }
 
     private static function post_string($post, $key)
