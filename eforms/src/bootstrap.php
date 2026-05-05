@@ -63,7 +63,7 @@ if ( ! function_exists( 'eforms_error_message' ) ) {
         }
 
         if ( $code === 'EFORMS_ERR_EMAIL_SEND' ) {
-            return 'We couldn\'t send your request right now. Please try again in a few minutes.';
+            return 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.';
         }
 
         return 'Form configuration error.';

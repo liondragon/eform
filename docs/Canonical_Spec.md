@@ -987,7 +987,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 21. ERROR HANDLING
 	- Errors stored by field_key; global errors under _global
 	- Renderer prints global summary + per-field messages
-- Email send failures MUST surface the customer message "We couldn't send your request right now. Please try again in a few minutes." on the virtual email-failure result page and tag the internal result as `EFORMS_ERR_EMAIL_SEND`. The log entry for this failure MUST include `form_id`, the transport/provider identifier, any exception class/message, and the correlation/request identifier; the plugin MUST attempt one metadata-only `wp_mail()` notice to the WordPress admin email without submitted field values.
+- Email send failures MUST surface the customer message "We couldn't send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly." on the virtual email-failure result page and tag the internal result as `EFORMS_ERR_EMAIL_SEND`. The log entry for this failure MUST include `form_id`, the transport/provider identifier, any exception class/message, and the correlation/request identifier; the plugin MUST attempt one metadata-only `wp_mail()` notice to the WordPress admin email without submitted field values.
 - On `EFORMS_ERR_EMAIL_SEND`: redirect to `templates/pages/email-failure.php`; do not preserve submitted field values, mint a retry token, render the form, or render a submitted-content copy summary.
 	- Upload user-facing messages:
 	- "This file exceeds the size limit."
@@ -1108,7 +1108,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- EFORMS_ERR_STORAGE_UNAVAILABLE - "Form configuration error: server storage is unavailable."
 	- EFORMS_ERR_LEDGER_IO - "Submission failed due to a server error. Please try again."
 	- EFORMS_ERR_UPLOAD_TYPE - "This file type isn't allowed."
-		- EFORMS_ERR_EMAIL_SEND - "We couldn't send your request right now. Please try again in a few minutes."
+		- EFORMS_ERR_EMAIL_SEND - "We couldn't send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly."
 		- EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE - "Inline success requires a non-cacheable page." Legacy append-only code; the virtual result page flow does not emit it.
 		- EFORMS_ERR_THROTTLED - "Please wait a moment and try again."
 		- EFORMS_ERR_CHALLENGE_FAILED - "Please complete the verification and submit again."

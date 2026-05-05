@@ -60,7 +60,7 @@ foreach ( $baseline as $code ) {
 }
 
 eforms_test_assert(
-    eforms_error_message( 'EFORMS_ERR_EMAIL_SEND' ) === 'We couldn\'t send your request right now. Please try again in a few minutes.',
+    eforms_error_message( 'EFORMS_ERR_EMAIL_SEND' ) === 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.',
     'Email send failures should not use generic configuration copy.'
 );
 
@@ -70,8 +70,8 @@ eforms_test_assert(
     'Rendered email failure error should expose the email-send code.'
 );
 eforms_test_assert(
-    strpos( $email_error_html, 'We couldn&#039;t send your request right now. Please try again in a few minutes.' ) !== false
-        || strpos( $email_error_html, 'We couldn\'t send your request right now. Please try again in a few minutes.' ) !== false,
+    strpos( $email_error_html, 'We couldn&#039;t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.' ) !== false
+        || strpos( $email_error_html, 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.' ) !== false,
     'Rendered email failure error should use retry-oriented copy.'
 );
 eforms_test_assert(
