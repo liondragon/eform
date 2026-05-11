@@ -50,16 +50,16 @@ Email delivery uses `wp_mail()`. SMTP transport details (retries/backoff, DKIM s
 
 The plugin MUST NOT schedule WP-Cron. Operators run `wp eforms gc` via system cron (or an equivalent external trigger). This keeps runtime request paths predictable and avoids surprise background scheduling on shared hosting.
 
-### Applied: Email-Failure Retry Marker
+### Superseded: Email-Failure Retry Marker
 
-On email-failure rerender, renderer includes `eforms_email_retry=1`, and Timing Checks skip `min_fill_time` on the subsequent POST. This is UX-driven to allow immediate retries after a server-side failure; it is not a security boundary because the client can assert it.
+The earlier retry-marker rerender path used `eforms_email_retry=1` to skip `min_fill_time` after a server-side email failure. That path is superseded by virtual email-failure result pages: the original ledger reservation remains committed, submitted values are not preserved, no retry token is minted, and the customer sees fixed friendly copy.
 
 ### Applied: Throttle + Privacy Clarifications (s2.diff, s22.diff)
 
 - Fixed spec contradiction about minting helpers and throttle checks
 - Added `[THROTTLE_SOFT_THRESHOLD]` anchor, form-ID fanout guard, `/eforms/mint` HTTP response codes
 - IP keying decoupled from `privacy.ip_mode` (rate limiting uses resolved IP regardless)
-- Email failure UX normative (pre-fill + readonly textarea)
+- Email failure UX normative (virtual result page with no submitted-value copy)
 
 **Deferred**: Making throttle mandatory, deleting `cooldown_seconds`/`hard_multiplier` config keys.
 
@@ -70,4 +70,3 @@ When a drop-in config file contains unknown keys, the entire drop-in override is
 - **Rationale**: A drop-in with typos or stale keys likely has other problems. Silently ignoring unknown keys while applying known keys could produce surprising partial configurations.
 - **Warning**: A single `EFORMS_CONFIG_DROPIN_INVALID` warning is emitted with `{path: '_root', reason: 'unknown_keys', keys: [...]}` listing all unknown paths.
 - **Alternative considered**: "Ignore unknown, keep known" — rejected because it risks silent misconfiguration.
-
