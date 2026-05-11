@@ -259,7 +259,7 @@ class Throttle {
     }
 
     private static function config_int( $config, $path, $default ) {
-        $value = self::config_value( $config, $path );
+        $value = Config::value( $config, $path );
         if ( is_numeric( $value ) ) {
             return (int) $value;
         }
@@ -268,27 +268,6 @@ class Throttle {
     }
 
     private static function config_bool( $config, $path, $default ) {
-        $value = self::config_value( $config, $path );
-        if ( is_bool( $value ) ) {
-            return $value;
-        }
-
-        return $default;
-    }
-
-    private static function config_value( $config, $path ) {
-        if ( ! is_array( $path ) ) {
-            return null;
-        }
-
-        $cursor = $config;
-        foreach ( $path as $segment ) {
-            if ( ! is_array( $cursor ) || ! array_key_exists( $segment, $cursor ) ) {
-                return null;
-            }
-            $cursor = $cursor[ $segment ];
-        }
-
-        return $cursor;
+        return Config::bool( $config, $path, $default );
     }
 }

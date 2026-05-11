@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Privacy/ClientIp.php';
+require_once __DIR__ . '/../Uploads/UploadValue.php';
 require_once __DIR__ . '/../Validation/FieldTypes/TextLike.php';
 require_once __DIR__ . '/Templates.php';
 if ( ! class_exists( 'Logging' ) ) {
@@ -289,8 +290,8 @@ class Emailer {
     }
 
     private static function upload_names( $value ) {
-        if ( self::is_upload_item( $value ) && isset( $value['original_name_safe'] ) && is_string( $value['original_name_safe'] ) ) {
-            $single = trim( $value['original_name_safe'] );
+        if ( UploadValue::is_normalized_item( $value ) ) {
+            $single = UploadValue::display_name( $value );
             if ( $single !== '' ) {
                 return array( $single );
             }
@@ -299,8 +300,11 @@ class Emailer {
         $names = array();
         if ( is_array( $value ) ) {
             foreach ( $value as $entry ) {
-                if ( is_array( $entry ) && isset( $entry['original_name_safe'] ) ) {
-                    $names[] = $entry['original_name_safe'];
+                if ( UploadValue::is_normalized_item( $entry ) ) {
+                    $name = UploadValue::display_name( $entry );
+                    if ( $name !== '' ) {
+                        $names[] = $name;
+                    }
                 }
             }
         }
@@ -462,44 +466,11 @@ class Emailer {
     }
 
     private static function normalize_upload_items( $value ) {
-        if ( self::is_upload_item( $value ) ) {
-            return array( $value );
-        }
-
-        if ( ! is_array( $value ) ) {
-            return array();
-        }
-
-        $items = array();
-        foreach ( $value as $entry ) {
-            if ( self::is_upload_item( $entry ) ) {
-                $items[] = $entry;
-            }
-        }
-
-        return $items;
-    }
-
-    private static function is_upload_item( $value ) {
-        return is_array( $value )
-            && array_key_exists( 'original_name', $value )
-            && array_key_exists( 'original_name_safe', $value )
-            && array_key_exists( 'tmp_name', $value )
-            && array_key_exists( 'error', $value )
-            && array_key_exists( 'size', $value );
+        return UploadValue::items( $value, true );
     }
 
     private static function upload_stored_path( $item ) {
-        if ( ! is_array( $item ) ) {
-            return '';
-        }
-
-        if ( ! isset( $item['stored'] ) || ! is_array( $item['stored'] ) ) {
-            return '';
-        }
-
-        $path = isset( $item['stored']['path'] ) && is_string( $item['stored']['path'] ) ? $item['stored']['path'] : '';
-        $path = trim( $path );
+        $path = UploadValue::stored_path( $item );
         if ( $path === '' || ! is_file( $path ) ) {
             return '';
         }
@@ -508,28 +479,13 @@ class Emailer {
     }
 
     private static function upload_display_name( $item, $path ) {
-        if ( is_array( $item ) && isset( $item['original_name_safe'] ) && is_string( $item['original_name_safe'] ) ) {
-            $name = trim( $item['original_name_safe'] );
-            if ( $name !== '' ) {
-                return $name;
-            }
-        }
-
-        if ( is_array( $item ) && isset( $item['original_name'] ) && is_string( $item['original_name'] ) ) {
-            $name = trim( $item['original_name'] );
-            if ( $name !== '' ) {
-                return $name;
-            }
-        }
-
-        $base = basename( $path );
-        return is_string( $base ) ? $base : '';
+        return UploadValue::display_name( $item, $path );
     }
 
     private static function upload_attachment_bytes( $item, $path ) {
-        if ( is_array( $item ) && isset( $item['stored'] ) && is_array( $item['stored'] ) && isset( $item['stored']['bytes'] ) && is_numeric( $item['stored']['bytes'] ) ) {
-            $bytes = (int) $item['stored']['bytes'];
-            return $bytes > 0 ? $bytes : 0;
+        $stored_bytes = UploadValue::stored_bytes( $item );
+        if ( $stored_bytes !== null ) {
+            return $stored_bytes;
         }
 
         $size = @filesize( $path );
@@ -853,28 +809,11 @@ class Emailer {
     }
 
     private static function config_bool( $config, $path, $default ) {
-        $value = self::config_value( $config, $path );
-        if ( is_bool( $value ) ) {
-            return $value;
-        }
-
-        return $default;
+        return Config::bool( $config, $path, $default );
     }
 
     private static function config_value( $config, $path ) {
-        if ( ! is_array( $path ) ) {
-            return null;
-        }
-
-        $cursor = $config;
-        foreach ( $path as $segment ) {
-            if ( ! is_array( $cursor ) || ! array_key_exists( $segment, $cursor ) ) {
-                return null;
-            }
-            $cursor = $cursor[ $segment ];
-        }
-
-        return $cursor;
+        return Config::value( $config, $path );
     }
 
     private static function soft_fail_count( $security ) {

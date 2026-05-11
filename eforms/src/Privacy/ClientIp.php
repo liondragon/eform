@@ -427,18 +427,6 @@ class ClientIp {
     }
 
     private static function config_value( $config, $path, $fallback ) {
-        if ( ! is_array( $config ) || ! is_array( $path ) ) {
-            return $fallback;
-        }
-
-        $cursor = $config;
-        foreach ( $path as $segment ) {
-            if ( ! is_array( $cursor ) || ! array_key_exists( $segment, $cursor ) ) {
-                return $fallback;
-            }
-            $cursor = $cursor[ $segment ];
-        }
-
-        return $cursor;
+        return Config::value( $config, $path, $fallback );
     }
 }

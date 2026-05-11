@@ -95,24 +95,23 @@ class SubmitHandler {
 
         $honeypot = Honeypot::evaluate( $post, $config );
         if ( ! empty( $honeypot['triggered'] ) ) {
-            if ( $trace_on ) {
-                $trace[] = 'honeypot';
-            }
-
-            // Spam short-circuit: cleanup uploads and (if token_ok) burn the ledger entry.
-            Honeypot::cleanup_uploads( $files );
-            if ( self::token_ok( $security ) ) {
-                self::call_spam_ledger_burn( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
-            }
-            Honeypot::log_event( $resolved_form_id, $security, $honeypot['response'], $request );
-
-            if ( $honeypot['response'] === 'hard_fail' ) {
-                $errors = self::errors_for_code( 'EFORMS_ERR_HONEYPOT' );
-                return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
-            }
-
             $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
-            return self::honeypot_success_result( $security, $security_meta, $success_config, $resolved_form_id, $trace, $trace_on );
+            return self::spam_short_circuit_result(
+                'honeypot',
+                'EFORMS_ERR_HONEYPOT',
+                $honeypot['response'],
+                $files,
+                $overrides,
+                $resolved_form_id,
+                $security,
+                $security_meta,
+                $success_config,
+                $uploads_dir,
+                $request,
+                $config,
+                $trace,
+                $trace_on
+            );
         }
 
         if ( ! self::token_ok( $security ) ) {
@@ -144,21 +143,25 @@ class SubmitHandler {
         }
 
         if ( self::is_spam_fail_count( $soft_fail_count, $spam_threshold ) ) {
-            if ( $trace_on ) {
-                $trace[] = 'spam';
-            }
-
-            Honeypot::cleanup_uploads( $files );
-            self::call_spam_ledger_burn( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
-            self::log_spam_fail( $resolved_form_id, $security, $honeypot['response'], $soft_fail_count, $spam_threshold, $request );
-
-            if ( $honeypot['response'] === 'hard_fail' ) {
-                $errors = self::errors_for_code( 'EFORMS_ERR_SPAM' );
-                return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
-            }
-
             $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
-            return self::honeypot_success_result( $security, $security_meta, $success_config, $resolved_form_id, $trace, $trace_on );
+            return self::spam_short_circuit_result(
+                'spam',
+                'EFORMS_ERR_SPAM',
+                $honeypot['response'],
+                $files,
+                $overrides,
+                $resolved_form_id,
+                $security,
+                $security_meta,
+                $success_config,
+                $uploads_dir,
+                $request,
+                $config,
+                $trace,
+                $trace_on,
+                $soft_fail_count,
+                $spam_threshold
+            );
         }
 
         $form_post = self::form_payload( $post, $resolved_form_id );
@@ -555,6 +558,31 @@ class SubmitHandler {
         }
 
         return '';
+    }
+
+    private static function spam_short_circuit_result( $trace_label, $error_code, $response, $files, $overrides, $form_id, $security, $security_meta, $success_config, $uploads_dir, $request, $config, &$trace, $trace_on, $soft_fail_count = 0, $threshold = 0 ) {
+        if ( $trace_on ) {
+            $trace[] = $trace_label;
+        }
+
+        Honeypot::cleanup_uploads( $files );
+
+        if ( $trace_label === 'honeypot' ) {
+            if ( self::token_ok( $security ) ) {
+                self::call_spam_ledger_burn( $overrides, $form_id, $security['submission_id'], $uploads_dir, $request, $config );
+            }
+            Honeypot::log_event( $form_id, $security, $response, $request );
+        } else {
+            self::call_spam_ledger_burn( $overrides, $form_id, $security['submission_id'], $uploads_dir, $request, $config );
+            self::log_spam_fail( $form_id, $security, $response, $soft_fail_count, $threshold, $request );
+        }
+
+        if ( $response === 'hard_fail' ) {
+            $errors = self::errors_for_code( $error_code );
+            return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
+        }
+
+        return self::honeypot_success_result( $security, $security_meta, $success_config, $form_id, $trace, $trace_on );
     }
 
     private static function call_spam_ledger_burn( $overrides, $form_id, $submission_id, $uploads_dir, $request, $config ) {

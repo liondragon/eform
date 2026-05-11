@@ -111,4 +111,24 @@ eforms_test_assert($config['logging']['mode'] === $defaults['logging']['mode'], 
 eforms_test_assert(count(Logging::$events) === 0, 'Filter-derived schema errors should not be logged as drop-in errors.' );
 eforms_test_set_filter( 'eforms_config', null );
 
+// Case 5: shared lookup helpers are array-path based and bool reads remain strict.
+$sample = array(
+    'feature' => array(
+        'enabled' => true,
+        'disabled' => false,
+        'truthy_string' => '1',
+        'truthy_int' => 1,
+        'null_value' => null,
+    ),
+);
+eforms_test_assert( Config::value( $sample, array( 'feature', 'enabled' ), 'fallback' ) === true, 'Config::value should read nested array paths.' );
+eforms_test_assert( Config::value( $sample, array( 'feature', 'missing' ), 'fallback' ) === 'fallback', 'Config::value should return fallback for missing paths.' );
+eforms_test_assert( Config::value( $sample, array( 'feature', 'null_value' ), 'fallback' ) === null, 'Config::value should preserve explicit null values.' );
+eforms_test_assert( Config::value( $sample, 'feature.enabled', 'fallback' ) === 'fallback', 'Config::value should require array paths.' );
+eforms_test_assert( Config::bool( $sample, array( 'feature', 'enabled' ), false ) === true, 'Config::bool should accept actual true.' );
+eforms_test_assert( Config::bool( $sample, array( 'feature', 'disabled' ), true ) === false, 'Config::bool should accept actual false.' );
+eforms_test_assert( Config::bool( $sample, array( 'feature', 'truthy_string' ), false ) === false, 'Config::bool must reject truthy strings.' );
+eforms_test_assert( Config::bool( $sample, array( 'feature', 'truthy_int' ), true ) === true, 'Config::bool should return fallback for truthy integers.' );
+eforms_test_assert( Config::bool( $sample, array( 'feature', 'missing' ), true ) === true, 'Config::bool should return boolean fallback for missing paths.' );
+
 $remove_dropin();

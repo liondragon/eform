@@ -12,6 +12,7 @@
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Errors.php';
 require_once __DIR__ . '/../Uploads/UploadPolicy.php';
+require_once __DIR__ . '/../Uploads/UploadValue.php';
 
 class Validator {
     /**
@@ -781,7 +782,7 @@ class Validator {
         }
 
         if ( $type === 'file' ) {
-            if ( ! self::is_upload_item( $value ) ) {
+            if ( ! UploadValue::is_item( $value ) ) {
                 $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
             }
             return;
@@ -793,7 +794,7 @@ class Validator {
         }
 
         foreach ( $value as $entry ) {
-            if ( ! self::is_upload_item( $entry ) ) {
+            if ( ! UploadValue::is_item( $entry ) ) {
                 $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
                 return;
             }
@@ -803,7 +804,7 @@ class Validator {
     private static function validate_uploads( &$entries, $type, $value, $field, &$upload_state, &$global_entries ) {
         $items = array();
         if ( $type === 'file' ) {
-            $items = self::is_upload_item( $value ) ? array( $value ) : array();
+            $items = UploadValue::is_item( $value ) ? array( $value ) : array();
         } elseif ( is_array( $value ) ) {
             $items = $value;
         }
@@ -844,7 +845,7 @@ class Validator {
         }
 
         foreach ( $items as $item ) {
-            if ( ! self::is_upload_item( $item ) ) {
+            if ( ! UploadValue::is_item( $item ) ) {
                 $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
                 continue;
             }
@@ -882,12 +883,7 @@ class Validator {
                 continue;
             }
 
-            $name = '';
-            if ( isset( $item['original_name_safe'] ) && is_string( $item['original_name_safe'] ) && $item['original_name_safe'] !== '' ) {
-                $name = $item['original_name_safe'];
-            } elseif ( isset( $item['original_name'] ) && is_string( $item['original_name'] ) ) {
-                $name = $item['original_name'];
-            }
+            $name = UploadValue::name_for_validation( $item );
 
             $extension = UploadPolicy::extension_from_name( $name );
             if ( $extension === '' ) {
@@ -906,17 +902,6 @@ class Validator {
                 continue;
             }
         }
-    }
-
-    private static function is_upload_item( $value ) {
-        if ( ! is_array( $value ) ) {
-            return false;
-        }
-
-        return array_key_exists( 'tmp_name', $value )
-            && array_key_exists( 'original_name', $value )
-            && array_key_exists( 'size', $value )
-            && array_key_exists( 'error', $value );
     }
 
     private static function field_max_file_bytes( $field ) {

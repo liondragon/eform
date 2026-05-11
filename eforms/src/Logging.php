@@ -411,16 +411,7 @@ class Logging {
     }
 
     private static function config_value( $config, $path, $fallback ) {
-        $current = $config;
-
-        foreach ( $path as $key ) {
-            if ( ! is_array( $current ) || ! array_key_exists( $key, $current ) ) {
-                return $fallback;
-            }
-            $current = $current[ $key ];
-        }
-
-        return $current;
+        return Config::value( $config, $path, $fallback );
     }
 
     private static function resolve_raw_ip( $meta, $request, $config ) {
@@ -661,11 +652,6 @@ class Logging {
     }
 
     private static function config_bool( $config, $path, $fallback ) {
-        $value = self::config_value( $config, $path, $fallback );
-        if ( is_bool( $value ) ) {
-            return $value;
-        }
-
-        return (bool) $fallback;
+        return Config::bool( $config, $path, $fallback );
     }
 }

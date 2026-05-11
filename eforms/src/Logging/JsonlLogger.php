@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
+require_once __DIR__ . '/FileSink.php';
 
 class JsonlLogger {
     const LOG_DIR = 'logs';
@@ -146,81 +147,42 @@ class JsonlLogger {
     }
 
     private static function append_with_rotation( $path, $line, $max_bytes ) {
-        $handle = @fopen( $path, 'ab' );
-        if ( $handle === false ) {
-            return false;
-        }
-
-        if ( ! flock( $handle, LOCK_EX ) ) {
-            fclose( $handle );
-            return false;
-        }
-
-        clearstatcache( true, $path );
-        $size = @filesize( $path );
-        $size = is_numeric( $size ) ? (int) $size : 0;
-
-        if ( $size >= $max_bytes ) {
-            flock( $handle, LOCK_UN );
-            fclose( $handle );
-
-            $dir = dirname( $path );
-            $basename = basename( $path );
-            $ext_pos = strrpos( $basename, self::FILE_EXT );
-            $prefix = $ext_pos === false ? $basename : substr( $basename, 0, $ext_pos );
-            $rotated = self::next_rotated_path( $dir, $prefix, self::FILE_EXT );
-            if ( $rotated === '' ) {
-                return false;
+        return FileSink::append_with_rotation(
+            $path,
+            $line,
+            $max_bytes,
+            function ( $current ) {
+                if ( ! is_string( $current ) || $current === '' ) {
+                    return '';
+                }
+                $dir = dirname( $current );
+                $basename = basename( $current );
+                $ext_pos = strrpos( $basename, self::FILE_EXT );
+                $prefix = $ext_pos === false ? $basename : substr( $basename, 0, $ext_pos );
+                $file_prefix = preg_quote( self::FILE_PREFIX, '/' );
+                if ( preg_match( '/^(' . $file_prefix . '[0-9]{8})-[0-9]+$/', $prefix, $matches ) === 1 ) {
+                    $prefix = $matches[1];
+                }
+                return self::next_rotated_path( $dir, $prefix, self::FILE_EXT );
             }
-
-            return self::append_with_rotation( $rotated, $line, $max_bytes );
-        }
-
-        $written = @fwrite( $handle, $line );
-        if ( function_exists( 'fflush' ) ) {
-            @fflush( $handle );
-        }
-        @chmod( $path, 0600 );
-        flock( $handle, LOCK_UN );
-        fclose( $handle );
-
-        return is_int( $written ) && $written === strlen( $line );
+        );
     }
 
     private static function prune_old_files( $dir, $retention_days ) {
-        $entries = @scandir( $dir );
-        if ( ! is_array( $entries ) ) {
-            return;
-        }
+        FileSink::prune_old_files(
+            $dir,
+            $retention_days,
+            function ( $entry ) {
+                if ( ! is_string( $entry ) ) {
+                    return false;
+                }
+                if ( strpos( $entry, self::FILE_PREFIX ) !== 0 ) {
+                    return false;
+                }
 
-        $cutoff = time() - ( (int) $retention_days * 86400 );
-        foreach ( $entries as $entry ) {
-            if ( $entry === '.' || $entry === '..' ) {
-                continue;
+                return substr( $entry, -strlen( self::FILE_EXT ) ) === self::FILE_EXT;
             }
-
-            if ( strpos( $entry, self::FILE_PREFIX ) !== 0 ) {
-                continue;
-            }
-
-            if ( substr( $entry, -strlen( self::FILE_EXT ) ) !== self::FILE_EXT ) {
-                continue;
-            }
-
-            $path = rtrim( $dir, '/\\' ) . '/' . $entry;
-            if ( ! is_file( $path ) ) {
-                continue;
-            }
-
-            $mtime = @filemtime( $path );
-            if ( ! is_int( $mtime ) ) {
-                continue;
-            }
-
-            if ( $mtime < $cutoff ) {
-                @unlink( $path );
-            }
-        }
+        );
     }
 
     private static function ensure_dir( $dir ) {

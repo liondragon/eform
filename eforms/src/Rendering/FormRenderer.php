@@ -569,7 +569,7 @@ class FormRenderer {
 
         $descriptors = $context['descriptors'];
         $fields = $context['fields'];
-        $last_textlike = self::last_textlike_index( $descriptors );
+        $last_enterkeyhint = self::last_enterkeyhint_index( $descriptors );
         $parts = array();
         $form_id = isset( $context['id'] ) ? $context['id'] : '';
         $stack = array();
@@ -653,7 +653,7 @@ class FormRenderer {
             } else {
                 $parts[] = $label;
 
-                $control = self::render_control( $descriptor, $field, $form_id, $descriptor_index === $last_textlike, $field_value );
+                $control = self::render_control( $descriptor, $field, $form_id, $descriptor_index === $last_enterkeyhint, $field_value );
                 if ( $control === null ) {
                     return null;
                 }
@@ -1038,14 +1038,14 @@ class FormRenderer {
         return self::cap_id_attribute( $html );
     }
 
-    private static function last_textlike_index( $descriptors ) {
+    private static function last_enterkeyhint_index( $descriptors ) {
         if ( ! is_array( $descriptors ) ) {
             return -1;
         }
 
         $last = -1;
         foreach ( $descriptors as $index => $descriptor ) {
-            if ( self::is_textlike_descriptor( $descriptor ) ) {
+            if ( self::descriptor_accepts_enterkeyhint( $descriptor ) ) {
                 $last = $index;
             }
         }
@@ -1053,33 +1053,12 @@ class FormRenderer {
         return $last;
     }
 
-    private static function is_textlike_descriptor( $descriptor ) {
-        if ( ! is_array( $descriptor ) || ! isset( $descriptor['type'] ) ) {
+    private static function descriptor_accepts_enterkeyhint( $descriptor ) {
+        if ( ! is_array( $descriptor ) || ! isset( $descriptor['html'] ) || ! is_array( $descriptor['html'] ) ) {
             return false;
         }
 
-        $type = $descriptor['type'];
-        if ( $type === 'textarea' ) {
-            return true;
-        }
-
-        $textlike = array(
-            'text',
-            'email',
-            'url',
-            'tel',
-            'tel_us',
-            'zip_us',
-            'zip',
-            'number',
-            'range',
-            'date',
-            'name',
-            'first_name',
-            'last_name',
-        );
-
-        return in_array( $type, $textlike, true );
+        return ! empty( $descriptor['html']['enterkeyhint'] );
     }
 
     private static function build_field_name( $form_id, $field_key, $descriptor ) {

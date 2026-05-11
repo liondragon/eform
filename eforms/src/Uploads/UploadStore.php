@@ -9,6 +9,7 @@
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/PrivateDir.php';
 require_once __DIR__ . '/UploadPolicy.php';
+require_once __DIR__ . '/UploadValue.php';
 
 class UploadStore {
     const UPLOADS_DIR = 'uploads';
@@ -78,7 +79,7 @@ class UploadStore {
             }
 
             $value = array_key_exists( $key, $values ) ? $values[ $key ] : null;
-            $normalized = self::normalize_upload_value( $value );
+            $normalized = UploadValue::items_with_single( $value );
             $items = $normalized['items'];
             $single = $normalized['single'];
 
@@ -88,7 +89,7 @@ class UploadStore {
 
             $updated_items = array();
             foreach ( $items as $item ) {
-                if ( ! self::is_upload_item( $item ) ) {
+                if ( ! UploadValue::is_item( $item ) ) {
                     self::cleanup_paths( $stored );
                     return self::error_result( 'upload_item_invalid' );
                 }
@@ -99,12 +100,7 @@ class UploadStore {
                     return self::error_result( 'upload_tmp_missing' );
                 }
 
-                $original_safe = '';
-                if ( isset( $item['original_name_safe'] ) && is_string( $item['original_name_safe'] ) ) {
-                    $original_safe = $item['original_name_safe'];
-                } elseif ( isset( $item['original_name'] ) && is_string( $item['original_name'] ) ) {
-                    $original_safe = $item['original_name'];
-                }
+                $original_safe = UploadValue::name_for_storage( $item );
 
                 $extension = UploadPolicy::extension_from_name( $original_safe );
                 $sha256 = hash_file( 'sha256', $tmp_name );
@@ -227,33 +223,6 @@ class UploadStore {
         }
 
         return is_array( $values ) ? $values : array();
-    }
-
-    private static function normalize_upload_value( $value ) {
-        if ( $value === null ) {
-            return array( 'items' => array(), 'single' => false );
-        }
-
-        if ( self::is_upload_item( $value ) ) {
-            return array( 'items' => array( $value ), 'single' => true );
-        }
-
-        if ( is_array( $value ) ) {
-            return array( 'items' => $value, 'single' => false );
-        }
-
-        return array( 'items' => array(), 'single' => false );
-    }
-
-    private static function is_upload_item( $value ) {
-        if ( ! is_array( $value ) ) {
-            return false;
-        }
-
-        return array_key_exists( 'tmp_name', $value )
-            && array_key_exists( 'original_name', $value )
-            && array_key_exists( 'size', $value )
-            && array_key_exists( 'error', $value );
     }
 
     private static function copy_to_temp( $source, $dest ) {

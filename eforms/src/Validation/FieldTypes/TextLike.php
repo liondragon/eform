@@ -44,6 +44,7 @@ class FieldTypes_TextLike {
                 'tag' => 'input',
                 'type' => 'text',
                 'attrs_mirror' => array( 'maxlength', 'size' ),
+                'enterkeyhint' => true,
             ),
             'validate' => array(),
             'handlers' => array(

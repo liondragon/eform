@@ -189,6 +189,34 @@ class Config
         return $defaults;
     }
 
+    public static function value($config, $path, $fallback = null)
+    {
+        if (!is_array($config) || !is_array($path)) {
+            return $fallback;
+        }
+
+        $cursor = $config;
+        foreach ($path as $segment) {
+            if (!is_array($cursor) || !array_key_exists($segment, $cursor)) {
+                return $fallback;
+            }
+            $cursor = $cursor[$segment];
+        }
+
+        return $cursor;
+    }
+
+    public static function bool($config, $path, $fallback = false)
+    {
+        $fallback = is_bool($fallback) ? $fallback : false;
+        $value = self::value($config, $path, null);
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return $fallback;
+    }
+
     /**
      * Test-only helper to reset the snapshot between unit cases.
      */

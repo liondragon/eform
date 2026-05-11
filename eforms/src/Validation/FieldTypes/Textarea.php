@@ -20,6 +20,7 @@ class FieldTypes_Textarea {
             'html' => array(
                 'tag' => 'textarea',
                 'attrs_mirror' => array( 'maxlength' ),
+                'enterkeyhint' => true,
             ),
             'validate' => array(),
             'handlers' => array(
@@ -32,4 +33,3 @@ class FieldTypes_Textarea {
         );
     }
 }
-

@@ -10,6 +10,7 @@
 
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Helpers.php';
+require_once __DIR__ . '/../Uploads/UploadValue.php';
 
 class NormalizerStage {
     /**
@@ -200,10 +201,10 @@ class NormalizerStage {
             return null;
         }
 
-        $was_array = is_array( $value ) && ! self::is_file_item( $value );
+        $was_array = is_array( $value ) && ! UploadValue::is_item( $value );
         $items = array();
 
-        if ( self::is_file_item( $value ) ) {
+        if ( UploadValue::is_item( $value ) ) {
             $items = array( $value );
         } elseif ( is_array( $value ) ) {
             $items = $value;
@@ -213,12 +214,12 @@ class NormalizerStage {
 
         $filtered = array();
         foreach ( $items as $entry ) {
-            if ( ! self::is_file_item( $entry ) ) {
+            if ( ! UploadValue::is_item( $entry ) ) {
                 $filtered[] = $entry;
                 continue;
             }
 
-            if ( self::is_no_file( $entry ) ) {
+            if ( UploadValue::is_no_file( $entry ) ) {
                 continue;
             }
 
@@ -327,32 +328,6 @@ class NormalizerStage {
         }
 
         return 128;
-    }
-
-    private static function is_file_item( $value ) {
-        if ( ! is_array( $value ) ) {
-            return false;
-        }
-
-        return array_key_exists( 'tmp_name', $value )
-            && array_key_exists( 'original_name', $value )
-            && array_key_exists( 'size', $value )
-            && array_key_exists( 'error', $value );
-    }
-
-    private static function is_no_file( $item ) {
-        if ( ! self::is_file_item( $item ) ) {
-            return false;
-        }
-
-        $error = isset( $item['error'] ) ? (int) $item['error'] : 0;
-        $name = isset( $item['original_name'] ) && is_string( $item['original_name'] ) ? $item['original_name'] : '';
-
-        if ( $error === UPLOAD_ERR_NO_FILE ) {
-            return true;
-        }
-
-        return $name === '';
     }
 
     private static function extract_files_payload( $files ) {

@@ -157,8 +157,20 @@ eforms_test_assert( isset( $payload['meta'] ) && is_array( $payload['meta'] ), '
 eforms_test_assert( isset( $payload['meta']['ua'] ) && $payload['meta']['ua'] === 'ExampleBrowser/1.0', 'JSONL meta should include normalized user agent when logging.headers=true.' );
 eforms_test_assert( isset( $payload['meta']['origin'] ) && $payload['meta']['origin'] === 'https://example.com', 'JSONL meta should include normalized origin when logging.headers=true.' );
 
+$race_dir = eforms_test_tmp_root( 'eforms-logging-jsonl-race' );
+mkdir( $race_dir, 0700, true );
+$race_primary = $race_dir . '/events-' . gmdate( 'Ymd' ) . '.jsonl';
+file_put_contents( $race_primary, str_repeat( 'x', 20 ) );
+$append = new ReflectionMethod( 'JsonlLogger', 'append_with_rotation' );
+$append->setAccessible( true );
+$race_ok = $append->invoke( null, $race_primary, "{\"race\":true}\n", 1 );
+eforms_test_assert( $race_ok === true, 'JSONL locked rotation should succeed when the selected primary is already full.' );
+eforms_test_assert( file_exists( $race_dir . '/events-' . gmdate( 'Ymd' ) . '-1.jsonl' ), 'JSONL locked rotation should preserve the date prefix for primary-file races.' );
+eforms_test_assert( ! file_exists( $race_dir . '/events-1.jsonl' ), 'JSONL locked rotation must not treat the date suffix as a rotation suffix.' );
+
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();
 Logging::reset_for_tests();
 JsonlLogger::reset_for_tests();
+eforms_test_remove_tree( $race_dir );
 eforms_test_remove_tree( $uploads_dir );

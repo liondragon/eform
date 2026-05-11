@@ -5,6 +5,8 @@
  * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
  */
 
+require_once __DIR__ . '/../Config.php';
+
 class OriginPolicy
 {
     const DEFAULT_SCHEME = 'http';
@@ -245,7 +247,7 @@ class OriginPolicy
 
     private static function config_string($config, $path, $default)
     {
-        $value = self::config_value($config, $path);
+        $value = Config::value($config, $path);
         if (is_string($value) && $value !== '') {
             return $value;
         }
@@ -255,28 +257,6 @@ class OriginPolicy
 
     private static function config_bool($config, $path, $default)
     {
-        $value = self::config_value($config, $path);
-        if (is_bool($value)) {
-            return $value;
-        }
-
-        return $default;
-    }
-
-    private static function config_value($config, $path)
-    {
-        if (!is_array($path)) {
-            return null;
-        }
-
-        $cursor = $config;
-        foreach ($path as $segment) {
-            if (!is_array($cursor) || !isset($cursor[$segment])) {
-                return null;
-            }
-            $cursor = $cursor[$segment];
-        }
-
-        return $cursor;
+        return Config::bool($config, $path, $default);
     }
 }

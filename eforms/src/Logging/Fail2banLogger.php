@@ -5,6 +5,9 @@
  * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
  */
 
+require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/FileSink.php';
+
 class Fail2banLogger {
     const DEFAULT_MAX_BYTES = 1048576; // Internal cap; not user-configurable.
 
@@ -134,40 +137,14 @@ class Fail2banLogger {
             return false;
         }
 
-        $handle = @fopen( $active, 'ab' );
-        if ( $handle === false ) {
-            return false;
-        }
-
-        if ( ! flock( $handle, LOCK_EX ) ) {
-            fclose( $handle );
-            return false;
-        }
-
-        clearstatcache( true, $active );
-        $size = @filesize( $active );
-        $size = is_numeric( $size ) ? (int) $size : 0;
-        if ( $size >= $max_bytes ) {
-            flock( $handle, LOCK_UN );
-            fclose( $handle );
-
-            $active = self::next_rotated_path( $path );
-            if ( $active === '' ) {
-                return false;
+        return FileSink::append_with_rotation(
+            $active,
+            $line,
+            $max_bytes,
+            function ( $current ) use ( $path ) {
+                return self::next_rotated_path( $path );
             }
-
-            return self::append_with_rotation( $active, $line, $max_bytes );
-        }
-
-        $written = @fwrite( $handle, $line );
-        if ( function_exists( 'fflush' ) ) {
-            @fflush( $handle );
-        }
-        @chmod( $active, 0600 );
-        flock( $handle, LOCK_UN );
-        fclose( $handle );
-
-        return is_int( $written ) && $written === strlen( $line );
+        );
     }
 
     private static function active_path( $path, $max_bytes ) {
@@ -200,35 +177,13 @@ class Fail2banLogger {
     private static function prune_old_files( $path, $retention_days ) {
         $dir = dirname( $path );
         $base = basename( $path );
-        $entries = @scandir( $dir );
-        if ( ! is_array( $entries ) ) {
-            return;
-        }
-
-        $cutoff = time() - ( (int) $retention_days * 86400 );
-        foreach ( $entries as $entry ) {
-            if ( $entry === '.' || $entry === '..' ) {
-                continue;
+        FileSink::prune_old_files(
+            $dir,
+            $retention_days,
+            function ( $entry ) use ( $base ) {
+                return is_string( $entry ) && ( $entry === $base || strpos( $entry, $base . '.' ) === 0 );
             }
-
-            if ( $entry !== $base && strpos( $entry, $base . '.' ) !== 0 ) {
-                continue;
-            }
-
-            $candidate = rtrim( $dir, '/\\' ) . '/' . $entry;
-            if ( ! is_file( $candidate ) ) {
-                continue;
-            }
-
-            $mtime = @filemtime( $candidate );
-            if ( ! is_int( $mtime ) ) {
-                continue;
-            }
-
-            if ( $mtime < $cutoff ) {
-                @unlink( $candidate );
-            }
-        }
+        );
     }
 
     private static function ensure_dir( $dir ) {
@@ -279,18 +234,6 @@ class Fail2banLogger {
     }
 
     private static function config_value( $config, $path, $fallback ) {
-        if ( ! is_array( $config ) || ! is_array( $path ) ) {
-            return $fallback;
-        }
-
-        $cursor = $config;
-        foreach ( $path as $segment ) {
-            if ( ! is_array( $cursor ) || ! array_key_exists( $segment, $cursor ) ) {
-                return $fallback;
-            }
-            $cursor = $cursor[ $segment ];
-        }
-
-        return $cursor;
+        return Config::value( $config, $path, $fallback );
     }
 }
