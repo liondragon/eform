@@ -20,6 +20,27 @@ if ( ! function_exists( 'wp_upload_dir' ) ) {
     }
 }
 
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return isset( $GLOBALS['eforms_test_home_url'] ) && is_string( $GLOBALS['eforms_test_home_url'] )
+            ? $GLOBALS['eforms_test_home_url']
+            : 'https://example.com';
+    }
+}
+
+if ( ! function_exists( 'wp_safe_redirect' ) ) {
+    function wp_safe_redirect( $location, $status = 302 ) {
+        $GLOBALS['eforms_test_redirects'][] = array(
+            'location' => $location,
+            'status' => (int) $status,
+        );
+
+        return array_key_exists( 'eforms_test_wp_safe_redirect_return', $GLOBALS )
+            ? $GLOBALS['eforms_test_wp_safe_redirect_return']
+            : true;
+    }
+}
+
 if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
     function eforms_test_remove_tree( $path ) {
         if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
@@ -84,6 +105,34 @@ eforms_test_assert( strpos( $clean_result['location'], 'eforms_email_retry' ) ==
 eforms_test_assert( strpos( $clean_result['location'], 'eforms_success' ) === false, 'Success URL should not contain legacy success marker.' );
 eforms_test_assert( substr_count( $clean_result['location'], 'eforms_result=' ) === 1, 'Success URL should contain one result marker.' );
 eforms_test_assert( substr_count( $clean_result['location'], 'eforms_form=' ) === 1, 'Success URL should contain one form marker.' );
+
+$GLOBALS['eforms_test_home_url'] = 'https://canonical.test/site-root';
+$_SERVER['HTTP_HOST'] = 'evil.test';
+$_SERVER['REQUEST_URI'] = '/contact/?ref=nav&eforms_email_retry=1&eforms_success=contact&eforms_result=email_failure&eforms_form=old';
+
+$canonical_result = Success::redirect(
+    $context,
+    array(
+        'dry_run' => true,
+    )
+);
+
+eforms_test_assert( $canonical_result['ok'] === true, 'Success redirect should build from canonical site URL.' );
+eforms_test_assert( strpos( $canonical_result['location'], 'https://canonical.test/contact/?' ) === 0, 'Success URL should use home_url origin.' );
+eforms_test_assert( strpos( $canonical_result['location'], 'evil.test' ) === false, 'Success URL should not use request Host.' );
+eforms_test_assert( strpos( $canonical_result['location'], 'ref=nav' ) !== false, 'Canonical success URL should preserve existing query params.' );
+eforms_test_assert( strpos( $canonical_result['location'], 'eforms_email_retry' ) === false, 'Canonical success URL should clean retry marker.' );
+eforms_test_assert( strpos( $canonical_result['location'], 'eforms_success' ) === false, 'Canonical success URL should clean legacy success marker.' );
+
+$GLOBALS['eforms_test_wp_safe_redirect_return'] = false;
+$GLOBALS['eforms_test_redirects'] = array();
+$rejected_result = Success::redirect( $context );
+
+eforms_test_assert( $rejected_result['ok'] === false, 'Rejected wp_safe_redirect should fail.' );
+eforms_test_assert( $rejected_result['reason'] === 'redirect_rejected', 'Rejected wp_safe_redirect should use redirect_rejected reason.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_redirects'] ) === 1, 'Redirect rejection test should attempt one safe redirect.' );
+unset( $GLOBALS['eforms_test_wp_safe_redirect_return'] );
+unset( $GLOBALS['eforms_test_home_url'] );
 
 $_GET = array(
     'eforms_result' => 'success',

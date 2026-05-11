@@ -162,10 +162,6 @@ class UploadPolicy {
             return false;
         }
 
-        if ( $mime === 'application/octet-stream' ) {
-            return in_array( $expected_mime, $allowed_mimes, true );
-        }
-
         if ( $mime !== $expected_mime ) {
             return false;
         }

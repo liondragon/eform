@@ -152,12 +152,7 @@ class PublicRequestController {
     }
 
     private static function success_response( $result ) {
-        $redirect = SubmitHandler::do_success_redirect(
-            $result,
-            array(
-                'current_url' => self::current_url(),
-            )
-        );
+        $redirect = SubmitHandler::do_success_redirect( $result );
 
         if ( ! is_array( $redirect ) || empty( $redirect['ok'] ) ) {
             return self::error_response( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500 );
@@ -179,12 +174,7 @@ class PublicRequestController {
         self::emit_result_headers( $result );
 
         if ( is_array( $result ) && ! empty( $result['email_failed'] ) ) {
-            $redirect = Success::redirect_email_failure(
-                $form_id,
-                array(
-                    'current_url' => self::current_url(),
-                )
-            );
+            $redirect = Success::redirect_email_failure( $form_id );
 
             if ( ! is_array( $redirect ) || empty( $redirect['ok'] ) ) {
                 return self::error_response( 'EFORMS_ERR_EMAIL_SEND', 500, $result );
@@ -439,29 +429,6 @@ class PublicRequestController {
         }
 
         return 500;
-    }
-
-    private static function current_url() {
-        $scheme = 'http';
-        if ( isset( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] !== 'off' ) {
-            $scheme = 'https';
-        } elseif ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https' ) {
-            $scheme = 'https';
-        }
-
-        $host = '';
-        if ( isset( $_SERVER['HTTP_HOST'] ) && is_string( $_SERVER['HTTP_HOST'] ) ) {
-            $host = $_SERVER['HTTP_HOST'];
-        } elseif ( isset( $_SERVER['SERVER_NAME'] ) && is_string( $_SERVER['SERVER_NAME'] ) ) {
-            $host = $_SERVER['SERVER_NAME'];
-        }
-
-        $uri = isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '/';
-        if ( $host === '' ) {
-            return '';
-        }
-
-        return $scheme . '://' . $host . $uri;
     }
 
     private static function send_status( $status ) {

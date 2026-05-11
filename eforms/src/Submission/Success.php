@@ -164,56 +164,73 @@ class Success {
             return $options['current_url'];
         }
 
-        if ( ! isset( $_SERVER['REQUEST_URI'] ) ) {
+        $site_origin = self::get_site_origin();
+        if ( $site_origin === '' ) {
             return '';
         }
 
-        $scheme = self::get_scheme();
-        $host = self::get_host();
-        if ( $host === '' ) {
-            return '';
-        }
-
-        $uri = $_SERVER['REQUEST_URI'];
-        if ( ! is_string( $uri ) ) {
-            return '';
-        }
-
-        return $scheme . '://' . $host . $uri;
+        return self::join_url_path_query( $site_origin, self::current_path_query() );
     }
 
     /**
-     * Get current request scheme.
+     * Get canonical site origin.
      *
-     * @return string 'https' or 'http'.
+     * @return string Site origin or empty string.
      */
-    private static function get_scheme() {
-        if ( isset( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] !== 'off' ) {
-            return 'https';
+    private static function get_site_origin() {
+        if ( ! function_exists( 'home_url' ) ) {
+            return '';
         }
 
-        if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https' ) {
-            return 'https';
+        $home = home_url();
+        if ( ! is_string( $home ) || trim( $home ) === '' ) {
+            return '';
         }
 
-        return 'http';
+        $parts = parse_url( trim( $home ) );
+        if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+            return '';
+        }
+
+        $port = isset( $parts['port'] ) ? ':' . $parts['port'] : '';
+        return strtolower( $parts['scheme'] ) . '://' . strtolower( $parts['host'] ) . $port;
     }
 
     /**
-     * Get current request host.
+     * Get current request path and query without trusting request Host.
      *
-     * @return string Host or empty string.
+     * @return string Path plus query string.
      */
-    private static function get_host() {
-        if ( isset( $_SERVER['HTTP_HOST'] ) && is_string( $_SERVER['HTTP_HOST'] ) ) {
-            return $_SERVER['HTTP_HOST'];
+    private static function current_path_query() {
+        $uri = isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '/';
+        $parts = parse_url( $uri );
+        if ( ! is_array( $parts ) ) {
+            return '/';
         }
 
-        if ( isset( $_SERVER['SERVER_NAME'] ) && is_string( $_SERVER['SERVER_NAME'] ) ) {
-            return $_SERVER['SERVER_NAME'];
+        $path = isset( $parts['path'] ) && is_string( $parts['path'] ) && $parts['path'] !== '' ? $parts['path'] : '/';
+        if ( isset( $parts['query'] ) && is_string( $parts['query'] ) && $parts['query'] !== '' ) {
+            $path .= '?' . $parts['query'];
         }
 
-        return '';
+        return $path;
+    }
+
+    /**
+     * Join a canonical origin with a path/query component.
+     *
+     * @param string $base_url Canonical site URL.
+     * @param string $path_query Request path and query.
+     * @return string Absolute URL.
+     */
+    private static function join_url_path_query( $base_url, $path_query ) {
+        $base_url = rtrim( (string) $base_url, '/' );
+        $path_query = is_string( $path_query ) && $path_query !== '' ? $path_query : '/';
+        if ( $path_query[0] !== '/' ) {
+            $path_query = '/' . $path_query;
+        }
+
+        return $base_url . $path_query;
     }
 
     /**
@@ -294,7 +311,11 @@ class Success {
         }
 
         if ( function_exists( 'wp_safe_redirect' ) ) {
-            wp_safe_redirect( $url, $status );
+            $redirected = wp_safe_redirect( $url, $status );
+            if ( $redirected !== true ) {
+                return self::fail( 'redirect_rejected' );
+            }
+
             return array(
                 'ok' => true,
                 'status' => $status,
