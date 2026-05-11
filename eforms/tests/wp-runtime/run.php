@@ -310,7 +310,9 @@ if ( ! function_exists( 'esc_url' ) ) {
 
 if ( ! function_exists( 'get_header' ) ) {
     function get_header() {
-        echo '<header>Theme Header</header>';
+        $classes = apply_filters( 'body_class', array( 'home', 'front-page', 'page' ) );
+        $classes = is_array( $classes ) ? array_values( array_filter( $classes, 'is_string' ) ) : array();
+        echo '<header class="' . esc_attr( implode( ' ', $classes ) ) . '">Theme Header</header>';
     }
 }
 
@@ -352,6 +354,8 @@ if ( ! function_exists( 'eforms_wp_runtime_reset_request' ) ) {
             'HTTPS' => 'on',
             'REQUEST_URI' => '/contact/',
         );
+        unset( $GLOBALS['eforms_wp_runtime_hooks']['filter']['body_class'] );
+        unset( $GLOBALS['eforms_wp_runtime_hooks']['filter']['template_include'] );
 
         if ( class_exists( 'Config' ) ) {
             Config::reset_for_tests();
@@ -589,12 +593,10 @@ try {
     eforms_wp_runtime_assert( $success_page['status'] === 200, 'Follow-up success GET should render HTTP 200.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], 'Theme Header' ) !== false, 'Success result page should include the theme header.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], 'Theme Footer' ) !== false, 'Success result page should include the theme footer.' );
+    eforms_wp_runtime_assert( strpos( $success_page['body'], '<header class="page">Theme Header</header>' ) !== false, 'Success result page should filter body classes before the theme header.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], 'eforms-result-page-success' ) !== false, 'Follow-up GET should show the success result page.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], '<h1 class="page-title">Thank You</h1>' ) !== false, 'Success result page should show the theme page title.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], 'class="inner article-body-wrap"' ) !== false, 'Success result page should use the theme page scaffold.' );
-    $success_body_classes = apply_filters( 'body_class', array( 'home', 'front-page', 'page' ) );
-    eforms_wp_runtime_assert( ! in_array( 'home', $success_body_classes, true ), 'Success result page should not use the home footer variant.' );
-    eforms_wp_runtime_assert( ! in_array( 'front-page', $success_body_classes, true ), 'Success result page should not use the front-page footer variant.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], 'Thanks! We got your message.' ) !== false, 'Success page should use the template message.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], '<form' ) === false, 'Follow-up success display should not render the form.' );
 
@@ -641,12 +643,10 @@ try {
     eforms_wp_runtime_assert( $email_failure_page['status'] === 200, 'Follow-up email-failure GET should render HTTP 200.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'Theme Header' ) !== false, 'Email failure page should include the theme header.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'Theme Footer' ) !== false, 'Email failure page should include the theme footer.' );
+    eforms_wp_runtime_assert( strpos( $email_failure_page['body'], '<header class="page">Theme Header</header>' ) !== false, 'Email failure page should filter body classes before the theme header.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'eforms-result-page-email-failure' ) !== false, 'Follow-up GET should show the email-failure result page.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], '<h1 class="page-title">Request Not Sent</h1>' ) !== false, 'Email failure page should show the theme page title.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'class="inner article-body-wrap"' ) !== false, 'Email failure page should use the theme page scaffold.' );
-    $email_failure_body_classes = apply_filters( 'body_class', array( 'home', 'front-page', 'page' ) );
-    eforms_wp_runtime_assert( ! in_array( 'home', $email_failure_body_classes, true ), 'Email failure page should not use the home footer variant.' );
-    eforms_wp_runtime_assert( ! in_array( 'front-page', $email_failure_body_classes, true ), 'Email failure page should not use the front-page footer variant.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'We couldn&#039;t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.' ) !== false, 'Email failure page should show the friendly email failure message.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'Ada Lovelace' ) === false, 'Email failure page should not include submitted values.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], '<form' ) === false, 'Email failure page should not render the form.' );

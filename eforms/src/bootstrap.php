@@ -6,6 +6,8 @@
  * depending on WordPress internals so early smoke tests can load it.
  */
 
+require_once __DIR__ . '/ErrorMessages.php';
+
 if ( ! function_exists( 'eforms_register_autoloader' ) ) {
     /**
      * Register a minimal autoloader for src/ classes.
@@ -50,23 +52,7 @@ if ( ! function_exists( 'eforms_error_message' ) ) {
      * Resolve a stable error message for a known error code.
      */
     function eforms_error_message( $code ) {
-        if ( $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' ) {
-            return 'Form configuration error: server storage is unavailable.';
-        }
-
-        if ( $code === 'EFORMS_ERR_THROTTLED' ) {
-            return 'Please wait a moment and try again.';
-        }
-
-        if ( $code === 'EFORMS_ERR_TOKEN' ) {
-            return 'This form was already submitted or has expired - please reload the page.';
-        }
-
-        if ( $code === 'EFORMS_ERR_EMAIL_SEND' ) {
-            return 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.';
-        }
-
-        return 'Form configuration error.';
+        return ErrorMessages::message( $code );
     }
 }
 

@@ -450,7 +450,7 @@ class SubmitHandler {
         self::notify_admin_email_failure( $commit, $form_id, $security, $request );
 
         $errors = new Errors();
-        $errors->add_global( 'EFORMS_ERR_EMAIL_SEND', 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.' );
+        $errors->add_global( 'EFORMS_ERR_EMAIL_SEND' );
 
         $result = array(
             'ok' => false,

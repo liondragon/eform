@@ -5,39 +5,10 @@
 
 $page = class_exists( 'PublicRequestController' ) ? PublicRequestController::result_page_context() : array();
 $context = isset( $page['context'] ) && is_array( $page['context'] ) ? $page['context'] : array();
-$message = class_exists( 'Success' ) ? Success::get_result_message( 'success', $context ) : 'Thank you for your submission.';
+$eforms_result_type = 'success';
+$eforms_result_title = 'Thank You';
+$eforms_result_message = class_exists( 'Success' ) ? Success::get_result_message( 'success', $context ) : 'Thank you for your submission.';
+$eforms_result_role = 'status';
+$eforms_result_aria_live = 'polite';
 
-if ( function_exists( 'add_filter' ) ) {
-    add_filter(
-        'body_class',
-        static function ( $classes ) {
-            return array_values( array_diff( $classes, array( 'home', 'front-page' ) ) );
-        },
-        20
-    );
-}
-
-if ( function_exists( 'get_header' ) ) {
-    get_header();
-}
-?>
-<article id="page_content" class="page_content eforms-result-page eforms-result-page-success" data-eforms-result="success">
-    <header id="page_header" class="pageline">
-        <div class="inner">
-            <h1 class="page-title"><?php echo function_exists( 'esc_html' ) ? esc_html( 'Thank You' ) : 'Thank You'; ?></h1>
-        </div>
-    </header>
-    <div class="inner article-body-wrap">
-        <div id="content" class="article-body">
-            <div class="entry-content">
-                <div class="eforms-result-message" role="status" aria-live="polite">
-                    <?php echo function_exists( 'esc_html' ) ? esc_html( $message ) : htmlspecialchars( $message, ENT_QUOTES, 'UTF-8' ); ?>
-                </div>
-            </div>
-        </div>
-    </div>
-</article>
-<?php
-if ( function_exists( 'get_footer' ) ) {
-    get_footer();
-}
+require __DIR__ . '/result-page.php';

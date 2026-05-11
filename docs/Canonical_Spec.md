@@ -47,7 +47,7 @@ Storage layout and paths: see [Shared lifecycle and storage contract](#sec-share
 		- Normalization / validation / coercion
 		- HTML sanitization for template fragments (before_html / after_html)
 		- Email submission
-		- Success handling (inline PRG or redirect)
+		- Success handling through virtual result pages
 		- Anti-spam
 		- Accessibility
 		- File logging

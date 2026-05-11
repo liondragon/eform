@@ -8,6 +8,8 @@
  * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
  */
 
+require_once __DIR__ . '/../ErrorMessages.php';
+
 if ( ! class_exists( 'Logging' ) ) {
     require_once __DIR__ . '/../Logging.php';
 }
@@ -110,11 +112,7 @@ class Success {
 
     public static function get_result_message( $result_type, $context ) {
         if ( $result_type === self::RESULT_EMAIL_FAILURE ) {
-            if ( function_exists( 'eforms_error_message' ) ) {
-                return eforms_error_message( 'EFORMS_ERR_EMAIL_SEND' );
-            }
-
-            return 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.';
+            return ErrorMessages::message( 'EFORMS_ERR_EMAIL_SEND' );
         }
 
         return self::get_message( $context );

@@ -27,3 +27,10 @@
   - Done When: successful POSTs and email-send failures return 303 to fixed `eforms_result`/`eforms_form` virtual result pages with no POST redirect body; validation/security failures still rerender locally; email-failure pages show only friendly copy; PHPMailer debug output is logged instead of echoed in browser responses.
   - Verified via: `php eforms/tests/integration/test_success_inline_flow.php`; `php eforms/tests/integration/test_success_redirect_flow.php`; `php eforms/tests/integration/test_email_failure_rerender.php`; `php eforms/tests/wp-runtime/run.php`; `node --check eforms/assets/forms.js`; `php -l /var/www/fa/wp-content/themes/the-artist/inc/class-the-artist-theme.php`; fake PHPMailer smoke.
   - Reasoning: high
+
+- [x] EFORMS-FIX-005 Clear-win owner cleanup
+  - Type: seam-refactor + shared-ui-runtime + formal-spec
+  - Owner: `ErrorMessages` for public error-code copy; `templates/pages/result-page.php` for shared result-page scaffold; `docs/overview.md` and `docs/Canonical_Spec.md` for virtual result-page wording.
+  - Done When: email-failure customer copy has one runtime owner; result-page templates share one local scaffold; stale inline/external success wording is removed; wp-runtime tests prove each result page filters body classes at theme-header render time.
+  - Verified via: `php eforms/tests/unit/test_error_codes_append_only.php`; `php eforms/tests/wp-runtime/run.php`; `php eforms/tests/tools/assert-template-slugs.php`; `node --check eforms/assets/forms.js`; PHP syntax checks for touched PHP files; `find eforms/tests/unit eforms/tests/integration eforms/tests/smoke -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php`.
+  - Reasoning: high

@@ -182,7 +182,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 3. **Submission (POST):** Security gate → Normalize → Validate → Coerce
 4. **Challenge (Conditional):** Verify Turnstile when required (auto + soft signals, or always_post)
 5. **Commit:** Ledger reservation → Upload moves → Email send → Log
-6. **Success:** PRG redirect (inline or external) → Cleanup
+6. **Success:** PRG redirect to virtual result page → Cleanup
 
 ### Detailed Stage Breakdowns
 

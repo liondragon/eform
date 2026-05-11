@@ -9,6 +9,7 @@
 
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Anchors.php';
+require_once __DIR__ . '/../ErrorMessages.php';
 require_once __DIR__ . '/../Errors.php';
 require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Helpers.php';
@@ -1220,27 +1221,7 @@ class FormRenderer {
     }
 
     private static function error_message( $code ) {
-        if ( $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' ) {
-            return 'Form configuration error: server storage is unavailable.';
-        }
-
-        if ( $code === 'EFORMS_ERR_DUPLICATE_FORM_ID' ) {
-            return 'Form configuration error: duplicate form id on page.';
-        }
-
-        if ( $code === 'EFORMS_ERR_THROTTLED' ) {
-            return 'Please wait a moment and try again.';
-        }
-
-        if ( $code === 'EFORMS_ERR_TOKEN' ) {
-            return 'This form was already submitted or has expired - please reload the page.';
-        }
-
-        if ( $code === 'EFORMS_ERR_EMAIL_SEND' ) {
-            return 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.';
-        }
-
-        return 'Form configuration error.';
+        return ErrorMessages::message( $code );
     }
 
     private static function escape_attr( $value ) {

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../../src/bootstrap.php';
 
 require_once __DIR__ . '/../../src/ErrorCodes.php';
+require_once __DIR__ . '/../../src/ErrorMessages.php';
 require_once __DIR__ . '/../../src/Errors.php';
 
 // Baseline list (append-only): this is the v1 set. Future changes may add
@@ -59,9 +60,32 @@ foreach ( $baseline as $code ) {
     eforms_test_assert( ErrorCodes::is_known( $code ), 'Missing stable code: ' . $code );
 }
 
+$email_send_message = ErrorMessages::message( 'EFORMS_ERR_EMAIL_SEND' );
+eforms_test_assert( $email_send_message === ErrorMessages::EMAIL_SEND, 'ErrorMessages should own email failure copy.' );
+eforms_test_assert( eforms_error_message( 'EFORMS_ERR_EMAIL_SEND' ) === $email_send_message, 'Public helper should delegate email failure copy.' );
+
+$runtime_message_sources = array();
+$source_needles = array(
+    $email_send_message,
+    str_replace( "'", "\\'", $email_send_message ),
+);
+$runtime_paths = array_merge(
+    glob( dirname( __DIR__, 2 ) . '/src/*.php' ),
+    glob( dirname( __DIR__, 2 ) . '/src/*/*.php' ),
+    glob( dirname( __DIR__, 2 ) . '/templates/pages/*.php' )
+);
+foreach ( $runtime_paths as $path ) {
+    $source = file_get_contents( $path );
+    foreach ( $source_needles as $needle ) {
+        if ( is_string( $source ) && strpos( $source, $needle ) !== false ) {
+            $runtime_message_sources[] = basename( $path );
+            break;
+        }
+    }
+}
 eforms_test_assert(
-    eforms_error_message( 'EFORMS_ERR_EMAIL_SEND' ) === 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.',
-    'Email send failures should not use generic configuration copy.'
+    $runtime_message_sources === array( 'ErrorMessages.php' ),
+    'Runtime email failure copy should have exactly one source owner.'
 );
 
 $email_error_html = eforms_render_error( 'EFORMS_ERR_EMAIL_SEND' );
@@ -71,7 +95,7 @@ eforms_test_assert(
 );
 eforms_test_assert(
     strpos( $email_error_html, 'We couldn&#039;t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.' ) !== false
-        || strpos( $email_error_html, 'We couldn\'t send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly.' ) !== false,
+        || strpos( $email_error_html, $email_send_message ) !== false,
     'Rendered email failure error should use retry-oriented copy.'
 );
 eforms_test_assert(
