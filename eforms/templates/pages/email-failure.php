@@ -6,7 +6,7 @@
 $page = class_exists( 'PublicRequestController' ) ? PublicRequestController::result_page_context() : array();
 $context = isset( $page['context'] ) && is_array( $page['context'] ) ? $page['context'] : array();
 $eforms_result_type = 'email_failure';
-$eforms_result_title = 'Request Not Sent';
+$eforms_result_title = class_exists( 'Success' ) ? Success::get_result_title( 'email_failure', $context ) : 'Request Not Sent';
 if ( class_exists( 'Success' ) ) {
     $eforms_result_message = Success::get_result_message( 'email_failure', $context );
 } elseif ( function_exists( 'eforms_error_message' ) ) {

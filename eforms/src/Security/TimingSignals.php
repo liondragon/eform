@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../FormProtocol.php';
 
 class TimingSignals
 {
@@ -51,7 +52,7 @@ class TimingSignals
             $soft_reasons[] = 'age_advisory';
         }
 
-        $js_ok = self::post_string($post, 'js_ok');
+        $js_ok = self::post_string($post, FormProtocol::FIELD_JS_OK);
         if ($js_ok !== '1') {
             if ($js_hard_mode) {
                 return array(

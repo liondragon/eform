@@ -7,8 +7,10 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
+require_once __DIR__ . '/Entropy.php';
 require_once __DIR__ . '/OriginPolicy.php';
 require_once __DIR__ . '/Throttle.php';
 require_once __DIR__ . '/TimingSignals.php';
@@ -163,9 +165,9 @@ class Security
             return self::hard_fail_result('EFORMS_ERR_TOKEN');
         }
 
-        $token = self::post_string($post, 'eforms_token');
-        $instance_id = self::post_string($post, 'instance_id');
-        $posted_mode = self::post_string($post, 'eforms_mode');
+        $token = self::post_string($post, FormProtocol::FIELD_TOKEN);
+        $instance_id = self::post_string($post, FormProtocol::FIELD_INSTANCE_ID);
+        $posted_mode = self::post_string($post, FormProtocol::FIELD_MODE);
 
         // Educational note: regex guards run before any disk access to reduce probing.
         if (!self::is_valid_token($token)) {
@@ -590,10 +592,6 @@ class Security
             }
         }
 
-        if ($mode === 'always') {
-            $mode = 'always_post';
-        }
-
         if ($mode === 'always_post') {
             return true;
         }
@@ -653,74 +651,21 @@ class Security
 
     private static function generate_uuid_v4()
     {
-        $bytes = self::random_bytes(16);
-        if ($bytes === '') {
-            return '';
-        }
-
-        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
-        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
-
-        $hex = bin2hex($bytes);
-        return sprintf(
-            '%s-%s-%s-%s-%s',
-            substr($hex, 0, 8),
-            substr($hex, 8, 4),
-            substr($hex, 12, 4),
-            substr($hex, 16, 4),
-            substr($hex, 20, 12)
-        );
+        return Entropy::uuid_v4();
     }
 
     private static function generate_instance_id()
     {
-        $bytes = self::random_bytes(16);
-        if ($bytes === '') {
-            return '';
-        }
-
-        return self::base64url_encode($bytes);
-    }
-
-    private static function base64url_encode($bytes)
-    {
-        $encoded = base64_encode($bytes);
-        $encoded = strtr($encoded, '+/', '-_');
-        return rtrim($encoded, '=');
-    }
-
-    private static function random_bytes($length)
-    {
-        $bytes = '';
-        if (function_exists('random_bytes')) {
-            try {
-                $bytes = random_bytes($length);
-            } catch (Exception $e) {
-                $bytes = '';
-            }
-        }
-
-        if ($bytes === '' && function_exists('openssl_random_pseudo_bytes')) {
-            $bytes = openssl_random_pseudo_bytes($length);
-        }
-
-        if (!is_string($bytes) || strlen($bytes) !== $length) {
-            $bytes = '';
-            for ($i = 0; $i < $length; $i++) {
-                $bytes .= chr(mt_rand(0, 255));
-            }
-        }
-
-        return $bytes;
+        return Entropy::base64url_id(16);
     }
 
     private static function temp_suffix()
     {
-        $bytes = self::random_bytes(4);
-        if ($bytes === '') {
+        $suffix = Entropy::hex(4);
+        if ($suffix === '') {
             return (string) getmypid();
         }
 
-        return bin2hex($bytes);
+        return $suffix;
     }
 }

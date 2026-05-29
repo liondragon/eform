@@ -22,6 +22,14 @@ if ( ! function_exists( 'wp_upload_dir' ) ) {
     }
 }
 
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return isset( $GLOBALS['eforms_test_home_url'] ) && is_string( $GLOBALS['eforms_test_home_url'] )
+            ? $GLOBALS['eforms_test_home_url']
+            : 'https://example.com';
+    }
+}
+
 if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
     function eforms_test_remove_tree( $path ) {
         if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
@@ -79,6 +87,33 @@ eforms_test_assert( $result['submission_id'] === $mint['token'], 'Submission id 
 eforms_test_assert( $result['soft_reasons'] === array(), 'Soft reasons should be empty for clean request.' );
 eforms_test_assert( $result['require_challenge'] === false, 'Challenge should not be required by default.' );
 
+eforms_test_remove_tree( $uploads_dir );
+
+// Given a forged request Host that matches Origin but not the site origin...
+// When token_validate runs in soft origin mode...
+// Then the token stays structurally valid but the canonical origin owner emits origin_soft.
+$uploads_dir = eforms_test_setup_uploads( 'eforms-token-validate' );
+eforms_test_set_filter( 'eforms_config', null );
+Config::reset_for_tests();
+$_SERVER['HTTP_HOST'] = 'evil.test';
+$GLOBALS['eforms_test_home_url'] = 'https://example.com';
+
+$mint = Security::mint_hidden_record( 'contact' );
+$post = array(
+    'eforms_token' => $mint['token'],
+    'instance_id' => $mint['instance_id'],
+    'js_ok' => '1',
+);
+$request = array(
+    'headers' => array( 'Origin' => 'https://evil.test' ),
+);
+
+$result = Security::token_validate( $post, 'contact', $request );
+eforms_test_assert( $result['token_ok'] === true, 'Forged Host should not invalidate the token record.' );
+eforms_test_assert( $result['hard_fail'] === false, 'Forged Host should remain a soft origin signal by default.' );
+eforms_test_assert( $result['soft_reasons'] === array( 'origin_soft' ), 'Forged Host should emit only origin_soft.' );
+$_SERVER['HTTP_HOST'] = 'example.com';
+unset( $GLOBALS['eforms_test_home_url'] );
 eforms_test_remove_tree( $uploads_dir );
 
 // Given a fast, aged, non-JS submission with missing Origin...

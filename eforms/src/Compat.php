@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/Config.php';
+require_once __DIR__ . '/Security/Entropy.php';
 
 class Compat {
     private static $bootstrapped = false;
@@ -207,8 +208,9 @@ class Compat {
     }
 
     private static function probe_salt() {
-        if ( function_exists( 'random_bytes' ) ) {
-            return bin2hex( random_bytes( 4 ) );
+        $salt = Entropy::hex( 4 );
+        if ( $salt !== '' ) {
+            return $salt;
         }
 
         return (string) getmypid();

@@ -54,10 +54,11 @@ function eforms_test_base_template() {
         'id' => 'demo_form',
         'version' => '1',
         'title' => 'Demo',
-        'success' => array(
-            'mode' => 'inline',
-            'message' => 'Thanks.',
-        ),
+            'result_pages' => array(
+                'success' => array(
+                    'message' => 'Thanks.',
+                ),
+            ),
         'email' => array(
             'to' => 'demo@example.com',
             'subject' => 'Demo',

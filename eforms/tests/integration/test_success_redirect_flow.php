@@ -42,20 +42,17 @@ if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
 }
 
 if ( ! function_exists( 'eforms_test_write_template' ) ) {
-    function eforms_test_write_template( $dir, $form_id, $success_mode = 'inline', $redirect_url = '' ) {
-        $success = array(
-            'mode' => $success_mode,
-            'message' => 'Thanks.',
-        );
-        if ( $redirect_url !== '' ) {
-            $success['redirect_url'] = $redirect_url;
-        }
-
+    function eforms_test_write_template( $dir, $form_id ) {
         $template = array(
             'id' => $form_id,
             'version' => '1',
             'title' => 'Test Form',
-            'success' => $success,
+            'result_pages' => array(
+                'success' => array(
+                    'title' => 'Custom Result',
+                    'message' => 'Custom result copy.',
+                ),
+            ),
             'email' => array(
                 'to' => 'test@example.com',
                 'subject' => 'Test',
@@ -81,10 +78,6 @@ if ( ! function_exists( 'eforms_test_write_template' ) ) {
 
 $context_redirect = array(
     'id' => 'test_form',
-    'success' => array(
-        'mode' => 'redirect',
-        'redirect_url' => 'https://example.com/thank-you/',
-    ),
 );
 
 $options = array(
@@ -98,24 +91,45 @@ eforms_test_assert( $result['ok'] === true, 'Success redirect should return ok=t
 eforms_test_assert( $result['status'] === 303, 'Success redirect should use status 303.' );
 eforms_test_assert( strpos( $result['location'], 'eforms_result=success' ) !== false, 'Success redirect should target a result page.' );
 eforms_test_assert( strpos( $result['location'], 'eforms_form=test_form' ) !== false, 'Success redirect should identify the form.' );
-eforms_test_assert( strpos( $result['location'], 'thank-you' ) === false, 'Configured redirect_url should not be used as the destination.' );
+eforms_test_assert(
+    Success::get_result_title(
+        'success',
+        array(
+            'result_pages' => array(
+                'success' => array(
+                    'title' => 'Custom Result',
+                    'message' => 'Custom result copy.',
+                ),
+            ),
+        )
+    ) === 'Custom Result',
+    'Success result title should come from result_pages.success.title.'
+);
+eforms_test_assert(
+    Success::get_result_message(
+        'success',
+        array(
+            'result_pages' => array(
+                'success' => array(
+                    'title' => 'Custom Result',
+                    'message' => 'Custom result copy.',
+                ),
+            ),
+        )
+    ) === 'Custom result copy.',
+    'Success result message should come from result_pages.success.message.'
+);
 
 $handler_result_redirect = array(
     'ok' => true,
     'form_id' => 'test_form',
-    'success' => array(
-        'mode' => 'redirect',
-        'message' => '',
-        'redirect_url' => 'https://example.com/thank-you/',
-    ),
 );
 
 $redirect_result_ext = SubmitHandler::do_success_redirect( $handler_result_redirect, $options );
 
-eforms_test_assert( $redirect_result_ext['ok'] === true, 'do_success_redirect should succeed for redirect mode.' );
+eforms_test_assert( $redirect_result_ext['ok'] === true, 'do_success_redirect should succeed for success results.' );
 eforms_test_assert( strpos( $redirect_result_ext['location'], 'eforms_result=success' ) !== false, 'do_success_redirect should use result-page success.' );
 eforms_test_assert( strpos( $redirect_result_ext['location'], 'eforms_form=test_form' ) !== false, 'do_success_redirect should include form id.' );
-eforms_test_assert( strpos( $redirect_result_ext['location'], 'thank-you' ) === false, 'do_success_redirect should ignore redirect_url.' );
 
 $handler_result_fail = array(
     'ok' => false,
@@ -133,18 +147,18 @@ $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
 
 $template_dir = eforms_test_tmp_root( 'eforms-redirect-templates' );
 mkdir( $template_dir, 0700, true );
-eforms_test_write_template( $template_dir, 'redirect-form', 'redirect', 'https://example.com/thanks/' );
+eforms_test_write_template( $template_dir, 'result-form' );
 
 Config::reset_for_tests();
 StorageHealth::reset_for_tests();
 
-$mint = Security::mint_hidden_record( 'redirect-form' );
+$mint = Security::mint_hidden_record( 'result-form' );
 $post = array(
     'eforms_token' => $mint['token'],
     'instance_id' => $mint['instance_id'],
     'timestamp' => (string) $mint['issued_at'],
     'js_ok' => '1',
-    'redirect-form' => array(
+    'result-form' => array(
         'name' => 'Test User',
     ),
 );
@@ -164,13 +178,11 @@ $overrides = array(
     },
 );
 
-$pipeline_result = SubmitHandler::handle( 'redirect-form', $request, $overrides );
+$pipeline_result = SubmitHandler::handle( 'result-form', $request, $overrides );
 
 eforms_test_assert( $pipeline_result['ok'] === true, 'Pipeline should succeed.' );
-eforms_test_assert( isset( $pipeline_result['success'] ) && is_array( $pipeline_result['success'] ), 'Pipeline result should include success configuration.' );
-eforms_test_assert( $pipeline_result['success']['mode'] === 'redirect', 'Success mode should still mirror template configuration.' );
-eforms_test_assert( $pipeline_result['success']['redirect_url'] === 'https://example.com/thanks/', 'Success redirect_url should remain in metadata for schema compatibility.' );
-eforms_test_assert( $pipeline_result['form_id'] === 'redirect-form', 'Pipeline result should include form_id.' );
+eforms_test_assert( ! isset( $pipeline_result['success'] ), 'Pipeline result should not carry result-page copy metadata.' );
+eforms_test_assert( $pipeline_result['form_id'] === 'result-form', 'Pipeline result should include form_id.' );
 
 eforms_test_remove_tree( $uploads_dir );
 eforms_test_remove_tree( $template_dir );

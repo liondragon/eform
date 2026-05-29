@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../Helpers.php';
+require_once __DIR__ . '/../Security/Entropy.php';
 require_once __DIR__ . '/PrivateDir.php';
 require_once __DIR__ . '/UploadPolicy.php';
 require_once __DIR__ . '/UploadValue.php';
@@ -335,7 +336,8 @@ class UploadStore {
     }
 
     private static function temp_suffix() {
-        return bin2hex( random_bytes( 8 ) );
+        $suffix = Entropy::hex( 8 );
+        return $suffix !== '' ? $suffix : (string) getmypid();
     }
 
     private static function error_result( $reason ) {

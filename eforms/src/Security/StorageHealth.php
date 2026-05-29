@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
+require_once __DIR__ . '/Entropy.php';
 
 class StorageHealth {
     private static $memoized = null;
@@ -163,12 +164,9 @@ class StorageHealth {
     }
 
     private static function probe_salt() {
-        if ( function_exists( 'random_bytes' ) ) {
-            try {
-                return bin2hex( random_bytes( 4 ) );
-            } catch ( Exception $e ) {
-                // Fall back to pid-based salt when the CSPRNG is unavailable.
-            }
+        $salt = Entropy::hex( 4 );
+        if ( $salt !== '' ) {
+            return $salt;
         }
 
         return (string) getmypid();

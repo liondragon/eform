@@ -479,10 +479,6 @@ class Config
                 return $is_override ? null : $default;
             }
 
-            if (isset($rule['aliases'][$value])) {
-                $value = $rule['aliases'][$value];
-            }
-
             if (!in_array($value, $rule['values'], true)) {
                 self::record_schema_error($errors, $path, 'enum');
                 return $is_override ? null : $default;
@@ -535,13 +531,13 @@ class Config
     private static function schema_rule($path)
     {
         $rules = array(
-            'security.origin_mode' => array('type' => 'enum', 'values' => array('off', 'soft', 'hard'), 'aliases' => array()),
-            'security.honeypot_response' => array('type' => 'enum', 'values' => array('stealth_success', 'hard_fail'), 'aliases' => array()),
-            'challenge.mode' => array('type' => 'enum', 'values' => array('off', 'auto', 'always_post'), 'aliases' => array('always' => 'always_post')),
-            'challenge.provider' => array('type' => 'enum', 'values' => array('turnstile'), 'aliases' => array()),
-            'logging.mode' => array('type' => 'enum', 'values' => array('off', 'minimal', 'jsonl'), 'aliases' => array()),
-            'logging.fail2ban.target' => array('type' => 'enum', 'values' => array('file'), 'aliases' => array()),
-            'privacy.ip_mode' => array('type' => 'enum', 'values' => array('none', 'masked', 'hash', 'full'), 'aliases' => array()),
+            'security.origin_mode' => array('type' => 'enum', 'values' => array('off', 'soft', 'hard')),
+            'security.honeypot_response' => array('type' => 'enum', 'values' => array('stealth_success', 'hard_fail')),
+            'challenge.mode' => array('type' => 'enum', 'values' => array('off', 'auto', 'always_post')),
+            'challenge.provider' => array('type' => 'enum', 'values' => array('turnstile')),
+            'logging.mode' => array('type' => 'enum', 'values' => array('off', 'minimal', 'jsonl')),
+            'logging.fail2ban.target' => array('type' => 'enum', 'values' => array('file')),
+            'privacy.ip_mode' => array('type' => 'enum', 'values' => array('none', 'masked', 'hash', 'full')),
         );
 
         if (isset($rules[$path])) {

@@ -2,7 +2,9 @@
   "id": "contact",
   "version": "1",
   "title": "Contact Us",
-  "success": { "mode": "inline", "message": "Thanks! We got your message." },
+  "result_pages": {
+    "success": { "message": "Thanks! We got your message." }
+  },
   "email": {
     "to": "office@flooringartists.com",
     "subject": "Contact Form - {{field.name}}",

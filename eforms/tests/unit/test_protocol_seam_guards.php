@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../../src/FormProtocol.php';
 
 function eforms_protocol_guard_read( $relative ) {
     $path = dirname( __DIR__, 2 ) . '/' . ltrim( $relative, '/' );
@@ -13,10 +14,27 @@ function eforms_protocol_guard_read( $relative ) {
     return $contents;
 }
 
+function eforms_protocol_guard_assert_protocol_owner( $contents, $constant, $path ) {
+    eforms_test_assert(
+        strpos( $contents, 'FormProtocol::' . $constant ) !== false,
+        $path . ' should read protocol fields through FormProtocol::' . $constant . '.'
+    );
+}
+
+function eforms_protocol_guard_assert_no_post_literal( $contents, $field, $path ) {
+    $pattern = '/post_string\s*\(\s*\$post\s*,\s*[\'"]' . preg_quote( $field, '/' ) . '[\'"]\s*\)/';
+    eforms_test_assert(
+        preg_match( $pattern, $contents ) !== 1,
+        $path . ' must not read protocol field "' . $field . '" through a local literal.'
+    );
+}
+
 $template_validator = eforms_protocol_guard_read( 'src/Validation/TemplateValidator.php' );
 $submit_handler = eforms_protocol_guard_read( 'src/Submission/SubmitHandler.php' );
 $public_controller = eforms_protocol_guard_read( 'src/Submission/PublicRequestController.php' );
 $form_renderer = eforms_protocol_guard_read( 'src/Rendering/FormRenderer.php' );
+$security = eforms_protocol_guard_read( 'src/Security/Security.php' );
+$timing_signals = eforms_protocol_guard_read( 'src/Security/TimingSignals.php' );
 $normalizer = eforms_protocol_guard_read( 'src/Validation/Normalizer.php' );
 $validator = eforms_protocol_guard_read( 'src/Validation/Validator.php' );
 $upload_store = eforms_protocol_guard_read( 'src/Uploads/UploadStore.php' );
@@ -47,6 +65,15 @@ eforms_test_assert( strpos( $submit_handler, 'spam_short_circuit_result' ) !== f
 eforms_test_assert( strpos( $public_controller, 'private static function reserved_keys' ) === false, 'PublicRequestController must not own a reserved-key map.' );
 eforms_test_assert( strpos( $public_controller, 'FormProtocol::post_detection_keys' ) !== false, 'PublicRequestController should use FormProtocol detection keys.' );
 eforms_test_assert( strpos( $public_controller, 'FormProtocol::reserved_field_key_map' ) !== false, 'PublicRequestController should use FormProtocol reserved keys.' );
+
+eforms_protocol_guard_assert_protocol_owner( $security, 'FIELD_TOKEN', 'Security' );
+eforms_protocol_guard_assert_protocol_owner( $security, 'FIELD_INSTANCE_ID', 'Security' );
+eforms_protocol_guard_assert_protocol_owner( $security, 'FIELD_MODE', 'Security' );
+eforms_protocol_guard_assert_protocol_owner( $timing_signals, 'FIELD_JS_OK', 'TimingSignals' );
+eforms_protocol_guard_assert_no_post_literal( $security, FormProtocol::FIELD_TOKEN, 'Security' );
+eforms_protocol_guard_assert_no_post_literal( $security, FormProtocol::FIELD_INSTANCE_ID, 'Security' );
+eforms_protocol_guard_assert_no_post_literal( $security, FormProtocol::FIELD_MODE, 'Security' );
+eforms_protocol_guard_assert_no_post_literal( $timing_signals, FormProtocol::FIELD_JS_OK, 'TimingSignals' );
 
 eforms_test_assert( strpos( $form_renderer, 'last_textlike_index' ) === false, 'FormRenderer must not own a local text-like enterkeyhint list.' );
 eforms_test_assert( strpos( $form_renderer, 'is_textlike_descriptor' ) === false, 'FormRenderer must not own text-like descriptor predicates.' );

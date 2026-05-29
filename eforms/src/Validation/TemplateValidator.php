@@ -24,16 +24,20 @@ class TemplateValidator {
         'id',
         'version',
         'title',
-        'success',
+        'result_pages',
         'email',
         'fields',
         'submit_button_text',
         'rules',
     );
 
-    const SUCCESS_KEYS = array(
-        'mode',
-        'redirect_url',
+    const RESULT_PAGES_KEYS = array(
+        'success',
+        'email_failure',
+    );
+
+    const RESULT_PAGE_KEYS = array(
+        'title',
         'message',
     );
 
@@ -96,11 +100,6 @@ class TemplateValidator {
         'equals_any',
     );
 
-    const SUCCESS_MODES = array(
-        'inline',
-        'redirect',
-    );
-
     const ROW_GROUP_MODES = array(
         'start',
         'end',
@@ -145,15 +144,15 @@ class TemplateValidator {
         }
 
         self::validate_unknown_keys( $template, self::ROOT_KEYS, $errors );
-        self::require_keys( $template, array( 'id', 'title', 'success', 'email', 'fields', 'submit_button_text' ), $errors );
+        self::require_keys( $template, array( 'id', 'title', 'email', 'fields', 'submit_button_text' ), $errors );
 
         self::validate_string( $template, 'id', $errors );
         self::validate_string( $template, 'version', $errors, false );
         self::validate_string( $template, 'title', $errors );
         self::validate_string( $template, 'submit_button_text', $errors );
 
-        if ( isset( $template['success'] ) ) {
-            self::validate_success_block( $template['success'], $errors );
+        if ( array_key_exists( 'result_pages', $template ) ) {
+            self::validate_result_pages_block( $template['result_pages'], $errors );
         }
 
         if ( isset( $template['email'] ) ) {
@@ -200,17 +199,29 @@ class TemplateValidator {
         }
     }
 
-    private static function validate_success_block( $success, $errors ) {
-        if ( ! is_array( $success ) ) {
+    private static function validate_result_pages_block( $result_pages, $errors ) {
+        if ( ! is_array( $result_pages ) ) {
             $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
             return;
         }
 
-        self::validate_unknown_keys( $success, self::SUCCESS_KEYS, $errors );
-        self::require_keys( $success, array( 'mode' ), $errors );
-        self::validate_enum( $success, 'mode', self::SUCCESS_MODES, $errors );
-        self::validate_string( $success, 'message', $errors, false );
-        self::validate_string( $success, 'redirect_url', $errors, false );
+        self::validate_unknown_keys( $result_pages, self::RESULT_PAGES_KEYS, $errors );
+        foreach ( self::RESULT_PAGES_KEYS as $result_type ) {
+            if ( array_key_exists( $result_type, $result_pages ) ) {
+                self::validate_result_page_block( $result_pages[ $result_type ], $errors );
+            }
+        }
+    }
+
+    private static function validate_result_page_block( $result_page, $errors ) {
+        if ( ! is_array( $result_page ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+            return;
+        }
+
+        self::validate_unknown_keys( $result_page, self::RESULT_PAGE_KEYS, $errors );
+        self::validate_string( $result_page, 'title', $errors, false );
+        self::validate_string( $result_page, 'message', $errors, false );
     }
 
     private static function validate_email_block( $email, $errors ) {

@@ -28,10 +28,10 @@ class OriginPolicy
             if ($origin_norm === null) {
                 $state = 'unknown';
             } else {
-                $server_norm = self::server_origin();
-                if ($server_norm === null) {
+                $same_origin = self::same_origin();
+                if ($same_origin === null) {
                     $state = 'unknown';
-                } elseif (self::origins_match($origin_norm, $server_norm)) {
+                } elseif (self::origins_match($origin_norm, $same_origin)) {
                     $state = 'same';
                 } else {
                     $state = 'cross';
@@ -91,6 +91,30 @@ class OriginPolicy
         }
 
         return '';
+    }
+
+    private static function same_origin()
+    {
+        $site_origin = self::site_origin();
+        if ($site_origin !== null) {
+            return $site_origin;
+        }
+
+        return self::server_origin();
+    }
+
+    private static function site_origin()
+    {
+        if (!function_exists('home_url')) {
+            return null;
+        }
+
+        $home = home_url();
+        if (!is_string($home) || trim($home) === '') {
+            return null;
+        }
+
+        return self::normalize_origin($home);
     }
 
     private static function server_origin()

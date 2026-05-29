@@ -9,6 +9,7 @@ require_once __DIR__ . '/Config.php';
 require_once __DIR__ . '/Privacy/ClientIp.php';
 require_once __DIR__ . '/Logging/JsonlLogger.php';
 require_once __DIR__ . '/Logging/Fail2banLogger.php';
+require_once __DIR__ . '/Security/Entropy.php';
 
 class Logging {
     const REQUEST_ID_MAX_BYTES = 128;
@@ -261,32 +262,7 @@ class Logging {
     }
 
     private static function generate_uuid_v4() {
-        $bytes = '';
-        if ( function_exists( 'random_bytes' ) ) {
-            $bytes = random_bytes( 16 );
-        } elseif ( function_exists( 'openssl_random_pseudo_bytes' ) ) {
-            $bytes = openssl_random_pseudo_bytes( 16 );
-        }
-
-        if ( ! is_string( $bytes ) || strlen( $bytes ) !== 16 ) {
-            $bytes = '';
-            for ( $i = 0; $i < 16; $i++ ) {
-                $bytes .= chr( mt_rand( 0, 255 ) );
-            }
-        }
-
-        $bytes[6] = chr( ( ord( $bytes[6] ) & 0x0f ) | 0x40 );
-        $bytes[8] = chr( ( ord( $bytes[8] ) & 0x3f ) | 0x80 );
-
-        $hex = bin2hex( $bytes );
-        return sprintf(
-            '%s-%s-%s-%s-%s',
-            substr( $hex, 0, 8 ),
-            substr( $hex, 8, 4 ),
-            substr( $hex, 12, 4 ),
-            substr( $hex, 16, 4 ),
-            substr( $hex, 20, 12 )
-        );
+        return Entropy::uuid_v4();
     }
 
     private static function fallback_request_id() {
@@ -300,21 +276,19 @@ class Logging {
         $form_id       = self::line_field( $meta, 'form_id' );
         $submission_id = self::line_field( $meta, 'submission_id' );
         $uri           = self::line_field( $meta, 'uri' );
-        $message       = self::line_field( $meta, 'message' );
 
         $ip = is_string( $ip ) && $ip !== '' ? $ip : 'none';
 
-        $encoded_meta = self::encode_json( $meta );
+        $encoded_meta = self::encode_json( self::sanitize_meta_for_minimal( $meta ) );
 
         return sprintf(
-            'eforms severity=%s code=%s form=%s subm=%s ip=%s uri="%s" msg="%s" meta=%s',
+            'eforms severity=%s code=%s form=%s subm=%s ip=%s uri="%s" meta=%s',
             $severity,
             $code,
             $form_id,
             $submission_id,
             $ip,
             $uri,
-            $message,
             $encoded_meta
         );
     }
@@ -348,6 +322,47 @@ class Logging {
         }
 
         return $payload;
+    }
+
+    private static function sanitize_meta_for_minimal( $meta ) {
+        if ( ! is_array( $meta ) ) {
+            return array();
+        }
+
+        $allowed = array(
+            'request_id',
+            'form_id',
+            'submission_id',
+            'reason',
+            'mode',
+            'origin_state',
+            'throttle_state',
+            'spam_decision',
+            'soft_reasons',
+            'transport',
+            'error_class',
+            'desc_sha1',
+        );
+
+        $sanitized = array();
+        foreach ( $allowed as $key ) {
+            if ( ! array_key_exists( $key, $meta ) ) {
+                continue;
+            }
+
+            if ( $key === 'soft_reasons' ) {
+                if ( is_array( $meta[ $key ] ) ) {
+                    $sanitized[ $key ] = array_values( array_filter( $meta[ $key ], 'is_string' ) );
+                }
+                continue;
+            }
+
+            if ( is_scalar( $meta[ $key ] ) ) {
+                $sanitized[ $key ] = $meta[ $key ];
+            }
+        }
+
+        return $sanitized;
     }
 
     private static function line_field( $meta, $key ) {

@@ -2,9 +2,10 @@
   "id": "rules-demo",
   "version": "1",
   "title": "Rules Demo",
-  "success": {
-    "mode": "inline",
-    "message": "Thanks!"
+  "result_pages": {
+    "success": {
+      "message": "Thanks!"
+    }
   },
   "email": {
     "to": "test@example.com",

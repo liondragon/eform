@@ -44,10 +44,11 @@ $template = array(
     'id' => 'demo',
     'version' => '1',
     'title' => 'Demo',
-    'success' => array(
-        'mode' => 'inline',
-        'message' => 'Thanks.',
-    ),
+            'result_pages' => array(
+                'success' => array(
+                    'message' => 'Thanks.',
+                ),
+            ),
     'email' => array(
         'to' => 'dest@example.com',
         'subject' => "Hello {{field.name}}\r\nBcc: test",

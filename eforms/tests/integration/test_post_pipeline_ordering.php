@@ -48,9 +48,10 @@ if ( ! function_exists( 'eforms_test_write_template' ) ) {
             'id' => $form_id,
             'version' => '1',
             'title' => 'Demo',
-            'success' => array(
-                'mode' => 'inline',
-                'message' => 'Thanks.',
+            'result_pages' => array(
+                'success' => array(
+                    'message' => 'Thanks.',
+                ),
             ),
             'email' => array(
                 'to' => 'demo@example.com',
@@ -153,9 +154,10 @@ file_put_contents(
             'id' => 'other',
             'version' => '1',
             'title' => 'Mismatch',
-            'success' => array(
-                'mode' => 'inline',
-                'message' => 'Thanks.',
+            'result_pages' => array(
+                'success' => array(
+                    'message' => 'Thanks.',
+                ),
             ),
             'email' => array(
                 'to' => 'demo@example.com',

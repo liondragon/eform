@@ -2,9 +2,10 @@
   "id": "quote-request",
   "version": "1",
   "title": "Quote Request",
-  "success": {
-    "mode": "inline",
-    "message": "Thanks! We got your request."
+  "result_pages": {
+    "success": {
+      "message": "Thanks! We got your request."
+    }
   },
   "email": {
     "to": "office@flooringartists.com",

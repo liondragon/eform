@@ -21,6 +21,14 @@ if ( ! function_exists( 'wp_upload_dir' ) ) {
     }
 }
 
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return isset( $GLOBALS['eforms_test_home_url'] ) && is_string( $GLOBALS['eforms_test_home_url'] )
+            ? $GLOBALS['eforms_test_home_url']
+            : 'https://example.com';
+    }
+}
+
 if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
     function eforms_test_remove_tree( $path ) {
         if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
@@ -141,13 +149,13 @@ $response = MintEndpoint::handle( $request );
 eforms_test_assert( $response['status'] === 400, 'Mint should reject missing form id.' );
 eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_INVALID_FORM_ID', 'Mint should return invalid form id.' );
 
-// Given a legacy alias-style form id...
+// Given a non-canonical form id...
 // When the endpoint runs...
 // Then it does not mint through an alternate identity path.
 $request['params'] = array( 'f' => 'contact_us' );
 $response = MintEndpoint::handle( $request );
 eforms_test_assert( $response['status'] === 400, 'Mint should reject non-canonical form aliases.' );
-eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_INVALID_FORM_ID', 'Mint alias rejection should use invalid form id.' );
+eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_INVALID_FORM_ID', 'Mint rejection should use invalid form id.' );
 
 // Given a cross-origin request...
 // When the endpoint runs...
@@ -157,6 +165,18 @@ $request['headers']['Origin'] = 'https://evil.example';
 $response = MintEndpoint::handle( $request );
 eforms_test_assert( $response['status'] === 403, 'Mint should reject cross-origin requests.' );
 eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_ORIGIN_FORBIDDEN', 'Mint should return origin forbidden.' );
+
+// Given a forged request Host that matches the Origin but not the site origin...
+// When the endpoint runs...
+// Then canonical home_url origin still owns the same-origin decision.
+$_SERVER['HTTP_HOST'] = 'evil.test';
+$GLOBALS['eforms_test_home_url'] = 'https://example.com';
+$request['headers']['Origin'] = 'https://evil.test';
+$response = MintEndpoint::handle( $request );
+eforms_test_assert( $response['status'] === 403, 'Mint should reject forged Host plus matching Origin.' );
+eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_ORIGIN_FORBIDDEN', 'Forged Host rejection should use origin forbidden.' );
+$_SERVER['HTTP_HOST'] = 'example.com';
+unset( $GLOBALS['eforms_test_home_url'] );
 
 // Given an oversized POST body...
 // When the endpoint runs...

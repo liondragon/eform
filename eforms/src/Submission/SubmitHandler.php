@@ -95,7 +95,6 @@ class SubmitHandler {
 
         $honeypot = Honeypot::evaluate( $post, $config );
         if ( ! empty( $honeypot['triggered'] ) ) {
-            $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
             return self::spam_short_circuit_result(
                 'honeypot',
                 'EFORMS_ERR_HONEYPOT',
@@ -105,7 +104,6 @@ class SubmitHandler {
                 $resolved_form_id,
                 $security,
                 $security_meta,
-                $success_config,
                 $uploads_dir,
                 $request,
                 $config,
@@ -143,7 +141,6 @@ class SubmitHandler {
         }
 
         if ( self::is_spam_fail_count( $soft_fail_count, $spam_threshold ) ) {
-            $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
             return self::spam_short_circuit_result(
                 'spam',
                 'EFORMS_ERR_SPAM',
@@ -153,7 +150,6 @@ class SubmitHandler {
                 $resolved_form_id,
                 $security,
                 $security_meta,
-                $success_config,
                 $uploads_dir,
                 $request,
                 $config,
@@ -211,9 +207,6 @@ class SubmitHandler {
         $ok = self::commit_ok( $commit );
         $status = self::commit_status( $commit );
 
-        $success_config = isset( $context['success'] ) && is_array( $context['success'] ) ? $context['success'] : array();
-        $success_mode = isset( $success_config['mode'] ) && is_string( $success_config['mode'] ) ? $success_config['mode'] : 'inline';
-
         $result = array(
             'ok' => $ok,
             'status' => $status,
@@ -225,11 +218,6 @@ class SubmitHandler {
             'errors' => null,
             'security' => $security_meta,
             'commit' => $commit,
-            'success' => array(
-                'mode' => $success_mode,
-                'message' => isset( $success_config['message'] ) ? $success_config['message'] : '',
-                'redirect_url' => isset( $success_config['redirect_url'] ) ? $success_config['redirect_url'] : '',
-            ),
             'form_id' => $resolved_form_id,
         );
 
@@ -255,11 +243,9 @@ class SubmitHandler {
         }
 
         $form_id = isset( $result['form_id'] ) && is_string( $result['form_id'] ) ? $result['form_id'] : '';
-        $success = isset( $result['success'] ) && is_array( $result['success'] ) ? $result['success'] : array();
 
         $context = array(
             'id' => $form_id,
-            'success' => $success,
         );
 
         return Success::redirect( $context, $options );
@@ -560,7 +546,7 @@ class SubmitHandler {
         return '';
     }
 
-    private static function spam_short_circuit_result( $trace_label, $error_code, $response, $files, $overrides, $form_id, $security, $security_meta, $success_config, $uploads_dir, $request, $config, &$trace, $trace_on, $soft_fail_count = 0, $threshold = 0 ) {
+    private static function spam_short_circuit_result( $trace_label, $error_code, $response, $files, $overrides, $form_id, $security, $security_meta, $uploads_dir, $request, $config, &$trace, $trace_on, $soft_fail_count = 0, $threshold = 0 ) {
         if ( $trace_on ) {
             $trace[] = $trace_label;
         }
@@ -582,7 +568,7 @@ class SubmitHandler {
             return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
         }
 
-        return self::honeypot_success_result( $security, $security_meta, $success_config, $form_id, $trace, $trace_on );
+        return self::honeypot_success_result( $security, $security_meta, $form_id, $trace, $trace_on );
     }
 
     private static function call_spam_ledger_burn( $overrides, $form_id, $submission_id, $uploads_dir, $request, $config ) {
@@ -733,9 +719,7 @@ class SubmitHandler {
         return $result;
     }
 
-    private static function honeypot_success_result( $security, $security_meta, $success_config, $form_id, $trace, $trace_on ) {
-        $success_config = is_array( $success_config ) ? $success_config : array();
-        $success_mode = isset( $success_config['mode'] ) && is_string( $success_config['mode'] ) ? $success_config['mode'] : 'inline';
+    private static function honeypot_success_result( $security, $security_meta, $form_id, $trace, $trace_on ) {
         $form_id = is_string( $form_id ) ? $form_id : '';
 
         $result = array(
@@ -752,12 +736,6 @@ class SubmitHandler {
                 'ok' => true,
                 'status' => 200,
                 'committed' => false,
-            ),
-            // Educational note: stealth honeypot paths should mirror success metadata.
-            'success' => array(
-                'mode' => $success_mode,
-                'message' => isset( $success_config['message'] ) ? $success_config['message'] : '',
-                'redirect_url' => isset( $success_config['redirect_url'] ) ? $success_config['redirect_url'] : '',
             ),
             'form_id' => $form_id,
         );

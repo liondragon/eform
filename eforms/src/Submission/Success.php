@@ -3,12 +3,12 @@
  * Success handling for PRG (Post-Redirect-Get) flow.
  *
  * Spec: Success behavior (docs/Canonical_Spec.md#sec-success)
- * Spec: Success modes (docs/Canonical_Spec.md#sec-success-modes)
  * Spec: Result page success flow (docs/Canonical_Spec.md#sec-success-flow)
  * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
  */
 
 require_once __DIR__ . '/../ErrorMessages.php';
+require_once __DIR__ . '/../WordPressRuntime.php';
 
 if ( ! class_exists( 'Logging' ) ) {
     require_once __DIR__ . '/../Logging.php';
@@ -28,7 +28,7 @@ class Success {
      * Spec: PRG status is fixed at 303. Success responses MUST satisfy cache-safety.
      * Spec: Redirects via wp_safe_redirect to the plugin-owned result page.
      *
-     * @param array $context Template context with success configuration.
+     * @param array $context Template context with form identity.
      * @param array $options Optional overrides for testing.
      * @return array Result with ok, status, location.
      */
@@ -47,25 +47,6 @@ class Success {
      */
     public static function redirect_email_failure( $form_id, $options = array() ) {
         return self::redirect_result( self::RESULT_EMAIL_FAILURE, $form_id, $options );
-    }
-
-    /**
-     * Get the success message from template context.
-     *
-     * @param array $context Template context.
-     * @return string Success message (plain text, already escaped for HTML).
-     */
-    public static function get_message( $context ) {
-        if ( ! is_array( $context ) || ! isset( $context['success'] ) || ! is_array( $context['success'] ) ) {
-            return 'Thank you for your submission.';
-        }
-
-        $success = $context['success'];
-        if ( isset( $success['message'] ) && is_string( $success['message'] ) && $success['message'] !== '' ) {
-            return $success['message'];
-        }
-
-        return 'Thank you for your submission.';
     }
 
     public static function redirect_result( $result_type, $form_id, $options = array() ) {
@@ -111,11 +92,25 @@ class Success {
     }
 
     public static function get_result_message( $result_type, $context ) {
+        $message = self::result_page_value( $context, $result_type, 'message' );
+        if ( $message !== '' ) {
+            return $message;
+        }
+
         if ( $result_type === self::RESULT_EMAIL_FAILURE ) {
             return ErrorMessages::message( 'EFORMS_ERR_EMAIL_SEND' );
         }
 
-        return self::get_message( $context );
+        return 'Thank you for your submission.';
+    }
+
+    public static function get_result_title( $result_type, $context ) {
+        $title = self::result_page_value( $context, $result_type, 'title' );
+        if ( $title !== '' ) {
+            return $title;
+        }
+
+        return $result_type === self::RESULT_EMAIL_FAILURE ? 'Request Not Sent' : 'Thank You';
     }
 
     /**
@@ -256,7 +251,6 @@ class Success {
         parse_str( $query, $params );
 
         unset( $params['eforms_email_retry'] );
-        unset( $params['eforms_success'] );
         unset( $params[ self::RESULT_PARAM ] );
         unset( $params[ self::FORM_PARAM ] );
 
@@ -310,12 +304,7 @@ class Success {
             );
         }
 
-        if ( function_exists( 'wp_safe_redirect' ) ) {
-            $redirected = wp_safe_redirect( $url, $status );
-            if ( $redirected !== true ) {
-                return self::fail( 'redirect_rejected' );
-            }
-
+        if ( WordPressRuntime::safe_redirect( $url, $status ) ) {
             return array(
                 'ok' => true,
                 'status' => $status,
@@ -323,16 +312,7 @@ class Success {
             );
         }
 
-        if ( ! headers_sent() ) {
-            header( 'Location: ' . $url, true, $status );
-            return array(
-                'ok' => true,
-                'status' => $status,
-                'location' => $url,
-            );
-        }
-
-        return self::fail( 'headers_sent' );
+        return self::fail( 'redirect_rejected' );
     }
 
     /**
@@ -348,17 +328,21 @@ class Success {
         );
     }
 
-    /**
-     * Escape HTML entities.
-     *
-     * @param string $value Value to escape.
-     * @return string Escaped value.
-     */
-    private static function escape_html( $value ) {
-        if ( function_exists( 'esc_html' ) ) {
-            return esc_html( $value );
+    private static function result_page_value( $context, $result_type, $key ) {
+        if ( ! is_array( $context ) || ! isset( $context['result_pages'] ) || ! is_array( $context['result_pages'] ) ) {
+            return '';
         }
 
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
+        if ( ! self::is_result_type( $result_type ) || ! is_string( $key ) || $key === '' ) {
+            return '';
+        }
+
+        $pages = $context['result_pages'];
+        if ( ! isset( $pages[ $result_type ] ) || ! is_array( $pages[ $result_type ] ) ) {
+            return '';
+        }
+
+        $value = isset( $pages[ $result_type ][ $key ] ) ? $pages[ $result_type ][ $key ] : '';
+        return is_string( $value ) ? $value : '';
     }
 }

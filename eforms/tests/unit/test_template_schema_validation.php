@@ -38,9 +38,15 @@ $template = array(
     'id' => 'demo_form',
     'version' => '1',
     'title' => 'Demo',
-    'success' => array(
-        'mode' => 'inline',
-        'message' => 'Thanks.',
+    'result_pages' => array(
+        'success' => array(
+            'title' => 'Thanks',
+            'message' => 'Thanks.',
+        ),
+        'email_failure' => array(
+            'title' => 'Request Not Sent',
+            'message' => 'Please try again.',
+        ),
     ),
     'email' => array(
         'to' => 'demo@example.com',
@@ -90,14 +96,47 @@ $codes  = eforms_test_collect_codes( $errors );
 eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY', $codes, true ), 'Unknown field keys should be rejected.' );
 unset( $template['fields'][0]['unknown_field'] );
 
-// Given invalid enums...
+// Given non-schema result destination fields...
 // When TemplateValidator runs...
-// Then it emits schema enum errors.
-$template['success']['mode'] = 'bogus';
+// Then it rejects them instead of treating them as live behavior.
+$template['success'] = array(
+    'mode' => 'redirect',
+    'redirect_url' => 'https://example.com/thanks/',
+);
 $errors = TemplateValidator::validate_template_envelope( $template );
 $codes  = eforms_test_collect_codes( $errors );
-eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'Invalid success.mode should be rejected.' );
-$template['success']['mode'] = 'inline';
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY', $codes, true ), 'Legacy success block should be rejected.' );
+unset( $template['success'] );
+
+$template['result_pages']['success']['redirect_url'] = 'https://example.com/thanks/';
+$errors = TemplateValidator::validate_template_envelope( $template );
+$codes  = eforms_test_collect_codes( $errors );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY', $codes, true ), 'Result page config must not accept redirect_url.' );
+unset( $template['result_pages']['success']['redirect_url'] );
+
+$template['result_pages'] = null;
+$errors = TemplateValidator::validate_template_envelope( $template );
+$codes  = eforms_test_collect_codes( $errors );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'result_pages must be an object when present.' );
+$template['result_pages'] = array(
+    'success' => array(
+        'title' => 'Thanks',
+        'message' => 'Thanks.',
+    ),
+    'email_failure' => array(
+        'title' => 'Request Not Sent',
+        'message' => 'Please try again.',
+    ),
+);
+
+$template['result_pages']['success'] = null;
+$errors = TemplateValidator::validate_template_envelope( $template );
+$codes  = eforms_test_collect_codes( $errors );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'result_pages.success must be an object when present.' );
+$template['result_pages']['success'] = array(
+    'title' => 'Thanks',
+    'message' => 'Thanks.',
+);
 
 $template['fields'][0]['type'] = 'bogus';
 $errors = TemplateValidator::validate_template_envelope( $template );
@@ -129,9 +168,10 @@ $template = array(
     'id' => 'demo_form',
     'version' => '1',
     'title' => 'Demo',
-    'success' => array(
-        'mode' => 'inline',
-        'message' => 'Thanks.',
+    'result_pages' => array(
+        'success' => array(
+            'message' => 'Thanks.',
+        ),
     ),
     'email' => array(
         'to' => 'demo@example.com',
@@ -160,9 +200,10 @@ $template = array(
     'id' => 'demo_form',
     'version' => '1',
     'title' => 'Demo',
-    'success' => array(
-        'mode' => 'inline',
-        'message' => 'Thanks.',
+    'result_pages' => array(
+        'success' => array(
+            'message' => 'Thanks.',
+        ),
     ),
     'email' => array(
         'to' => 'demo@example.com',
@@ -189,16 +230,20 @@ $errors = TemplateValidator::validate_template_envelope( $missing_email );
 $codes  = eforms_test_collect_codes( $errors );
 eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_REQUIRED', $codes, true ), 'Missing required keys should be rejected.' );
 
-// Given redirect mode without redirect_url...
+// Given result-page customization without redirect behavior...
 // When TemplateValidator runs...
-// Then it remains structurally valid because virtual result pages ignore redirect_url.
-$redirect_missing = $template;
-$redirect_missing['success'] = array(
-    'mode' => 'redirect',
+// Then the template remains structurally valid.
+$custom_result_page = $template;
+$custom_result_page['result_pages'] = array(
+    'success' => array(
+        'title' => 'Custom Thanks',
+        'message' => 'Custom result copy.',
+    ),
 );
-$errors = TemplateValidator::validate_template_envelope( $redirect_missing );
+$errors = TemplateValidator::validate_template_envelope( $custom_result_page );
 $codes  = eforms_test_collect_codes( $errors );
-eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_REQUIRED', $codes, true ), 'Redirect mode should not require redirect_url.' );
+eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_REQUIRED', $codes, true ), 'Result-page customization should not require redirect fields.' );
+eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY', $codes, true ), 'Result-page customization should use the canonical schema.' );
 
 // Given include_fields referencing unknown keys...
 // When TemplateValidator runs...

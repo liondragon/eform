@@ -192,7 +192,7 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 >	- Side-effects:
 >	- None beyond normalization; runtime loads files lazily and never modifies them in place.
 >	- Returns:
->	- Minimal shape includes `id` (slug), `version` (string), `title` (string), `success { mode:"inline"|"redirect", redirect_url?, message? }`, `email { to, subject, email_template, include_fields[], display_format_tel? }`, `fields[]` (see §5.1), `submit_button_text` (string), and bounded JSON `rules[]` (see §10).
+>	- Minimal shape includes `id` (slug), `version` (string), `title` (string), optional `result_pages { success?: { title?, message? }, email_failure?: { title?, message? } }`, `email { to, subject, email_template, include_fields[], display_format_tel? }`, `fields[]` (see §5.1), `submit_button_text` (string), and bounded JSON `rules[]` (see §10).
 >	- Failure modes:
 >	- Filenames outside the allow-list are ignored. Malformed or incomplete JSON triggers a deterministic “Form configuration error” without a white screen.
 
@@ -234,7 +234,7 @@ Email block (normative):
 >	- Side-effects:
 >	- Version strings feed cache keys used by TemplateContext consumers; changes force downstream caches to invalidate.
 >	- Returns:
->	- The normalized version value is stored in TemplateContext and mirrored into success/logging metadata.
+>	- The normalized version value is stored in TemplateContext and mirrored into result/logging metadata.
 >	- Failure modes:
 >	- None; omission simply relies on `filemtime()` which may cache-bust less predictably.
 
@@ -259,7 +259,7 @@ Email block (normative):
 >	- Descriptor resolution is fail-fast: unknown handler IDs throw a deterministic `RuntimeException` containing `{ type, id, registry, spec_path }` and abort template loading.
 >	- Alias hygiene runs during preflight, asserting that aliases share handler IDs with their target; violations abort template loading.
 >	- Returns:
->	- TemplateContext exposes `has_uploads` (bool), `descriptors[]` (resolved field descriptors), `version`, `id`, `email`, `success`, `rules`, normalized `fields`, and `max_input_vars_estimate` (advisory).
+>	- TemplateContext exposes `has_uploads` (bool), `descriptors[]` (resolved field descriptors), `version`, `id`, `email`, `result_pages`, `rules`, normalized `fields`, and `max_input_vars_estimate` (advisory).
 >	- Each resolved descriptor includes `{ key, type, is_multivalue, name_tpl, id_prefix, html, validate, constants, attr_mirror, handlers: { v, n, r } }` and remains immutable for the request. Renderer and Validator reuse the same descriptor objects to avoid re-merging during POST.
 >	- Failure modes:
 >	- Attempting to resolve unknown handlers, mutate descriptors post-preflight, or violate alias invariants aborts template loading and is treated as a configuration error surfaced during preflight.
@@ -529,7 +529,6 @@ Notes (normative):
 	- JS-minted scenarios → follow [Security → JS-minted mode contract](#sec-js-mint-mode).
 	- Ledger scenarios → follow [Security → Ledger reservation contract](#sec-ledger-contract).
 	- Honeypot scenarios → follow [Security → Honeypot](#sec-honeypot).
-	- Inline success scenarios → follow [Success behavior → Inline success flow](#sec-success-flow).
 
 <a id="sec-spam-decision"></a>8. Spam Decision
 	- Ordering (normative): the Security gate runs before Normalize/Validate/Coerce; on hard failure it MUST stop processing before side effects (uploads moves, email). Honeypot may still perform its ledger burn/cleanup as specified in [Security → Honeypot](#sec-honeypot).
@@ -593,7 +592,6 @@ Notes (normative):
 
 	- Token reuse: see [Security invariants](#sec-security-invariants).
 	- Modes: off | auto (require when `soft_reasons` is non-empty) | always_post.
-	- Legacy `always` is accepted as an alias for `always_post`.
 	- Provider (v1): Turnstile only (`cf-turnstile-response`).
 	- If `challenge.mode` requires verification but Turnstile site_key/secret_key are not configured, treat it as a configuration error and fail with `EFORMS_CHALLENGE_UNCONFIGURED` until fixed.
 	- Render only on POST rerender when required or during verification; never on the initial GET.
@@ -602,7 +600,7 @@ Notes (normative):
 <a id="sec-validation-pipeline"></a>
 9. VALIDATION & SANITIZATION PIPELINE (DETERMINISTIC)
 	0. Structural preflight (stop on error; no field processing)
-	- Unknown keys rejected at every level (root/email/success/field/rule).
+	- Unknown keys rejected at every level (root/email/result_pages/result_page/field/rule).
 	- Unknown-key errors MAY include a best-effort "did you mean …?" suggestion when an unambiguous close match exists.
 	- fields[].key must be unique; duplicates → EFORMS_ERR_SCHEMA_DUP_KEY.
 	- Enum enforcement (field.type, rule.rule, row_group.mode, row_group.tag).
@@ -726,18 +724,17 @@ Notes (normative):
 <a id="sec-success"></a>
 14. SUCCESS BEHAVIOR (PRG)
 			- PRG status is fixed at 303. Success responses MUST satisfy [Cache-safety](#sec-cache-safety).
-			- Namespace internal query args with `eforms_*`. `success.message` is plain text and escaped.
+			- Namespace internal query args with `eforms_*`. Result page `title` and `message` values are plain text and escaped.
 			- Caching: do not disable page caching globally. Only bypass caching for requests containing `eforms_*` query args.
-			- <a id="sec-success-modes"></a>Modes (normative summary):
-				| Mode | PRG target | Display rule | Cache guidance |
-				|------|------------|--------------|----------------|
-				| Inline or Redirect | `303` back to the same URL with `?eforms_result=success&eforms_form={form_id}`. | `template_include` renders the fixed internal success page template with `success.message`. | The virtual result page is no-store/private and requires no WordPress page. |
-			- `success.redirect_url` MAY remain in templates for schema compatibility but MUST NOT determine the PRG destination.
+			- Result page configuration:
+				- `result_pages.success.title` and `result_pages.success.message` customize the successful-submission result page.
+				- `result_pages.email_failure.title` and `result_pages.email_failure.message` customize the email-failure result page.
+				- Result page configuration has no redirect destination field; arbitrary external result destinations are forbidden.
 			- <a id="sec-success-flow"></a>Result page success flow (normative):
 				1. On successful POST, redirect with `?eforms_result=success&eforms_form={form_id}` (303).
 				2. The handled POST redirect response MUST suppress the remaining WordPress template body and MUST NOT render the original page or form.
 				3. On the follow-up GET, the public controller loads the form context and swaps in `templates/pages/success.php`.
-				4. The success page renders the configured `success.message` and MUST NOT render the form.
+				4. The success page renders the configured `result_pages.success` copy and MUST NOT render the form.
 
 <a id="sec-email"></a>
 15. EMAIL DELIVERY
@@ -778,7 +775,7 @@ Notes (normative):
 		- Token evaluation mode (meta.mode) when the submission gate runs: "hidden" or "js".
 
 		- Request correlation identifier (normative):
-			- Canonical log key: `request_id`. Every log event emitted while handling a request MUST include this key; JSONL encodes it as a top-level property and minimal mode injects `req=<request_id>` into the `meta=` blob.
+				- Canonical log key: `request_id`. Every log event emitted while handling a request MUST include this key; JSONL encodes it as a top-level property and minimal mode injects `"request_id"` into the `meta=` blob.
 			- Resolution order:
 				- Apply `apply_filters('eforms_request_id', $candidate, $request)` first. Any non-empty ASCII string returned by the filter wins.
 				- If the filter yields an empty value, look for HTTP headers (case-insensitive) in this order: `X-Eforms-Request-Id`, `X-Request-Id`, `X-Correlation-Id`. The first header containing a printable token ≤128 bytes wins after trimming surrounding whitespace.
@@ -788,8 +785,9 @@ Notes (normative):
 
 	- Throttle & challenge outcomes at level >=1 (redact provider tokens).
 	- At level=2, include a compact descriptor fingerprint for this request: desc_sha1 = sha1(json_encode(resolved descriptors)). Optionally include a compact spam bitset alongside the human list.
-	- Minimal mode line format
-	- eforms severity=<error|warning|info> code=<EFORMS_*> form=<form_id> subm=<submission_id> ip=<masked|hash|full|none> uri="<path?eforms_*...>" msg="<short>" meta=<compact JSON>
+		- Minimal mode line format
+		- eforms severity=<error|warning|info> code=<EFORMS_*> form=<form_id> subm=<submission_id> ip=<masked|hash|full|none> uri="<path?eforms_*...>" meta=<compact allowlisted JSON>
+		- Minimal mode MUST NOT emit free-form event messages; operational detail belongs in the allowlisted `meta=` payload so `logging.pii=true` cannot leak emails, raw IPs, or arbitrary caller-provided text through the minimal sink.
 	- Fail2ban (optional; independent of logging.mode; enabled only when `logging.fail2ban.file` is non-empty)
 
 	**Privacy notice:** Fail2ban emission uses the resolved client IP in plaintext regardless of `privacy.ip_mode`. This is intentional—external rate-limiting tools require real IPs to function. Operators who enable Fail2ban should be aware that raw IPs will appear in the Fail2ban log even when `privacy.ip_mode` is set to `masked`, `hash`, or `none`.
@@ -877,7 +875,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	| Security	| `security.max_form_age_seconds`		 | int	 | clamp `[MAX_FORM_AGE_MIN]`–`[MAX_FORM_AGE_MAX]`; defaults to `security.token_ttl_seconds` when omitted (see [Anchors](#sec-anchors)).											|
 	| Security	| `security.origin_missing_hard`		 | bool	| When `security.origin_mode="hard"`, treat missing Origin header as hard-fail.														|
 	| Spam		| `spam.soft_fail_threshold`			 | int	 | Controls spam decision; clamped per [Spam Decision](#sec-spam-decision).									|
-	| Challenge | `challenge.mode`						| enum	| {`off`,`auto`,`always_post`} — controls when human challenges execute; invalid values MUST be rejected; legacy `always` is accepted as an alias.			|
+	| Challenge | `challenge.mode`						| enum	| {`off`,`auto`,`always_post`} — controls when human challenges execute; invalid values MUST be rejected.			|
 	| Challenge | `challenge.provider`					| enum	| {`turnstile`} (v1). `hcaptcha` and `recaptcha` reserved for future extension.			 |
 	| Challenge | `challenge.http_timeout_seconds`		| int	 | clamp `[CHALLENGE_TIMEOUT_MIN]`–`[CHALLENGE_TIMEOUT_MAX]` seconds (see [Anchors](#sec-anchors)).																							|
 	| Challenge | `challenge.site_key`				| string | Optional; Turnstile site key. Required when `challenge.mode != "off"`; missing triggers `EFORMS_CHALLENGE_UNCONFIGURED`. |
@@ -1080,12 +1078,12 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 <a id="sec-templates-to-include"></a>
 26. TEMPLATES TO INCLUDE
 	1. [`eforms/templates/forms/quote-request.json`](../eforms/templates/forms/quote-request.json)
-		- Canonical “Quote Request” flow with `success.mode="redirect"` to illustrate post-submit navigation.
+		- Canonical “Quote Request” flow with customized `result_pages.success` copy.
 		- Demonstrates row-group wrappers for a temporary two-column layout (`row_group` start/end with `class="columns_nomargins"`).
 		- Shows required `tel_us` and `zip_us` fields with autocomplete hints alongside standard `name`/`email` inputs.
 		- Email block includes `include_fields` that capture the submitter IP and applies `display_format_tel="xxx-xxx-xxxx"`.
 	2. [`eforms/templates/forms/contact.json`](../eforms/templates/forms/contact.json)
-		- Inline-success contact form (`success.mode="inline"`) that thanks the user without redirecting.
+		- Contact form with customized `result_pages.success` copy on the virtual result page.
 		- Example of injecting sanitized template fragments via `before_html` on the first field.
 		- Highlights placeholder usage, explicit `size` for the email control, and subject templating (`"Contact Form - {{field.name}}"`).
 	3. eforms.css
@@ -1109,7 +1107,6 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	- EFORMS_ERR_LEDGER_IO - "Submission failed due to a server error. Please try again."
 	- EFORMS_ERR_UPLOAD_TYPE - "This file type isn't allowed."
 		- EFORMS_ERR_EMAIL_SEND - "We couldn't send your request right now, so it may not have reached us. Please try again in a few minutes. If the issue keeps happening, call 720.900.5278 or message us directly."
-		- EFORMS_ERR_INLINE_SUCCESS_REQUIRES_NONCACHEABLE - "Inline success requires a non-cacheable page." Legacy append-only code; the virtual result page flow does not emit it.
 		- EFORMS_ERR_THROTTLED - "Please wait a moment and try again."
 		- EFORMS_ERR_CHALLENGE_FAILED - "Please complete the verification and submit again."
 		- EFORMS_CHALLENGE_UNCONFIGURED – "Verification unavailable; please try again."

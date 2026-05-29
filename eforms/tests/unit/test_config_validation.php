@@ -94,7 +94,28 @@ foreach (Logging::$events as $event) {
 
 eforms_test_assert($found, 'Expected schema warning for throttle.per_ip.' );
 
-// Case 4: filter invalid values are sanitized (no drop-in warning requirement).
+// Case 4: challenge.mode accepts only canonical enum values.
+Logging::reset();
+$write_dropin(array(
+    'challenge' => array(
+        'mode' => 'always',
+    ),
+));
+Config::reset_for_tests();
+$config = Config::get();
+
+eforms_test_assert($config['challenge']['mode'] === $defaults['challenge']['mode'], 'Non-canonical challenge modes should fall back to defaults.' );
+$found = false;
+foreach (Logging::$events as $event) {
+    if ($event['code'] === 'EFORMS_CONFIG_DROPIN_INVALID' && isset($event['meta']['path']) && $event['meta']['path'] === 'challenge.mode') {
+        $found = true;
+        eforms_test_assert($event['meta']['reason'] === 'enum', 'Non-canonical challenge modes should be tagged with reason=enum.' );
+    }
+}
+
+eforms_test_assert($found, 'Expected schema warning for challenge.mode.' );
+
+// Case 5: filter invalid values are sanitized (no drop-in warning requirement).
 $remove_dropin();
 Logging::reset();
 eforms_test_set_filter(
@@ -111,7 +132,7 @@ eforms_test_assert($config['logging']['mode'] === $defaults['logging']['mode'], 
 eforms_test_assert(count(Logging::$events) === 0, 'Filter-derived schema errors should not be logged as drop-in errors.' );
 eforms_test_set_filter( 'eforms_config', null );
 
-// Case 5: shared lookup helpers are array-path based and bool reads remain strict.
+// Case 6: shared lookup helpers are array-path based and bool reads remain strict.
 $sample = array(
     'feature' => array(
         'enabled' => true,

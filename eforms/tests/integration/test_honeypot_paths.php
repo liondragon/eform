@@ -55,9 +55,10 @@ if ( ! function_exists( 'eforms_test_write_template' ) ) {
             'id' => $form_id,
             'version' => '1',
             'title' => 'Demo',
-            'success' => array(
-                'mode' => 'inline',
-                'message' => 'Thanks.',
+            'result_pages' => array(
+                'success' => array(
+                    'message' => 'Thanks.',
+                ),
             ),
             'email' => array(
                 'to' => 'demo@example.com',
@@ -138,14 +139,7 @@ $result = SubmitHandler::handle( 'demo', $request, $overrides );
 
 eforms_test_assert( $result['ok'] === true, 'Stealth honeypot should return ok result.' );
 eforms_test_assert( $result['errors'] === null, 'Stealth honeypot should not include errors.' );
-eforms_test_assert(
-    isset( $result['success'] ) && is_array( $result['success'] ),
-    'Stealth honeypot should include success metadata.'
-);
-eforms_test_assert(
-    isset( $result['success']['mode'] ) && $result['success']['mode'] === 'inline',
-    'Stealth honeypot should mirror the template success mode.'
-);
+eforms_test_assert( ! isset( $result['success'] ), 'Stealth honeypot should not carry result-page copy metadata.' );
 eforms_test_assert(
     isset( $result['form_id'] ) && $result['form_id'] === 'demo',
     'Stealth honeypot should include the form_id for success redirects.'

@@ -89,7 +89,7 @@ eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_KEY', $codes, true ), 'Template
 // When TemplateLoader loads it...
 // Then it falls back to filemtime().
 $noversion_path = $tmp_dir . '/noversion.json';
-file_put_contents( $noversion_path, '{"id":"noversion","title":"No Version","fields":[],"email":{},"success":{"mode":"inline"}}' );
+file_put_contents( $noversion_path, '{"id":"noversion","title":"No Version","fields":[],"email":{},"result_pages":{"success":{"message":"Thanks."}}}' );
 $expected_mtime = (string) filemtime( $noversion_path );
 
 $result = TemplateLoader::load( 'noversion', $tmp_dir );

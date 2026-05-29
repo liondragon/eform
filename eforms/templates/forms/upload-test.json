@@ -2,9 +2,10 @@
   "id": "upload-test",
   "version": "1",
   "title": "Upload Test",
-  "success": {
-    "mode": "inline",
-    "message": "OK"
+  "result_pages": {
+    "success": {
+      "message": "OK"
+    }
   },
   "email": {
     "to": "office@flooringartists.com",

@@ -1,0 +1,1 @@
+- 2026-05-15: In greenfield mode with no operators or historical records, do not flag lack of backward compatibility as a defect. Prefer deleting obsolete schema fields, error codes, query params, aliases, and tests instead of preserving compatibility shims.

@@ -53,9 +53,10 @@ Templates are JSON files in `/templates/forms/{form_id}.json`. Operators define 
     "include_fields": ["name", "email", "message", "ip", "submitted_at"],
     "display_format_tel": "xxx-xxx-xxxx"
   },
-  "success": {
-    "mode": "inline",
-    "message": "Thank you! We'll be in touch soon."
+  "result_pages": {
+    "success": {
+      "message": "Thank you! We'll be in touch soon."
+    }
   },
   "submit_button_text": "Send Message"
 }
@@ -286,7 +287,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 **Success:**
 1. PRG redirect (303) to same URL with result-page query args
-2. On follow-up GET, the plugin renders an internal success page using `success.message` from the form template
+2. On follow-up GET, the plugin renders an internal success page using `result_pages.success.message` from the form template
 3. Temp uploads deleted (unless `uploads.retention_seconds > 0`)
 
 **Email failure:**
@@ -408,7 +409,7 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 - Invalid drop-in config → Warning log (when enabled); continue with defaults
 
 **Required inputs (to render a working form):**
-- Valid JSON template with `id`, `fields[]`, `email{}`, `success{}`
+- Valid JSON template with `id`, `fields[]`, `email{}`, and optional `result_pages{}`
 - Writable `${uploads.dir}` (verified by health check)
 - When `challenge.mode != "off"`: Valid Turnstile `site_key`/`secret_key`
 
@@ -429,7 +430,7 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 **Scenario:** Solo developer adds a contact form to a cacheable About page.
 
 1. **Configure:**
-   - Create `/templates/forms/contact.json` with fields (`name`, `email`, `message`), validation rules, email delivery target, and `success.mode="inline"`
+   - Create `/templates/forms/contact.json` with fields (`name`, `email`, `message`), validation rules, email delivery target, and `result_pages.success.message`
    - Add shortcode to page: `[eform id="contact" cacheable="true"]`
    - *Operator sees: JSON file in templates directory*
 
@@ -471,7 +472,7 @@ Exhaustive knob coverage organized by domain (for spec generation and advanced c
 | | `security.max_post_bytes` | int | POST size cap | Never exceeds PHP INI limits |
 | | `security.js_hard_mode` | bool | Hard-fail when `js_ok` marker missing | Blocks non-JS users; keep opt-in |
 | **Spam** | `spam.soft_fail_threshold` | int | Soft signal count to trigger spam rejection | Clamped ≥1 |
-| **Challenge** | `challenge.mode` | enum | When to require CAPTCHA | `{off, auto, always_post}` (legacy `always` accepted) |
+| **Challenge** | `challenge.mode` | enum | When to require CAPTCHA | `{off, auto, always_post}` |
 | | `challenge.provider` | enum | Provider (v1) | `{turnstile}` (hcaptcha/recaptcha reserved) |
 | | `challenge.site_key` | string | Turnstile site key | Required when `mode != off` |
 | | `challenge.secret_key` | string | Turnstile secret key | Required when `mode != off` |

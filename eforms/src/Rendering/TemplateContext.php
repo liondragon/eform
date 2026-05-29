@@ -105,7 +105,7 @@ class TemplateContext {
             'version' => $version,
             'title' => isset( $template['title'] ) ? $template['title'] : '',
             'email' => isset( $template['email'] ) ? $template['email'] : array(),
-            'success' => isset( $template['success'] ) ? $template['success'] : array(),
+            'result_pages' => isset( $template['result_pages'] ) && is_array( $template['result_pages'] ) ? $template['result_pages'] : array(),
             'rules' => isset( $template['rules'] ) && is_array( $template['rules'] ) ? $template['rules'] : array(),
             'fields' => $fields,
             'descriptors' => $descriptors,
