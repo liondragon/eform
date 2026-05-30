@@ -15,65 +15,13 @@ require_once __DIR__ . '/../../src/Submission/SubmitHandler.php';
 require_once __DIR__ . '/../../src/Uploads/PrivateDir.php';
 require_once __DIR__ . '/../../src/Uploads/UploadPolicy.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
-if ( ! function_exists( 'wp_mail' ) ) {
-    function wp_mail( $to, $subject, $message, $headers, $attachments = array() ) {
-        $GLOBALS['eforms_test_mail_calls'][] = array(
-            'to' => $to,
-            'subject' => $subject,
-            'message' => $message,
-            'headers' => $headers,
-            'attachments' => $attachments,
-        );
-
-        return true;
-    }
-}
-
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_write_template' ) ) {
-    function eforms_test_write_template( $dir, $form_id ) {
-        $template = array(
-            'id' => $form_id,
-            'version' => '1',
-            'title' => 'Demo',
-            'result_pages' => array(
-                'success' => array(
-                    'message' => 'Thanks.',
-                ),
-            ),
-            'email' => array(
-                'to' => 'demo@example.com',
-                'subject' => 'Demo',
-                'email_template' => 'default',
-                'include_fields' => array( 'name', 'upload' ),
-            ),
-            'fields' => array(
+if ( ! function_exists( 'eforms_upload_move_test_write_template' ) ) {
+    function eforms_upload_move_test_write_template( $dir, $form_id ) {
+        return eforms_test_write_form_template(
+            $dir,
+            $form_id,
+            'Demo',
+            array(
                 array(
                     'key' => 'name',
                     'type' => 'text',
@@ -87,24 +35,8 @@ if ( ! function_exists( 'eforms_test_write_template' ) ) {
                     'accept' => array( 'image' ),
                 ),
             ),
-            'submit_button_text' => 'Send',
+            array( 'name', 'upload' )
         );
-
-        $path = rtrim( $dir, '/\\' ) . '/' . $form_id . '.json';
-        file_put_contents( $path, json_encode( $template ) );
-        return $path;
-    }
-}
-
-if ( ! function_exists( 'eforms_test_write_file' ) ) {
-    function eforms_test_write_file( $dir, $name, $bytes ) {
-        if ( ! is_dir( $dir ) ) {
-            mkdir( $dir, 0700, true );
-        }
-
-        $path = rtrim( $dir, '/\\' ) . '/' . $name;
-        file_put_contents( $path, $bytes );
-        return $path;
     }
 }
 
@@ -152,7 +84,7 @@ $_SERVER['HTTP_HOST'] = 'example.com';
 $_SERVER['HTTPS'] = 'on';
 $_SERVER['SERVER_PORT'] = 443;
 
-$GLOBALS['eforms_test_mail_calls'] = array();
+eforms_test_reset_mail();
 $png_bytes = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Z6G0AAAAASUVORK5CYII=' );
 $form_id = 'demo';
 
@@ -164,7 +96,7 @@ mkdir( $uploads_dir, 0700, true );
 mkdir( $template_dir, 0700, true );
 mkdir( $tmp_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
-eforms_test_write_template( $template_dir, $form_id );
+eforms_upload_move_test_write_template( $template_dir, $form_id );
 
 eforms_test_set_filter(
     'eforms_config',
@@ -226,7 +158,7 @@ mkdir( $uploads_dir, 0700, true );
 mkdir( $template_dir, 0700, true );
 mkdir( $tmp_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
-eforms_test_write_template( $template_dir, $form_id );
+eforms_upload_move_test_write_template( $template_dir, $form_id );
 
 eforms_test_set_filter(
     'eforms_config',
@@ -263,7 +195,7 @@ mkdir( $uploads_dir, 0700, true );
 mkdir( $template_dir, 0700, true );
 mkdir( $tmp_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
-eforms_test_write_template( $template_dir, $form_id );
+eforms_upload_move_test_write_template( $template_dir, $form_id );
 
 eforms_test_set_filter(
     'eforms_config',
@@ -343,4 +275,3 @@ eforms_test_remove_tree( $uploads_dir );
 eforms_test_remove_tree( $template_dir );
 eforms_test_remove_tree( $tmp_dir );
 eforms_test_set_filter( 'eforms_config', null );
-

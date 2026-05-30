@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/Config.php';
+require_once __DIR__ . '/Helpers.php';
 require_once __DIR__ . '/Privacy/ClientIp.php';
 require_once __DIR__ . '/Logging/JsonlLogger.php';
 require_once __DIR__ . '/Logging/Fail2banLogger.php';
@@ -27,7 +28,7 @@ class Logging {
      */
     public static function event( $severity, $code, $meta = array(), $request = null ) {
         $config = self::config_snapshot();
-        $mode = self::config_value( $config, array( 'logging', 'mode' ), 'off' );
+        $mode = Config::value( $config, array( 'logging', 'mode' ), 'off' );
 
         if ( ! is_array( $meta ) ) {
             $meta = array();
@@ -127,12 +128,12 @@ class Logging {
     }
 
     private static function should_log( $config, $severity ) {
-        $mode = self::config_value( $config, array( 'logging', 'mode' ), 'off' );
+        $mode = Config::value( $config, array( 'logging', 'mode' ), 'off' );
         if ( $mode === 'off' ) {
             return false;
         }
 
-        $level = self::config_value( $config, array( 'logging', 'level' ), 0 );
+        $level = Config::value( $config, array( 'logging', 'level' ), 0 );
         $level = is_numeric( $level ) ? (int) $level : 0;
 
         $severity = self::normalize_severity( $severity );
@@ -400,9 +401,9 @@ class Logging {
 
     private static function inject_runtime_meta( $meta, $request, $config ) {
         if ( ! isset( $meta['uri'] ) || ! is_string( $meta['uri'] ) || trim( $meta['uri'] ) === '' ) {
-            $meta['uri'] = self::resolve_filtered_uri( $request );
+            $meta['uri'] = Helpers::filtered_uri( $request );
         } else {
-            $meta['uri'] = self::filter_uri( $meta['uri'] );
+            $meta['uri'] = Helpers::filtered_uri( $meta['uri'] );
         }
 
         $desc_sha1 = self::resolve_desc_sha1( $meta, $config );
@@ -423,10 +424,6 @@ class Logging {
         }
 
         return $meta;
-    }
-
-    private static function config_value( $config, $path, $fallback ) {
-        return Config::value( $config, $path, $fallback );
     }
 
     private static function resolve_raw_ip( $meta, $request, $config ) {
@@ -472,53 +469,6 @@ class Logging {
         }
 
         return '';
-    }
-
-    private static function resolve_filtered_uri( $request ) {
-        $raw = '';
-        if ( is_array( $request ) && isset( $request['uri'] ) && is_string( $request['uri'] ) ) {
-            $raw = $request['uri'];
-        } elseif ( isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ) {
-            $raw = $_SERVER['REQUEST_URI'];
-        }
-
-        return self::filter_uri( $raw );
-    }
-
-    private static function filter_uri( $raw_uri ) {
-        if ( ! is_string( $raw_uri ) || trim( $raw_uri ) === '' ) {
-            return '';
-        }
-
-        $raw_uri = trim( $raw_uri );
-        $path = parse_url( $raw_uri, PHP_URL_PATH );
-        $query = parse_url( $raw_uri, PHP_URL_QUERY );
-        if ( ! is_string( $path ) ) {
-            $path = '';
-        }
-
-        $filtered_query = array();
-        if ( is_string( $query ) && $query !== '' ) {
-            parse_str( $query, $params );
-            if ( is_array( $params ) ) {
-                ksort( $params );
-                foreach ( $params as $key => $value ) {
-                    if ( ! is_string( $key ) || strncmp( $key, 'eforms_', 7 ) !== 0 ) {
-                        continue;
-                    }
-                    if ( is_array( $value ) ) {
-                        continue;
-                    }
-                    $filtered_query[ $key ] = is_scalar( $value ) ? (string) $value : '';
-                }
-            }
-        }
-
-        if ( empty( $filtered_query ) ) {
-            return $path;
-        }
-
-        return $path . '?' . http_build_query( $filtered_query, '', '&', PHP_QUERY_RFC3986 );
     }
 
     private static function normalize_origin( $origin ) {
@@ -574,7 +524,7 @@ class Logging {
     }
 
     private static function resolve_desc_sha1( $meta, $config ) {
-        $level = self::config_value( $config, array( 'logging', 'level' ), 0 );
+        $level = Config::value( $config, array( 'logging', 'level' ), 0 );
         $level = is_numeric( $level ) ? (int) $level : 0;
         if ( $level < 2 ) {
             return '';

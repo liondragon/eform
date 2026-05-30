@@ -14,52 +14,13 @@ require_once __DIR__ . '/../../src/Submission/SubmitHandler.php';
 require_once __DIR__ . '/../../src/Security/Security.php';
 require_once __DIR__ . '/../../src/Security/StorageHealth.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_write_template' ) ) {
-    function eforms_test_write_template( $dir, $form_id ) {
-        $template = array(
-            'id' => $form_id,
-            'version' => '1',
-            'title' => 'Test Form',
-            'result_pages' => array(
-                'success' => array(
-                    'title' => 'Custom Result',
-                    'message' => 'Custom result copy.',
-                ),
-            ),
-            'email' => array(
-                'to' => 'test@example.com',
-                'subject' => 'Test',
-                'email_template' => 'default',
-                'include_fields' => array( 'name' ),
-            ),
-            'fields' => array(
+if ( ! function_exists( 'eforms_success_test_write_template' ) ) {
+    function eforms_success_test_write_template( $dir, $form_id ) {
+        return eforms_test_write_form_template(
+            $dir,
+            $form_id,
+            'Test Form',
+            array(
                 array(
                     'key' => 'name',
                     'type' => 'text',
@@ -67,12 +28,15 @@ if ( ! function_exists( 'eforms_test_write_template' ) ) {
                     'required' => true,
                 ),
             ),
-            'submit_button_text' => 'Send',
+            array( 'name' ),
+            array( 'to' => 'test@example.com', 'subject' => 'Test' ),
+            array(
+                'success' => array(
+                    'title' => 'Custom Result',
+                    'message' => 'Custom result copy.',
+                ),
+            )
         );
-
-        $path = rtrim( $dir, '/\\' ) . '/' . $form_id . '.json';
-        file_put_contents( $path, json_encode( $template ) );
-        return $path;
     }
 }
 
@@ -147,7 +111,7 @@ $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
 
 $template_dir = eforms_test_tmp_root( 'eforms-redirect-templates' );
 mkdir( $template_dir, 0700, true );
-eforms_test_write_template( $template_dir, 'result-form' );
+eforms_success_test_write_template( $template_dir, 'result-form' );
 
 Config::reset_for_tests();
 StorageHealth::reset_for_tests();

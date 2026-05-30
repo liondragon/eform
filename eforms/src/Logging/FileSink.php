@@ -6,6 +6,31 @@
  */
 
 class FileSink {
+    const DEFAULT_MAX_BYTES = 1048576; // Internal cap; not user-configurable.
+
+    public static function json_line( $value ) {
+        $encoded = function_exists( 'wp_json_encode' ) ? wp_json_encode( $value ) : json_encode( $value );
+        return is_string( $encoded ) && $encoded !== '' ? $encoded . "\n" : '';
+    }
+
+    public static function dated_file_date( $entry, $prefix, $ext ) {
+        if ( is_string( $entry ) && preg_match( self::dated_pattern( $prefix, $ext ), $entry, $matches ) === 1 ) {
+            return $matches[1];
+        }
+        return '';
+    }
+
+    public static function append_dated_jsonl( $dir, $prefix, $ext, $line, $max_bytes ) {
+        return self::append_with_rotation(
+            self::dated_path( $dir, $prefix, $ext ),
+            $line,
+            $max_bytes,
+            function ( $current ) use ( $prefix, $ext ) {
+                return self::next_dated_path( $current, $prefix, $ext );
+            }
+        );
+    }
+
     public static function append_with_rotation( $path, $line, $max_bytes, $next_path_callback, $depth = 0 ) {
         if ( ! is_string( $path ) || $path === '' || ! is_string( $line ) || ! is_callable( $next_path_callback ) ) {
             return false;
@@ -91,5 +116,31 @@ class FileSink {
                 @unlink( $path );
             }
         }
+    }
+
+    private static function dated_path( $dir, $prefix, $ext ) {
+        return rtrim( $dir, '/\\' ) . '/' . $prefix . gmdate( 'Ymd' ) . $ext;
+    }
+
+    private static function next_dated_path( $current, $prefix, $ext ) {
+        $date = self::dated_file_date( basename( $current ), $prefix, $ext );
+        if ( $date === '' ) {
+            return '';
+        }
+
+        $base = $prefix . $date;
+        $dir = dirname( $current );
+        for ( $index = 1; $index < 10000; $index++ ) {
+            $candidate = rtrim( $dir, '/\\' ) . '/' . $base . '-' . $index . $ext;
+            if ( ! file_exists( $candidate ) ) {
+                return $candidate;
+            }
+        }
+
+        return '';
+    }
+
+    private static function dated_pattern( $prefix, $ext ) {
+        return '/^' . preg_quote( $prefix, '/' ) . '([0-9]{8})(?:-[0-9]+)?' . preg_quote( $ext, '/' ) . '$/';
     }
 }

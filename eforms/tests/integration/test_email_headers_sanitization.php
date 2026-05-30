@@ -23,20 +23,7 @@ if ( ! function_exists( 'get_bloginfo' ) ) {
     }
 }
 
-if ( ! function_exists( 'wp_mail' ) ) {
-    function wp_mail( $to, $subject, $message, $headers, $attachments = array() ) {
-        $GLOBALS['eforms_mail_calls'][] = array(
-            'to' => $to,
-            'subject' => $subject,
-            'message' => $message,
-            'headers' => $headers,
-            'attachments' => $attachments,
-        );
-        return true;
-    }
-}
-
-$GLOBALS['eforms_mail_calls'] = array();
+eforms_test_reset_mail();
 
 $template_dir = eforms_test_tmp_root( 'eforms-email-template' );
 mkdir( $template_dir, 0700, true );
@@ -44,11 +31,11 @@ $template = array(
     'id' => 'demo',
     'version' => '1',
     'title' => 'Demo',
-            'result_pages' => array(
-                'success' => array(
-                    'message' => 'Thanks.',
-                ),
-            ),
+    'result_pages' => array(
+        'success' => array(
+            'message' => 'Thanks.',
+        ),
+    ),
     'email' => array(
         'to' => 'dest@example.com',
         'subject' => "Hello {{field.name}}\r\nBcc: test",
@@ -94,9 +81,9 @@ $result = Emailer::send( $context, $values, $security, array(), Config::get() );
 // When Emailer builds the outbound email...
 // Then subject/header values contain no CR/LF and reply-to precedence holds.
 eforms_test_assert( $result['ok'] === true, 'Emailer should send successfully.' );
-eforms_test_assert( ! empty( $GLOBALS['eforms_mail_calls'] ), 'wp_mail should be called.' );
+eforms_test_assert( ! empty( $GLOBALS['eforms_test_mail_calls'] ), 'wp_mail should be called.' );
 
-$call = $GLOBALS['eforms_mail_calls'][0];
+$call = $GLOBALS['eforms_test_mail_calls'][0];
 $subject = $call['subject'];
 $headers = $call['headers'];
 
@@ -117,12 +104,6 @@ eforms_test_assert( strpos( $subject, 'Ada Injected' ) !== false, 'Subject shoul
 eforms_test_assert( strpos( $from, 'no-reply@example.com' ) !== false, 'From should fall back to the site domain.' );
 eforms_test_assert( $reply_to === 'Reply-To: reply@example.com', 'Reply-To should use the configured address.' );
 
-if ( is_dir( $template_dir ) ) {
-    $items = array_diff( scandir( $template_dir ), array( '.', '..' ) );
-    foreach ( $items as $item ) {
-        @unlink( $template_dir . '/' . $item );
-    }
-    @rmdir( $template_dir );
-}
+eforms_test_remove_tree( $template_dir );
 
-$eforms_test_filter_cleanup = eforms_test_set_filter( 'eforms_config', null );
+eforms_test_set_filter( 'eforms_config', null );

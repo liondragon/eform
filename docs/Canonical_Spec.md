@@ -18,6 +18,7 @@ Quick reference for implementers. Each surface links to its authoritative sectio
 | `eforms_config` | Filter | Optional runtime config override hook | [Configuration](#sec-configuration) |
 | `eforms_request_id` | Filter | Optional request correlation override for logs | [Logging](#sec-logging) |
 | `wp eforms gc` | WP-CLI | Garbage-collects expired runtime artifacts | [Uploads](#sec-uploads) |
+| Tools → eForms Declined | WP Admin | Read-only declined-submission review surface | [Declined Review](#sec-declined-review) |
 
 Storage layout and paths: see [Shared lifecycle and storage contract](#sec-shared-lifecycle).
 
@@ -31,7 +32,7 @@ Storage layout and paths: see [Shared lifecycle and storage contract](#sec-share
   - Support both long-cached form pages (CDN cached for days) and non-cached pages.
   - Support multiple forms per page. It doesn't need to support multiple intances of the same form on a single page for simplicity.
 - Out of scope: multi-step or multi-page wizards/questionnaires, and any flows that depend on persistent user identity beyond a single submission.
-- No admin UI.
+- No form-builder or settings admin UI; the declined-review viewer in [Declined Review](#sec-declined-review) is the only admin surface.
 - Platform requirements: see [Compatibility and Updates](#sec-compatibility).
 - Focus on simplicity, elegancy, and efficiency; avoid overengineering. Easy to maintain and performant for the intended workloads.
 - Lazy config snapshot: bootstrapped on first `Config::get()` per request; entry points SHOULD call `Config::get()` early (see [Configuration: Domains, Constraints, and Defaults](#sec-configuration)).
@@ -53,7 +54,7 @@ Storage layout and paths: see [Shared lifecycle and storage contract](#sec-share
 		- File logging
 		- Basic CSS/JS enqueue
 	2. OUT
-		- Admin pages
+		- Form-builder/settings admin pages
 		- External libraries
 		- Internationalization
 		- HMAC
@@ -65,7 +66,8 @@ Storage layout and paths: see [Shared lifecycle and storage contract](#sec-share
 	- Opt-ins (enable only if needed):
 		- Throttling, adaptive/always challenge
 		- Fail2ban emission
-		- Rejected-submission logging → set logging.mode="jsonl" (or "minimal") and logging.level>=1
+		- Rejected-submission metadata logging → set logging.mode="jsonl" (or "minimal") and logging.level>=1
+		- Declined-submission content review → set `declined_review.enable=true`
 		- Header logging, PII logging
 - Operational profile: Cacheable pages require JS and use a JS-minted submission token via `/eforms/mint` (no anti-duplication cookies). Non-cacheable pages embed a server-minted hidden token during GET render.
 <a id="sec-architecture"></a>
@@ -132,6 +134,13 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 | `[MAX_OPTIONS_MAX]` | 1000 | Upper bound for `validation.max_options_per_group` |
 | `[MAX_MULTIVALUE_MIN]` | 1 | Lower bound for `validation.max_items_per_multivalue` |
 | `[MAX_MULTIVALUE_MAX]` | 1000 | Upper bound for `validation.max_items_per_multivalue` |
+| `[DECLINED_REVIEW_ADMIN_DEFAULT_DAYS]` | 7 | Default date range for the declined-review admin table |
+| `[DECLINED_REVIEW_ADMIN_MAX_DAYS]` | 31 | Maximum date range the declined-review reader/admin table may scan per request |
+| `[DECLINED_REVIEW_SCAN_MAX_RECORDS]` | 5000 | Maximum declined-review records scanned per admin request |
+| `[DECLINED_REVIEW_PAGE_SIZE]` | 50 | Declined-review admin table page size |
+| `[DECLINED_REVIEW_MAX_FIELDS]` | 100 | Maximum declared fields stored per declined-review record |
+| `[DECLINED_REVIEW_FIELD_MAX_BYTES]` | 4096 | Maximum bytes stored per scalar declined-review field value |
+| `[DECLINED_REVIEW_RECORD_FIELDS_MAX_BYTES]` | 65536 | Maximum aggregate field payload bytes stored per declined-review record |
 
 <a id="sec-template-model"></a>
 6. TEMPLATE MODEL
@@ -793,9 +802,47 @@ Notes (normative):
 	**Privacy notice:** Fail2ban emission uses the resolved client IP in plaintext regardless of `privacy.ip_mode`. This is intentional—external rate-limiting tools require real IPs to function. Operators who enable Fail2ban should be aware that raw IPs will appear in the Fail2ban log even when `privacy.ip_mode` is set to `masked`, `hash`, or `none`.
 
 	- Emit single-line: eforms[f2b] ts=<unix> code=<EFORMS_ERR_*> ip=<resolved_client_ip> form=<form_id>
-	- Rotation/retention are identical to JSONL: rotate when file exceeds the internal size cap; prune > `logging.fail2ban.retention_days`.
+	- Rotation/retention use the same internal size cap and retention rules as JSONL, with the configured Fail2ban file as the primary and numeric rotated siblings.
 	- Implementation notes:
 	- Initialize JSONL/minimal logger only when logging.mode!='off'. Fail2ban emission is independent.
+
+<a id="sec-declined-review"></a>
+16.1 DECLINED REVIEW (DEFAULT-OFF)
+
+**Rationale:** Declined Review is an operator monitoring surface for early spam-rollout confidence. It is intentionally separate from operational logging: logs remain metadata-first, while this feature stores bounded submitted content only when explicitly enabled.
+
+- Config:
+	- `declined_review.enable` (bool) — default false. When false, no declined-review content is written.
+	- `declined_review.retention_days` (int|null) — null means use `logging.retention_days` after bootstrap; clamp with `[RETENTION_DAYS_MIN]`–`[RETENTION_DAYS_MAX]`.
+- Storage:
+	- Directory: `${uploads.dir}/eforms-private/declined/`.
+	- File family: primary `declined-YYYYMMDD.jsonl`; rotated siblings `declined-YYYYMMDD-1.jsonl`, `declined-YYYYMMDD-2.jsonl`, etc.
+	- Files use JSONL, private permissions, `FileSink`-style locked append/rotation, and are GC-managed.
+- Capture scope:
+	- Honeypot with a valid token: metadata only (`value_stage=metadata_only`).
+	- Soft-threshold spam fail: bounded raw declared field values (`value_stage=raw_declared`).
+	- Challenge verification failure/timeout only when a provider response was submitted after validation/coercion: canonical values when available (`value_stage=canonical`).
+	- Do not capture first missing-challenge rerenders, token failures, throttle failures, validation failures, storage failures, ledger failures, or email failures.
+- Record fields:
+	- `review_id`, UTC timestamp, `form_id`, `submission_id`, `request_id`, decision code, `decision_phase`, `value_stage`, spam/challenge/honeypot metadata, privacy-processed IP, filtered URI, bounded declared field values, and upload metadata.
+	- `review_id` is generated through `Entropy`, unique per write, and is not an idempotency key. Duplicate records are allowed.
+	- Never store protocol/security values: submission token, instance ID, timestamp field, mode field, honeypot value, or provider challenge tokens.
+- Payload caps:
+	- Store at most `[DECLINED_REVIEW_MAX_FIELDS]` declared fields.
+	- Store at most `[DECLINED_REVIEW_FIELD_MAX_BYTES]` bytes per scalar field and `[DECLINED_REVIEW_RECORD_FIELDS_MAX_BYTES]` aggregate field bytes per record.
+	- Arrays flatten only to bounded scalar leaves. Strip control characters. Replace binary-looking values with `[binary omitted]`.
+	- Upload capture is metadata-only: field key, safe original name, size, MIME/type metadata when available, and upload error code. Do not retain rejected file bytes.
+- Admin viewer:
+	- Register Tools → eForms Declined for users with `manage_options`.
+	- Use WordPress admin primitives and escaped table/detail markup; do not render a raw text log dump.
+	- Default date range is `[DECLINED_REVIEW_ADMIN_DEFAULT_DAYS]`; maximum date window is `[DECLINED_REVIEW_ADMIN_MAX_DAYS]`; scan at most `[DECLINED_REVIEW_SCAN_MAX_RECORDS]` records per request; page size is `[DECLINED_REVIEW_PAGE_SIZE]`.
+	- Reader and admin UI MUST include primary files and rotated siblings.
+	- Detail lookup searches the active filtered date range for `review_id`; form and decision filters are preserved for list/back context, not applied to the detail lookup. If multiple records match, show the newest by timestamp; if none match, show a normal admin “record not found” notice and link back to the current list.
+	- Never expose raw filesystem paths or JSONL filenames in query parameters or page output.
+- Failure behavior:
+	- Declined-review write/read failures MUST NOT affect public submission behavior.
+	- When logging is enabled and warning level is included, write failures MAY emit one metadata-only operational warning.
+	- `logging.pii` does not enable this feature; `declined_review.enable=true` is the explicit content-capture consent. IP presentation still follows `privacy.ip_mode`.
 
 <a id="sec-privacy"></a>
 17. PRIVACY AND IP HANDLING
@@ -858,6 +905,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	| Email	 | `email.*`			| Email delivery policy (delegated transport via `wp_mail()`)	 |
 	| HTML5	| `html5.*`			| Browser-native validation controls							 |
 	| Logging	 | `logging.*`			| Mode/level/PII policy, retention, Fail2ban emission				|
+	| Declined Review | `declined_review.*` | Default-off declined-submission content review				 |
 	| Privacy	 | `privacy.*`			| IP handling, salts, proxy trust									|
 		| Throttle	| `throttle.*`		 | Per-IP rate limits, cooldowns								 |
 	| Validation| `validation.*`		 | Form shape guardrails (field/option caps, HTML size)			 |
@@ -895,6 +943,8 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 	| Logging	 | `logging.fail2ban.target`			 | enum	| {`file`} — fail2ban emission is file-only in v1; all other values MUST be rejected.		 |
 	| Logging	 | `logging.fail2ban.file`			 | string | Optional; when non-empty, enables Fail2ban emission. If relative, resolve under `uploads.dir`. |
 	| Logging	 | `logging.fail2ban.retention_days`	 | int	 | clamp `[RETENTION_DAYS_MIN]`–`[RETENTION_DAYS_MAX]`; defaults to `logging.retention_days` when unspecified (see [Anchors](#sec-anchors)).											|
+	| Declined Review | `declined_review.enable` | bool | Default-off content capture for the read-only declined-review admin surface. |
+	| Declined Review | `declined_review.retention_days` | int|null | null defaults to `logging.retention_days`; non-null values clamp `[RETENTION_DAYS_MIN]`–`[RETENTION_DAYS_MAX]` (see [Anchors](#sec-anchors)). |
 	| Privacy	 | `privacy.ip_mode`					 | enum	| {`none`,`masked`,`hash`,`full`} — see [Logging](#sec-logging) for hashing/masking details.										 |
 	| Validation| `validation.max_fields_per_form`		| int	 | clamp `[MAX_FIELDS_MIN]`–`[MAX_FIELDS_MAX]`; protects renderer/validator recursion (see [Anchors](#sec-anchors)).															|
 	| Validation| `validation.max_options_per_group`	| int	 | clamp `[MAX_OPTIONS_MIN]`–`[MAX_OPTIONS_MAX]`; denies pathological option fan-out (see [Anchors](#sec-anchors)).																|
@@ -943,7 +993,7 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 				- Intersection: field `accept[]` ∩ global allow-list must be non-empty → else `EFORMS_ERR_ACCEPT_EMPTY`.
 				- Delete uploads after successful send unless retention applies; if email send fails after files were stored, cleanup per retention policy. On final send failure, delete unless `uploads.retention_seconds>0` (then GC per retention).
 				- GC (normative): the plugin MUST NOT schedule WP-Cron. Operators MAY run `wp eforms gc` via system cron (or an equivalent external trigger). GC MUST process a limited batch of files per run (time-boxed or count-boxed) to prevent timeouts even during cron execution.
-				- GC targets: expired token records (past TTL), uploads (past retention), stale throttle window files, and expired ledger `.used` markers.
+				- GC targets: expired token records (past TTL), uploads (past retention), stale throttle window files, expired ledger `.used` markers, and declined-review primary files/rotated siblings older than `declined_review.retention_days`.
 				- Ledger GC eligibility (normative): a `${submission_id}.used` marker MAY be deleted when `now >= file_mtime + [TOKEN_TTL_MAX] + [LEDGER_GC_GRACE_SECONDS]`. This conservative rule covers the worst-case token validity window plus a grace period, without requiring a token record lookup.
 				- Provide an idempotent `wp eforms gc` WP-CLI command.
 				- GC runs under a single-run lock (e.g., `${uploads.dir}/eforms-private/gc.lock`) to prevent overlapping work.
@@ -1050,13 +1100,13 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 			- Keep group controls (fieldset/legend), selects, and file(s) as dedicated renderers for a11y semantics.
 		- Minimal logging via `error_log()` is a good ops fallback; JSONL is the primary structured option.
 		- Fail2ban emission isolates raw IP use to a single, explicit channel designed for enforcement.
-		- Fail2ban rotation uses the same timestamped rename scheme as JSONL.
+		- Fail2ban rotation keeps the configured file as primary and uses numeric rotated siblings; JSONL and declined review use dated JSONL families.
 		- If `logging.fail2ban.file` is relative, resolve it under `uploads.dir` (e.g., `${uploads.dir}/eforms-private/f2b/eforms-f2b.log`).
-		- Uninstall: when `install.uninstall.purge_logs=true`, also delete the Fail2ban file and rotated siblings.
+		- Uninstall: when `install.uninstall.purge_logs=true`, also delete declined-review files, the Fail2ban file, and rotated siblings.
 		- Header name comparisons are case-insensitive; cap header length at ~1–2 KB before parsing to avoid pathological inputs.
 		- Recommend `logging.mode="minimal"` in setup docs to capture critical failures; provide guidance for switching to `"off"` once stable.
 		- Element ID length cap: cap generated IDs (e.g., `"{form_id}-{field_key}"`) at 128 characters via `Helpers::cap_id()`.
-		- Permissions fallback: create directories `0700` (files `0600`); on failure, fall back once to `0750/0640` and emit a single warning when logging is enabled.
+		- Permissions: create private/runtime directories `0700` and files `0600`; permission failures fail closed and MUST NOT weaken modes as a fallback.
 		- Hidden-token mode does not require JS.
 
 

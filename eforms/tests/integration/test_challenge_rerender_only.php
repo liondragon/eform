@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../../src/Config.php';
+require_once __DIR__ . '/../../src/DeclinedReviewLog.php';
 require_once __DIR__ . '/../../src/Rendering/FormRenderer.php';
 require_once __DIR__ . '/../../src/Security/Security.php';
 require_once __DIR__ . '/../../src/Security/StorageHealth.php';
@@ -15,14 +16,6 @@ require_once __DIR__ . '/../../src/Submission/SubmitHandler.php';
 require_once __DIR__ . '/../../src/Validation/Coercer.php';
 require_once __DIR__ . '/../../src/Validation/Normalizer.php';
 require_once __DIR__ . '/../../src/Validation/Validator.php';
-
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
 
 if ( ! function_exists( 'plugins_url' ) ) {
     function plugins_url( $path = '', $plugin = null ) {
@@ -96,66 +89,11 @@ if ( ! function_exists( 'wp_remote_retrieve_body' ) ) {
     }
 }
 
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_write_template' ) ) {
-    function eforms_test_write_template( $dir, $form_id ) {
-        $template = array(
-            'id' => $form_id,
-            'version' => '1',
-            'title' => 'Challenge Demo',
-            'result_pages' => array(
-                'success' => array(
-                    'message' => 'Thanks.',
-                ),
-            ),
-            'email' => array(
-                'to' => 'demo@example.com',
-                'subject' => 'Demo',
-                'email_template' => 'default',
-                'include_fields' => array( 'name' ),
-            ),
-            'fields' => array(
-                array(
-                    'key' => 'name',
-                    'type' => 'text',
-                    'label' => 'Name',
-                    'required' => true,
-                ),
-            ),
-            'submit_button_text' => 'Send',
-        );
-
-        $path = rtrim( $dir, '/\\' ) . '/' . $form_id . '.json';
-        file_put_contents( $path, json_encode( $template ) );
-        return $path;
-    }
-}
-
-$uploads_dir = eforms_test_tmp_root( 'eforms-challenge-uploads' );
-mkdir( $uploads_dir, 0700, true );
-$GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
+$uploads_dir = eforms_test_setup_uploads( 'eforms-challenge-uploads' );
 
 $template_dir = eforms_test_tmp_root( 'eforms-challenge-templates' );
 mkdir( $template_dir, 0700, true );
-eforms_test_write_template( $template_dir, 'demo' );
+eforms_test_write_basic_template( $template_dir, 'demo', 'Challenge Demo' );
 
 $_SERVER['HTTP_HOST'] = 'example.com';
 $_SERVER['HTTPS'] = 'on';
@@ -172,6 +110,8 @@ eforms_test_set_filter(
         $config['challenge']['site_key'] = 'site-key-123';
         $config['challenge']['secret_key'] = 'secret-key-123';
         $config['challenge']['http_timeout_seconds'] = 2;
+        $config['declined_review']['enable'] = true;
+        $config['declined_review']['retention_days'] = 30;
         return $config;
     }
 );
@@ -265,6 +205,8 @@ eforms_test_assert(
     count( $GLOBALS['eforms_test_remote_posts'] ) === 1,
     'Turnstile verify endpoint should be called exactly once.'
 );
+$declined = DeclinedReviewLog::query( array(), Config::get() );
+eforms_test_assert( $declined['total'] === 0, 'Successful challenge verification should not create a declined-review record.' );
 
 // Given required challenge but missing provider response...
 Config::reset_for_tests();
@@ -308,6 +250,8 @@ eforms_test_assert( $missing_result['status'] === 200, 'Missing challenge token 
 eforms_test_assert( $missing_result['error_code'] === 'EFORMS_ERR_CHALLENGE_FAILED', 'Missing challenge token should return challenge failure code.' );
 eforms_test_assert( ! empty( $missing_result['require_challenge'] ), 'Missing challenge token should require challenge on rerender.' );
 eforms_test_assert( $ledger_called === false, 'Challenge failure must occur before ledger reservation.' );
+$declined = DeclinedReviewLog::query( array(), Config::get() );
+eforms_test_assert( $declined['total'] === 0, 'Missing challenge response should not create a declined-review record.' );
 
 FormRenderer::reset_for_tests();
 $GLOBALS['eforms_test_scripts'] = array();
@@ -337,6 +281,60 @@ foreach ( $rerender_scripts as $script ) {
     }
 }
 eforms_test_assert( $rerender_has_turnstile_script, 'Challenge rerender should enqueue Turnstile script.' );
+
+// Given a submitted provider response that verification rejects...
+// Then declined review captures the canonical field values before rerender.
+Config::reset_for_tests();
+StorageHealth::reset_for_tests();
+$mint = Security::mint_hidden_record( 'demo' );
+$provider_post = array(
+    'eforms_token' => $mint['token'],
+    'instance_id' => $mint['instance_id'],
+    'timestamp' => (string) $mint['issued_at'],
+    'js_ok' => '1',
+    'cf-turnstile-response' => 'turnstile-bad-token',
+    'demo' => array(
+        'name' => '  Ada  ',
+    ),
+);
+$provider_request = array(
+    'post' => $provider_post,
+    'files' => array(),
+    'headers' => array(
+        'Content-Type' => 'application/x-www-form-urlencoded',
+        'Origin' => 'https://example.com',
+    ),
+);
+$provider_ledger_called = false;
+$provider_result = SubmitHandler::handle(
+    'demo',
+    $provider_request,
+    array(
+        'template_base_dir' => $template_dir,
+        'challenge' => function () {
+            return array(
+                'ok' => false,
+                'required' => true,
+                'error_code' => 'EFORMS_ERR_CHALLENGE_FAILED',
+                'soft_reasons' => array(),
+            );
+        },
+        'ledger_reserve' => function () use ( &$provider_ledger_called ) {
+            $provider_ledger_called = true;
+            return array( 'ok' => true );
+        },
+    )
+);
+eforms_test_assert( $provider_result['ok'] === false, 'Rejected provider challenge should fail submission.' );
+eforms_test_assert( $provider_result['error_code'] === 'EFORMS_ERR_CHALLENGE_FAILED', 'Rejected provider challenge should return challenge failure code.' );
+eforms_test_assert( $provider_ledger_called === false, 'Rejected provider challenge must not reserve the ledger.' );
+$declined = DeclinedReviewLog::query( array( 'decision_code' => 'EFORMS_ERR_CHALLENGE_FAILED' ), Config::get() );
+eforms_test_assert( $declined['total'] === 1, 'Rejected provider challenge should create one declined-review record.' );
+$declined_record = $declined['records'][0];
+eforms_test_assert( $declined_record['decision_phase'] === 'challenge_verify', 'Challenge declined record should identify the verify phase.' );
+eforms_test_assert( $declined_record['value_stage'] === 'canonical', 'Challenge declined record should capture canonical values.' );
+eforms_test_assert( $declined_record['fields']['name'] === 'Ada', 'Challenge declined record should include canonical field content.' );
+eforms_test_assert( $declined_record['challenge']['error_code'] === 'EFORMS_ERR_CHALLENGE_FAILED', 'Challenge declined record should include challenge failure metadata.' );
 
 // Given always_post challenge is unconfigured...
 eforms_test_set_filter(

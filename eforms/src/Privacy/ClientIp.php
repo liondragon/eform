@@ -28,7 +28,7 @@ class ClientIp {
             return '';
         }
 
-        $header_name = self::config_value( $config, array( 'privacy', 'client_ip_header' ), '' );
+        $header_name = Config::value( $config, array( 'privacy', 'client_ip_header' ), '' );
         if ( ! is_string( $header_name ) ) {
             $header_name = '';
         }
@@ -37,7 +37,7 @@ class ClientIp {
             return $remote;
         }
 
-        $trusted = self::config_value( $config, array( 'privacy', 'trusted_proxies' ), array() );
+        $trusted = Config::value( $config, array( 'privacy', 'trusted_proxies' ), array() );
         if ( ! is_array( $trusted ) || ! self::ip_in_cidrs( $remote, $trusted ) ) {
             return $remote;
         }
@@ -103,7 +103,7 @@ class ClientIp {
      */
     public static function ip_mode( $config = null ) {
         $config = self::config_snapshot( $config );
-        $mode = self::config_value( $config, array( 'privacy', 'ip_mode' ), 'none' );
+        $mode = Config::value( $config, array( 'privacy', 'ip_mode' ), 'none' );
         if ( ! is_string( $mode ) ) {
             return 'none';
         }
@@ -131,7 +131,7 @@ class ClientIp {
         }
 
         if ( $mode === 'hash' ) {
-            $salt = self::config_value( self::config_snapshot( $config ), array( 'privacy', 'ip_hash_salt' ), '' );
+            $salt = Config::value( self::config_snapshot( $config ), array( 'privacy', 'ip_hash_salt' ), '' );
             if ( ! is_string( $salt ) ) {
                 $salt = '';
             }
@@ -426,7 +426,4 @@ class ClientIp {
         return array();
     }
 
-    private static function config_value( $config, $path, $fallback ) {
-        return Config::value( $config, $path, $fallback );
-    }
 }

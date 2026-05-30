@@ -369,9 +369,7 @@ if ( ! function_exists( 'eforms_wp_runtime_reset_request' ) ) {
         if ( class_exists( 'PublicRequestController' ) ) {
             PublicRequestController::reset_for_tests();
         }
-        if ( class_exists( 'Logging' ) && method_exists( 'Logging', 'reset' ) ) {
-            Logging::reset();
-        }
+        Logging::reset_for_tests();
         $GLOBALS['eforms_wp_runtime_status'] = 200;
         if ( function_exists( 'header_remove' ) ) {
             header_remove();

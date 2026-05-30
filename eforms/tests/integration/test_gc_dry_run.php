@@ -13,33 +13,6 @@ require_once __DIR__ . '/../../src/Anchors.php';
 require_once __DIR__ . '/../../src/Uploads/PrivateDir.php';
 require_once __DIR__ . '/../../src/Gc/GcRunner.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
 if ( ! function_exists( 'eforms_test_gc_write_file' ) ) {
     function eforms_test_gc_write_file( $path, $content, $mtime ) {
         $dir = dirname( $path );
@@ -62,14 +35,13 @@ eforms_test_set_filter(
     function ( $config ) use ( $uploads_dir ) {
         $config['uploads']['dir'] = $uploads_dir;
         $config['uploads']['retention_seconds'] = 120;
+        $config['declined_review']['retention_days'] = 1;
         return $config;
     }
 );
 
 Config::reset_for_tests();
-if ( method_exists( 'Logging', 'reset' ) ) {
-    Logging::reset();
-}
+Logging::reset_for_tests();
 
 $private = PrivateDir::ensure( $uploads_dir );
 eforms_test_assert( is_array( $private ) && ! empty( $private['ok'] ), 'Private directory should be available for GC tests.' );
@@ -106,13 +78,19 @@ eforms_test_gc_write_file( $throttle_old_tally_path, '111', $now - $throttle_sta
 eforms_test_gc_write_file( $throttle_fresh_tally_path, '1', $now - 100 );
 eforms_test_gc_write_file( $throttle_old_cooldown_path, '', $now - $throttle_stale_seconds - 10 );
 
-$expected_candidates = 5;
+$declined_expired_path = $private_dir . '/declined/declined-20260101.jsonl';
+$declined_fresh_path = $private_dir . '/declined/declined-20260102-1.jsonl';
+eforms_test_gc_write_file( $declined_expired_path, '{"review_id":"old"}' . "\n", $now - 86500 );
+eforms_test_gc_write_file( $declined_fresh_path, '{"review_id":"fresh"}' . "\n", $now - 100 );
+
+$expected_candidates = 6;
 $expected_candidate_bytes =
     filesize( $token_expired_path ) +
     filesize( $ledger_expired_path ) +
     filesize( $upload_expired_path ) +
     filesize( $throttle_old_tally_path ) +
-    filesize( $throttle_old_cooldown_path );
+    filesize( $throttle_old_cooldown_path ) +
+    filesize( $declined_expired_path );
 
 $dry_run = GcRunner::run(
     array(
@@ -131,12 +109,14 @@ eforms_test_assert( $dry_run['by_type']['tokens']['candidates'] === 1, 'Dry-run 
 eforms_test_assert( $dry_run['by_type']['ledger']['candidates'] === 1, 'Dry-run should include one expired ledger marker.' );
 eforms_test_assert( $dry_run['by_type']['uploads']['candidates'] === 1, 'Dry-run should include one expired upload.' );
 eforms_test_assert( $dry_run['by_type']['throttle']['candidates'] === 2, 'Dry-run should include stale throttle tally and cooldown files.' );
+eforms_test_assert( $dry_run['by_type']['declined']['candidates'] === 1, 'Dry-run should include one expired declined-review file.' );
 
 eforms_test_assert( file_exists( $token_expired_path ), 'Dry-run must keep expired token file.' );
 eforms_test_assert( file_exists( $ledger_expired_path ), 'Dry-run must keep expired ledger marker.' );
 eforms_test_assert( file_exists( $upload_expired_path ), 'Dry-run must keep expired upload file.' );
 eforms_test_assert( file_exists( $throttle_old_tally_path ), 'Dry-run must keep stale throttle tally.' );
 eforms_test_assert( file_exists( $throttle_old_cooldown_path ), 'Dry-run must keep stale cooldown sentinel.' );
+eforms_test_assert( file_exists( $declined_expired_path ), 'Dry-run must keep expired declined-review file.' );
 
 $apply = GcRunner::run(
     array(
@@ -160,6 +140,8 @@ eforms_test_assert( file_exists( $upload_control_path ), 'Uploads control file s
 eforms_test_assert( ! file_exists( $throttle_old_tally_path ), 'Stale throttle tally should be deleted.' );
 eforms_test_assert( file_exists( $throttle_fresh_tally_path ), 'Fresh throttle tally should be preserved.' );
 eforms_test_assert( ! file_exists( $throttle_old_cooldown_path ), 'Stale cooldown sentinel should be deleted.' );
+eforms_test_assert( ! file_exists( $declined_expired_path ), 'Expired declined-review file should be deleted.' );
+eforms_test_assert( file_exists( $declined_fresh_path ), 'Fresh declined-review rotated file should be preserved.' );
 
 $idempotent = GcRunner::run(
     array(
@@ -192,9 +174,7 @@ eforms_test_assert( $locked['locked'] === true, 'Concurrent lock run should repo
 flock( $lock_handle, LOCK_UN );
 fclose( $lock_handle );
 
-if ( method_exists( 'Logging', 'reset' ) ) {
-    Logging::reset();
-}
+Logging::reset_for_tests();
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();
 eforms_test_remove_tree( $uploads_dir );

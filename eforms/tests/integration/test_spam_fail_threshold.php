@@ -10,67 +10,6 @@ require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Security/StorageHealth.php';
 require_once __DIR__ . '/../../src/Submission/SubmitHandler.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
-if ( ! function_exists( 'eforms_spam_test_remove_tree' ) ) {
-    function eforms_spam_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_spam_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
-if ( ! function_exists( 'eforms_spam_test_write_template' ) ) {
-    function eforms_spam_test_write_template( $dir, $form_id ) {
-        $template = array(
-            'id' => $form_id,
-            'version' => '1',
-            'title' => 'Demo',
-            'result_pages' => array(
-                'success' => array(
-                    'message' => 'Thanks.',
-                ),
-            ),
-            'email' => array(
-                'to' => 'demo@example.com',
-                'subject' => 'Demo',
-                'email_template' => 'default',
-                'include_fields' => array( 'name' ),
-            ),
-            'fields' => array(
-                array(
-                    'key' => 'name',
-                    'type' => 'text',
-                    'label' => 'Name',
-                    'required' => true,
-                ),
-            ),
-            'submit_button_text' => 'Send',
-        );
-
-        $path = rtrim( $dir, '/\\' ) . '/' . $form_id . '.json';
-        file_put_contents( $path, json_encode( $template ) );
-        return $path;
-    }
-}
-
 if ( ! function_exists( 'eforms_spam_test_request' ) ) {
     function eforms_spam_test_request( $tmp_upload = '' ) {
         $files = array();
@@ -125,15 +64,15 @@ if ( ! function_exists( 'eforms_spam_test_configure' ) ) {
                 $config['security']['honeypot_response'] = $response;
                 $config['security']['origin_mode'] = 'off';
                 $config['spam']['soft_fail_threshold'] = $threshold;
+                $config['declined_review']['enable'] = true;
+                $config['declined_review']['retention_days'] = 30;
                 return $config;
             }
         );
 
         Config::reset_for_tests();
         StorageHealth::reset_for_tests();
-        if ( class_exists( 'Logging' ) && method_exists( 'Logging', 'reset' ) ) {
-            Logging::reset();
-        }
+        Logging::reset_for_tests();
     }
 }
 
@@ -151,13 +90,11 @@ if ( ! function_exists( 'eforms_spam_test_handle' ) ) {
     }
 }
 
-$uploads_dir = eforms_test_tmp_root( 'eforms-spam-fail-uploads' );
-mkdir( $uploads_dir, 0700, true );
-$GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
+$uploads_dir = eforms_test_setup_uploads( 'eforms-spam-fail-uploads' );
 
 $template_dir = eforms_test_tmp_root( 'eforms-spam-fail-templates' );
 mkdir( $template_dir, 0700, true );
-eforms_spam_test_write_template( $template_dir, 'demo' );
+eforms_test_write_basic_template( $template_dir, 'demo' );
 
 // Given threshold=1 and one soft reason in hard-fail mode...
 // When SubmitHandler runs...
@@ -206,6 +143,12 @@ if ( class_exists( 'Logging' ) ) {
     eforms_test_assert( $event['meta']['soft_fail_count'] === 1, 'Threshold spam log should include soft_fail_count.' );
     eforms_test_assert( $event['meta']['threshold'] === 1, 'Threshold spam log should include threshold.' );
 }
+$declined = DeclinedReviewLog::query( array( 'decision_code' => 'EFORMS_ERR_SPAM' ), Config::get() );
+eforms_test_assert( $declined['total'] === 1, 'Threshold spam hard-fail should create one declined-review record.' );
+$declined_record = $declined['records'][0];
+eforms_test_assert( $declined_record['decision_phase'] === 'spam_threshold', 'Spam declined record should identify the threshold phase.' );
+eforms_test_assert( $declined_record['value_stage'] === 'raw_declared', 'Spam declined record should capture raw declared values.' );
+eforms_test_assert( $declined_record['fields']['name'] === 'Ada', 'Spam declined record should include declared field content.' );
 
 // Given threshold=1 and one soft reason in stealth mode...
 // Then spam-fail returns success-shaped metadata without commit/email.
@@ -235,6 +178,7 @@ eforms_test_assert( $commit_calls === 0, 'Stealth spam-fail must not run commit/
 // Given threshold=2 and one soft reason...
 // Then the submission remains suspect and proceeds through validation/commit.
 eforms_spam_test_configure( 2, 'hard_fail' );
+$declined_before_suspect = DeclinedReviewLog::query( array( 'decision_code' => 'EFORMS_ERR_SPAM' ), Config::get() )['total'];
 $commit_calls = 0;
 $result = eforms_spam_test_handle(
     $template_dir,
@@ -260,10 +204,13 @@ eforms_test_assert(
     $result['trace'] === array( 'security', 'normalize', 'validate', 'coerce', 'commit' ),
     'Below-threshold suspect submission should continue through the pipeline.'
 );
+$declined_after_suspect = DeclinedReviewLog::query( array( 'decision_code' => 'EFORMS_ERR_SPAM' ), Config::get() )['total'];
+eforms_test_assert( $declined_after_suspect === $declined_before_suspect, 'Below-threshold suspect submission should not create a declined-review record.' );
 
 // Given token validation fails even with soft reasons...
 // Then SubmitHandler stops at token failure and does not burn the ledger.
 eforms_spam_test_configure( 1, 'hard_fail' );
+$declined_before_token = DeclinedReviewLog::query( array( 'decision_code' => 'EFORMS_ERR_SPAM' ), Config::get() )['total'];
 $burn_calls = 0;
 $result = eforms_spam_test_handle(
     $template_dir,
@@ -279,10 +226,12 @@ $result = eforms_spam_test_handle(
 eforms_test_assert( $result['ok'] === false, 'Invalid token should hard-fail before spam decision.' );
 eforms_test_assert( $result['error_code'] === 'EFORMS_ERR_TOKEN', 'Invalid token should keep token error.' );
 eforms_test_assert( $burn_calls === 0, 'Invalid token must not burn the ledger.' );
+$declined_after_token = DeclinedReviewLog::query( array( 'decision_code' => 'EFORMS_ERR_SPAM' ), Config::get() )['total'];
+eforms_test_assert( $declined_after_token === $declined_before_token, 'Invalid token should not create a declined-review record.' );
 
-eforms_spam_test_remove_tree( $uploads_dir );
-eforms_spam_test_remove_tree( $template_dir );
-eforms_spam_test_remove_tree( $tmp_dir );
+eforms_test_remove_tree( $uploads_dir );
+eforms_test_remove_tree( $template_dir );
+eforms_test_remove_tree( $tmp_dir );
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();
 StorageHealth::reset_for_tests();

@@ -26,7 +26,7 @@ $remove_dropin = function () use ($dropin_path) {
 $defaults = Config::defaults();
 
 // Case 1: invalid enum falls back per-key; valid key still applies; warning emitted.
-Logging::reset();
+Logging::reset_for_tests();
 $write_dropin(array(
     'security' => array(
         'origin_mode' => 'bogus',
@@ -51,7 +51,7 @@ foreach (Logging::$events as $event) {
 eforms_test_assert($found, 'Expected schema warning for security.origin_mode.' );
 
 // Case 2: invalid bool type falls back; warning emitted.
-Logging::reset();
+Logging::reset_for_tests();
 $write_dropin(array(
     'security' => array(
         'js_hard_mode' => '1',
@@ -72,7 +72,7 @@ foreach (Logging::$events as $event) {
 eforms_test_assert($found, 'Expected schema warning for security.js_hard_mode.' );
 
 // Case 3: invalid object type for nested section falls back; other keys still apply.
-Logging::reset();
+Logging::reset_for_tests();
 $write_dropin(array(
     'throttle' => array(
         'enable' => true,
@@ -95,7 +95,7 @@ foreach (Logging::$events as $event) {
 eforms_test_assert($found, 'Expected schema warning for throttle.per_ip.' );
 
 // Case 4: challenge.mode accepts only canonical enum values.
-Logging::reset();
+Logging::reset_for_tests();
 $write_dropin(array(
     'challenge' => array(
         'mode' => 'always',
@@ -117,7 +117,7 @@ eforms_test_assert($found, 'Expected schema warning for challenge.mode.' );
 
 // Case 5: filter invalid values are sanitized (no drop-in warning requirement).
 $remove_dropin();
-Logging::reset();
+Logging::reset_for_tests();
 eforms_test_set_filter(
     'eforms_config',
     function ( $config_in ) {
@@ -151,5 +151,24 @@ eforms_test_assert( Config::bool( $sample, array( 'feature', 'disabled' ), true 
 eforms_test_assert( Config::bool( $sample, array( 'feature', 'truthy_string' ), false ) === false, 'Config::bool must reject truthy strings.' );
 eforms_test_assert( Config::bool( $sample, array( 'feature', 'truthy_int' ), true ) === true, 'Config::bool should return fallback for truthy integers.' );
 eforms_test_assert( Config::bool( $sample, array( 'feature', 'missing' ), true ) === true, 'Config::bool should return boolean fallback for missing paths.' );
+
+// Case 7: declined_review.retention_days null materializes to logging.retention_days after clamps.
+$remove_dropin();
+Logging::reset_for_tests();
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config_in ) {
+        $config_in['logging']['retention_days'] = 12;
+        $config_in['declined_review']['enable'] = true;
+        $config_in['declined_review']['retention_days'] = null;
+        return $config_in;
+    }
+);
+
+Config::reset_for_tests();
+$config = Config::get();
+eforms_test_assert( $config['declined_review']['enable'] === true, 'declined_review.enable should accept a strict bool.' );
+eforms_test_assert( $config['declined_review']['retention_days'] === 12, 'Null declined retention should materialize to logging.retention_days.' );
+eforms_test_set_filter( 'eforms_config', null );
 
 $remove_dropin();

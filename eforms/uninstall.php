@@ -293,6 +293,7 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
             if ( $private_exists ) {
                 eforms_uninstall_remove_tree( $private_dir . '/logs' );
                 eforms_uninstall_remove_tree( $private_dir . '/f2b' );
+                eforms_uninstall_remove_tree( $private_dir . '/declined' );
             }
 
             $fail2ban_file = eforms_uninstall_fail2ban_path( $config, $uploads_dir );

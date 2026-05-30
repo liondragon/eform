@@ -15,6 +15,7 @@ Routing map only. `docs/Canonical_Spec.md` remains the behavior authority.
 - Security: `eforms/src/Security/` owns tokens, origin policy, challenge verification, throttling, and mint endpoint behavior.
 - Validation and registries: `eforms/src/Validation/` owns template validation, field descriptors, normalizers, validators, and handler registries.
 - Email and result pages: `eforms/src/Email/` owns outbound email assembly; `eforms/src/Submission/Success.php` owns result-page URL/query handling.
+- Declined review: `eforms/src/DeclinedReviewLog.php` owns declined-submission content capture and file-backed reads; `eforms/src/Admin/DeclinedReviewAdmin.php` owns the Tools admin viewer.
 - Runtime safety: `eforms/src/WordPressRuntime.php` owns fail-closed wrappers for required WordPress APIs used by load-bearing runtime paths.
 - Entropy: `eforms/src/Security/Entropy.php` owns secure random bytes and identifier generation for security-sensitive runtime identifiers.
 - Browser assets: `eforms/assets/forms.js` owns client enhancement, JS minting, submit blocking, and error focus behavior.

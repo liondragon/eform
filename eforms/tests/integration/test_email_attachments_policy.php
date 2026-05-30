@@ -13,77 +13,13 @@ require_once __DIR__ . '/../../src/Security/StorageHealth.php';
 require_once __DIR__ . '/../../src/Submission/SubmitHandler.php';
 require_once __DIR__ . '/../../src/Uploads/UploadPolicy.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
-if ( ! function_exists( 'wp_mail' ) ) {
-    function wp_mail( $to, $subject, $message, $headers, $attachments = array() ) {
-        $GLOBALS['eforms_test_mail_calls'][] = array(
-            'to' => $to,
-            'subject' => $subject,
-            'message' => $message,
-            'headers' => $headers,
-            'attachments' => $attachments,
-        );
-
-        return true;
-    }
-}
-
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_write_file' ) ) {
-    function eforms_test_write_file( $dir, $name, $bytes ) {
-        if ( ! is_dir( $dir ) ) {
-            mkdir( $dir, 0700, true );
-        }
-
-        $path = rtrim( $dir, '/\\' ) . '/' . $name;
-        file_put_contents( $path, $bytes );
-        return $path;
-    }
-}
-
-if ( ! function_exists( 'eforms_test_write_template' ) ) {
-    function eforms_test_write_template( $dir, $form_id ) {
-        $template = array(
-            'id' => $form_id,
-            'version' => '1',
-            'title' => 'Attachments',
-            'result_pages' => array(
-                'success' => array(
-                    'message' => 'Thanks.',
-                ),
-            ),
-            'email' => array(
-                'to' => 'demo@example.com',
-                'subject' => 'Attachments {{field.name}}',
-                'email_template' => 'default',
-                'include_fields' => array( 'name', 'attach_a', 'attach_b', 'not_attach' ),
-            ),
-            'fields' => array(
+if ( ! function_exists( 'eforms_email_attachments_test_write_template' ) ) {
+    function eforms_email_attachments_test_write_template( $dir, $form_id ) {
+        $path = eforms_test_write_form_template(
+            $dir,
+            $form_id,
+            'Attachments',
+            array(
                 array(
                     'key' => 'name',
                     'type' => 'text',
@@ -112,11 +48,9 @@ if ( ! function_exists( 'eforms_test_write_template' ) ) {
                     'email_attach' => false,
                 ),
             ),
-            'submit_button_text' => 'Send',
+            array( 'name', 'attach_a', 'attach_b', 'not_attach' ),
+            array( 'subject' => 'Attachments {{field.name}}' )
         );
-
-        $path = rtrim( $dir, '/\\' ) . '/' . $form_id . '.json';
-        file_put_contents( $path, json_encode( $template ) );
         return $path;
     }
 }
@@ -180,8 +114,8 @@ mkdir( $uploads_dir, 0700, true );
 mkdir( $template_dir, 0700, true );
 mkdir( $tmp_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
-$GLOBALS['eforms_test_mail_calls'] = array();
-eforms_test_write_template( $template_dir, $form_id );
+eforms_test_reset_mail();
+eforms_email_attachments_test_write_template( $template_dir, $form_id );
 
 $tmp_a = eforms_test_write_file( $tmp_dir, 'a.png', $png );
 $tmp_b = eforms_test_write_file( $tmp_dir, 'b.png', $png );
@@ -241,8 +175,8 @@ mkdir( $uploads_dir, 0700, true );
 mkdir( $template_dir, 0700, true );
 mkdir( $tmp_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
-$GLOBALS['eforms_test_mail_calls'] = array();
-eforms_test_write_template( $template_dir, $form_id );
+eforms_test_reset_mail();
+eforms_email_attachments_test_write_template( $template_dir, $form_id );
 
 $tmp_a = eforms_test_write_file( $tmp_dir, 'a.png', $png );
 $tmp_b = eforms_test_write_file( $tmp_dir, 'b.png', $png );

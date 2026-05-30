@@ -77,6 +77,10 @@ class Config
                 'retention_days' => null,
             ),
         ),
+        'declined_review' => array(
+            'enable' => false,
+            'retention_days' => null,
+        ),
         'privacy' => array(
             'ip_mode' => 'masked',
             'client_ip_header' => '',
@@ -637,6 +641,20 @@ class Config
         );
         $logging['fail2ban'] = $fail2ban;
         $config['logging'] = $logging;
+
+        $declined = isset($config['declined_review']) && is_array($config['declined_review']) ? $config['declined_review'] : array();
+        $declined_defaults = $defaults['declined_review'];
+        $declined_retention = self::value_or_default($declined, 'retention_days', $declined_defaults['retention_days']);
+        if (!is_numeric($declined_retention)) {
+            $declined_retention = $logging['retention_days'];
+        }
+        $declined['retention_days'] = self::clamp_anchor_value(
+            $declined_retention,
+            $logging['retention_days'],
+            'RETENTION_DAYS_MIN',
+            'RETENTION_DAYS_MAX'
+        );
+        $config['declined_review'] = $declined;
 
         $validation = isset($config['validation']) && is_array($config['validation']) ? $config['validation'] : array();
         $validation_defaults = $defaults['validation'];

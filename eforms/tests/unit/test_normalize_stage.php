@@ -11,24 +11,6 @@ require_once __DIR__ . '/../../src/Helpers.php';
 require_once __DIR__ . '/../../src/Validation/Normalizer.php';
 require_once __DIR__ . '/../../src/Validation/NormalizerRegistry.php';
 
-if ( ! function_exists( 'wp_unslash' ) ) {
-    function wp_unslash( $value ) {
-        if ( is_array( $value ) ) {
-            $out = array();
-            foreach ( $value as $key => $entry ) {
-                $out[ $key ] = wp_unslash( $entry );
-            }
-            return $out;
-        }
-
-        if ( is_string( $value ) ) {
-            return stripslashes( $value );
-        }
-
-        return $value;
-    }
-}
-
 $text_handler = NormalizerRegistry::resolve( 'text' );
 $choice_handler = NormalizerRegistry::resolve( 'choice' );
 

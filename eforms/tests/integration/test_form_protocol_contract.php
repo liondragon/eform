@@ -51,31 +51,6 @@ if ( ! function_exists( 'rest_url' ) ) {
     }
 }
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
-function eforms_protocol_test_remove_tree( $path ) {
-    if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-        return;
-    }
-
-    if ( is_file( $path ) || is_link( $path ) ) {
-        @unlink( $path );
-        return;
-    }
-
-    $items = array_diff( scandir( $path ), array( '.', '..' ) );
-    foreach ( $items as $item ) {
-        eforms_protocol_test_remove_tree( $path . '/' . $item );
-    }
-    @rmdir( $path );
-}
-
 function eforms_protocol_test_extract_protocol_settings( $script ) {
     $prefix = 'window.eformsSettings.protocol = ';
     $start = strpos( $script, $prefix );
@@ -159,4 +134,4 @@ eforms_test_assert( isset( $body[ FormProtocol::MINT_RESPONSE_INSTANCE_ID ] ), '
 eforms_test_assert( isset( $body[ FormProtocol::MINT_RESPONSE_TIMESTAMP ] ), 'Mint should emit protocol timestamp key.' );
 eforms_test_assert( isset( $body[ FormProtocol::MINT_RESPONSE_EXPIRES ] ), 'Mint should emit protocol expires key.' );
 
-eforms_protocol_test_remove_tree( $uploads_dir );
+eforms_test_remove_tree( $uploads_dir );

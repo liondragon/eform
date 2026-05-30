@@ -8,14 +8,6 @@
 require_once __DIR__ . '/../../src/Logging.php';
 require_once __DIR__ . '/../bootstrap.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
 $uploads_dir = eforms_test_tmp_root( 'eforms-logging-minimal' );
 mkdir( $uploads_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;

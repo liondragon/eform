@@ -211,6 +211,23 @@ if ( ! function_exists( 'eforms_register_cli' ) ) {
     }
 }
 
+if ( ! function_exists( 'eforms_register_admin' ) ) {
+    /**
+     * Register the small wp-admin monitoring surface.
+     */
+    function eforms_register_admin() {
+        if ( ! Config::bool( Config::get(), array( 'declined_review', 'enable' ), false ) ) {
+            return;
+        }
+
+        if ( ! class_exists( 'DeclinedReviewAdmin' ) ) {
+            require_once __DIR__ . '/Admin/DeclinedReviewAdmin.php';
+        }
+
+        DeclinedReviewAdmin::register();
+    }
+}
+
 if ( ! function_exists( 'eforms_cli_gc' ) ) {
     /**
      * Handler for `wp eforms gc`.
@@ -241,6 +258,7 @@ if ( ! function_exists( 'eforms_register_hooks' ) ) {
             }
             add_action( 'template_redirect', array( 'PublicRequestController', 'handle_template_redirect' ), 0 );
             add_action( 'init', 'eforms_register_cli', 20 );
+            eforms_register_admin();
         }
     }
 }

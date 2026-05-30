@@ -17,4 +17,8 @@ return [
     'logging' => [
         'mode' => 'minimal',
     ],
+    'declined_review' => [
+        'enable' => false,
+        'retention_days' => null,
+    ],
 ];

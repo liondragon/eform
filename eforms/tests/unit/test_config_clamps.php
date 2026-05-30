@@ -64,6 +64,10 @@ $override = array(
             'retention_days' => $anchors['RETENTION_DAYS_MAX'] + $anchors['RETENTION_DAYS_MAX'],
         ),
     ),
+    'declined_review' => array(
+        'enable' => true,
+        'retention_days' => $anchors['RETENTION_DAYS_MAX'] + $anchors['RETENTION_DAYS_MAX'],
+    ),
     'validation' => array(
         'max_fields_per_form'     => $anchors['MAX_FIELDS_MAX'] + $anchors['MAX_FIELDS_MAX'],
         'max_options_per_group'   => $anchors['MAX_OPTIONS_MIN'] - $anchors['MAX_OPTIONS_MAX'],
@@ -74,7 +78,7 @@ $override = array(
 $dropin = "<?php\nreturn " . var_export( $override, true ) . ";\n";
 file_put_contents( $dropin_path, $dropin );
 
-Logging::reset();
+Logging::reset_for_tests();
 Config::reset_for_tests();
 $config = Config::get();
 
@@ -90,6 +94,8 @@ eforms_test_assert( $config['throttle']['per_ip']['cooldown_seconds'] === $ancho
 eforms_test_assert( $config['logging']['level'] === $anchors['LOGGING_LEVEL_MAX'], 'logging.level should clamp to max.' );
 eforms_test_assert( $config['logging']['retention_days'] === $anchors['RETENTION_DAYS_MIN'], 'logging.retention_days should clamp to min.' );
 eforms_test_assert( $config['logging']['fail2ban']['retention_days'] === $anchors['RETENTION_DAYS_MAX'], 'logging.fail2ban.retention_days should clamp to max.' );
+eforms_test_assert( $config['declined_review']['enable'] === true, 'declined_review.enable should apply as a bool.' );
+eforms_test_assert( $config['declined_review']['retention_days'] === $anchors['RETENTION_DAYS_MAX'], 'declined_review.retention_days should clamp to max.' );
 
 eforms_test_assert( $config['validation']['max_fields_per_form'] === $anchors['MAX_FIELDS_MAX'], 'max_fields_per_form should clamp to max.' );
 eforms_test_assert( $config['validation']['max_options_per_group'] === $anchors['MAX_OPTIONS_MIN'], 'max_options_per_group should clamp to min.' );

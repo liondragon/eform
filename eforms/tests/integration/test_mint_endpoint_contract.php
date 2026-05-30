@@ -13,47 +13,11 @@ require_once __DIR__ . '/../../src/Helpers.php';
 require_once __DIR__ . '/../../src/Security/MintEndpoint.php';
 require_once __DIR__ . '/../../src/Security/Security.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
 if ( ! function_exists( 'home_url' ) ) {
     function home_url() {
         return isset( $GLOBALS['eforms_test_home_url'] ) && is_string( $GLOBALS['eforms_test_home_url'] )
             ? $GLOBALS['eforms_test_home_url']
             : 'https://example.com';
-    }
-}
-
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_setup_uploads' ) ) {
-    function eforms_test_setup_uploads( $prefix ) {
-        $uploads_dir = eforms_test_tmp_root( $prefix );
-        mkdir( $uploads_dir, 0700, true );
-        $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
-        return $uploads_dir;
     }
 }
 

@@ -11,33 +11,6 @@ require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Security/StorageHealth.php';
 require_once __DIR__ . '/../../src/Rendering/FormRenderer.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
 // Given headers are already sent...
 // When FormRenderer attempts a hidden-mode render...
 // Then it fails closed without minting tokens.
@@ -48,7 +21,7 @@ $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
 Config::reset_for_tests();
 StorageHealth::reset_for_tests();
 FormRenderer::reset_for_tests();
-Logging::reset();
+Logging::reset_for_tests();
 
 FormRenderer::set_headers_sent_override( true );
 

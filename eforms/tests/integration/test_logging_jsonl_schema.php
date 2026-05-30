@@ -11,33 +11,6 @@ require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Logging/JsonlLogger.php';
 
-if ( ! function_exists( 'wp_upload_dir' ) ) {
-    function wp_upload_dir() {
-        return array(
-            'basedir' => isset( $GLOBALS['eforms_test_uploads_dir'] ) ? $GLOBALS['eforms_test_uploads_dir'] : '',
-        );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
 $uploads_dir = eforms_test_tmp_root( 'eforms-logging-jsonl' );
 mkdir( $uploads_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
@@ -62,7 +35,7 @@ JsonlLogger::set_max_bytes_for_tests( 220 );
 
 $stale_dir = $uploads_dir . '/eforms-private/logs';
 mkdir( $stale_dir, 0700, true );
-$stale_file = $stale_dir . '/events-stale.jsonl';
+$stale_file = $stale_dir . '/events-20260101.jsonl';
 file_put_contents( $stale_file, "{\"stale\":true}\n" );
 touch( $stale_file, time() - ( 3 * 86400 ) );
 
@@ -161,9 +134,7 @@ $race_dir = eforms_test_tmp_root( 'eforms-logging-jsonl-race' );
 mkdir( $race_dir, 0700, true );
 $race_primary = $race_dir . '/events-' . gmdate( 'Ymd' ) . '.jsonl';
 file_put_contents( $race_primary, str_repeat( 'x', 20 ) );
-$append = new ReflectionMethod( 'JsonlLogger', 'append_with_rotation' );
-$append->setAccessible( true );
-$race_ok = $append->invoke( null, $race_primary, "{\"race\":true}\n", 1 );
+$race_ok = FileSink::append_dated_jsonl( $race_dir, JsonlLogger::FILE_PREFIX, JsonlLogger::FILE_EXT, "{\"race\":true}\n", 1 );
 eforms_test_assert( $race_ok === true, 'JSONL locked rotation should succeed when the selected primary is already full.' );
 eforms_test_assert( file_exists( $race_dir . '/events-' . gmdate( 'Ymd' ) . '-1.jsonl' ), 'JSONL locked rotation should preserve the date prefix for primary-file races.' );
 eforms_test_assert( ! file_exists( $race_dir . '/events-1.jsonl' ), 'JSONL locked rotation must not treat the date suffix as a rotation suffix.' );

@@ -158,60 +158,21 @@ class NormalizerStage {
     }
 
     private static function flatten_files( $files ) {
-        if ( ! is_array( $files ) ) {
-            return array();
-        }
-
-        $files = self::extract_files_payload( $files );
-
-        if ( ! self::is_files_payload( $files ) ) {
-            return array();
-        }
-
-        $names = isset( $files['name'] ) ? $files['name'] : array();
-        $tmp_names = isset( $files['tmp_name'] ) ? $files['tmp_name'] : array();
-        $errors = isset( $files['error'] ) ? $files['error'] : array();
-        $sizes = isset( $files['size'] ) ? $files['size'] : array();
-
-        if ( ! is_array( $names ) ) {
-            return array();
-        }
-
-        $maxlen = self::uploads_original_maxlen();
-        $out = array();
-
-        foreach ( $names as $field_key => $name ) {
-            $tmp = is_array( $tmp_names ) && array_key_exists( $field_key, $tmp_names ) ? $tmp_names[ $field_key ] : null;
-            $err = is_array( $errors ) && array_key_exists( $field_key, $errors ) ? $errors[ $field_key ] : null;
-            $size = is_array( $sizes ) && array_key_exists( $field_key, $sizes ) ? $sizes[ $field_key ] : null;
-
-            if ( is_array( $name ) ) {
-                $out[ $field_key ] = self::flatten_file_list( $name, $tmp, $err, $size, $maxlen );
-                continue;
-            }
-
-            $out[ $field_key ] = self::build_file_item( $name, $tmp, $err, $size, $maxlen );
-        }
-
-        return $out;
+        $maxlen = Config::value( Config::get(), array( 'uploads', 'original_maxlen' ), 128 );
+        return UploadValue::file_map_from_payload( $files, is_numeric( $maxlen ) ? (int) $maxlen : 128 );
     }
 
     private static function normalize_upload_value( $value, $is_multivalue ) {
         if ( $value === null ) {
             return null;
         }
-
-        $was_array = is_array( $value ) && ! UploadValue::is_item( $value );
-        $items = array();
-
-        if ( UploadValue::is_item( $value ) ) {
-            $items = array( $value );
-        } elseif ( is_array( $value ) ) {
-            $items = $value;
-        } else {
+        if ( ! is_array( $value ) ) {
             return $value;
         }
 
+        $normalized = UploadValue::items_with_single( $value );
+        $items = $normalized['items'];
+        $single = $normalized['single'];
         $filtered = array();
         foreach ( $items as $entry ) {
             if ( ! UploadValue::is_item( $entry ) ) {
@@ -230,126 +191,10 @@ class NormalizerStage {
             return empty( $filtered ) ? null : $filtered;
         }
 
-        if ( $was_array ) {
+        if ( ! $single ) {
             return $filtered;
         }
 
         return empty( $filtered ) ? null : $filtered[0];
-    }
-
-    private static function flatten_file_list( $names, $tmp_names, $errors, $sizes, $maxlen ) {
-        $items = array();
-
-        if ( ! is_array( $names ) ) {
-            return $items;
-        }
-
-        foreach ( $names as $index => $name ) {
-            $tmp = is_array( $tmp_names ) && array_key_exists( $index, $tmp_names ) ? $tmp_names[ $index ] : null;
-            $err = is_array( $errors ) && array_key_exists( $index, $errors ) ? $errors[ $index ] : null;
-            $size = is_array( $sizes ) && array_key_exists( $index, $sizes ) ? $sizes[ $index ] : null;
-
-            if ( is_array( $name ) ) {
-                $items = array_merge( $items, self::flatten_file_list( $name, $tmp, $err, $size, $maxlen ) );
-                continue;
-            }
-
-            $items[] = self::build_file_item( $name, $tmp, $err, $size, $maxlen );
-        }
-
-        return $items;
-    }
-
-    private static function build_file_item( $name, $tmp_name, $error, $size, $maxlen ) {
-        $original = is_string( $name ) ? $name : '';
-
-        return array(
-            'tmp_name' => is_string( $tmp_name ) ? $tmp_name : '',
-            'original_name' => $original,
-            'size' => is_numeric( $size ) ? (int) $size : 0,
-            'error' => is_numeric( $error ) ? (int) $error : 0,
-            'original_name_safe' => self::sanitize_original_name( $original, $maxlen ),
-        );
-    }
-
-    private static function sanitize_original_name( $name, $maxlen ) {
-        if ( ! is_string( $name ) ) {
-            $name = '';
-        }
-
-        $value = str_replace( '\\', '/', $name );
-        $value = basename( $value );
-        $value = Helpers::nfc( $value );
-        $value = preg_replace( '/[\\x00-\\x1F\\x7F]/u', '', $value );
-        $value = preg_replace( '/\\s+/u', ' ', $value );
-        $value = preg_replace( '/\\.+/u', '.', $value );
-        $value = trim( $value, " \t\n\r\0\x0B." );
-        $value = self::truncate_unicode( $value, $maxlen );
-
-        if ( $value === '' ) {
-            $ext = pathinfo( $name, PATHINFO_EXTENSION );
-            $value = $ext !== '' ? 'file.' . $ext : 'file';
-            $value = self::truncate_unicode( $value, $maxlen );
-        }
-
-        return $value;
-    }
-
-    private static function truncate_unicode( $value, $maxlen ) {
-        if ( ! is_string( $value ) ) {
-            return '';
-        }
-
-        if ( ! is_numeric( $maxlen ) || (int) $maxlen <= 0 ) {
-            return '';
-        }
-
-        $maxlen = (int) $maxlen;
-
-        if ( function_exists( 'mb_substr' ) ) {
-            if ( mb_strlen( $value, 'UTF-8' ) <= $maxlen ) {
-                return $value;
-            }
-            return mb_substr( $value, 0, $maxlen, 'UTF-8' );
-        }
-
-        if ( strlen( $value ) <= $maxlen ) {
-            return $value;
-        }
-
-        return substr( $value, 0, $maxlen );
-    }
-
-    private static function uploads_original_maxlen() {
-        $config = Config::get();
-
-        if ( isset( $config['uploads']['original_maxlen'] ) && is_numeric( $config['uploads']['original_maxlen'] ) ) {
-            return (int) $config['uploads']['original_maxlen'];
-        }
-
-        return 128;
-    }
-
-    private static function extract_files_payload( $files ) {
-        if ( self::is_files_payload( $files ) ) {
-            return $files;
-        }
-
-        if ( count( $files ) === 1 ) {
-            $candidate = reset( $files );
-            if ( is_array( $candidate ) && self::is_files_payload( $candidate ) ) {
-                return $candidate;
-            }
-        }
-
-        return $files;
-    }
-
-    private static function is_files_payload( $files ) {
-        return is_array( $files )
-            && array_key_exists( 'name', $files )
-            && array_key_exists( 'tmp_name', $files )
-            && array_key_exists( 'error', $files )
-            && array_key_exists( 'size', $files );
     }
 }

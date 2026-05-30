@@ -9,8 +9,6 @@ require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/FileSink.php';
 
 class Fail2banLogger {
-    const DEFAULT_MAX_BYTES = 1048576; // Internal cap; not user-configurable.
-
     private static $max_bytes_override = null;
 
     /**
@@ -42,7 +40,10 @@ class Fail2banLogger {
         }
 
         $dir = dirname( $path );
-        if ( ! self::ensure_dir( $dir ) ) {
+        if ( ! is_dir( $dir ) && ! @mkdir( $dir, 0700, true ) && ! is_dir( $dir ) ) {
+            return false;
+        }
+        if ( ! @chmod( $dir, 0700 ) ) {
             return false;
         }
 
@@ -61,7 +62,14 @@ class Fail2banLogger {
             $form_id
         );
 
-        return self::append_with_rotation( $path, $line, self::max_bytes() );
+        return FileSink::append_with_rotation(
+            $path,
+            $line,
+            self::max_bytes(),
+            function ( $current ) use ( $path ) {
+                return self::next_rotated_path( $path );
+            }
+        );
     }
 
     /**
@@ -85,13 +93,13 @@ class Fail2banLogger {
     }
 
     private static function enabled( $config ) {
-        $target = self::config_value( $config, array( 'logging', 'fail2ban', 'target' ), '' );
-        $file = self::config_value( $config, array( 'logging', 'fail2ban', 'file' ), '' );
+        $target = Config::value( $config, array( 'logging', 'fail2ban', 'target' ), '' );
+        $file = Config::value( $config, array( 'logging', 'fail2ban', 'file' ), '' );
         return is_string( $target ) && $target === 'file' && is_string( $file ) && trim( $file ) !== '';
     }
 
     private static function target_path( $config ) {
-        $file = self::config_value( $config, array( 'logging', 'fail2ban', 'file' ), '' );
+        $file = Config::value( $config, array( 'logging', 'fail2ban', 'file' ), '' );
         if ( ! is_string( $file ) ) {
             return '';
         }
@@ -105,7 +113,7 @@ class Fail2banLogger {
             return $file;
         }
 
-        $uploads_dir = self::config_value( $config, array( 'uploads', 'dir' ), '' );
+        $uploads_dir = Config::value( $config, array( 'uploads', 'dir' ), '' );
         if ( ! is_string( $uploads_dir ) || trim( $uploads_dir ) === '' ) {
             return '';
         }
@@ -114,7 +122,7 @@ class Fail2banLogger {
     }
 
     private static function retention_days( $config ) {
-        $value = self::config_value( $config, array( 'logging', 'fail2ban', 'retention_days' ), 1 );
+        $value = Config::value( $config, array( 'logging', 'fail2ban', 'retention_days' ), 1 );
         if ( ! is_numeric( $value ) ) {
             return 1;
         }
@@ -128,36 +136,7 @@ class Fail2banLogger {
             return self::$max_bytes_override;
         }
 
-        return self::DEFAULT_MAX_BYTES;
-    }
-
-    private static function append_with_rotation( $path, $line, $max_bytes ) {
-        $active = self::active_path( $path, $max_bytes );
-        if ( $active === '' ) {
-            return false;
-        }
-
-        return FileSink::append_with_rotation(
-            $active,
-            $line,
-            $max_bytes,
-            function ( $current ) use ( $path ) {
-                return self::next_rotated_path( $path );
-            }
-        );
-    }
-
-    private static function active_path( $path, $max_bytes ) {
-        if ( ! file_exists( $path ) ) {
-            return $path;
-        }
-
-        $size = @filesize( $path );
-        if ( is_numeric( $size ) && (int) $size < $max_bytes ) {
-            return $path;
-        }
-
-        return self::next_rotated_path( $path );
+        return FileSink::DEFAULT_MAX_BYTES;
     }
 
     private static function next_rotated_path( $path ) {
@@ -184,19 +163,6 @@ class Fail2banLogger {
                 return is_string( $entry ) && ( $entry === $base || strpos( $entry, $base . '.' ) === 0 );
             }
         );
-    }
-
-    private static function ensure_dir( $dir ) {
-        if ( is_dir( $dir ) ) {
-            return @chmod( $dir, 0700 );
-        }
-
-        $created = @mkdir( $dir, 0700, true );
-        if ( ! $created && ! is_dir( $dir ) ) {
-            return false;
-        }
-
-        return @chmod( $dir, 0700 );
     }
 
     private static function normalize_ip( $ip ) {
@@ -233,7 +199,4 @@ class Fail2banLogger {
         return preg_match( '/^[A-Za-z]:[\\\\\\/]/', $path ) === 1;
     }
 
-    private static function config_value( $config, $path, $fallback ) {
-        return Config::value( $config, $path, $fallback );
-    }
 }

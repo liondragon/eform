@@ -68,6 +68,41 @@ class PrivateDir {
         return self::result( true, $path, '' );
     }
 
+    public static function subdir( $uploads_dir, $name, $create = true ) {
+        if ( ! is_string( $name ) || $name === '' || preg_match( '/[\\\\\\/]/', $name ) === 1 ) {
+            return '';
+        }
+
+        $private_path = '';
+        if ( $create ) {
+            $private = self::ensure( $uploads_dir );
+            if ( ! is_array( $private ) || empty( $private['ok'] ) || empty( $private['path'] ) ) {
+                return '';
+            }
+            $private_path = $private['path'];
+        } else {
+            $base = is_string( $uploads_dir ) ? rtrim( $uploads_dir, '/\\' ) : '';
+            if ( $base === '' || ! is_dir( $base ) || ! is_writable( $base ) ) {
+                return '';
+            }
+            $private_path = self::path( $uploads_dir );
+            if ( $private_path === '' || ! is_dir( $private_path ) ) {
+                return '';
+            }
+        }
+
+        $path = rtrim( $private_path, '/\\' ) . '/' . $name;
+        if ( is_dir( $path ) ) {
+            return self::ensure_permissions( $path, 0700 ) ? $path : '';
+        }
+
+        if ( ! $create ) {
+            return '';
+        }
+
+        return self::ensure_dir( $path ) ? $path : '';
+    }
+
     private static function ensure_dir( $path ) {
         if ( is_dir( $path ) ) {
             return self::ensure_permissions( $path, 0700 );

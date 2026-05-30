@@ -86,7 +86,7 @@ class Emailer {
             }
         }
 
-        $is_html = self::config_bool( $config, array( 'email', 'html' ), false );
+        $is_html = Config::bool( $config, array( 'email', 'html' ), false );
         $template_data = array(
             'canonical' => $canonical['fields'],
             'include_fields' => $include_fields,
@@ -290,22 +290,11 @@ class Emailer {
     }
 
     private static function upload_names( $value ) {
-        if ( UploadValue::is_normalized_item( $value ) ) {
-            $single = UploadValue::display_name( $value );
-            if ( $single !== '' ) {
-                return array( $single );
-            }
-        }
-
         $names = array();
-        if ( is_array( $value ) ) {
-            foreach ( $value as $entry ) {
-                if ( UploadValue::is_normalized_item( $entry ) ) {
-                    $name = UploadValue::display_name( $entry );
-                    if ( $name !== '' ) {
-                        $names[] = $name;
-                    }
-                }
+        foreach ( UploadValue::items( $value, true ) as $item ) {
+            $name = UploadValue::display_name( $item );
+            if ( $name !== '' ) {
+                $names[] = $name;
             }
         }
 
@@ -429,14 +418,14 @@ class Emailer {
                 continue;
             }
 
-            $items = self::normalize_upload_items( $values[ $key ] );
+            $items = UploadValue::items( $values[ $key ], true );
             foreach ( $items as $item ) {
                 $path = self::upload_stored_path( $item );
                 if ( $path === '' ) {
                     continue;
                 }
 
-                $name = self::upload_display_name( $item, $path );
+                $name = UploadValue::display_name( $item, $path );
                 $size = self::upload_attachment_bytes( $item, $path );
 
                 if ( count( $attachments ) >= $max_attachments ) {
@@ -465,10 +454,6 @@ class Emailer {
         );
     }
 
-    private static function normalize_upload_items( $value ) {
-        return UploadValue::items( $value, true );
-    }
-
     private static function upload_stored_path( $item ) {
         $path = UploadValue::stored_path( $item );
         if ( $path === '' || ! is_file( $path ) ) {
@@ -476,10 +461,6 @@ class Emailer {
         }
 
         return $path;
-    }
-
-    private static function upload_display_name( $item, $path ) {
-        return UploadValue::display_name( $item, $path );
     }
 
     private static function upload_attachment_bytes( $item, $path ) {
@@ -498,7 +479,7 @@ class Emailer {
     }
 
     private static function upload_max_attachments( $config ) {
-        $value = self::config_value( $config, array( 'email', 'upload_max_attachments' ) );
+        $value = Config::value( $config, array( 'email', 'upload_max_attachments' ) );
         if ( ! is_numeric( $value ) ) {
             $value = Config::DEFAULT_EMAIL_MAX_ATTACHMENTS;
         }
@@ -512,7 +493,7 @@ class Emailer {
     }
 
     private static function upload_max_email_bytes( $config ) {
-        $value = self::config_value( $config, array( 'uploads', 'max_email_bytes' ) );
+        $value = Config::value( $config, array( 'uploads', 'max_email_bytes' ) );
         if ( ! is_numeric( $value ) ) {
             $value = Config::DEFAULT_UPLOAD_MAX_EMAIL_BYTES;
         }
@@ -584,7 +565,7 @@ class Emailer {
             $headers[] = 'Reply-To: ' . $reply_to;
         }
 
-        $content_type = self::config_bool( $config, array( 'email', 'html' ), false )
+        $content_type = Config::bool( $config, array( 'email', 'html' ), false )
             ? 'text/html'
             : 'text/plain';
         $headers[] = 'Content-Type: ' . $content_type . '; charset=UTF-8';
@@ -609,7 +590,7 @@ class Emailer {
             $domain = 'localhost';
         }
 
-        $candidate = self::config_value( $config, array( 'email', 'from_address' ) );
+        $candidate = Config::value( $config, array( 'email', 'from_address' ) );
         if ( is_array( $candidate ) ) {
             $candidate = '';
         }
@@ -628,7 +609,7 @@ class Emailer {
     }
 
     private static function resolve_reply_to( $config, $values, $canonical_fields, $email, $request ) {
-        $reply_to = self::config_value( $config, array( 'email', 'reply_to_address' ) );
+        $reply_to = Config::value( $config, array( 'email', 'reply_to_address' ) );
         if ( is_array( $reply_to ) ) {
             $reply_to = '';
         }
@@ -642,7 +623,7 @@ class Emailer {
             self::warn_header_value( 'reply_to_address_invalid', $reply_to, $config, $request );
         }
 
-        $reply_field = self::config_value( $config, array( 'email', 'reply_to_field' ) );
+        $reply_field = Config::value( $config, array( 'email', 'reply_to_field' ) );
         if ( is_array( $reply_field ) ) {
             $reply_field = '';
         }
@@ -808,14 +789,6 @@ class Emailer {
         Logging::event( 'warning', 'EFORMS_ERR_EMAIL_SEND', $meta, $request );
     }
 
-    private static function config_bool( $config, $path, $default ) {
-        return Config::bool( $config, $path, $default );
-    }
-
-    private static function config_value( $config, $path ) {
-        return Config::value( $config, $path );
-    }
-
     private static function soft_fail_count( $security ) {
         if ( ! is_array( $security ) || ! isset( $security['soft_reasons'] ) || ! is_array( $security['soft_reasons'] ) ) {
             return 0;
@@ -834,7 +807,7 @@ class Emailer {
     }
 
     private static function spam_soft_fail_threshold( $config ) {
-        $value = self::config_value( $config, array( 'spam', 'soft_fail_threshold' ) );
+        $value = Config::value( $config, array( 'spam', 'soft_fail_threshold' ) );
         $value = is_numeric( $value ) ? (int) $value : 1;
         if ( $value < 1 ) {
             $value = 1;
@@ -847,7 +820,7 @@ class Emailer {
             return $subject;
         }
 
-        $tag = self::config_value( $config, array( 'email', 'suspect_subject_tag' ) );
+        $tag = Config::value( $config, array( 'email', 'suspect_subject_tag' ) );
         if ( is_array( $tag ) ) {
             $tag = '';
         }

@@ -2,11 +2,11 @@
 
 ## What & Who
 
-**electronic_forms** is a dependency-free WordPress plugin for rendering and processing contact forms without admin UI, sessions, or external libraries. It provides a deterministic, testable pipeline for public contact-style forms while offering strong spam resistance and duplicate-submission protection.
+**electronic_forms** is a dependency-free WordPress plugin for rendering and processing contact forms without a form-builder/settings admin UI, sessions, or external libraries. It provides a deterministic, testable pipeline for public contact-style forms while offering strong spam resistance and duplicate-submission protection.
 
 **Promise:** Delivers strong spam resistance and duplicate-submission prevention for both cached and non-cached pages without requiring a database or external dependencies.
 
-**Target Operators:** Solo developers and small ops teams managing a handful of WordPress sites with modest daily form volume. Operators are comfortable with JSON templates and WP-CLI, prefer lightweight solutions over admin dashboards, and value cache-friendliness and operational simplicity.
+**Target Operators:** Solo developers and small ops teams managing a handful of WordPress sites with modest daily form volume. Operators are comfortable with JSON templates and WP-CLI, prefer lightweight solutions over broad admin dashboards, and value cache-friendliness and operational simplicity.
 
 **Environment:** WordPress 5.8+ / PHP 8.0+ with writable uploads directory. Works on single-server setups out of the box; multi-webhead deployments require shared persistent storage for `${uploads.dir}` that all servers can access.
 
@@ -28,6 +28,7 @@
   - `uploads/` — Private file storage for submitted attachments
   - `throttle/` — Rate-limit tracking (when enabled)
   - `logs/` — Structured JSONL logs (when enabled)
+  - `declined/` — Declined-review JSONL files (when explicitly enabled)
   - `f2b/` — Fail2ban emission (when enabled)
   - Storage uses sharded subdirectories to handle scale efficiently.
 
@@ -143,6 +144,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 | `throttle.enable` | Toggles file-based per-IP rate limiting | Requires reliable file-locking support; verify with your host before enabling |
 | `logging.mode` | `off` \| `minimal` (error_log) \| `jsonl` (structured files) | JSONL recommended for forensics; minimal for lightweight ops |
 | `logging.level` | `0` (errors) \| `1` (+warnings) \| `2` (+info) | Level 2 logs successful submissions and spam decisions |
+| `declined_review.enable` | Enables the read-only declined-submission admin viewer and bounded content capture | Default off; use during spam rollout to inspect possible false positives |
 | `privacy.ip_mode` | `none` \| `masked` \| `hash` \| `full` | Controls IP presentation in logs/emails; enforcement (throttle/Fail2ban) uses raw IPs |
 
 
@@ -167,6 +169,11 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 - **Health Check:** System runs FS health checks on render/post; failures surface as `EFORMS_ERR_STORAGE_UNAVAILABLE`
 - **Uninstall:** `uninstall.php` respects `install.uninstall.purge_*` flags in config to optionally wipe data
+
+### Admin Monitoring
+
+- **Tools → eForms Declined:** Read-only declined-submission review table, shown only when `declined_review.enable=true` and available to administrators. It presents bounded submitted content for selected spam-review outcomes, rejection reasons, and request metadata so operators can spot false positives during rollout.
+- It is not a form builder, settings UI, quarantine, moderation queue, or resend workflow.
 
 ### Configuration
 
@@ -397,7 +404,7 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 ### Setup Behavior
 
 **Installation (observable phases):**
-1. **Activate plugin:** No admin UI; forms remain inactive until templates exist
+1. **Activate plugin:** No form-builder/settings UI; forms remain inactive until templates exist
 2. **Create templates:** Add JSON files to `/templates/forms/*.json`
 3. **Optional config:** Create drop-in at `${WP_CONTENT_DIR}/eforms.config.php` or use filter
 4. **Render forms:** Add shortcode or template tag to pages
@@ -488,6 +495,8 @@ Exhaustive knob coverage organized by domain (for spec generation and advanced c
 | | `logging.fail2ban.target` | enum | Fail2ban emission | `{file}` (v1 only) |
 | | `logging.fail2ban.file` | string | Fail2ban log path | When non-empty, enables emission |
 | | `logging.fail2ban.retention_days` | int | Fail2ban log retention | Clamped 1–365; defaults to `logging.retention_days` |
+| **Declined Review** | `declined_review.enable` | bool | Enables read-only declined-submission review | Disabled by default |
+| | `declined_review.retention_days` | int|null | Declined-review file retention | Defaults to logging retention when null |
 | **Privacy** | `privacy.ip_mode` | enum | IP presentation | `{none, masked, hash, full}` |
 | | `privacy.client_ip_header` | string | Proxy header name | e.g., `X-Forwarded-For` |
 | | `privacy.trusted_proxies` | array | CIDR list | Only trust when `REMOTE_ADDR` matches |

@@ -16,25 +16,6 @@ require_once __DIR__ . '/../../src/Validation/Normalizer.php';
 require_once __DIR__ . '/../../src/Validation/Validator.php';
 require_once __DIR__ . '/../../src/Uploads/UploadPolicy.php';
 
-if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
-            return;
-        }
-
-        if ( is_file( $path ) || is_link( $path ) ) {
-            @unlink( $path );
-            return;
-        }
-
-        $items = array_diff( scandir( $path ), array( '.', '..' ) );
-        foreach ( $items as $item ) {
-            eforms_test_remove_tree( $path . '/' . $item );
-        }
-        @rmdir( $path );
-    }
-}
-
 if ( ! function_exists( 'eforms_test_template_with_upload' ) ) {
     function eforms_test_template_with_upload( $accept_tokens = null ) {
         $field = array(
@@ -65,18 +46,6 @@ if ( ! function_exists( 'eforms_test_template_with_upload' ) ) {
             'fields' => array( $field ),
             'submit_button_text' => 'Send',
         );
-    }
-}
-
-if ( ! function_exists( 'eforms_test_write_file' ) ) {
-    function eforms_test_write_file( $dir, $name, $bytes ) {
-        if ( ! is_dir( $dir ) ) {
-            mkdir( $dir, 0700, true );
-        }
-
-        $path = rtrim( $dir, '/\\' ) . '/' . $name;
-        file_put_contents( $path, $bytes );
-        return $path;
     }
 }
 

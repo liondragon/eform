@@ -147,6 +147,45 @@ class Helpers
         return hash('sha256', $ip);
     }
 
+    public static function filtered_uri(mixed $raw_or_request): string
+    {
+        self::ensure_config();
+
+        $raw = '';
+        if (is_string($raw_or_request)) {
+            $raw = $raw_or_request;
+        } elseif (is_array($raw_or_request) && isset($raw_or_request['uri']) && is_string($raw_or_request['uri'])) {
+            $raw = $raw_or_request['uri'];
+        } elseif (isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI'])) {
+            $raw = $_SERVER['REQUEST_URI'];
+        }
+
+        $raw = trim($raw);
+        if ($raw === '') {
+            return '';
+        }
+
+        $path = parse_url($raw, PHP_URL_PATH);
+        $query = parse_url($raw, PHP_URL_QUERY);
+        $path = is_string($path) ? $path : '';
+        if (!is_string($query) || $query === '') {
+            return $path;
+        }
+
+        parse_str($query, $params);
+        $filtered = array();
+        if (is_array($params)) {
+            ksort($params);
+            foreach ($params as $key => $value) {
+                if (is_string($key) && strncmp($key, 'eforms_', 7) === 0 && !is_array($value)) {
+                    $filtered[$key] = is_scalar($value) ? (string) $value : '';
+                }
+            }
+        }
+
+        return empty($filtered) ? $path : $path . '?' . http_build_query($filtered, '', '&', PHP_QUERY_RFC3986);
+    }
+
     /**
      * Ensure Config::get() is invoked at least once when available.
      */

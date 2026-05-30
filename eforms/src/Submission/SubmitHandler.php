@@ -83,18 +83,37 @@ class SubmitHandler {
         }
 
         $context = $context_result['context'];
-        if ( class_exists( 'Logging' ) && method_exists( 'Logging', 'remember_descriptors' ) ) {
-            $descriptors = isset( $context['descriptors'] ) && is_array( $context['descriptors'] ) ? $context['descriptors'] : array();
-            Logging::remember_descriptors( $descriptors );
-        }
+        $descriptors = isset( $context['descriptors'] ) && is_array( $context['descriptors'] ) ? $context['descriptors'] : array();
+        Logging::remember_descriptors( $descriptors );
         $post = self::post_payload( $request );
         $files = self::files_payload( $request );
+        $form_post = self::form_payload( $post, $resolved_form_id );
+        $form_files = self::form_files_payload( $files, $resolved_form_id );
 
         $security = self::call_security( $overrides, $trace, $trace_on, $post, $resolved_form_id, $request, $uploads_dir, $config );
         $security_meta = self::security_fields( $post, $security );
+        $declined = array(
+            'config' => $config,
+            'form_id' => $resolved_form_id,
+            'context' => $context,
+            'request' => $request,
+            'security' => $security,
+            'values' => $form_post,
+            'uploads' => $form_files,
+        );
 
         $honeypot = Honeypot::evaluate( $post, $config );
         if ( ! empty( $honeypot['triggered'] ) ) {
+            if ( self::token_ok( $security ) ) {
+                self::capture_declined_submission(
+                    $declined,
+                    'EFORMS_ERR_HONEYPOT',
+                    'honeypot',
+                    'metadata_only',
+                    array( 'honeypot' => true )
+                );
+            }
+
             return self::spam_short_circuit_result(
                 'honeypot',
                 'EFORMS_ERR_HONEYPOT',
@@ -141,6 +160,17 @@ class SubmitHandler {
         }
 
         if ( self::is_spam_fail_count( $soft_fail_count, $spam_threshold ) ) {
+            self::capture_declined_submission(
+                $declined,
+                'EFORMS_ERR_SPAM',
+                'spam_threshold',
+                'raw_declared',
+                array(
+                    'soft_fail_count' => $soft_fail_count,
+                    'threshold' => $spam_threshold,
+                )
+            );
+
             return self::spam_short_circuit_result(
                 'spam',
                 'EFORMS_ERR_SPAM',
@@ -160,9 +190,6 @@ class SubmitHandler {
             );
         }
 
-        $form_post = self::form_payload( $post, $resolved_form_id );
-        $form_files = self::form_files_payload( $files, $resolved_form_id );
-
         $normalized = self::call_normalize( $overrides, $trace, $trace_on, $context, $form_post, $form_files );
         $validated = self::call_validate( $overrides, $trace, $trace_on, $context, $normalized );
 
@@ -179,6 +206,22 @@ class SubmitHandler {
             }
 
             $security['require_challenge'] = self::challenge_required( $challenge );
+            if ( Challenge::has_provider_response( $post ) ) {
+                $declined['security'] = $security;
+                $declined['values'] = self::extract_values( $coerced );
+                self::capture_declined_submission(
+                    $declined,
+                    'EFORMS_ERR_CHALLENGE_FAILED',
+                    'challenge_verify',
+                    'canonical',
+                    array(
+                        'challenge' => array(
+                            'required' => ! empty( $challenge['required'] ) ? '1' : '0',
+                            'error_code' => self::challenge_error_code( $challenge ),
+                        ),
+                    )
+                );
+            }
             $errors = self::errors_for_code( 'EFORMS_ERR_CHALLENGE_FAILED' );
             return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
         }
@@ -461,10 +504,6 @@ class SubmitHandler {
     }
 
     private static function log_email_failure( $commit, $form_id, $security, $request ) {
-        if ( ! class_exists( 'Logging' ) ) {
-            return;
-        }
-
         $email = is_array( $commit ) && isset( $commit['email'] ) && is_array( $commit['email'] )
             ? $commit['email']
             : array();
@@ -571,6 +610,22 @@ class SubmitHandler {
         return self::honeypot_success_result( $security, $security_meta, $form_id, $trace, $trace_on );
     }
 
+    private static function capture_declined_submission( $base, $decision_code, $decision_phase, $value_stage, $extra = array() ) {
+        $config = isset( $base['config'] ) && is_array( $base['config'] ) ? $base['config'] : Config::get();
+        if ( ! Config::bool( $config, array( 'declined_review', 'enable' ), false ) ) {
+            return false;
+        }
+        if ( ! class_exists( 'DeclinedReviewLog' ) ) {
+            require_once __DIR__ . '/../DeclinedReviewLog.php';
+        }
+
+        return DeclinedReviewLog::capture( array_merge( $base, array(
+            'decision_code' => $decision_code,
+            'decision_phase' => $decision_phase,
+            'value_stage' => $value_stage,
+        ), $extra ) );
+    }
+
     private static function call_spam_ledger_burn( $overrides, $form_id, $submission_id, $uploads_dir, $request, $config ) {
         $callable = self::override_callable( $overrides, 'honeypot_burn' );
         if ( $callable ) {
@@ -665,10 +720,6 @@ class SubmitHandler {
     }
 
     private static function log_ledger_failure( $ledger, $form_id, $security, $request ) {
-        if ( ! class_exists( 'Logging' ) ) {
-            return;
-        }
-
         if ( is_array( $ledger ) && ! empty( $ledger['logged'] ) ) {
             return;
         }
@@ -987,10 +1038,6 @@ class SubmitHandler {
     }
 
     private static function log_spam_fail( $form_id, $security, $response, $soft_fail_count, $threshold, $request ) {
-        if ( ! class_exists( 'Logging' ) ) {
-            return;
-        }
-
         $meta = array(
             'form_id' => is_string( $form_id ) ? $form_id : '',
             'submission_id' => isset( $security['submission_id'] ) && is_string( $security['submission_id'] ) ? $security['submission_id'] : '',

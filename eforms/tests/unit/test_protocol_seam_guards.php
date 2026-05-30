@@ -89,7 +89,7 @@ eforms_test_assert( strpos( $validator, 'private static function is_upload_item'
 eforms_test_assert( strpos( $upload_store, 'private static function is_upload_item' ) === false, 'UploadStore must not keep a local upload item predicate.' );
 eforms_test_assert( strpos( $emailer, 'private static function is_upload_item' ) === false, 'Emailer must not keep a local upload item predicate.' );
 
-eforms_test_assert( strpos( $jsonl_logger, 'FileSink::append_with_rotation' ) !== false, 'JsonlLogger should delegate locked append mechanics to FileSink.' );
+eforms_test_assert( strpos( $jsonl_logger, 'FileSink::append_dated_jsonl' ) !== false, 'JsonlLogger should delegate dated JSONL append mechanics to FileSink.' );
 eforms_test_assert( strpos( $jsonl_logger, 'FileSink::prune_old_files' ) !== false, 'JsonlLogger should delegate generic pruning mechanics to FileSink.' );
 eforms_test_assert( strpos( $fail2ban_logger, 'FileSink::append_with_rotation' ) !== false, 'Fail2banLogger should delegate locked append mechanics to FileSink.' );
 eforms_test_assert( strpos( $fail2ban_logger, 'FileSink::prune_old_files' ) !== false, 'Fail2banLogger should delegate generic pruning mechanics to FileSink.' );

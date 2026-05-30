@@ -9,6 +9,7 @@
 
 require_once __DIR__ . '/../Anchors.php';
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../DeclinedReviewLog.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
 
 class GcRunner {
@@ -103,6 +104,7 @@ class GcRunner {
                 'ledger' => self::target_template(),
                 'uploads' => self::target_template(),
                 'throttle' => self::target_template(),
+                'declined' => self::target_template(),
             ),
         );
     }
@@ -141,6 +143,11 @@ class GcRunner {
         }
 
         self::scan_throttle( $private_dir, $now, $summary );
+        if ( $summary['reached_limit'] ) {
+            return;
+        }
+
+        self::scan_declined( $private_dir, $config, $now, $summary );
     }
 
     private static function scan_tokens( $private_dir, $now, &$summary ) {
@@ -231,6 +238,29 @@ class GcRunner {
                 }
 
                 return ( $now - $mtime ) > self::THROTTLE_STALE_SECONDS;
+            }
+        );
+    }
+
+    private static function scan_declined( $private_dir, $config, $now, &$summary ) {
+        $retention_seconds = (int) Config::value( $config, array( 'declined_review', 'retention_days' ), 1 ) * 86400;
+
+        $declined_dir = rtrim( $private_dir, '/\\' ) . '/' . DeclinedReviewLog::DIR;
+        self::scan_files(
+            $declined_dir,
+            'declined',
+            $summary,
+            function ( $path ) use ( $now, $retention_seconds ) {
+                if ( ! DeclinedReviewLog::is_declined_file( basename( $path ) ) ) {
+                    return false;
+                }
+
+                $mtime = @filemtime( $path );
+                if ( ! is_int( $mtime ) ) {
+                    return false;
+                }
+
+                return $now >= ( $mtime + $retention_seconds );
             }
         );
     }
