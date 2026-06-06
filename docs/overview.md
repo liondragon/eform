@@ -2,11 +2,11 @@
 
 ## What & Who
 
-**electronic_forms** is a dependency-free WordPress plugin for rendering and processing contact forms without a form-builder/settings admin UI, sessions, or external libraries. It provides a deterministic, testable pipeline for public contact-style forms while offering strong spam resistance and duplicate-submission protection.
+**electronic_forms** is a dependency-free WordPress plugin for rendering and processing contact forms without a form builder, sessions, or external libraries. It provides a deterministic, testable pipeline for public contact-style forms while offering strong spam resistance, duplicate-submission protection, and a narrow wp-admin settings surface for common operational knobs.
 
-**Promise:** Delivers strong spam resistance and duplicate-submission prevention for both cached and non-cached pages without requiring a database or external dependencies.
+**Promise:** Delivers strong spam resistance and duplicate-submission prevention for both cached and non-cached pages without storing public submissions in the database or requiring external dependencies. The only database-backed state is a sparse WordPress option for admin configuration overrides.
 
-**Target Operators:** Solo developers and small ops teams managing a handful of WordPress sites with modest daily form volume. Operators are comfortable with JSON templates and WP-CLI, prefer lightweight solutions over broad admin dashboards, and value cache-friendliness and operational simplicity.
+**Target Operators:** Solo developers and small ops teams managing a handful of WordPress sites with modest daily form volume. Operators are comfortable with JSON templates and WP-CLI, prefer lightweight tools over broad dashboards, and value cache-friendliness and operational simplicity.
 
 **Environment:** WordPress 5.8+ / PHP 8.0+ with writable uploads directory. Works on single-server setups out of the box; multi-webhead deployments require shared persistent storage for `${uploads.dir}` that all servers can access.
 
@@ -128,7 +128,7 @@ The `email.display_format_tel` token controls how `tel_us` values appear in emai
 
 ## Configuration
 
-Configuration is layered: code defaults < drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`) < WordPress filter (`eforms_config`). Values are clamped to safe ranges at startup.
+Configuration is layered: code defaults < admin settings option < drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`) < WordPress filter (`eforms_config`). Values are clamped to safe ranges at startup. Drop-in files and filters remain the deployment-friendly override path and always win over admin settings.
 
 ### Key Knobs (Narrative)
 
@@ -168,16 +168,20 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 ### Safety
 
 - **Health Check:** System runs FS health checks on render/post; failures surface as `EFORMS_ERR_STORAGE_UNAVAILABLE`
+- **Spam Smoke:** Settings -> eForms and `wp eforms spam-smoke` run the same focused local diagnostic for the shipped contact form. It confirms the main spam gates are reachable and reports pass/fail without sending real email. It does not prove every real-world spam attempt will be blocked.
+- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, GC readiness, CLI bootstrap, and config-source visibility. It reports observable readiness only; it cannot prove system cron is configured.
 - **Uninstall:** `uninstall.php` respects `install.uninstall.purge_*` flags in config to optionally wipe data
 
 ### Admin Monitoring
 
+- **Settings → eForms:** Curated admin settings for declined review, logging, challenge, throttle, and privacy, with effective values and source labels shown beside each control. Higher-priority drop-in/filter values appear as externally controlled rather than editable. Secrets are masked; blank secret saves keep the stored admin value unless explicitly cleared.
 - **Tools → eForms Declined:** Read-only declined-submission review table, shown only when `declined_review.enable=true` and available to administrators. It presents bounded submitted content for selected spam-review outcomes, rejection reasons, and request metadata so operators can spot false positives during rollout.
-- It is not a form builder, settings UI, quarantine, moderation queue, or resend workflow.
+- These admin pages are not a form builder, template editor, raw config editor, quarantine, moderation queue, or resend workflow.
 
 ### Configuration
 
 - **Drop-in file:** `${WP_CONTENT_DIR}/eforms.config.php` — Optional override source; must return an array
+- **Admin settings option:** `eforms_admin_config` — Sparse wp-admin overrides for common operational knobs
 - **Filter:** `eforms_config` — Optional runtime override hook (receives merged config, returns final config)
 - **Filter:** `eforms_request_id` — Optional request correlation override for logs
 
@@ -347,6 +351,17 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 | Challenge unconfigured | Configuration error | 200 (rerender) | "Verification unavailable; please try again" |
 | Row groups unbalanced | Configuration error | 200 | "Form configuration error: group wrappers are unbalanced" |
 
+**Operator troubleshooting map:**
+
+| Visitor-visible cue | Likely operator meaning | First check |
+|---------------------|-------------------------|-------------|
+| "This form was already submitted or has expired - please reload the page" | Token missing, expired, invalid, or already consumed; the shared message is intentional | Reload/retry, then inspect token and ledger logs |
+| "Please wait a moment and try again" | Throttle limit hit | Check `throttle.enable`, per-IP rate settings, and `Retry-After` |
+| "Form configuration error: server storage is unavailable" | Token, ledger, upload, throttle, or log storage is not writable/shared as required | Check `wp_upload_dir()` and private storage permissions/mounts |
+| "Verification unavailable; please try again" | Turnstile is required but provider configuration or availability is failing | Check `challenge.site_key`, `challenge.secret_key`, and provider response logs |
+| "Please complete the verification and submit again" | User challenge was missing, incomplete, or failed verification | Retry from the form and inspect challenge outcome logs |
+| JS-minted form stays blocked or shows a generic client-side failure | `/eforms/mint` could not issue a token, often due to origin, throttle, or storage failure | Check browser/network response, mint logs, Origin policy, throttle, and storage |
+
 ### Client-Side Behavior (`forms.js`)
 
 The plugin includes `forms.js` for client-side enhancements. It is required for cacheable pages (JS-minted mode) and optional otherwise.
@@ -404,7 +419,7 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 ### Setup Behavior
 
 **Installation (observable phases):**
-1. **Activate plugin:** No form-builder/settings UI; forms remain inactive until templates exist
+1. **Activate plugin:** No form builder or template editor; forms remain inactive until templates exist
 2. **Create templates:** Add JSON files to `/templates/forms/*.json`
 3. **Optional config:** Create drop-in at `${WP_CONTENT_DIR}/eforms.config.php` or use filter
 4. **Render forms:** Add shortcode or template tag to pages
@@ -424,6 +439,7 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 
 **Uninstall behavior:**
 - Controlled by uninstall configuration flags (e.g., `install.uninstall.purge_logs`)
+- Always removes the sparse admin settings option (`eforms_admin_config`)
 - When purge flags enabled, `uninstall.php` deletes runtime artifacts under `${uploads.dir}/eforms-private/`
 - **Operator sees:** Directories removed; no orphaned files
 

@@ -1,0 +1,3 @@
+[submodule "agent_docs"]
+	path = agent_docs
+	url = git@github.com:liondragon/agent_docs.git

@@ -9,6 +9,7 @@
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
 require_once __DIR__ . '/src/Config.php';
+require_once __DIR__ . '/src/Admin/AdminSettingsStore.php';
 require_once __DIR__ . '/src/Uploads/PrivateDir.php';
 
 if ( ! function_exists( 'eforms_uninstall_get_bool' ) ) {
@@ -251,6 +252,8 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
      * @return void
      */
     function eforms_uninstall_run() {
+        AdminSettingsStore::delete_all();
+
         if ( ! eforms_uninstall_ensure_wp_upload_dir() ) {
             return;
         }

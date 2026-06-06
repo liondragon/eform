@@ -130,6 +130,17 @@ $response = MintEndpoint::handle( $request );
 eforms_test_assert( $response['status'] === 403, 'Mint should reject cross-origin requests.' );
 eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_ORIGIN_FORBIDDEN', 'Mint should return origin forbidden.' );
 
+// Given an explicit request without Origin while the PHP runtime has an
+// ambient Origin header...
+// When the endpoint runs...
+// Then the explicit request still owns the origin decision.
+$_SERVER['HTTP_ORIGIN'] = 'https://example.com';
+unset( $request['headers']['Origin'] );
+$response = MintEndpoint::handle( $request );
+eforms_test_assert( $response['status'] === 403, 'Mint should reject explicit requests with missing Origin.' );
+eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_ORIGIN_FORBIDDEN', 'Missing Origin must not fall back to ambient server headers.' );
+unset( $_SERVER['HTTP_ORIGIN'] );
+
 // Given a forged request Host that matches the Origin but not the site origin...
 // When the endpoint runs...
 // Then canonical home_url origin still owns the same-origin decision.

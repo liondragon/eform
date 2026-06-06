@@ -28,18 +28,26 @@ mkdir( $uploads_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
 $GLOBALS['eforms_test_can_manage'] = true;
 $GLOBALS['eforms_test_management_pages'] = array();
+$GLOBALS['eforms_test_options_pages'] = array();
 
-// Bootstrap only registers the Tools page when declined review is enabled.
+// Bootstrap always registers Settings -> eForms; the Tools page remains gated.
 eforms_test_configure_declined_review( $uploads_dir, false );
 $GLOBALS['eforms_test_hooks']['action']['admin_menu'] = array();
 eforms_register_admin();
-eforms_test_assert( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] === array(), 'Disabled declined review should not register the admin hook.' );
+eforms_test_assert( isset( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) && count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 1, 'Disabled declined review should register only the Settings hook.' );
+SettingsAdmin::register_menu();
+eforms_test_assert( count( $GLOBALS['eforms_test_options_pages'] ) === 1, 'Disabled declined review should register the Settings page.' );
+eforms_test_assert( $GLOBALS['eforms_test_management_pages'] === array(), 'Disabled declined review should not register the Tools page.' );
 
 eforms_test_configure_declined_review( $uploads_dir, true );
+$GLOBALS['eforms_test_options_pages'] = array();
+$GLOBALS['eforms_test_management_pages'] = array();
 $GLOBALS['eforms_test_hooks']['action']['admin_menu'] = array();
 eforms_register_admin();
-eforms_test_assert( isset( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) && count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 1, 'Enabled declined review should register the admin hook.' );
+eforms_test_assert( isset( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) && count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 2, 'Enabled declined review should register Settings and Tools hooks.' );
+SettingsAdmin::register_menu();
 DeclinedReviewAdmin::register_menu();
+eforms_test_assert( count( $GLOBALS['eforms_test_options_pages'] ) === 1, 'Enabled declined review should register one Settings page.' );
 eforms_test_assert( count( $GLOBALS['eforms_test_management_pages'] ) === 1, 'Admin menu should register one Tools page.' );
 eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['capability'] === 'manage_options', 'Admin page should require manage_options.' );
 eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['menu_slug'] === DeclinedReviewAdmin::SLUG, 'Admin page should use the expected slug.' );

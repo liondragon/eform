@@ -146,6 +146,8 @@ eforms_test_assert( Config::value( $sample, array( 'feature', 'enabled' ), 'fall
 eforms_test_assert( Config::value( $sample, array( 'feature', 'missing' ), 'fallback' ) === 'fallback', 'Config::value should return fallback for missing paths.' );
 eforms_test_assert( Config::value( $sample, array( 'feature', 'null_value' ), 'fallback' ) === null, 'Config::value should preserve explicit null values.' );
 eforms_test_assert( Config::value( $sample, 'feature.enabled', 'fallback' ) === 'fallback', 'Config::value should require array paths.' );
+eforms_test_assert( Config::has_path( $sample, array( 'feature', 'null_value' ) ) === true, 'Config::has_path should detect explicit null values.' );
+eforms_test_assert( Config::has_path( $sample, array( 'feature', 'missing' ) ) === false, 'Config::has_path should return false for missing paths.' );
 eforms_test_assert( Config::bool( $sample, array( 'feature', 'enabled' ), false ) === true, 'Config::bool should accept actual true.' );
 eforms_test_assert( Config::bool( $sample, array( 'feature', 'disabled' ), true ) === false, 'Config::bool should accept actual false.' );
 eforms_test_assert( Config::bool( $sample, array( 'feature', 'truthy_string' ), false ) === false, 'Config::bool must reject truthy strings.' );

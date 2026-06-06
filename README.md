@@ -26,7 +26,7 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Co
 - `eforms/src/Submission/SubmitHandler.php` orchestrates security checks, validation, logging, email, and uploads.
 - `eforms/src/Security/` houses token, origin, challenge, and throttling logic.
 - `eforms/src/Logging.php` writes structured logs with rotation.
-- Configuration lives in `eforms/src/Config.php` and can be overridden via a drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`, usually `wp-content/eforms.config.php`) and/or the `eforms_config` filter.
+- Configuration lives in `eforms/src/Config.php`. Common operational settings can be managed in WordPress at Settings -> eForms; deployment overrides can still be supplied via a drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`, usually `wp-content/eforms.config.php`) and/or the `eforms_config` filter.
 
 ## Usage
 
@@ -35,6 +35,12 @@ Add forms via shortcode:
 ```php
 [eform id="contact"]
 ```
+
+Configure in WordPress:
+
+- Open Settings -> eForms for curated settings with effective values and source labels shown beside each control.
+- Admin settings are stored as sparse overrides in `eforms_admin_config`.
+- Precedence is code defaults < admin settings < drop-in file < `eforms_config` filter, so drop-in/filter values appear as externally controlled in wp-admin.
 
 Configure via drop-in file:
 
@@ -144,18 +150,40 @@ Run `wp eforms gc` via system cron to prune expired token records and uploads. T
 
 Ledger markers are pruned by `wp eforms gc` after the associated token is expired.
 
-## WP-CLI scripts
+## Spam Protection Smoke Test
 
-Helper scripts under `bin/wp-cli/` exercise a couple of security scenarios. Run
-them from the WordPress root where this plugin is installed:
+Run the focused spam diagnostic from Settings -> eForms or from the WordPress root:
 
 ```sh
-# Submit without an Origin header; expects HTTP 403 + EFORMS_ERR_ORIGIN_FORBIDDEN
-wp eval-file wp-content/plugins/eform/bin/wp-cli/post-no-origin.php
-
-# Send a payload above the configured limit; expects HTTP 400 + EFORMS_ERR_MINT_FAILED
-wp eval-file wp-content/plugins/eform/bin/wp-cli/post-oversized.php
+wp eforms spam-smoke
 ```
 
-Both scripts exit with a non-zero status when the observed behaviour deviates
-from the expected result.
+The command uses the shipped `contact` form and local runtime paths to verify:
+
+- valid baseline submission reaches the commit boundary with real email suppressed
+- honeypot blocks before commit
+- missing JavaScript can trigger spam rejection under a strict temporary threshold
+- too-fast submission can trigger spam rejection under a strict temporary threshold
+- combined soft signals are reported together under a strict temporary threshold
+- throttle returns a retryable throttled result
+- oversized mint requests fail
+- mint requests without Origin fail
+
+This is an operator wiring check, not a guarantee that all real-world spam will
+be blocked. Smoke artifacts may appear in eForms logs/runtime storage and are
+cleaned by normal `wp eforms gc`.
+
+## Runtime Health Doctor
+
+Run the active runtime health diagnostic from Settings -> eForms or from the
+WordPress root:
+
+```sh
+wp eforms doctor
+```
+
+The doctor checks observable host/runtime readiness: uploads writability,
+private storage protection, runtime subdirectory usability, shipped templates,
+GC dry-run readiness, CLI bootstrap, and config source visibility. It reports
+PASS/WARN/FAIL rows and does not store diagnostic history. It cannot prove that
+system cron is configured; schedule `wp eforms gc` separately.

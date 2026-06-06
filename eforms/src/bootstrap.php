@@ -208,23 +208,29 @@ if ( ! function_exists( 'eforms_register_cli' ) ) {
         }
 
         WP_CLI::add_command( 'eforms gc', 'eforms_cli_gc' );
+        WP_CLI::add_command( 'eforms spam-smoke', 'eforms_cli_spam_smoke' );
+        WP_CLI::add_command( 'eforms doctor', 'eforms_cli_doctor' );
     }
 }
 
 if ( ! function_exists( 'eforms_register_admin' ) ) {
     /**
-     * Register the small wp-admin monitoring surface.
+     * Register wp-admin surfaces.
      */
     function eforms_register_admin() {
-        if ( ! Config::bool( Config::get(), array( 'declined_review', 'enable' ), false ) ) {
-            return;
+        if ( ! class_exists( 'SettingsAdmin' ) ) {
+            require_once __DIR__ . '/Admin/SettingsAdmin.php';
         }
 
-        if ( ! class_exists( 'DeclinedReviewAdmin' ) ) {
-            require_once __DIR__ . '/Admin/DeclinedReviewAdmin.php';
-        }
+        SettingsAdmin::register();
 
-        DeclinedReviewAdmin::register();
+        if ( Config::bool( Config::get(), array( 'declined_review', 'enable' ), false ) ) {
+            if ( ! class_exists( 'DeclinedReviewAdmin' ) ) {
+                require_once __DIR__ . '/Admin/DeclinedReviewAdmin.php';
+            }
+
+            DeclinedReviewAdmin::register();
+        }
     }
 }
 
@@ -238,6 +244,32 @@ if ( ! function_exists( 'eforms_cli_gc' ) ) {
         }
 
         return GcCommand::invoke( $args, $assoc_args );
+    }
+}
+
+if ( ! function_exists( 'eforms_cli_spam_smoke' ) ) {
+    /**
+     * Handler for `wp eforms spam-smoke`.
+     */
+    function eforms_cli_spam_smoke( $args = array(), $assoc_args = array() ) {
+        if ( ! class_exists( 'SpamSmokeCommand' ) ) {
+            require_once __DIR__ . '/Cli/SpamSmokeCommand.php';
+        }
+
+        return SpamSmokeCommand::invoke( $args, $assoc_args );
+    }
+}
+
+if ( ! function_exists( 'eforms_cli_doctor' ) ) {
+    /**
+     * Handler for `wp eforms doctor`.
+     */
+    function eforms_cli_doctor( $args = array(), $assoc_args = array() ) {
+        if ( ! class_exists( 'RuntimeHealthCommand' ) ) {
+            require_once __DIR__ . '/Cli/RuntimeHealthCommand.php';
+        }
+
+        return RuntimeHealthCommand::invoke( $args, $assoc_args );
     }
 }
 

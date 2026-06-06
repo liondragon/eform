@@ -292,6 +292,79 @@ if ( ! function_exists( 'current_user_can' ) ) {
     }
 }
 
+if ( ! function_exists( 'wp_die' ) ) {
+    function wp_die( $message = '' ) {
+        throw new RuntimeException( (string) $message );
+    }
+}
+
+if ( ! function_exists( 'eforms_test_reset_options' ) ) {
+    function eforms_test_reset_options() {
+        $GLOBALS['eforms_test_options'] = array();
+        $GLOBALS['eforms_test_option_autoload'] = array();
+    }
+}
+
+if ( ! isset( $GLOBALS['eforms_test_options'] ) || ! is_array( $GLOBALS['eforms_test_options'] ) ) {
+    eforms_test_reset_options();
+}
+
+if ( ! function_exists( 'get_option' ) ) {
+    function get_option( $name, $default = false ) {
+        if ( $name === 'admin_email' ) {
+            return 'admin@example.com';
+        }
+
+        if ( isset( $GLOBALS['eforms_test_options'] ) && array_key_exists( $name, $GLOBALS['eforms_test_options'] ) ) {
+            return $GLOBALS['eforms_test_options'][ $name ];
+        }
+
+        return $default;
+    }
+}
+
+if ( ! function_exists( 'add_option' ) ) {
+    function add_option( $name, $value = '', $deprecated = '', $autoload = null ) {
+        if ( ! isset( $GLOBALS['eforms_test_options'] ) || ! is_array( $GLOBALS['eforms_test_options'] ) ) {
+            eforms_test_reset_options();
+        }
+
+        if ( array_key_exists( $name, $GLOBALS['eforms_test_options'] ) ) {
+            return false;
+        }
+
+        $GLOBALS['eforms_test_options'][ $name ] = $value;
+        $GLOBALS['eforms_test_option_autoload'][ $name ] = $autoload;
+        return true;
+    }
+}
+
+if ( ! function_exists( 'update_option' ) ) {
+    function update_option( $name, $value, $autoload = null ) {
+        if ( ! isset( $GLOBALS['eforms_test_options'] ) || ! is_array( $GLOBALS['eforms_test_options'] ) ) {
+            eforms_test_reset_options();
+        }
+
+        $GLOBALS['eforms_test_options'][ $name ] = $value;
+        if ( $autoload !== null ) {
+            $GLOBALS['eforms_test_option_autoload'][ $name ] = $autoload;
+        }
+        return true;
+    }
+}
+
+if ( ! function_exists( 'delete_option' ) ) {
+    function delete_option( $name ) {
+        if ( isset( $GLOBALS['eforms_test_options'] ) && is_array( $GLOBALS['eforms_test_options'] ) ) {
+            unset( $GLOBALS['eforms_test_options'][ $name ] );
+        }
+        if ( isset( $GLOBALS['eforms_test_option_autoload'] ) && is_array( $GLOBALS['eforms_test_option_autoload'] ) ) {
+            unset( $GLOBALS['eforms_test_option_autoload'][ $name ] );
+        }
+        return true;
+    }
+}
+
 if ( ! function_exists( 'add_management_page' ) ) {
     function add_management_page( $page_title, $menu_title, $capability, $menu_slug, $callback ) {
         $GLOBALS['eforms_test_management_pages'][] = array(
@@ -302,6 +375,39 @@ if ( ! function_exists( 'add_management_page' ) ) {
             'callback'    => $callback,
         );
         return $menu_slug;
+    }
+}
+
+if ( ! function_exists( 'add_options_page' ) ) {
+    function add_options_page( $page_title, $menu_title, $capability, $menu_slug, $callback ) {
+        $GLOBALS['eforms_test_options_pages'][] = array(
+            'page_title'  => $page_title,
+            'menu_title'  => $menu_title,
+            'capability'  => $capability,
+            'menu_slug'   => $menu_slug,
+            'callback'    => $callback,
+        );
+        return $menu_slug;
+    }
+}
+
+if ( ! function_exists( 'wp_nonce_field' ) ) {
+    function wp_nonce_field( $action = -1, $name = '_wpnonce' ) {
+        $nonce = isset( $GLOBALS['eforms_test_nonce'] ) ? (string) $GLOBALS['eforms_test_nonce'] : 'valid-nonce';
+        echo '<input type="hidden" name="' . esc_attr( $name ) . '" value="' . esc_attr( $nonce ) . '" />';
+    }
+}
+
+if ( ! function_exists( 'wp_verify_nonce' ) ) {
+    function wp_verify_nonce( $nonce, $action = -1 ) {
+        $expected = isset( $GLOBALS['eforms_test_nonce'] ) ? (string) $GLOBALS['eforms_test_nonce'] : 'valid-nonce';
+        return (string) $nonce === $expected && (string) $action !== '';
+    }
+}
+
+if ( ! function_exists( 'submit_button' ) ) {
+    function submit_button( $text = 'Save Changes' ) {
+        echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html( $text ) . '</button></p>';
     }
 }
 
@@ -342,6 +448,12 @@ if ( ! function_exists( 'apply_filters' ) ) {
             return call_user_func( $GLOBALS['eforms_test_filters'][ $tag ], $value );
         }
         return $value;
+    }
+}
+
+if ( ! function_exists( 'has_filter' ) ) {
+    function has_filter( $tag ) {
+        return isset( $GLOBALS['eforms_test_filters'][ $tag ] ) && is_callable( $GLOBALS['eforms_test_filters'][ $tag ] );
     }
 }
 

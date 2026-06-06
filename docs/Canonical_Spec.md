@@ -18,6 +18,9 @@ Quick reference for implementers. Each surface links to its authoritative sectio
 | `eforms_config` | Filter | Optional runtime config override hook | [Configuration](#sec-configuration) |
 | `eforms_request_id` | Filter | Optional request correlation override for logs | [Logging](#sec-logging) |
 | `wp eforms gc` | WP-CLI | Garbage-collects expired runtime artifacts | [Uploads](#sec-uploads) |
+| `wp eforms spam-smoke` | WP-CLI | Runs a focused local diagnostic for documented spam protection paths | [Spam Smoke Diagnostic](#sec-spam-smoke-command) |
+| `wp eforms doctor` | WP-CLI | Runs active runtime health checks for storage, templates, GC readiness, CLI bootstrap, and config provenance | [Runtime Health Diagnostic](#sec-runtime-health-diagnostic) |
+| Settings → eForms | WP Admin | Curated admin settings with effective values and sources, plus explicit diagnostic actions | [Configuration](#sec-configuration), [Spam Smoke Diagnostic](#sec-spam-smoke-command), [Runtime Health Diagnostic](#sec-runtime-health-diagnostic) |
 | Tools → eForms Declined | WP Admin | Read-only declined-submission review surface | [Declined Review](#sec-declined-review) |
 
 Storage layout and paths: see [Shared lifecycle and storage contract](#sec-shared-lifecycle).
@@ -25,18 +28,18 @@ Storage layout and paths: see [Shared lifecycle and storage contract](#sec-share
 1. OBJECTIVE
 - Build a dependency-free, lightweight plugin that renders and processes multiple forms from JSON templates with strict DRY principles and a deterministic pipeline.
 - Designed for real-world operation today (internal use across a handful of sites, modest daily volume) while laying durable groundwork for higher volume growth without redesign.
-- Targets publicly accessible contact forms without authenticated sessions. Cache-friendly and session-agnostic: WordPress nonces are never used. The plugin does not implement authenticated user flows, account dashboards, or account management surfaces.
+- Targets publicly accessible contact forms without authenticated sessions. Cache-friendly and session-agnostic: public form renders/submissions never use WordPress nonces. The plugin does not implement authenticated user flows, account dashboards, or account management surfaces.
 - Primary outcomes:
   - Prevent bot submissions and provide strong spam resistance.
   - Prevent accidental duplicate submissions (double-click, back/refresh, retries) via one-time token + ledger dedupe.
   - Support both long-cached form pages (CDN cached for days) and non-cached pages.
   - Support multiple forms per page. It doesn't need to support multiple intances of the same form on a single page for simplicity.
 - Out of scope: multi-step or multi-page wizards/questionnaires, and any flows that depend on persistent user identity beyond a single submission.
-- No form-builder or settings admin UI; the declined-review viewer in [Declined Review](#sec-declined-review) is the only admin surface.
+- No form-builder, template editor, raw config editor, submission database, moderation queue, or per-submission admin workflow. The only admin surfaces are the curated Settings → eForms configuration page and the declined-review viewer in [Declined Review](#sec-declined-review).
 - Platform requirements: see [Compatibility and Updates](#sec-compatibility).
 - Focus on simplicity, elegancy, and efficiency; avoid overengineering. Easy to maintain and performant for the intended workloads.
 - Lazy config snapshot: bootstrapped on first `Config::get()` per request; entry points SHOULD call `Config::get()` early (see [Configuration: Domains, Constraints, and Defaults](#sec-configuration)).
-- No database writes; file-backed one-time token ledger for duplicate-submit prevention (no Redis/queues).
+- Public submission runtime does not write submission data to the database; it uses the file-backed one-time token ledger for duplicate-submit prevention (no Redis/queues). The lone database carve-out is the sparse `eforms_admin_config` WordPress option for admin configuration overrides.
 - Clear boundaries: render vs. validate vs. send vs. log vs. upload.
 - Deterministic pipeline and validator-driven structural validation: big win for testability.
 - Lazy loading of registries/features and config snapshot: keeps coupling down.
@@ -54,7 +57,8 @@ Storage layout and paths: see [Shared lifecycle and storage contract](#sec-share
 		- File logging
 		- Basic CSS/JS enqueue
 	2. OUT
-		- Form-builder/settings admin pages
+		- Form-builder/template-editor admin pages
+		- Raw all-settings config editor
 		- External libraries
 		- Internationalization
 		- HMAC
@@ -512,7 +516,7 @@ Notes (normative):
 	- Log only origin_state (no Referrer). Referrer is not consulted.
 	- Security::origin_evaluate() returns {state, hard_fail, soft_reasons?: string[]}.
 	- When `security.origin_mode="soft"` and the evaluated request is cross-origin or unknown, add `"origin_soft"` to `soft_reasons`. Missing Origin adds `"origin_soft"` in soft mode regardless of `security.origin_missing_hard`.
-	- Operational guidance: Only enable `security.origin_mode="hard"` with `security.origin_missing_hard=true` after validating your environment (some older agents omit Origin). Provide a tiny WP-CLI smoke test that POSTs without Origin to verify behavior.
+	- Operational guidance: Only enable `security.origin_mode="hard"` with `security.origin_missing_hard=true` after validating your environment (some older agents omit Origin). Use `wp eforms spam-smoke` to verify the missing-Origin path.
 
 <a id="sec-post-size-cap"></a>6. POST Size Cap (authoritative)
 	- Applies after Type gate:
@@ -538,6 +542,28 @@ Notes (normative):
 	- JS-minted scenarios → follow [Security → JS-minted mode contract](#sec-js-mint-mode).
 	- Ledger scenarios → follow [Security → Ledger reservation contract](#sec-ledger-contract).
 	- Honeypot scenarios → follow [Security → Honeypot](#sec-honeypot).
+
+<a id="sec-spam-smoke-command"></a>7.1 Spam Smoke Diagnostic
+	- The spam smoke diagnostic is an operator diagnostic, not an anti-spam effectiveness guarantee.
+	- It is exposed through `wp eforms spam-smoke` and the Settings → eForms admin page.
+	- Both surfaces MUST use the same diagnostic owner and result shape; CLI and admin code MUST only adapt invocation, formatting, authorization, and nonce handling.
+	- The diagnostic MUST use the shipped `contact` form and local runtime entrypoints to exercise the baseline submit boundary, honeypot, missing-JS soft signal, too-fast soft signal, combined soft-signal reporting, throttle, oversized mint, and missing-Origin mint paths.
+	- The baseline submit check MUST suppress real email and report that the commit boundary was reached.
+	- Each check result MUST report the observed outcome, expected outcome, and temporary config scope used by that check.
+	- Each temporary config override MUST be isolated to its check and MUST NOT leak into later checks.
+	- The diagnostic MUST return success only when all smoke checks match their expected outcomes.
+	- The admin surface MUST require `manage_options`, use a nonce distinct from settings save, avoid persisting results, and MUST NOT save settings when running the diagnostic.
+
+<a id="sec-runtime-health-diagnostic"></a>7.2 Runtime Health Diagnostic
+	- The runtime health diagnostic is an active operator diagnostic for host/runtime readiness, not a passive status dashboard.
+	- It is exposed through `wp eforms doctor` and an explicit Settings → eForms admin action labeled "Run Runtime Health Check".
+	- Both surfaces MUST use the same diagnostic owner and result shape; CLI and admin code MUST only adapt invocation, formatting, authorization, nonce handling, and exit behavior.
+	- The diagnostic MUST check observable runtime readiness: upload base writability, private directory creation/protection, token/ledger/log/throttle directory usability, shipped template validity, GC dry-run/readiness, CLI bootstrap availability, and config source/provenance application.
+	- Checks that create private directories, deny-rule files, subdirectories, locks, or probe files MUST run only after the explicit diagnostic action/command and MUST clean up temporary probe files.
+	- GC scheduling cannot be proven from PHP; the diagnostic MUST report only observable GC readiness or stale runtime artifacts and MUST NOT claim that system cron is configured.
+	- Each check result MUST report PASS, WARN, or FAIL plus observed outcome, expected outcome, and notes. WARN rows do not make the diagnostic fail; FAIL rows do.
+	- The diagnostic MUST avoid exposing raw upload paths, secrets, or submitted content.
+	- The admin surface MUST require `manage_options`, use a nonce distinct from settings save and spam smoke, avoid persisting results, and MUST NOT save settings when running the diagnostic.
 
 <a id="sec-spam-decision"></a>8. Spam Decision
 	- Ordering (normative): the Security gate runs before Normalize/Validate/Coerce; on hard failure it MUST stop processing before side effects (uploads moves, email). Honeypot may still perform its ledger burn/cleanup as specified in [Security → Honeypot](#sec-honeypot).
@@ -868,9 +894,17 @@ Notes (normative):
 
 - Override sources (normative):
 	- Base defaults: `Config::DEFAULTS`.
+	- Optional sparse WordPress admin option: `eforms_admin_config`, written only by Settings → eForms and limited to the admin editable allowlist below.
 	- Optional drop-in override file: `${WP_CONTENT_DIR}/eforms.config.php` (typically `wp-content/eforms.config.php`) returning an array of overrides.
 	- Optional WordPress filter: `eforms_config` — receives the merged config array and returns the final config array.
-	- Precedence (normative): defaults < drop-in file < `eforms_config` filter.
+	- Precedence (normative): defaults < `eforms_admin_config` < drop-in file < `eforms_config` filter.
+	- Higher override sources win even when the higher source value equals a lower source value; effective-config reporting must still identify the controlling source.
+	- Admin option scope (normative): `eforms_admin_config` is a sparse config override only. It MUST NOT store form submissions, declined-review records, raw config text, templates, or per-submission state. Unknown or non-allowlisted admin option keys invalidate the whole persisted admin override payload for that bootstrap and the runtime continues from defaults/drop-in/filter.
+	- Admin option write contract (normative): Settings → eForms writes `eforms_admin_config` only after `manage_options` and nonce validation. Saves are atomic: unknown keys, non-allowlisted keys, invalid enum/type values, invalid submitted-field sentinels, or invalid secret clear/replace combinations reject the whole submitted admin override payload with a normal admin notice and no partial write.
+	- Admin editable allowlist (normative): only `declined_review.enable`, `declined_review.retention_days`, `logging.mode`, `logging.level`, `logging.retention_days`, `challenge.mode`, `challenge.site_key`, `challenge.secret_key`, `throttle.enable`, `throttle.per_ip.max_per_minute`, `throttle.per_ip.cooldown_seconds`, and `privacy.ip_mode` may be written from Settings → eForms.
+	- Admin secret behavior (normative): stored admin secrets are never rendered raw. A blank `challenge.secret_key` submission keeps the existing stored admin override; an explicit clear control removes only the stored admin override and never changes drop-in/filter values.
+	- Externally controlled admin fields (normative): when a drop-in file or `eforms_config` filter controls an editable path, Settings → eForms shows the field as externally controlled and excludes it from mutation on save. A disabled/read-only field missing from POST MUST NOT clear or overwrite the stored admin override. Missing checkbox values map to `false` only for fields that were editable in the submitted form.
+	- Admin settings surface behavior (normative): Settings → eForms shows editable allowlisted controls together with their effective values and controlling sources. Read-only runtime rows, if present, MUST be passive. Rendering the page MUST NOT create private directories, deny-rule files, or probe files. Mutating storage health probes remain runtime/public-path behavior unless a future spec explicitly adds a labeled admin diagnostic action.
 	- Bootstrap safety (normative): drop-in loading occurs only when `ABSPATH` and `WP_CONTENT_DIR` are defined; otherwise skip drop-in loading (standalone tooling MAY force bootstrap without WordPress loaded).
 	- Drop-in file contract (normative):
 		- MUST be side-effect free (no output).
@@ -886,7 +920,7 @@ Notes (normative):
 
 Defaults note: When this spec refers to a ‘Default’, the authoritative literal is `Config::DEFAULTS` in code; the spec does not restate those literals.
 	- Normative constraints (this spec): types, enums, required/forbidden combinations, range clamps, migration/fallback behavior, and precedence rules remain authoritative here. Implementations MUST enforce these even when defaults evolve.
-	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or other entry points) invokes `Config::bootstrap()`; within a request it runs at most once, merges the optional drop-in override file (when applicable), applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
+	- Lazy bootstrap: The first call to `Config::get()` (including the invocations performed by `FormRenderer::render()`, `SubmitHandler::handle()`, `Security::token_validate()`, `Emailer::send()`, or other entry points) invokes `Config::bootstrap()`; within a request it runs at most once, merges the optional admin option override, merges the optional drop-in override file (when applicable), applies the `eforms_config` filter, clamps values, then freezes the snapshot. `uninstall.php` calls it eagerly to honor purge flags; standalone tooling MAY force bootstrap.
 	- Bootstrap ownership (normative):
 		- Entry points SHOULD call `Config::get()` before invoking helpers (see [Lazy-load Matrix](#sec-lazy-load-matrix) for trigger ownership).
 - Helpers MUST ALSO call `Config::get()` on first use as a safety net; the call is idempotent so callers that forget still behave correctly.

@@ -71,6 +71,26 @@ $config = Config::get();
 eforms_test_assert( $config['security']['origin_mode'] === 'off', 'Filter overrides should take precedence.' );
 eforms_test_set_filter( 'eforms_config', null );
 
+// Given Config::get has already frozen the request snapshot...
+// When effective_report is read later...
+// Then the report comes from the same bootstrap pass.
+$filter_calls = 0;
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $current ) use ( &$filter_calls ) {
+        $filter_calls++;
+        $current['logging']['mode'] = 'off';
+        return $current;
+    }
+);
+Config::reset_for_tests();
+$config = Config::get();
+$report = Config::effective_report();
+eforms_test_assert( $config['logging']['mode'] === 'off', 'Filter override should affect the frozen snapshot.' );
+eforms_test_assert( $report['logging.mode']['source'] === 'filter', 'Effective report should be built during the same bootstrap pass.' );
+eforms_test_assert( $filter_calls === 1, 'Effective report lookup must not re-run config bootstrap or filters.' );
+eforms_test_set_filter( 'eforms_config', null );
+
 // Given a returned config snapshot...
 // When the caller mutates it...
 // Then the stored snapshot remains unchanged.

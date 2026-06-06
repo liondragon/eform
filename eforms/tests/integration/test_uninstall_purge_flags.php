@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../../src/Config.php';
+require_once __DIR__ . '/../../src/Admin/AdminSettingsStore.php';
 require_once __DIR__ . '/../../src/Uploads/PrivateDir.php';
 
 if ( ! function_exists( 'eforms_test_uninstall_write_file' ) ) {
@@ -58,6 +59,8 @@ if ( ! function_exists( 'eforms_test_uninstall_seed_runtime' ) ) {
 
 if ( ! function_exists( 'eforms_test_uninstall_run' ) ) {
     function eforms_test_uninstall_run( $uploads_dir, $purge_logs, $purge_uploads ) {
+        update_option( AdminSettingsStore::OPTION_NAME, array( 'logging' => array( 'mode' => 'jsonl' ) ), false );
+
         eforms_test_set_filter(
             'eforms_config',
             function ( $config ) use ( $uploads_dir, $purge_logs, $purge_uploads ) {
@@ -94,6 +97,7 @@ eforms_test_assert( file_exists( $case1['token'] ), 'Token file should remain wh
 eforms_test_assert( file_exists( $case1['log'] ), 'Log file should remain when purge flags are disabled.' );
 eforms_test_assert( file_exists( $case1['declined_rotated'] ), 'Declined review files should remain when purge flags are disabled.' );
 eforms_test_assert( file_exists( $case1['f2b_rotated'] ), 'Fail2ban rotated file should remain when purge flags are disabled.' );
+eforms_test_assert( get_option( AdminSettingsStore::OPTION_NAME, null ) === null, 'Admin settings option should be deleted even when purge flags are disabled.' );
 
 eforms_test_remove_tree( $uploads_dir . '/eforms-private' );
 eforms_test_remove_tree( $uploads_dir . '/f2b' );
@@ -111,6 +115,7 @@ eforms_test_assert( ! file_exists( $case2['f2b_rotated'] ), 'Fail2ban rotated si
 eforms_test_assert( file_exists( $case2['token'] ), 'Token file should remain when only purge_logs=true.' );
 eforms_test_assert( file_exists( $case2['upload'] ), 'Upload file should remain when only purge_logs=true.' );
 eforms_test_assert( file_exists( $case2['sentinel'] ), 'Unrelated files under uploads root must not be removed.' );
+eforms_test_assert( get_option( AdminSettingsStore::OPTION_NAME, null ) === null, 'Admin settings option should be deleted when purge_logs=true.' );
 
 eforms_test_remove_tree( $uploads_dir . '/eforms-private' );
 eforms_test_remove_tree( $uploads_dir . '/f2b' );
@@ -127,6 +132,7 @@ eforms_test_assert( file_exists( $case3['log'] ), 'Logs should remain when purge
 eforms_test_assert( file_exists( $case3['declined'] ), 'Declined review files should remain when purge_logs=false.' );
 eforms_test_assert( file_exists( $case3['f2b'] ), 'Fail2ban file should remain when purge_logs=false.' );
 eforms_test_assert( file_exists( $case3['sentinel'] ), 'Unrelated files under uploads root must not be removed.' );
+eforms_test_assert( get_option( AdminSettingsStore::OPTION_NAME, null ) === null, 'Admin settings option should be deleted when purge_uploads=true.' );
 
 eforms_test_remove_tree( $uploads_dir . '/eforms-private' );
 

@@ -70,19 +70,27 @@ class OriginPolicy
 
     private static function header_value($request, $name)
     {
-        if (is_object($request) && method_exists($request, 'get_header')) {
-            $value = $request->get_header($name);
-            if (is_string($value)) {
-                return trim($value);
-            }
-        }
-
-        if (is_array($request) && isset($request['headers']) && is_array($request['headers'])) {
-            foreach ($request['headers'] as $key => $value) {
-                if (is_string($key) && strcasecmp($key, $name) === 0 && is_string($value)) {
+        if (is_object($request)) {
+            if (method_exists($request, 'get_header')) {
+                $value = $request->get_header($name);
+                if (is_string($value)) {
                     return trim($value);
                 }
             }
+
+            return '';
+        }
+
+        if (is_array($request)) {
+            if (isset($request['headers']) && is_array($request['headers'])) {
+                foreach ($request['headers'] as $key => $value) {
+                    if (is_string($key) && strcasecmp($key, $name) === 0 && is_string($value)) {
+                        return trim($value);
+                    }
+                }
+            }
+
+            return '';
         }
 
         $server_key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));

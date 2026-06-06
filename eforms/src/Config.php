@@ -8,6 +8,11 @@ require_once __DIR__ . '/Anchors.php';
 class Config
 {
     const DROPIN_FILENAME = 'eforms.config.php';
+    const SOURCE_DEFAULT = 'default';
+    const SOURCE_ADMIN_OPTION = 'admin option';
+    const SOURCE_CONFIG_FILE = 'config file';
+    const SOURCE_FILTER = 'filter';
+    const SOURCE_CLAMPED = 'clamped';
 
     const DEFAULT_TOKEN_TTL_SECONDS = 3600;
     const DEFAULT_MIN_FILL_SECONDS = 0;
@@ -114,6 +119,8 @@ class Config
 
     private static $snapshot = null;
     private static $bootstrapped = false;
+    private static $effective_report = null;
+    private static $admin_schema = null;
 
     /**
      * Return the frozen config snapshot for the current request.
@@ -139,7 +146,14 @@ class Config
 
         $defaults = self::defaults();
         $config = $defaults;
+        $provenance = array();
         $dropin_schema_errors = array();
+
+        list($admin_override, $admin_valid) = self::load_admin_overrides();
+        if ($admin_valid && is_array($admin_override) && !empty($admin_override)) {
+            $config = self::merge_overrides_or_default($config, $admin_override, false);
+            self::mark_source_paths($provenance, $admin_override, self::SOURCE_ADMIN_OPTION, '');
+        }
 
         list($dropin, $dropin_error) = self::load_dropin();
         if ($dropin_error !== null) {
@@ -149,23 +163,30 @@ class Config
         if (is_array($dropin)) {
             $dropin = self::sanitize_override_schema($dropin, $defaults, $dropin_schema_errors, '');
             $config = self::merge_overrides_or_default($config, $dropin, true);
+            self::mark_source_paths($provenance, $dropin, self::SOURCE_CONFIG_FILE, '');
         }
 
         if (function_exists('apply_filters')) {
+            $before_filter = self::deep_copy($config);
             $filtered = apply_filters('eforms_config', $config);
             if (is_array($filtered)) {
                 $filter_schema_errors = array();
                 $filtered = self::sanitize_override_schema($filtered, $defaults, $filter_schema_errors, '');
-                $config = self::merge_overrides_or_default($config, $filtered, false);
+                $merged = self::merge_overrides_or_default($config, $filtered, false);
+                self::mark_changed_source_paths($provenance, $before_filter, $merged, self::SOURCE_FILTER, '');
+                $config = $merged;
             }
         }
 
         $schema_errors = array();
         $config = self::sanitize_config_schema($config, $defaults, $schema_errors, '');
-        $config = self::apply_anchor_clamps($config, $defaults);
+        $clamped_paths = array();
+        $config = self::apply_anchor_clamps($config, $defaults, $clamped_paths);
+        self::mark_clamped_paths($provenance, array_keys($clamped_paths));
         self::emit_dropin_schema_errors($config, $dropin_schema_errors);
 
         self::$snapshot = self::deep_copy($config);
+        self::$effective_report = self::build_effective_report($config, $provenance);
     }
 
     /**
@@ -221,13 +242,323 @@ class Config
         return $fallback;
     }
 
+    public static function has_path($config, $path)
+    {
+        if (!is_array($config) || !is_array($path)) {
+            return false;
+        }
+
+        $cursor = $config;
+        foreach ($path as $segment) {
+            if (!is_array($cursor) || !array_key_exists($segment, $cursor)) {
+                return false;
+            }
+            $cursor = $cursor[$segment];
+        }
+
+        return true;
+    }
+
+    public static function admin_schema()
+    {
+        return self::deep_copy(self::admin_schema_cached());
+    }
+
+    private static function admin_schema_cached()
+    {
+        if (self::$admin_schema !== null) {
+            return self::$admin_schema;
+        }
+
+        $schema = array(
+            'declined_review.enable' => array('type' => 'bool'),
+            'declined_review.retention_days' => array(
+                'type' => 'int',
+                'nullable' => true,
+                'min_anchor' => 'RETENTION_DAYS_MIN',
+                'max_anchor' => 'RETENTION_DAYS_MAX',
+            ),
+            'logging.mode' => array('type' => 'enum'),
+            'logging.level' => array(
+                'type' => 'int',
+                'min_anchor' => 'LOGGING_LEVEL_MIN',
+                'max_anchor' => 'LOGGING_LEVEL_MAX',
+            ),
+            'logging.retention_days' => array(
+                'type' => 'int',
+                'min_anchor' => 'RETENTION_DAYS_MIN',
+                'max_anchor' => 'RETENTION_DAYS_MAX',
+            ),
+            'challenge.mode' => array('type' => 'enum'),
+            'challenge.site_key' => array('type' => 'string'),
+            'challenge.secret_key' => array('type' => 'string', 'secret' => true),
+            'throttle.enable' => array('type' => 'bool'),
+            'throttle.per_ip.max_per_minute' => array(
+                'type' => 'int',
+                'min_anchor' => 'THROTTLE_MAX_PER_MIN_MIN',
+                'max_anchor' => 'THROTTLE_MAX_PER_MIN_MAX',
+            ),
+            'throttle.per_ip.cooldown_seconds' => array(
+                'type' => 'int',
+                'min_anchor' => 'THROTTLE_COOLDOWN_MIN',
+                'max_anchor' => 'THROTTLE_COOLDOWN_MAX',
+            ),
+            'privacy.ip_mode' => array('type' => 'enum'),
+        );
+
+        foreach ($schema as $path => $rule) {
+            if (isset($rule['type']) && $rule['type'] === 'enum' && !isset($rule['values'])) {
+                $schema_rule = self::schema_rule($path);
+                if (is_array($schema_rule) && isset($schema_rule['values']) && is_array($schema_rule['values'])) {
+                    $schema[$path]['values'] = $schema_rule['values'];
+                }
+            }
+            if (isset($rule['min_anchor'])) {
+                $schema[$path]['min'] = self::anchor_value($rule['min_anchor']);
+            }
+            if (isset($rule['max_anchor'])) {
+                $schema[$path]['max'] = self::anchor_value($rule['max_anchor']);
+            }
+            if (!isset($schema[$path]['nullable'])) {
+                $schema[$path]['nullable'] = false;
+            }
+            if (!isset($schema[$path]['secret'])) {
+                $schema[$path]['secret'] = false;
+            }
+        }
+
+        self::$admin_schema = $schema;
+        return self::$admin_schema;
+    }
+
+    public static function validate_admin_overrides($overrides)
+    {
+        $schema = self::admin_schema_cached();
+        $errors = array();
+        $flat = array();
+        self::flatten_admin_overrides($overrides, '', $schema, $flat, $errors);
+
+        if (!empty($errors)) {
+            return array('ok' => false, 'overrides' => array(), 'errors' => $errors);
+        }
+
+        return self::validate_admin_flat_map($flat, $schema);
+    }
+
+    public static function validate_admin_flat_overrides($flat)
+    {
+        if (!is_array($flat)) {
+            return array('ok' => false, 'overrides' => array(), 'errors' => array(array('path' => '_root', 'reason' => 'type')));
+        }
+
+        return self::validate_admin_flat_map($flat, self::admin_schema_cached());
+    }
+
+    private static function validate_admin_flat_map($flat, $schema)
+    {
+        $errors = array();
+        $sanitized = array();
+        foreach ($flat as $path => $value) {
+            $path = (string) $path;
+            if (!isset($schema[$path])) {
+                $errors[] = array('path' => $path, 'reason' => 'unknown');
+                continue;
+            }
+
+            $clean = self::validate_admin_value($path, $value, $schema[$path], $errors);
+            if (empty($errors)) {
+                self::set_path($sanitized, explode('.', $path), $clean);
+            }
+        }
+
+        if (!empty($errors)) {
+            return array('ok' => false, 'overrides' => array(), 'errors' => $errors);
+        }
+
+        return array('ok' => true, 'overrides' => $sanitized, 'errors' => array());
+    }
+
+    public static function effective_report()
+    {
+        if (!self::$bootstrapped) {
+            self::bootstrap();
+        }
+
+        return self::deep_copy(self::$effective_report);
+    }
+
+    public static function refresh()
+    {
+        self::clear_snapshot();
+        return self::get();
+    }
+
+    public static function mask_secret_value($path, $value)
+    {
+        $schema = self::admin_schema_cached();
+        if (!isset($schema[$path]) || empty($schema[$path]['secret'])) {
+            return $value;
+        }
+
+        return is_string($value) && $value !== '' ? '********' : '';
+    }
+
+    /**
+     * Clear the frozen per-request config snapshot.
+     *
+     * Normal public requests should not need this. Long-running tooling such as
+     * WP-CLI diagnostics may rebuild isolated snapshots inside one PHP process.
+     */
+    public static function reset_snapshot()
+    {
+        self::clear_snapshot();
+    }
+
     /**
      * Test-only helper to reset the snapshot between unit cases.
      */
     public static function reset_for_tests()
     {
+        self::reset_snapshot();
+    }
+
+    private static function clear_snapshot()
+    {
         self::$snapshot = null;
         self::$bootstrapped = false;
+        self::$effective_report = null;
+    }
+
+    private static function load_admin_overrides()
+    {
+        if (!class_exists('AdminSettingsStore')) {
+            require_once __DIR__ . '/Admin/AdminSettingsStore.php';
+        }
+
+        $result = AdminSettingsStore::read_overrides_result();
+        if (!is_array($result) || empty($result['ok']) || !isset($result['overrides']) || !is_array($result['overrides'])) {
+            return array(array(), false);
+        }
+
+        return array($result['overrides'], true);
+    }
+
+    private static function flatten_admin_overrides($value, $prefix, $schema, &$flat, &$errors)
+    {
+        if ($prefix === '' && !is_array($value)) {
+            $errors[] = array('path' => '_root', 'reason' => 'type');
+            return;
+        }
+
+        if (!is_array($value)) {
+            $flat[$prefix] = $value;
+            return;
+        }
+
+        if ($prefix !== '' && isset($schema[$prefix])) {
+            $errors[] = array('path' => $prefix, 'reason' => 'type');
+            return;
+        }
+
+        foreach ($value as $key => $entry) {
+            if (!is_string($key) && !is_int($key)) {
+                $errors[] = array('path' => $prefix === '' ? '_root' : $prefix, 'reason' => 'unknown');
+                continue;
+            }
+
+            $key = (string) $key;
+            $path = $prefix === '' ? $key : ($prefix . '.' . $key);
+            if (!self::is_admin_path_or_prefix($path, $schema)) {
+                $errors[] = array('path' => $path, 'reason' => 'unknown');
+                continue;
+            }
+
+            self::flatten_admin_overrides($entry, $path, $schema, $flat, $errors);
+        }
+    }
+
+    private static function is_admin_path_or_prefix($path, $schema)
+    {
+        if (isset($schema[$path])) {
+            return true;
+        }
+
+        $prefix = $path . '.';
+        foreach ($schema as $schema_path => $rule) {
+            if (strpos($schema_path, $prefix) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function validate_admin_value($path, $value, $rule, &$errors)
+    {
+        if ($value === null) {
+            if (!empty($rule['nullable'])) {
+                return null;
+            }
+            $errors[] = array('path' => $path, 'reason' => 'type');
+            return null;
+        }
+
+        $type = isset($rule['type']) ? $rule['type'] : '';
+        if ($type === 'bool') {
+            if (!is_bool($value)) {
+                $errors[] = array('path' => $path, 'reason' => 'type');
+                return null;
+            }
+            return $value;
+        }
+
+        if ($type === 'int') {
+            if (!is_numeric($value)) {
+                $errors[] = array('path' => $path, 'reason' => 'type');
+                return null;
+            }
+            return (int) $value;
+        }
+
+        if ($type === 'string') {
+            if (!is_string($value)) {
+                $errors[] = array('path' => $path, 'reason' => 'type');
+                return null;
+            }
+            return $value;
+        }
+
+        if ($type === 'enum') {
+            if (!is_string($value)) {
+                $errors[] = array('path' => $path, 'reason' => 'type');
+                return null;
+            }
+            if (!isset($rule['values']) || !in_array($value, $rule['values'], true)) {
+                $errors[] = array('path' => $path, 'reason' => 'enum');
+                return null;
+            }
+            return $value;
+        }
+
+        $errors[] = array('path' => $path, 'reason' => 'type');
+        return null;
+    }
+
+    private static function set_path(&$target, $segments, $value)
+    {
+        $cursor =& $target;
+        $count = count($segments);
+        for ($i = 0; $i < $count; $i++) {
+            $segment = $segments[$i];
+            if ($i === $count - 1) {
+                $cursor[$segment] = $value;
+                return;
+            }
+            if (!isset($cursor[$segment]) || !is_array($cursor[$segment])) {
+                $cursor[$segment] = array();
+            }
+            $cursor =& $cursor[$segment];
+        }
     }
 
     private static function load_dropin()
@@ -375,6 +706,80 @@ class Config
         }
 
         return $copy;
+    }
+
+    private static function mark_source_paths(&$provenance, $values, $source, $prefix)
+    {
+        if (!is_array($values) || self::is_list_array($values)) {
+            if ($prefix !== '') {
+                $provenance[$prefix] = $source;
+            }
+            return;
+        }
+
+        foreach ($values as $key => $value) {
+            $path = $prefix === '' ? (string) $key : ($prefix . '.' . (string) $key);
+            self::mark_source_paths($provenance, $value, $source, $path);
+        }
+    }
+
+    private static function mark_changed_source_paths(&$provenance, $before, $after, $source, $prefix)
+    {
+        if (!is_array($after) || self::is_list_array($after) || !is_array($before) || self::is_list_array($before)) {
+            if ($prefix !== '' && $before !== $after) {
+                $provenance[$prefix] = $source;
+            }
+            return;
+        }
+
+        foreach ($after as $key => $value) {
+            $path = $prefix === '' ? (string) $key : ($prefix . '.' . (string) $key);
+            $before_value = array_key_exists($key, $before) ? $before[$key] : null;
+            self::mark_changed_source_paths($provenance, $before_value, $value, $source, $path);
+        }
+    }
+
+    private static function mark_clamped_paths(&$provenance, $paths)
+    {
+        foreach ($paths as $path) {
+            $source = isset($provenance[$path]) ? $provenance[$path] : self::SOURCE_DEFAULT;
+            if (!self::is_externally_controlled_source($source)) {
+                $provenance[$path] = self::SOURCE_CLAMPED;
+            }
+        }
+    }
+
+    private static function is_externally_controlled_source($source)
+    {
+        return in_array($source, array(self::SOURCE_CONFIG_FILE, self::SOURCE_FILTER), true);
+    }
+
+    private static function build_effective_report($config, $provenance)
+    {
+        $report = array();
+        self::build_effective_report_walk($report, $config, $provenance, '');
+        return $report;
+    }
+
+    private static function build_effective_report_walk(&$report, $values, $provenance, $prefix)
+    {
+        if (!is_array($values) || self::is_list_array($values)) {
+            if ($prefix !== '') {
+                $source = isset($provenance[$prefix]) ? $provenance[$prefix] : self::SOURCE_DEFAULT;
+                $report[$prefix] = array(
+                    'value' => self::deep_copy($values),
+                    'display_value' => self::mask_secret_value($prefix, $values),
+                    'source' => $source,
+                    'externally_controlled' => self::is_externally_controlled_source($source),
+                );
+            }
+            return;
+        }
+
+        foreach ($values as $key => $value) {
+            $path = $prefix === '' ? (string) $key : ($prefix . '.' . (string) $key);
+            self::build_effective_report_walk($report, $value, $provenance, $path);
+        }
     }
 
     private static function emit_dropin_schema_errors($config, $errors)
@@ -551,45 +956,53 @@ class Config
         return null;
     }
 
-    private static function apply_anchor_clamps($config, $defaults)
+    private static function apply_anchor_clamps($config, $defaults, &$clamped_paths = null)
     {
         $security = isset($config['security']) && is_array($config['security']) ? $config['security'] : array();
         $security_defaults = $defaults['security'];
 
-        $security['min_fill_seconds'] = self::clamp_anchor_value(
+        $security['min_fill_seconds'] = self::clamp_anchor_path(
+            'security.min_fill_seconds',
             self::value_or_default($security, 'min_fill_seconds', $security_defaults['min_fill_seconds']),
             $security_defaults['min_fill_seconds'],
             'MIN_FILL_SECONDS_MIN',
-            'MIN_FILL_SECONDS_MAX'
+            'MIN_FILL_SECONDS_MAX',
+            $clamped_paths
         );
 
-        $security['token_ttl_seconds'] = self::clamp_anchor_value(
+        $security['token_ttl_seconds'] = self::clamp_anchor_path(
+            'security.token_ttl_seconds',
             self::value_or_default($security, 'token_ttl_seconds', $security_defaults['token_ttl_seconds']),
             $security_defaults['token_ttl_seconds'],
             'TOKEN_TTL_MIN',
-            'TOKEN_TTL_MAX'
+            'TOKEN_TTL_MAX',
+            $clamped_paths
         );
 
         $max_form_age = self::value_or_default($security, 'max_form_age_seconds', $security_defaults['max_form_age_seconds']);
         if (!is_numeric($max_form_age)) {
             $max_form_age = $security['token_ttl_seconds'];
         }
-        $security['max_form_age_seconds'] = self::clamp_anchor_value(
+        $security['max_form_age_seconds'] = self::clamp_anchor_path(
+            'security.max_form_age_seconds',
             $max_form_age,
             $security_defaults['max_form_age_seconds'],
             'MAX_FORM_AGE_MIN',
-            'MAX_FORM_AGE_MAX'
+            'MAX_FORM_AGE_MAX',
+            $clamped_paths
         );
 
         $config['security'] = $security;
 
         $challenge = isset($config['challenge']) && is_array($config['challenge']) ? $config['challenge'] : array();
         $challenge_defaults = $defaults['challenge'];
-        $challenge['http_timeout_seconds'] = self::clamp_anchor_value(
+        $challenge['http_timeout_seconds'] = self::clamp_anchor_path(
+            'challenge.http_timeout_seconds',
             self::value_or_default($challenge, 'http_timeout_seconds', $challenge_defaults['http_timeout_seconds']),
             $challenge_defaults['http_timeout_seconds'],
             'CHALLENGE_TIMEOUT_MIN',
-            'CHALLENGE_TIMEOUT_MAX'
+            'CHALLENGE_TIMEOUT_MAX',
+            $clamped_paths
         );
         $config['challenge'] = $challenge;
 
@@ -597,34 +1010,42 @@ class Config
         $throttle_defaults = $defaults['throttle'];
         $per_ip = isset($throttle['per_ip']) && is_array($throttle['per_ip']) ? $throttle['per_ip'] : array();
         $per_ip_defaults = $throttle_defaults['per_ip'];
-        $per_ip['max_per_minute'] = self::clamp_anchor_value(
+        $per_ip['max_per_minute'] = self::clamp_anchor_path(
+            'throttle.per_ip.max_per_minute',
             self::value_or_default($per_ip, 'max_per_minute', $per_ip_defaults['max_per_minute']),
             $per_ip_defaults['max_per_minute'],
             'THROTTLE_MAX_PER_MIN_MIN',
-            'THROTTLE_MAX_PER_MIN_MAX'
+            'THROTTLE_MAX_PER_MIN_MAX',
+            $clamped_paths
         );
-        $per_ip['cooldown_seconds'] = self::clamp_anchor_value(
+        $per_ip['cooldown_seconds'] = self::clamp_anchor_path(
+            'throttle.per_ip.cooldown_seconds',
             self::value_or_default($per_ip, 'cooldown_seconds', $per_ip_defaults['cooldown_seconds']),
             $per_ip_defaults['cooldown_seconds'],
             'THROTTLE_COOLDOWN_MIN',
-            'THROTTLE_COOLDOWN_MAX'
+            'THROTTLE_COOLDOWN_MAX',
+            $clamped_paths
         );
         $throttle['per_ip'] = $per_ip;
         $config['throttle'] = $throttle;
 
         $logging = isset($config['logging']) && is_array($config['logging']) ? $config['logging'] : array();
         $logging_defaults = $defaults['logging'];
-        $logging['level'] = self::clamp_anchor_value(
+        $logging['level'] = self::clamp_anchor_path(
+            'logging.level',
             self::value_or_default($logging, 'level', $logging_defaults['level']),
             $logging_defaults['level'],
             'LOGGING_LEVEL_MIN',
-            'LOGGING_LEVEL_MAX'
+            'LOGGING_LEVEL_MAX',
+            $clamped_paths
         );
-        $logging['retention_days'] = self::clamp_anchor_value(
+        $logging['retention_days'] = self::clamp_anchor_path(
+            'logging.retention_days',
             self::value_or_default($logging, 'retention_days', $logging_defaults['retention_days']),
             $logging_defaults['retention_days'],
             'RETENTION_DAYS_MIN',
-            'RETENTION_DAYS_MAX'
+            'RETENTION_DAYS_MAX',
+            $clamped_paths
         );
 
         $fail2ban = isset($logging['fail2ban']) && is_array($logging['fail2ban']) ? $logging['fail2ban'] : array();
@@ -633,11 +1054,13 @@ class Config
         if (!is_numeric($fail2ban_retention)) {
             $fail2ban_retention = $logging['retention_days'];
         }
-        $fail2ban['retention_days'] = self::clamp_anchor_value(
+        $fail2ban['retention_days'] = self::clamp_anchor_path(
+            'logging.fail2ban.retention_days',
             $fail2ban_retention,
             $fail2ban_defaults['retention_days'],
             'RETENTION_DAYS_MIN',
-            'RETENTION_DAYS_MAX'
+            'RETENTION_DAYS_MAX',
+            $clamped_paths
         );
         $logging['fail2ban'] = $fail2ban;
         $config['logging'] = $logging;
@@ -648,33 +1071,41 @@ class Config
         if (!is_numeric($declined_retention)) {
             $declined_retention = $logging['retention_days'];
         }
-        $declined['retention_days'] = self::clamp_anchor_value(
+        $declined['retention_days'] = self::clamp_anchor_path(
+            'declined_review.retention_days',
             $declined_retention,
             $logging['retention_days'],
             'RETENTION_DAYS_MIN',
-            'RETENTION_DAYS_MAX'
+            'RETENTION_DAYS_MAX',
+            $clamped_paths
         );
         $config['declined_review'] = $declined;
 
         $validation = isset($config['validation']) && is_array($config['validation']) ? $config['validation'] : array();
         $validation_defaults = $defaults['validation'];
-        $validation['max_fields_per_form'] = self::clamp_anchor_value(
+        $validation['max_fields_per_form'] = self::clamp_anchor_path(
+            'validation.max_fields_per_form',
             self::value_or_default($validation, 'max_fields_per_form', $validation_defaults['max_fields_per_form']),
             $validation_defaults['max_fields_per_form'],
             'MAX_FIELDS_MIN',
-            'MAX_FIELDS_MAX'
+            'MAX_FIELDS_MAX',
+            $clamped_paths
         );
-        $validation['max_options_per_group'] = self::clamp_anchor_value(
+        $validation['max_options_per_group'] = self::clamp_anchor_path(
+            'validation.max_options_per_group',
             self::value_or_default($validation, 'max_options_per_group', $validation_defaults['max_options_per_group']),
             $validation_defaults['max_options_per_group'],
             'MAX_OPTIONS_MIN',
-            'MAX_OPTIONS_MAX'
+            'MAX_OPTIONS_MAX',
+            $clamped_paths
         );
-        $validation['max_items_per_multivalue'] = self::clamp_anchor_value(
+        $validation['max_items_per_multivalue'] = self::clamp_anchor_path(
+            'validation.max_items_per_multivalue',
             self::value_or_default($validation, 'max_items_per_multivalue', $validation_defaults['max_items_per_multivalue']),
             $validation_defaults['max_items_per_multivalue'],
             'MAX_MULTIVALUE_MIN',
-            'MAX_MULTIVALUE_MAX'
+            'MAX_MULTIVALUE_MAX',
+            $clamped_paths
         );
         $config['validation'] = $validation;
 
@@ -683,9 +1114,21 @@ class Config
         $spam_defaults = $defaults['spam'];
         $value = self::value_or_default($spam, 'soft_fail_threshold', $spam_defaults['soft_fail_threshold']);
         $spam['soft_fail_threshold'] = max(1, (int) $value);
+        if (is_array($clamped_paths) && $spam['soft_fail_threshold'] !== $value) {
+            $clamped_paths['spam.soft_fail_threshold'] = true;
+        }
         $config['spam'] = $spam;
 
         return $config;
+    }
+
+    private static function clamp_anchor_path($path, $value, $fallback, $min_anchor, $max_anchor, &$clamped_paths = null)
+    {
+        $clamped = self::clamp_anchor_value($value, $fallback, $min_anchor, $max_anchor);
+        if (is_array($clamped_paths) && $value !== $clamped) {
+            $clamped_paths[$path] = true;
+        }
+        return $clamped;
     }
 
     private static function clamp_anchor_value($value, $fallback, $min_anchor, $max_anchor)
