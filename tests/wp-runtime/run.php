@@ -593,10 +593,16 @@ try {
     eforms_wp_runtime_assert( strpos( $success_page['body'], 'Theme Footer' ) !== false, 'Success result page should include the theme footer.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], '<header class="page">Theme Header</header>' ) !== false, 'Success result page should filter body classes before the theme header.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], 'eforms-result-page-success' ) !== false, 'Follow-up GET should show the success result page.' );
-    eforms_wp_runtime_assert( strpos( $success_page['body'], '<h1 class="page-title">Thank You</h1>' ) !== false, 'Success result page should show the theme page title.' );
+    eforms_wp_runtime_assert( strpos( $success_page['body'], '<h1 class="page-title">Your Message Was Sent!</h1>' ) !== false, 'Success result page should show the template title.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], 'class="inner article-body-wrap"' ) !== false, 'Success result page should use the theme page scaffold.' );
-    eforms_wp_runtime_assert( strpos( $success_page['body'], 'Thanks! We got your message.' ) !== false, 'Success page should use the template message.' );
+    eforms_wp_runtime_assert( strpos( $success_page['body'], 'Thank you for getting in touch! We will get back to you at the earliest convenience.' ) !== false, 'Success page should use the template message.' );
     eforms_wp_runtime_assert( strpos( $success_page['body'], '<form' ) === false, 'Follow-up success display should not render the form.' );
+
+    $quote_success_page = eforms_wp_runtime_result_get( array( 'eforms_result' => 'success', 'eforms_form' => 'quote-request' ) );
+    eforms_wp_runtime_assert( $quote_success_page['status'] === 200, 'Quote request success GET should render HTTP 200.' );
+    eforms_wp_runtime_assert( strpos( $quote_success_page['body'], '<h1 class="page-title">Your Message Was Sent!</h1>' ) !== false, 'Quote request success result should show the template title.' );
+    eforms_wp_runtime_assert( strpos( $quote_success_page['body'], 'Thank you for getting in touch! We will get back to you at the earliest convenience.' ) !== false, 'Quote request success page should use the restored template message.' );
+    eforms_wp_runtime_assert( strpos( $quote_success_page['body'], 'Thanks! We got your request.' ) === false, 'Quote request success page should not use the old short message.' );
 
     eforms_wp_runtime_reset_request();
     $html = eforms_wp_runtime_shortcode( 'contact', false );

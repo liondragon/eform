@@ -4,7 +4,8 @@
   "title": "Quote Request",
   "result_pages": {
     "success": {
-      "message": "Thanks! We got your request."
+      "title": "Your Message Was Sent!",
+      "message": "Thank you for getting in touch! We will get back to you at the earliest convenience. Our average response time is 2 business days. If you require urgent assistance, please send us a text message at 720-900-5278.\n\nThe Flooring Artists Team"
     }
   },
   "email": {

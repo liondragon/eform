@@ -41,6 +41,9 @@ foreach ( $message_attrs as $name => $value ) {
     $message_attr_parts[] = $escaped_name . '="' . $escaped_value . '"';
 }
 $message_attr_string = implode( ' ', $message_attr_parts );
+$escaped_message = function_exists( 'esc_html' )
+    ? esc_html( $eforms_result_message )
+    : htmlspecialchars( $eforms_result_message, ENT_QUOTES, 'UTF-8' );
 ?>
 <article id="page_content" class="page_content eforms-result-page <?php echo function_exists( 'esc_attr' ) ? esc_attr( $result_class ) : htmlspecialchars( $result_class, ENT_QUOTES, 'UTF-8' ); ?>" data-eforms-result="<?php echo function_exists( 'esc_attr' ) ? esc_attr( $eforms_result_type ) : htmlspecialchars( $eforms_result_type, ENT_QUOTES, 'UTF-8' ); ?>">
     <header id="page_header" class="pageline">
@@ -52,7 +55,7 @@ $message_attr_string = implode( ' ', $message_attr_parts );
         <div id="content" class="article-body">
             <div class="entry-content">
                 <div <?php echo $message_attr_string; ?>>
-                    <?php echo function_exists( 'esc_html' ) ? esc_html( $eforms_result_message ) : htmlspecialchars( $eforms_result_message, ENT_QUOTES, 'UTF-8' ); ?>
+                    <?php echo nl2br( $escaped_message ); ?>
                 </div>
             </div>
         </div>
