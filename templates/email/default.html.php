@@ -10,8 +10,8 @@ defined('ABSPATH') || exit;
     $type = isset($row['type']) ? (string) $row['type'] : 'text';
 ?>
 <tr>
-  <th scope="row" style="font-weight:bold;text-align:left;vertical-align:top;padding:0 28px 10px 0;"><?= htmlspecialchars($label, ENT_QUOTES) ?>:</th>
-  <td style="vertical-align:top;padding:0 0 10px 0;">
+  <th scope="row" style="font-weight:bold;text-align:left;vertical-align:top;padding:0 28px 4px 0;"><?= htmlspecialchars($label, ENT_QUOTES) ?>:</th>
+  <td style="vertical-align:top;padding:0 0 4px 0;">
     <?php if ($type === 'email' && $val !== ''): ?>
       <a href="mailto:<?= htmlspecialchars($val, ENT_QUOTES) ?>"><?= htmlspecialchars($val, ENT_QUOTES) ?></a>
     <?php else: ?>

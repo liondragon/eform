@@ -115,7 +115,7 @@ eforms_test_assert( strpos( $body, '<table role="presentation"' ) !== false, 'HT
 eforms_test_assert( strpos( $body, 'Form:' ) === false, 'Default email body should not include automatic form metadata.' );
 eforms_test_assert( strpos( $body, 'Submission:' ) === false, 'Default email body should not include automatic submission metadata.' );
 eforms_test_assert( strpos( $body, 'Submitted:' ) === false, 'Default email body should not include automatic submitted metadata.' );
-eforms_test_assert( strpos( $body, '<th scope="row" style="font-weight:bold;text-align:left;vertical-align:top;padding:0 28px 10px 0;">Name:</th>' ) !== false, 'HTML body should bold friendly field labels.' );
+eforms_test_assert( strpos( $body, '<th scope="row" style="font-weight:bold;text-align:left;vertical-align:top;padding:0 28px 4px 0;">Name:</th>' ) !== false, 'HTML body should bold friendly field labels.' );
 eforms_test_assert( strpos( $body, '<a href="mailto:ada@example.com">ada@example.com</a>' ) !== false, 'HTML body should render email values as mailto links.' );
 eforms_test_assert( strpos( $body, 'Sent from:' ) !== false, 'HTML body should render ip with a friendly label.' );
 eforms_test_assert( strpos( $body, 'name:' ) === false, 'HTML body should not render backend field keys as labels.' );
