@@ -15,9 +15,9 @@
     "include_fields": ["name","email","message"]
   },
   "fields": [
-    {"key":"name","type":"name","label":"Your Name","required":true,"before_html":"<h3>Hello,</h3>"},
+    {"key":"name","type":"name","label":"Your Name","required":true,"placeholder":"Your Name*","before_html":"<h3>Hello,</h3>"},
     {"key":"message","type":"textarea","label":"Message","required":true,"placeholder":"And continue here ..."},
-    {"key":"email","type":"email","label":"Email","autocomplete":"email","size":40,"required":true,"placeholder":"you@example.com"}
+    {"key":"email","type":"email","label":"Email","autocomplete":"email","size":40,"required":true,"placeholder":"Enter Your eMail*"}
   ],
-  "submit_button_text": "Send Your Request"
+  "submit_button_text": "Click to Send"
 }
