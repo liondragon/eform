@@ -10,4 +10,4 @@ Only "run residue" that isn't captured well by `docs/Implementation_Plan.md`.
 - Descriptor fingerprinting (`desc_sha1`) is request-scoped: `Logging::remember_descriptors()` is called from both `FormRenderer` and `SubmitHandler`; level `logging.level>=2` events reuse the remembered hash.
 - JSONL events normalize URI to `path + only eforms_* query params` and only include normalized `ua`/`origin` when `logging.headers=true`; `Referrer` is never logged.
 - Fail2ban lines always use resolved raw client IP (plaintext) regardless of `privacy.ip_mode`; this is separate from minimal/JSONL presentation rules.
-- Harness gotcha still applies: `eforms/tests/bootstrap.php` stubs `apply_filters()` with a single argument and defines a stub `Logging` class unless `eforms/src/Logging.php` is loaded first.
+- Harness gotcha still applies: `tests/bootstrap.php` stubs `apply_filters()` with a single argument and defines a stub `Logging` class unless `src/Logging.php` is loaded first.

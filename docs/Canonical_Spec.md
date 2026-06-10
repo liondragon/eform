@@ -76,7 +76,7 @@ Storage layout and paths: see [Shared lifecycle and storage contract](#sec-share
 - Operational profile: Cacheable pages require JS and use a JS-minted submission token via `/eforms/mint` (no anti-duplication cookies). Non-cacheable pages embed a server-minted hidden token during GET render.
 <a id="sec-architecture"></a>
 3. ARCHITECTURE AND FILE LAYOUT
-	- /eforms/
+	- Plugin root (for example, /wp-content/plugins/eforms/)
 		- eforms.php		// bootstrap + autoloader + shortcode/template tag
 		- uninstall.php	 // optional purge of uploads/logs (reads flags from Config; see [Configuration: Domains, Constraints, and Defaults](#sec-configuration))
 			- uninstall.php requires __DIR__.'/src/Config.php' and calls Config::bootstrap() so it can read purge flags without relying on WP hooks.
@@ -781,9 +781,10 @@ Notes (normative):
 	- subjects/headers: sanitize CR/LF; collapse control chars; truncate Subject/From Name to ≤255 bytes (UTF-8 safe) before assembly. Never accept raw user header input.
 	- Reject arrays where a scalar is expected in headers/subject fields.
 	- Email addresses are validated via `is_email()` (WordPress core) and MUST be a single address (no display-names, groups, or comma-separated lists); malformed values are treated as empty.
-	- Reply-To precedence (normative): if `email.reply_to_address` is non-empty and validates as a single email address, set Reply-To to it; else if `email.reply_to_field` is non-empty, read the canonical value for that field key and when it validates as a single email address set Reply-To to it; otherwise omit Reply-To. If `email.reply_to_address` or `email.reply_to_field` is non-empty but invalid/unresolvable, treat it as empty and emit a warning when `logging.mode != "off"` and `logging.level` includes warnings.
+	- Reply-To precedence (normative): if `email.reply_to_address` is non-empty and validates as a single email address, set Reply-To to it; else if `email.reply_to_field` is non-empty, read the canonical value for that field key and when it validates as a single email address set Reply-To to it; else if a canonical `email` field exists and validates as a single email address, set Reply-To to it; otherwise omit Reply-To. If `email.reply_to_address` or `email.reply_to_field` is non-empty but invalid/unresolvable, treat it as empty and emit a warning when `logging.mode != "off"` and `logging.level` includes warnings.
 	- deliverability: recommend SMTP with SPF/DKIM/DMARC
 	- template tokens: {{field.key}}, {{submitted_at}}, {{ip}}, {{form_id}}, {{submission_id}}
+	- Default email body renders only `email.include_fields` as display rows with friendly labels; meta fields appear only when explicitly listed.
 	- If an upload field key appears in include_fields, render value as comma-separated list of original_name_safe in the email body (attachments separate).
 	- attachments: only for fields with email_attach=true; enforce uploads.max_email_bytes and email.upload_max_attachments; summarize overflow in body before send.
 	- Enforce size/count before calling `wp_mail()` to avoid SMTP 552.
@@ -1161,12 +1162,12 @@ Defaults note: When this spec refers to a ‘Default’, the authoritative liter
 
 <a id="sec-templates-to-include"></a>
 26. TEMPLATES TO INCLUDE
-	1. [`eforms/templates/forms/quote-request.json`](../eforms/templates/forms/quote-request.json)
+	1. [`templates/forms/quote-request.json`](../templates/forms/quote-request.json)
 		- Canonical “Quote Request” flow with customized `result_pages.success` copy.
 		- Demonstrates row-group wrappers for a temporary two-column layout (`row_group` start/end with `class="columns_nomargins"`).
 		- Shows required `tel_us` and `zip_us` fields with autocomplete hints alongside standard `name`/`email` inputs.
 		- Email block includes `include_fields` that capture the submitter IP and applies `display_format_tel="xxx-xxx-xxxx"`.
-	2. [`eforms/templates/forms/contact.json`](../eforms/templates/forms/contact.json)
+	2. [`templates/forms/contact.json`](../templates/forms/contact.json)
 		- Contact form with customized `result_pages.success` copy on the virtual result page.
 		- Example of injecting sanitized template fragments via `before_html` on the first field.
 		- Highlights placeholder usage, explicit `size` for the email control, and subject templating (`"Contact Form - {{field.name}}"`).

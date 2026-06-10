@@ -155,7 +155,7 @@ eforms_test_assert( count( $GLOBALS['eforms_test_mail_calls'] ) === 1, 'Count-ca
 $mail = $GLOBALS['eforms_test_mail_calls'][0];
 eforms_test_assert( count( $mail['attachments'] ) === 1, 'Count-cap scenario should attach only one file.' );
 eforms_test_assert( strpos( $mail['message'], 'Attachments omitted due to limits: b.png' ) !== false, 'Overflow summary should include omitted attach-enabled filename.' );
-eforms_test_assert( strpos( $mail['message'], 'not_attach: c.png' ) !== false, 'include_fields should still list non-attached upload names in body.' );
+eforms_test_assert( strpos( $mail['message'], 'Not Attachment: c.png' ) !== false, 'include_fields should still list non-attached upload names in body.' );
 eforms_test_assert( strpos( $mail['message'], $tmp_a ) === false, 'Email body must not include tmp upload paths.' );
 eforms_test_assert( strpos( $mail['message'], $tmp_b ) === false, 'Email body must not include tmp upload paths.' );
 eforms_test_assert( strpos( $mail['message'], $tmp_c ) === false, 'Email body must not include tmp upload paths.' );

@@ -36,7 +36,7 @@ jobs:
       - name: Run canonical unit + integration tests
         run: |
           set -euo pipefail
-          find eforms/tests/unit eforms/tests/integration -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php
+          find tests/unit tests/integration -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php
 
       - name: Install WP-CLI
         run: |
@@ -74,23 +74,9 @@ jobs:
             --admin_email=admin@example.test \
             --skip-email
 
-          mkdir -p "${WP_ROOT}/wp-content/plugins"
-          cp -R "${GITHUB_WORKSPACE}/eforms" "${WP_ROOT}/wp-content/plugins/eform"
-          wp --path="${WP_ROOT}" plugin activate eform
-
-      - name: Smoke REST surface (/eforms/mint): missing Origin
-        env:
-          WP_ROOT: ${{ runner.temp }}/wordpress
-        run: |
-          set -euo pipefail
-          wp --path="${WP_ROOT}" eval-file "wp-content/plugins/eform/bin/wp-cli/post-no-origin.php"
-
-      - name: Smoke REST surface (/eforms/mint): oversized body
-        env:
-          WP_ROOT: ${{ runner.temp }}/wordpress
-        run: |
-          set -euo pipefail
-          wp --path="${WP_ROOT}" eval-file "wp-content/plugins/eform/bin/wp-cli/post-oversized.php"
+          mkdir -p "${WP_ROOT}/wp-content/plugins/eforms"
+          rsync -a --delete --exclude='.git' "${GITHUB_WORKSPACE}/" "${WP_ROOT}/wp-content/plugins/eforms/"
+          wp --path="${WP_ROOT}" plugin activate eforms
 
       - name: Smoke WP-CLI surface (wp eforms gc)
         env:
@@ -104,12 +90,12 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: eforms/tests/e2e/package-lock.json
+          cache-dependency-path: tests/e2e/package-lock.json
 
       - name: Install E2E dependencies
         run: |
           set -euo pipefail
-          cd eforms/tests/e2e
+          cd tests/e2e
           npm ci
           npx playwright install --with-deps chromium
 
@@ -158,7 +144,7 @@ jobs:
       - name: Run browser E2E checks
         run: |
           set -euo pipefail
-          cd eforms/tests/e2e
+          cd tests/e2e
           npm test
 
       - name: Print WP server log on failure

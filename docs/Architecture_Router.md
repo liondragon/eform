@@ -10,17 +10,17 @@ Routing map only. `docs/Canonical_Spec.md` remains the behavior authority.
 
 ## Main Subsystems
 
-- Rendering: `eforms/src/Rendering/` loads templates, builds context, renders forms, and enqueues browser assets.
-- Submission: `eforms/src/Submission/` handles public POST routing, virtual result-page GET routing, pipeline orchestration, ledger reservation, and result redirects.
-- Security: `eforms/src/Security/` owns tokens, origin policy, challenge verification, throttling, and mint endpoint behavior.
-- Validation and registries: `eforms/src/Validation/` owns template validation, field descriptors, normalizers, validators, and handler registries.
-- Email and result pages: `eforms/src/Email/` owns outbound email assembly; `eforms/src/Submission/Success.php` owns result-page URL/query handling.
-- Declined review: `eforms/src/DeclinedReviewLog.php` owns declined-submission content capture and file-backed reads; `eforms/src/Admin/DeclinedReviewAdmin.php` owns the Tools admin viewer.
-- Admin settings: `eforms/src/Admin/SettingsAdmin.php` owns the Settings -> eForms page; `eforms/src/Admin/AdminSettingsStore.php` owns `eforms_admin_config` option I/O and option-name reuse; `Config` owns admin override validation, merge precedence, final snapshots, and effective-config provenance.
-- Diagnostics: `eforms/src/Diagnostics/SpamSmokeDiagnostic.php` owns the spam smoke checks and result shape; `eforms/src/Diagnostics/RuntimeHealthDiagnostic.php` owns runtime health checks and result shape. CLI and admin surfaces are adapters only.
-- Runtime safety: `eforms/src/WordPressRuntime.php` owns fail-closed wrappers for required WordPress APIs used by load-bearing runtime paths.
-- Entropy: `eforms/src/Security/Entropy.php` owns secure random bytes and identifier generation for security-sensitive runtime identifiers.
-- Browser assets: `eforms/assets/forms.js` owns client enhancement, JS minting, submit blocking, and error focus behavior.
+- Rendering: `src/Rendering/` loads templates, builds context, renders forms, and enqueues browser assets.
+- Submission: `src/Submission/` handles public POST routing, virtual result-page GET routing, pipeline orchestration, ledger reservation, and result redirects.
+- Security: `src/Security/` owns tokens, origin policy, challenge verification, throttling, and mint endpoint behavior.
+- Validation and registries: `src/Validation/` owns template validation, field descriptors, normalizers, validators, and handler registries.
+- Email and result pages: `src/Email/` owns outbound email assembly; `src/Submission/Success.php` owns result-page URL/query handling.
+- Declined review: `src/DeclinedReviewLog.php` owns declined-submission content capture and file-backed reads; `src/Admin/DeclinedReviewAdmin.php` owns the Tools admin viewer.
+- Admin settings: `src/Admin/SettingsAdmin.php` owns the Settings -> eForms page; `src/Admin/AdminSettingsStore.php` owns `eforms_admin_config` option I/O and option-name reuse; `Config` owns admin override validation, merge precedence, final snapshots, and effective-config provenance.
+- Diagnostics: `src/Diagnostics/SpamSmokeDiagnostic.php` owns the spam smoke checks and result shape; `src/Diagnostics/RuntimeHealthDiagnostic.php` owns runtime health checks and result shape. CLI and admin surfaces are adapters only.
+- Runtime safety: `src/WordPressRuntime.php` owns fail-closed wrappers for required WordPress APIs used by load-bearing runtime paths.
+- Entropy: `src/Security/Entropy.php` owns secure random bytes and identifier generation for security-sensitive runtime identifiers.
+- Browser assets: `assets/forms.js` owns client enhancement, JS minting, submit blocking, and error focus behavior.
 
 ## Dependency Direction
 

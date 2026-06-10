@@ -28,8 +28,8 @@ They are test-only tooling and do not affect plugin runtime dependencies.
 ## Install
 
 ```sh
-npm install --prefix eforms/tests/e2e
-npm run --prefix eforms/tests/e2e install:browsers
+npm install --prefix tests/e2e
+npm run --prefix tests/e2e install:browsers
 ```
 
 ## Run
@@ -38,5 +38,5 @@ npm run --prefix eforms/tests/e2e install:browsers
 EFORMS_E2E_BASE_URL="http://127.0.0.1:8080" \
 EFORMS_E2E_JS_PAGE_URL="http://127.0.0.1:8080/?p=10" \
 EFORMS_E2E_MIXED_PAGE_URL="http://127.0.0.1:8080/?p=11" \
-npm test --prefix eforms/tests/e2e
+npm test --prefix tests/e2e
 ```

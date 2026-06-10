@@ -90,6 +90,7 @@ class Emailer {
         $template_data = array(
             'canonical' => $canonical['fields'],
             'include_fields' => $include_fields,
+            'display_rows' => self::display_rows( $context, $canonical['fields'], $include_fields, $meta ),
             'meta' => $meta,
             'uploads' => $canonical['uploads'],
         );
@@ -328,6 +329,76 @@ class Emailer {
         return $out;
     }
 
+    private static function display_rows( $context, $canonical, $include_fields, $meta ) {
+        $rows = array();
+        $labels = self::field_labels( $context );
+
+        foreach ( $include_fields as $key ) {
+            if ( ! is_string( $key ) || $key === '' ) {
+                continue;
+            }
+
+            if ( isset( $canonical['_uploads'][ $key ] ) ) {
+                $names = array_column( $canonical['_uploads'][ $key ], 'original_name_safe' );
+                $value = implode( ', ', $names );
+            } else {
+                $value = isset( $canonical[ $key ] ) ? $canonical[ $key ] : ( isset( $meta[ $key ] ) ? $meta[ $key ] : '' );
+            }
+
+            $rows[] = array(
+                'key' => $key,
+                'label' => self::display_label( $key, $labels ),
+                'value' => is_scalar( $value ) ? (string) $value : '',
+                'type' => $key === 'email' ? 'email' : 'text',
+            );
+        }
+
+        return $rows;
+    }
+
+    private static function field_labels( $context ) {
+        $labels = array();
+        $fields = is_array( $context ) && isset( $context['fields'] ) && is_array( $context['fields'] ) ? $context['fields'] : array();
+
+        foreach ( $fields as $field ) {
+            if ( ! is_array( $field ) || ! isset( $field['key'] ) || ! is_string( $field['key'] ) ) {
+                continue;
+            }
+
+            if ( isset( $field['label'] ) && is_string( $field['label'] ) && trim( $field['label'] ) !== '' ) {
+                $labels[ $field['key'] ] = trim( $field['label'] );
+            }
+        }
+
+        return $labels;
+    }
+
+    private static function display_label( $key, $labels ) {
+        $known = array(
+            'name' => 'Name',
+            'email' => 'Email',
+            'tel_us' => 'Phone',
+            'phone' => 'Phone',
+            'zip_us' => 'Zip Code',
+            'zip' => 'Zip Code',
+            'message' => 'Message',
+            'ip' => 'Sent from',
+            'submitted_at' => 'Submitted',
+            'form_id' => 'Form',
+            'submission_id' => 'Submission',
+        );
+
+        if ( isset( $known[ $key ] ) ) {
+            return $known[ $key ];
+        }
+
+        if ( is_array( $labels ) && isset( $labels[ $key ] ) && $labels[ $key ] !== '' ) {
+            return $labels[ $key ];
+        }
+
+        return ucwords( str_replace( '_', ' ', $key ) );
+    }
+
     private static function token_map( $fields, $meta ) {
         $tokens = array();
         if ( is_array( $fields ) ) {
@@ -550,7 +621,7 @@ class Emailer {
             return null;
         }
 
-        $from_name = self::resolve_from_name();
+        $from_name = self::resolve_from_name( $canonical_fields );
         $from_name = self::sanitize_header_text( $from_name );
         $from_name = self::truncate_header_text( $from_name, self::HEADER_MAX_BYTES );
 
@@ -573,7 +644,12 @@ class Emailer {
         return $headers;
     }
 
-    private static function resolve_from_name() {
+    private static function resolve_from_name( $canonical_fields = array() ) {
+        $name = is_array( $canonical_fields ) && isset( $canonical_fields['name'] ) ? $canonical_fields['name'] : '';
+        if ( is_string( $name ) && trim( $name ) !== '' ) {
+            return $name;
+        }
+
         if ( function_exists( 'get_bloginfo' ) ) {
             $name = get_bloginfo( 'name' );
             if ( is_string( $name ) ) {
@@ -629,24 +705,26 @@ class Emailer {
         }
 
         $reply_field = is_string( $reply_field ) ? trim( $reply_field ) : '';
+        $configured_reply_field = $reply_field !== '';
         if ( $reply_field === '' ) {
-            return '';
+            $reply_field = 'email';
+            $values = $canonical_fields;
         }
 
-        $value = array_key_exists( $reply_field, $values ) ? $values[ $reply_field ] : null;
+        $value = is_array( $values ) && array_key_exists( $reply_field, $values ) ? $values[ $reply_field ] : null;
         if ( is_array( $value ) ) {
-            self::warn_header_value( 'reply_to_field_invalid', $reply_field, $config, $request );
-            return '';
+            $value = '';
         }
 
-        $value = is_scalar( $value ) ? (string) $value : '';
-        $value = self::sanitize_email_value( $value );
+        $value = is_scalar( $value ) ? self::sanitize_email_value( (string) $value ) : '';
 
         if ( $value !== '' && self::is_valid_email( $value ) ) {
             return $value;
         }
 
-        self::warn_header_value( 'reply_to_field_invalid', $reply_field, $config, $request );
+        if ( $configured_reply_field ) {
+            self::warn_header_value( 'reply_to_field_invalid', $reply_field, $config, $request );
+        }
         return '';
     }
 

@@ -31,6 +31,7 @@ class Templates {
 
         $canonical = array();
         $include_fields = array();
+        $display_rows = array();
         $meta = array();
         $uploads = array();
 
@@ -40,6 +41,9 @@ class Templates {
             }
             if ( isset( $data['include_fields'] ) && is_array( $data['include_fields'] ) ) {
                 $include_fields = $data['include_fields'];
+            }
+            if ( isset( $data['display_rows'] ) && is_array( $data['display_rows'] ) ) {
+                $display_rows = $data['display_rows'];
             }
             if ( isset( $data['meta'] ) && is_array( $data['meta'] ) ) {
                 $meta = $data['meta'];

@@ -40,13 +40,18 @@ $template = array(
         'to' => 'dest@example.com',
         'subject' => "Hello {{field.name}}\r\nBcc: test",
         'email_template' => 'default',
-        'include_fields' => array( 'name' ),
+        'include_fields' => array( 'name', 'email', 'ip' ),
     ),
     'fields' => array(
         array(
             'key' => 'name',
             'type' => 'text',
             'label' => 'Name',
+        ),
+        array(
+            'key' => 'email',
+            'type' => 'email',
+            'label' => 'Email',
         ),
     ),
     'submit_button_text' => 'Send',
@@ -57,8 +62,9 @@ Config::reset_for_tests();
 eforms_test_set_filter(
     'eforms_config',
     function ( $config ) {
-        $config['email']['from_address'] = 'noreply@evil.example';
-        $config['email']['reply_to_address'] = 'reply@example.com';
+        $config['email']['from_address'] = 'contact@example.com';
+        $config['email']['html'] = true;
+        $config['privacy']['ip_mode'] = 'full';
         return $config;
     }
 );
@@ -69,13 +75,14 @@ $context = $context_result['context'];
 
 $values = array(
     'name' => "Ada\r\nInjected",
+    'email' => 'ada@example.com',
 );
 $security = array(
     'submission_id' => 'submission-1',
     'mode' => 'hidden',
 );
 
-$result = Emailer::send( $context, $values, $security, array(), Config::get() );
+$result = Emailer::send( $context, $values, $security, array( 'client_ip' => '203.0.113.42' ), Config::get() );
 
 // Given sanitized headers...
 // When Emailer builds the outbound email...
@@ -86,6 +93,7 @@ eforms_test_assert( ! empty( $GLOBALS['eforms_test_mail_calls'] ), 'wp_mail shou
 $call = $GLOBALS['eforms_test_mail_calls'][0];
 $subject = $call['subject'];
 $headers = $call['headers'];
+$body = $call['message'];
 
 $from = '';
 $reply_to = '';
@@ -101,8 +109,16 @@ foreach ( $headers as $header ) {
 eforms_test_assert( strpos( $subject, "\n" ) === false, 'Subject should not contain LF.' );
 eforms_test_assert( strpos( $subject, "\r" ) === false, 'Subject should not contain CR.' );
 eforms_test_assert( strpos( $subject, 'Ada Injected' ) !== false, 'Subject should include sanitized token expansion.' );
-eforms_test_assert( strpos( $from, 'no-reply@example.com' ) !== false, 'From should fall back to the site domain.' );
-eforms_test_assert( $reply_to === 'Reply-To: reply@example.com', 'Reply-To should use the configured address.' );
+eforms_test_assert( $from === 'From: Ada Injected <contact@example.com>', 'From should keep configured same-domain address.' );
+eforms_test_assert( $reply_to === 'Reply-To: ada@example.com', 'Reply-To should default to the canonical email field when no fixed reply_to_address is configured.' );
+eforms_test_assert( strpos( $body, '<table role="presentation"' ) !== false, 'HTML body should render included fields as a table.' );
+eforms_test_assert( strpos( $body, 'Form:' ) === false, 'Default email body should not include automatic form metadata.' );
+eforms_test_assert( strpos( $body, 'Submission:' ) === false, 'Default email body should not include automatic submission metadata.' );
+eforms_test_assert( strpos( $body, 'Submitted:' ) === false, 'Default email body should not include automatic submitted metadata.' );
+eforms_test_assert( strpos( $body, '<th scope="row" style="font-weight:bold;text-align:left;vertical-align:top;padding:0 28px 10px 0;">Name:</th>' ) !== false, 'HTML body should bold friendly field labels.' );
+eforms_test_assert( strpos( $body, '<a href="mailto:ada@example.com">ada@example.com</a>' ) !== false, 'HTML body should render email values as mailto links.' );
+eforms_test_assert( strpos( $body, 'Sent from:' ) !== false, 'HTML body should render ip with a friendly label.' );
+eforms_test_assert( strpos( $body, 'name:' ) === false, 'HTML body should not render backend field keys as labels.' );
 
 eforms_test_remove_tree( $template_dir );
 

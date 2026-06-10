@@ -38,7 +38,7 @@ if ( ! function_exists( 'wp_add_inline_script' ) ) {
 
 if ( ! function_exists( 'plugins_url' ) ) {
     function plugins_url( $path = '', $plugin = null ) {
-        return '/wp-content/plugins/eform/' . ltrim( $path, '/' );
+        return '/wp-content/plugins/eforms/' . ltrim( $path, '/' );
     }
 }
 

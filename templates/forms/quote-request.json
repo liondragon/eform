@@ -9,13 +9,13 @@
   },
   "email": {
     "to": "office@flooringartists.com",
-    "subject": "Quote Request",
+    "subject": "Quote Request - {{field.name}}",
     "email_template": "default",
     "include_fields": [
       "name",
-      "email",
-      "tel_us",
       "zip_us",
+      "tel_us",
+      "email",
       "message",
       "ip"
     ],

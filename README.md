@@ -6,8 +6,8 @@ Lightweight PHP form handler for WordPress.
 
 Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Compatibility and Updates](docs/Canonical_Spec.md#sec-compatibility).
 
-1. Place `eforms/` inside `wp-content/plugins/` so WordPress can discover it.
-2. (Optional for contributors) Run `composer install` within `eforms/` to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
+1. Place this repository root inside `wp-content/plugins/eforms/` so `eforms.php` is directly inside the plugin directory.
+2. (Optional for contributors) Run `composer install` from the repository root to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
 3. Activate the plugin from the WordPress admin Plugins screen once the files are in place.
 
 ## Documentation
@@ -21,12 +21,12 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Co
 
 ## Architecture
 
-- `eforms/eforms.php` boots the plugin, sets up rewrite rules, autoloads `src/`, and registers the `[eform]` shortcode.
-- `eforms/src/Rendering/` loads JSON form templates from `templates/forms/` and renders HTML.
-- `eforms/src/Submission/SubmitHandler.php` orchestrates security checks, validation, logging, email, and uploads.
-- `eforms/src/Security/` houses token, origin, challenge, and throttling logic.
-- `eforms/src/Logging.php` writes structured logs with rotation.
-- Configuration lives in `eforms/src/Config.php`. Common operational settings can be managed in WordPress at Settings -> eForms; deployment overrides can still be supplied via a drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`, usually `wp-content/eforms.config.php`) and/or the `eforms_config` filter.
+- `eforms.php` boots the plugin, sets up rewrite rules, autoloads `src/`, and registers the `[eform]` shortcode.
+- `src/Rendering/` loads JSON form templates from `templates/forms/` and renders HTML.
+- `src/Submission/SubmitHandler.php` orchestrates security checks, validation, logging, email, and uploads.
+- `src/Security/` houses token, origin, challenge, and throttling logic.
+- `src/Logging.php` writes structured logs with rotation.
+- Configuration lives in `src/Config.php`. Common operational settings can be managed in WordPress at Settings -> eForms; deployment overrides can still be supplied via a drop-in file (`${WP_CONTENT_DIR}/eforms.config.php`, usually `wp-content/eforms.config.php`) and/or the `eforms_config` filter.
 
 ## Usage
 
