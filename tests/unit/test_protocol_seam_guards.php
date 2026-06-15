@@ -61,6 +61,10 @@ eforms_test_assert( strpos( $template_validator, 'FormProtocol::reserved_field_k
 eforms_test_assert( strpos( $submit_handler, 'private static function reserved_keys' ) === false, 'SubmitHandler must not own a reserved-key map.' );
 eforms_test_assert( strpos( $submit_handler, 'FormProtocol::reserved_field_key_map' ) !== false, 'SubmitHandler should use FormProtocol reserved keys.' );
 eforms_test_assert( strpos( $submit_handler, 'spam_short_circuit_result' ) !== false, 'SubmitHandler should share spam short-circuit branch cleanup.' );
+eforms_test_assert( strpos( $submit_handler, 'private static function soft_fail_count' ) === false, 'SubmitHandler must not own soft-fail counting.' );
+eforms_test_assert( strpos( $submit_handler, 'private static function is_suspect_count' ) === false, 'SubmitHandler must not own suspect threshold logic.' );
+eforms_test_assert( strpos( $submit_handler, 'private static function is_spam_fail_count' ) === false, 'SubmitHandler must not own spam threshold logic.' );
+eforms_test_assert( strpos( $submit_handler, 'private static function spam_soft_fail_threshold' ) === false, 'SubmitHandler must not own soft-fail threshold normalization.' );
 
 eforms_test_assert( strpos( $public_controller, 'private static function reserved_keys' ) === false, 'PublicRequestController must not own a reserved-key map.' );
 eforms_test_assert( strpos( $public_controller, 'FormProtocol::post_detection_keys' ) !== false, 'PublicRequestController should use FormProtocol detection keys.' );

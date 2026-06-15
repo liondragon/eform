@@ -103,3 +103,29 @@ Verification Baseline: existing pure-PHP integration lane plus shipped-template 
   - Done When: routing docs name `RuntimeHealthDiagnostic`; implementation tasks are marked verified with commands.
   - Verified via: `rg -n "RuntimeHealthDiagnostic|wp eforms doctor|Run Runtime Health Check" docs src tests`
   - Reasoning: low
+
+# Suspect Email Headers and Declined Review Cleanup
+
+Source of Truth: `docs/Canonical_Spec.md#sec-spam-decision`, `docs/Canonical_Spec.md#sec-suspect-handling`, `docs/Canonical_Spec.md#sec-declined-review`.
+Host Contracts: WordPress `wp_mail()` headers; WordPress admin `manage_options` capability and nonce-protected POST forms.
+Verification Baseline: existing pure-PHP integration lane.
+
+- [x] SUSPECT-HEADER-001 Add suspect soft-reason email header.
+  - Type: seam-refactor
+  - Artifacts: `src/Security/Security.php`, `src/Submission/SubmitHandler.php`, `src/Email/Emailer.php`
+  - Interfaces: `Security::soft_signal_context()`, `Emailer::send()`
+  - Owner: `Security` for soft-signal decisions; `Emailer` for outbound header assembly
+  - Depends On: existing spam decision and email delivery behavior
+  - Done When: delivered suspect emails keep the generic `[Suspect]` subject tag and include `X-EForms-Soft-Reasons` only with safe deduplicated soft-reason labels.
+  - Verified via: `php tests/integration/test_suspect_signaling.php`; `php tests/integration/test_email_headers_sanitization.php`; `php tests/integration/test_spam_fail_threshold.php`
+  - Reasoning: medium
+
+- [x] DECLINED-CLEAR-001 Add declined-review manual cleanup.
+  - Type: ui-ownership
+  - Artifacts: `src/DeclinedReviewLog.php`, `src/Admin/DeclinedReviewAdmin.php`, `src/Logging/FileSink.php`, `src/Gc/GcRunner.php`
+  - Interfaces: `DeclinedReviewLog::clear_older_than()`, Tools → eForms Declined maintenance form
+  - Owner: `DeclinedReviewLog` for declined cleanup policy/result contract; `DeclinedReviewAdmin` for admin rendering and nonce/confirmation flow; `FileSink` for file scanning/deletion mechanics
+  - Depends On: declined-review storage and GC behavior
+  - Done When: admins can clear only declined-review JSONL files older than a validated one-time cutoff, including `0` for all declined-review files, after nonce-protected confirmation; normal cleanup remains retention-driven.
+  - Verified via: `php tests/integration/test_declined_review_admin.php`; `php tests/integration/test_declined_review_log.php`
+  - Reasoning: medium

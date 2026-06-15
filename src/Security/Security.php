@@ -583,6 +583,33 @@ class Security
         return $ordered;
     }
 
+    public static function soft_signal_context($security, $config)
+    {
+        $soft_reasons = array();
+        if (is_array($security) && isset($security['soft_reasons']) && is_array($security['soft_reasons'])) {
+            $soft_reasons = self::normalize_soft_reasons($security['soft_reasons']);
+        }
+
+        $soft_fail_count = count($soft_reasons);
+        $threshold = self::spam_soft_fail_threshold($config);
+        $is_suspect = $soft_fail_count > 0 && $soft_fail_count < $threshold;
+
+        return array(
+            'soft_reasons' => $soft_reasons,
+            'soft_fail_count' => $soft_fail_count,
+            'threshold' => $threshold,
+            'is_suspect' => $is_suspect,
+            'is_spam' => $soft_fail_count > 0 && $soft_fail_count >= $threshold,
+        );
+    }
+
+    private static function spam_soft_fail_threshold($config)
+    {
+        $threshold = Config::value($config, array('spam', 'soft_fail_threshold'), 1);
+        $threshold = is_numeric($threshold) ? (int) $threshold : 1;
+        return $threshold < 1 ? 1 : $threshold;
+    }
+
     private static function challenge_required($config, $soft_reasons)
     {
         $mode = 'off';

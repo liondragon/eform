@@ -143,6 +143,50 @@ $limit_line = json_encode( array( 'review_id' => 'limit', 'ts' => gmdate( 'c' ),
 file_put_contents( rtrim( $dir, '/\\' ) . '/declined-' . gmdate( 'Ymd' ) . '-9999.jsonl', str_repeat( $limit_line, Anchors::get( 'DECLINED_REVIEW_SCAN_MAX_RECORDS' ) + 1 ) );
 $limited = DeclinedReviewAdmin::render_html( array(), $config );
 eforms_test_assert( strpos( $limited, 'scan limit was reached' ) !== false, 'Scan-limit result should show an admin notice.' );
+eforms_test_assert( strpos( $limited, 'Clear declined review data' ) !== false, 'Admin list should render declined-review maintenance action.' );
+eforms_test_assert( strpos( $limited, 'declined_review.retention_days' ) !== false, 'Maintenance copy should explain retention-driven cleanup.' );
+
+// Declined-review maintenance clears only confirmed eligible declined JSONL files.
+$cleanup_path = rtrim( $dir, '/\\' ) . '/declined-20000101.jsonl';
+file_put_contents( $cleanup_path, '{"review_id":"old-cleanup"}' . "\n" );
+touch( $cleanup_path, time() - 172800 );
+
+$clear_post = function ( $days, $nonce = 'valid-nonce', $checked = false ) {
+    $post = array(
+        DeclinedReviewAdmin::ACTION_FIELD => DeclinedReviewAdmin::CLEAR_ACTION,
+        DeclinedReviewAdmin::CLEAR_NONCE_FIELD => $nonce,
+        'older_than_days' => (string) $days,
+    );
+    if ( $checked ) {
+        $post['confirm_clear'] = '1';
+    }
+    return $post;
+};
+
+$GLOBALS['eforms_test_can_manage'] = false;
+eforms_test_assert( DeclinedReviewAdmin::render_html( array(), $config, $clear_post( 1, 'valid-nonce', true ) ) === '', 'Unauthorized cleanup render should return no HTML.' );
+eforms_test_assert( file_exists( $cleanup_path ), 'Unauthorized cleanup should not delete declined files.' );
+$GLOBALS['eforms_test_can_manage'] = true;
+
+$bad_nonce = DeclinedReviewAdmin::render_html( array(), $config, $clear_post( 1, 'bad-nonce', true ) );
+eforms_test_assert( strpos( $bad_nonce, 'security check failed' ) !== false, 'Bad nonce cleanup should show an error.' );
+eforms_test_assert( file_exists( $cleanup_path ), 'Bad nonce cleanup should not delete declined files.' );
+
+$prepare = DeclinedReviewAdmin::render_html( array(), $config, $clear_post( 1 ) );
+eforms_test_assert( strpos( $prepare, 'Confirm declined review cleanup' ) !== false, 'Prepare cleanup should render a confirmation screen.' );
+eforms_test_assert( file_exists( $cleanup_path ), 'Prepare cleanup should not delete declined files.' );
+
+$missing_confirmation = DeclinedReviewAdmin::render_html( array(), $config, $clear_post( 1 ) );
+eforms_test_assert( strpos( $missing_confirmation, 'Confirm declined review cleanup' ) !== false, 'Missing cleanup confirmation should return to the confirmation screen.' );
+eforms_test_assert( file_exists( $cleanup_path ), 'Missing cleanup confirmation should not delete declined files.' );
+
+$invalid_days = DeclinedReviewAdmin::render_html( array(), $config, $clear_post( Anchors::get( 'RETENTION_DAYS_MAX' ) + 1 ) );
+eforms_test_assert( strpos( $invalid_days, 'between 0 and ' . Anchors::get( 'RETENTION_DAYS_MAX' ) ) !== false, 'Invalid cleanup days should be rejected.' );
+eforms_test_assert( file_exists( $cleanup_path ), 'Invalid cleanup days should not delete declined files.' );
+
+$cleanup = DeclinedReviewAdmin::render_html( array(), $config, $clear_post( 1, 'valid-nonce', true ) );
+eforms_test_assert( strpos( $cleanup, '1 deleted, 0 failed' ) !== false, 'Cleanup should report deleted eligible files.' );
+eforms_test_assert( ! file_exists( $cleanup_path ), 'Cleanup should delete old declined files.' );
 
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();

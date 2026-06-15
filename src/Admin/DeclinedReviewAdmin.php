@@ -10,6 +10,9 @@ require_once __DIR__ . '/../DeclinedReviewLog.php';
 
 class DeclinedReviewAdmin {
     const SLUG = 'eforms-declined';
+    const ACTION_FIELD = 'eforms_declined_action';
+    const CLEAR_ACTION = 'eforms_declined_clear';
+    const CLEAR_NONCE_FIELD = '_eforms_declined_clear_nonce';
 
     public static function register() {
         add_action( 'admin_menu', array( __CLASS__, 'register_menu' ) );
@@ -30,10 +33,15 @@ class DeclinedReviewAdmin {
             wp_die( esc_html( 'Sorry, you are not allowed to access this page.' ) );
         }
 
-        echo self::render_html( $_GET, Config::get() );
+        $post = null;
+        if ( isset( $_SERVER['REQUEST_METHOD'] ) && strtoupper( (string) $_SERVER['REQUEST_METHOD'] ) === 'POST' ) {
+            $post = $_POST;
+        }
+
+        echo self::render_html( $_GET, Config::get(), $post );
     }
 
-    public static function render_html( $request = null, $config = null ) {
+    public static function render_html( $request = null, $config = null, $post = null ) {
         if ( ! self::can_manage() ) {
             return '';
         }
@@ -42,12 +50,21 @@ class DeclinedReviewAdmin {
         $config = is_array( $config ) ? $config : Config::get();
         $filters = self::filters_from_request( $request );
         $review_id = self::request_token( $request, 'review_id' );
+        $clear = self::handle_post( $post, $config );
+        if ( $clear['handled'] ) {
+            $review_id = '';
+        }
 
         ob_start();
         echo '<div class="wrap eforms-declined-admin">';
         echo '<h1>eForms Declined</h1>';
+        if ( is_array( $clear['notice'] ) ) {
+            self::notice( $clear['notice']['type'], $clear['notice']['message'] );
+        }
 
-        if ( $review_id !== '' ) {
+        if ( $clear['confirm_days'] !== null ) {
+            self::render_clear_confirmation( $clear['confirm_days'], $filters );
+        } elseif ( $review_id !== '' ) {
             self::render_detail( $review_id, $filters, $config );
         } else {
             self::render_list( $filters, $config );
@@ -94,6 +111,8 @@ class DeclinedReviewAdmin {
         }
 
         echo '</tbody></table>';
+
+        self::render_maintenance( $config );
     }
 
     private static function render_filters( $filters ) {
@@ -170,6 +189,85 @@ class DeclinedReviewAdmin {
             echo '<tr><th scope="row">' . esc_html( (string) $key ) . '</th><td><pre>' . esc_html( self::value_text( $value ) ) . '</pre></td></tr>';
         }
         echo '</tbody></table>';
+    }
+
+    private static function render_maintenance( $config ) {
+        $default_days = Config::value( $config, array( 'declined_review', 'retention_days' ), 1 );
+        $default_days = DeclinedReviewLog::normalize_clear_days( $default_days );
+        $default_days = $default_days === null ? 1 : $default_days;
+
+        echo '<h2>' . esc_html( 'Maintenance' ) . '</h2>';
+        echo '<p class="description">' . esc_html( 'Declined review stores bounded submitted content. Normal cleanup is controlled by declined_review.retention_days and wp eforms gc; this action immediately clears declined-review files older than the chosen cutoff.' ) . '</p>';
+        echo '<form method="post" action="">';
+        echo '<input type="hidden" name="' . esc_attr( self::ACTION_FIELD ) . '" value="' . esc_attr( self::CLEAR_ACTION ) . '" />';
+        self::nonce_field( self::CLEAR_ACTION, self::CLEAR_NONCE_FIELD );
+        echo '<p>';
+        echo '<label for="eforms-declined-clear-days">' . esc_html( 'Clear files older than days' ) . '</label> ';
+        echo '<input id="eforms-declined-clear-days" type="number" min="0" max="' . esc_attr( (string) DeclinedReviewLog::max_clear_days() ) . '" name="older_than_days" value="' . esc_attr( (string) $default_days ) . '" /> ';
+        echo '<span class="description">' . esc_html( 'Use 0 to clear all declined-review files.' ) . '</span>';
+        echo '</p>';
+        echo '<p class="submit"><button type="submit" class="button">' . esc_html( 'Clear declined review data' ) . '</button></p>';
+        echo '</form>';
+    }
+
+    private static function render_clear_confirmation( $days, $filters ) {
+        $back = self::url( self::filter_query_args( $filters ) );
+        $summary = (int) $days === 0
+            ? 'This will permanently clear all declined-review files.'
+            : 'This will permanently clear declined-review files older than ' . (int) $days . ' days.';
+
+        echo '<h2>' . esc_html( 'Confirm declined review cleanup' ) . '</h2>';
+        self::notice( 'warning', $summary . ' This cannot be undone.' );
+        echo '<form method="post" action="">';
+        echo '<input type="hidden" name="' . esc_attr( self::ACTION_FIELD ) . '" value="' . esc_attr( self::CLEAR_ACTION ) . '" />';
+        echo '<input type="hidden" name="older_than_days" value="' . esc_attr( (string) (int) $days ) . '" />';
+        self::nonce_field( self::CLEAR_ACTION, self::CLEAR_NONCE_FIELD );
+        echo '<p><label><input type="checkbox" name="confirm_clear" value="1" /> ' . esc_html( 'I understand this permanently deletes declined-review files.' ) . '</label></p>';
+        echo '<p class="submit"><button type="submit" class="button button-primary">' . esc_html( 'Permanently clear declined review data' ) . '</button> ';
+        echo '<a class="button" href="' . esc_url( $back ) . '">' . esc_html( 'Cancel' ) . '</a></p>';
+        echo '</form>';
+    }
+
+    private static function handle_post( $post, $config ) {
+        $result = array( 'handled' => false, 'notice' => null, 'confirm_days' => null );
+        if ( ! is_array( $post ) ) {
+            return $result;
+        }
+
+        $post = self::unslash( $post );
+        $action = self::post_token( $post, self::ACTION_FIELD );
+        if ( $action !== self::CLEAR_ACTION ) {
+            return $result;
+        }
+
+        $result['handled'] = true;
+        if ( ! self::verify_nonce( self::post_token( $post, self::CLEAR_NONCE_FIELD ), self::CLEAR_ACTION ) ) {
+            $result['notice'] = array( 'type' => 'error', 'message' => 'Declined review data was not cleared because the security check failed.' );
+            return $result;
+        }
+
+        $days = self::days_from_post( $post );
+        if ( $days === null ) {
+            $result['notice'] = array(
+                'type' => 'error',
+                'message' => 'Enter a whole number of days between 0 and ' . DeclinedReviewLog::max_clear_days() . '.',
+            );
+            return $result;
+        }
+
+        if ( self::post_token( $post, 'confirm_clear' ) !== '1' ) {
+            $result['confirm_days'] = $days;
+            return $result;
+        }
+
+        $clear = DeclinedReviewLog::clear_older_than( $days, $config );
+        $type = ! empty( $clear['ok'] ) ? 'success' : 'error';
+        $result['notice'] = array(
+            'type' => $type,
+            'message' => 'Declined review cleanup complete: ' . (int) $clear['deleted'] . ' deleted, ' . (int) $clear['failed'] . ' failed, ' . (int) $clear['scanned'] . ' scanned.',
+        );
+
+        return $result;
     }
 
     private static function filters_from_request( $request ) {
@@ -317,8 +415,26 @@ class DeclinedReviewAdmin {
             return '';
         }
 
-        $value = $request[ $key ];
-        $value = wp_unslash( $value );
+        return self::scalar_token( $request[ $key ], true );
+    }
+
+    private static function request_int( $request, $key, $fallback ) {
+        $value = self::request_token( $request, $key );
+        return is_numeric( $value ) ? max( 1, (int) $value ) : (int) $fallback;
+    }
+
+    private static function post_token( $post, $key ) {
+        if ( ! is_array( $post ) || ! isset( $post[ $key ] ) ) {
+            return '';
+        }
+
+        return self::scalar_token( $post[ $key ], false );
+    }
+
+    private static function scalar_token( $value, $unslash ) {
+        if ( $unslash ) {
+            $value = wp_unslash( $value );
+        }
         if ( is_array( $value ) ) {
             return '';
         }
@@ -327,9 +443,25 @@ class DeclinedReviewAdmin {
         return is_string( $value ) ? substr( $value, 0, 128 ) : '';
     }
 
-    private static function request_int( $request, $key, $fallback ) {
-        $value = self::request_token( $request, $key );
-        return is_numeric( $value ) ? max( 1, (int) $value ) : (int) $fallback;
+    private static function days_from_post( $post ) {
+        $value = self::post_token( $post, 'older_than_days' );
+        return DeclinedReviewLog::normalize_clear_days( $value );
+    }
+
+    private static function nonce_field( $action, $field ) {
+        if ( function_exists( 'wp_nonce_field' ) ) {
+            wp_nonce_field( $action, $field );
+            return;
+        }
+        echo '<input type="hidden" name="' . esc_attr( $field ) . '" value="" />';
+    }
+
+    private static function verify_nonce( $nonce, $action ) {
+        return function_exists( 'wp_verify_nonce' ) && wp_verify_nonce( $nonce, $action );
+    }
+
+    private static function unslash( $value ) {
+        return function_exists( 'wp_unslash' ) ? wp_unslash( $value ) : $value;
     }
 
     private static function can_manage() {

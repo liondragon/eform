@@ -175,7 +175,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 ### Admin Monitoring
 
 - **Settings → eForms:** Curated admin settings for declined review, logging, challenge, throttle, and privacy, with effective values and source labels shown beside each control. Higher-priority drop-in/filter values appear as externally controlled rather than editable. Secrets are masked; blank secret saves keep the stored admin value unless explicitly cleared.
-- **Tools → eForms Declined:** Read-only declined-submission review table, shown only when `declined_review.enable=true` and available to administrators. It presents bounded submitted content for selected spam-review outcomes, rejection reasons, and request metadata so operators can spot false positives during rollout.
+- **Tools → eForms Declined:** Declined-submission review table, shown only when `declined_review.enable=true` and available to administrators. It presents bounded submitted content for selected spam-review outcomes, rejection reasons, and request metadata so operators can spot false positives during rollout. Cleanup is normally retention-driven via `declined_review.retention_days` and `wp eforms gc`; administrators may also clear declined-review files older than a confirmed one-time day cutoff.
 - These admin pages are not a form builder, template editor, raw config editor, quarantine, moderation queue, or resend workflow.
 
 ### Configuration

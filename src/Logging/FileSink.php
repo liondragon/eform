@@ -83,22 +83,42 @@ class FileSink {
     }
 
     public static function prune_old_files( $dir, $retention_days, $match_callback ) {
+        $cutoff = time() - ( (int) $retention_days * 86400 );
+        self::delete_matching_files(
+            $dir,
+            $match_callback,
+            function ( $entry, $path ) use ( $cutoff ) {
+                $mtime = @filemtime( $path );
+                return is_int( $mtime ) && $mtime < $cutoff;
+            }
+        );
+    }
+
+    public static function delete_matching_files( $dir, $match_callback, $eligible_callback = null, $options = array() ) {
+        $summary = self::delete_summary( true, '' );
         if ( ! is_string( $dir ) || $dir === '' || ! is_callable( $match_callback ) ) {
-            return;
+            return self::delete_summary( false, 'invalid_args' );
+        }
+        if ( $eligible_callback !== null && ! is_callable( $eligible_callback ) ) {
+            return self::delete_summary( false, 'invalid_args' );
+        }
+        $options = is_array( $options ) ? $options : array();
+        $dry_run = ! empty( $options['dry_run'] );
+        $limit = isset( $options['limit'] ) && is_numeric( $options['limit'] ) ? (int) $options['limit'] : 0;
+        if ( $limit < 0 ) {
+            $limit = 0;
+        }
+        if ( ! is_dir( $dir ) ) {
+            return $summary;
         }
 
         $entries = @scandir( $dir );
         if ( ! is_array( $entries ) ) {
-            return;
+            return self::delete_summary( false, 'scan_failed' );
         }
 
-        $cutoff = time() - ( (int) $retention_days * 86400 );
         foreach ( $entries as $entry ) {
             if ( $entry === '.' || $entry === '..' ) {
-                continue;
-            }
-
-            if ( ! call_user_func( $match_callback, $entry ) ) {
                 continue;
             }
 
@@ -107,15 +127,59 @@ class FileSink {
                 continue;
             }
 
-            $mtime = @filemtime( $path );
-            if ( ! is_int( $mtime ) ) {
+            if ( $limit > 0 && $summary['scanned'] >= $limit ) {
+                $summary['reached_limit'] = true;
+                break;
+            }
+
+            $summary['scanned']++;
+            if ( ! call_user_func( $match_callback, $entry, $path ) ) {
+                continue;
+            }
+            if ( $eligible_callback !== null && ! call_user_func( $eligible_callback, $entry, $path ) ) {
                 continue;
             }
 
-            if ( $mtime < $cutoff ) {
-                @unlink( $path );
+            $bytes = self::file_bytes( $path );
+            $summary['candidates']++;
+            $summary['candidate_bytes'] += $bytes;
+            if ( $dry_run ) {
+                continue;
+            }
+
+            if ( @unlink( $path ) ) {
+                $summary['deleted']++;
+                $summary['deleted_bytes'] += $bytes;
+            } else {
+                $summary['failed']++;
             }
         }
+
+        if ( $summary['failed'] > 0 ) {
+            $summary['ok'] = false;
+            $summary['reason'] = 'delete_failed';
+        }
+
+        return $summary;
+    }
+
+    private static function delete_summary( $ok, $reason ) {
+        return array(
+            'ok' => (bool) $ok,
+            'reason' => (string) $reason,
+            'scanned' => 0,
+            'candidates' => 0,
+            'candidate_bytes' => 0,
+            'deleted' => 0,
+            'deleted_bytes' => 0,
+            'failed' => 0,
+            'reached_limit' => false,
+        );
+    }
+
+    private static function file_bytes( $path ) {
+        $size = @filesize( $path );
+        return is_int( $size ) && $size > 0 ? $size : 0;
     }
 
     private static function dated_path( $dir, $prefix, $ext ) {

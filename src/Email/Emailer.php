@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Privacy/ClientIp.php';
+require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Uploads/UploadValue.php';
 require_once __DIR__ . '/../Validation/FieldTypes/TextLike.php';
 require_once __DIR__ . '/Templates.php';
@@ -78,8 +79,8 @@ class Emailer {
             return self::failure( 'subject_empty' );
         }
 
-        $soft_fail_count = self::soft_fail_count( $security );
-        if ( self::is_suspect( $soft_fail_count, $config ) ) {
+        $soft_signal = Security::soft_signal_context( $security, $config );
+        if ( ! empty( $soft_signal['is_suspect'] ) ) {
             $subject = self::apply_suspect_subject_tag( $subject, $config );
             if ( $subject === '' ) {
                 return self::failure( 'subject_empty' );
@@ -111,7 +112,7 @@ class Emailer {
             : array();
         $body = self::append_attachment_overflow_summary( $body, $overflow_names, $is_html );
 
-        $headers = self::build_headers( $config, $values, $canonical['fields'], $email, $request );
+        $headers = self::build_headers( $config, $values, $canonical['fields'], $email, $request, $soft_signal );
         if ( $headers === null ) {
             return self::failure( 'headers_invalid' );
         }
@@ -613,7 +614,7 @@ class Emailer {
         return $out;
     }
 
-    private static function build_headers( $config, $values, $canonical_fields, $email, $request ) {
+    private static function build_headers( $config, $values, $canonical_fields, $email, $request, $soft_signal = array() ) {
         $headers = array();
 
         $from = self::resolve_from_address( $config, $request );
@@ -640,6 +641,16 @@ class Emailer {
             ? 'text/html'
             : 'text/plain';
         $headers[] = 'Content-Type: ' . $content_type . '; charset=UTF-8';
+
+        if ( is_array( $soft_signal ) && ! empty( $soft_signal['is_suspect'] ) ) {
+            $soft_reasons = isset( $soft_signal['soft_reasons'] ) && is_array( $soft_signal['soft_reasons'] )
+                ? $soft_signal['soft_reasons']
+                : array();
+            $soft_reason_header = implode( ', ', $soft_reasons );
+            if ( $soft_reason_header !== '' ) {
+                $headers[] = 'X-EForms-Soft-Reasons: ' . $soft_reason_header;
+            }
+        }
 
         return $headers;
     }
@@ -865,32 +876,6 @@ class Emailer {
         }
 
         Logging::event( 'warning', 'EFORMS_ERR_EMAIL_SEND', $meta, $request );
-    }
-
-    private static function soft_fail_count( $security ) {
-        if ( ! is_array( $security ) || ! isset( $security['soft_reasons'] ) || ! is_array( $security['soft_reasons'] ) ) {
-            return 0;
-        }
-
-        return count( $security['soft_reasons'] );
-    }
-
-    private static function is_suspect( $soft_fail_count, $config ) {
-        if ( $soft_fail_count <= 0 ) {
-            return false;
-        }
-
-        $threshold = self::spam_soft_fail_threshold( $config );
-        return $soft_fail_count < $threshold;
-    }
-
-    private static function spam_soft_fail_threshold( $config ) {
-        $value = Config::value( $config, array( 'spam', 'soft_fail_threshold' ) );
-        $value = is_numeric( $value ) ? (int) $value : 1;
-        if ( $value < 1 ) {
-            $value = 1;
-        }
-        return $value;
     }
 
     private static function apply_suspect_subject_tag( $subject, $config ) {

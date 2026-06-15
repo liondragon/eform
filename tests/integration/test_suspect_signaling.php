@@ -70,6 +70,14 @@ eforms_test_assert(
     is_string( $subject ) && strpos( $subject, '[Suspect] ' ) === 0,
     'Suspect submissions should receive a subject tag.'
 );
+$mail_headers = $GLOBALS['eforms_test_mail_calls'][0]['headers'];
+$has_reason_header = false;
+foreach ( $mail_headers as $header ) {
+    if ( $header === 'X-EForms-Soft-Reasons: js_missing' ) {
+        $has_reason_header = true;
+    }
+}
+eforms_test_assert( $has_reason_header, 'Suspect emails should include soft reason headers.' );
 
 $headers = function_exists( 'headers_list' ) ? headers_list() : array();
 if ( ! empty( $headers ) ) {

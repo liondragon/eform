@@ -64,6 +64,7 @@ eforms_test_set_filter(
     function ( $config ) {
         $config['email']['from_address'] = 'contact@example.com';
         $config['email']['html'] = true;
+        $config['spam']['soft_fail_threshold'] = 10;
         $config['privacy']['ip_mode'] = 'full';
         return $config;
     }
@@ -80,6 +81,7 @@ $values = array(
 $security = array(
     'submission_id' => 'submission-1',
     'mode' => 'hidden',
+    'soft_reasons' => array( 'origin_soft', 'origin_soft', "js_missing\r\nBcc: attacker@example.com", 'bad value' ),
 );
 
 $result = Emailer::send( $context, $values, $security, array( 'client_ip' => '203.0.113.42' ), Config::get() );
@@ -97,12 +99,16 @@ $body = $call['message'];
 
 $from = '';
 $reply_to = '';
+$soft_reasons = '';
 foreach ( $headers as $header ) {
     if ( strpos( $header, 'From:' ) === 0 ) {
         $from = $header;
     }
     if ( strpos( $header, 'Reply-To:' ) === 0 ) {
         $reply_to = $header;
+    }
+    if ( strpos( $header, 'X-EForms-Soft-Reasons:' ) === 0 ) {
+        $soft_reasons = $header;
     }
 }
 
@@ -111,6 +117,8 @@ eforms_test_assert( strpos( $subject, "\r" ) === false, 'Subject should not cont
 eforms_test_assert( strpos( $subject, 'Ada Injected' ) !== false, 'Subject should include sanitized token expansion.' );
 eforms_test_assert( $from === 'From: Ada Injected <contact@example.com>', 'From should keep configured same-domain address.' );
 eforms_test_assert( $reply_to === 'Reply-To: ada@example.com', 'Reply-To should default to the canonical email field when no fixed reply_to_address is configured.' );
+eforms_test_assert( $soft_reasons === 'X-EForms-Soft-Reasons: origin_soft', 'Soft reason header should keep only safe deduplicated reason tokens.' );
+eforms_test_assert( strpos( implode( "\n", $headers ), 'Bcc:' ) === false, 'Soft reason header should not allow injected headers.' );
 eforms_test_assert( strpos( $body, '<table role="presentation"' ) !== false, 'HTML body should render included fields as a table.' );
 eforms_test_assert( strpos( $body, 'Form:' ) === false, 'Default email body should not include automatic form metadata.' );
 eforms_test_assert( strpos( $body, 'Submission:' ) === false, 'Default email body should not include automatic submission metadata.' );

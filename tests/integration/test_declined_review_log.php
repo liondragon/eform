@@ -46,8 +46,6 @@ if ( ! function_exists( 'eforms_declined_test_capture_args' ) ) {
             'decision_code' => 'EFORMS_ERR_SPAM',
             'decision_phase' => 'spam_threshold',
             'value_stage' => 'raw_declared',
-            'soft_fail_count' => 2,
-            'threshold' => 2,
             'values' => array(
                 'name' => 'Ada',
                 'email' => 'ada@example.com',
@@ -108,6 +106,9 @@ $disabled_config = Config::get();
 eforms_test_assert( DeclinedReviewLog::capture( eforms_declined_test_capture_args( array( 'config' => $disabled_config ) ) ) === false, 'Disabled declined review should not write.' );
 eforms_test_assert( ! is_dir( eforms_declined_test_dir( $uploads_dir ) ), 'Disabled declined review should not create the declined directory.' );
 eforms_test_assert( ! is_dir( $uploads_dir . '/eforms-private' ), 'Disabled/read-only declined review should not create private storage.' );
+$missing_clear = DeclinedReviewLog::clear_older_than( 1, $disabled_config );
+eforms_test_assert( $missing_clear['ok'] === true && $missing_clear['deleted'] === 0, 'Cleanup should be a no-op success when declined storage is missing.' );
+eforms_test_assert( ! is_dir( $uploads_dir . '/eforms-private' ), 'Missing-storage cleanup should not create private storage.' );
 
 // Enabled mode writes bounded review records and excludes protocol/security fields.
 eforms_test_configure_declined_review( $uploads_dir, true );
@@ -122,6 +123,8 @@ eforms_test_assert( $record['request_id'] === 'req-123', 'Record should include 
 eforms_test_assert( $record['decision_code'] === 'EFORMS_ERR_SPAM', 'Record should include decision code.' );
 eforms_test_assert( $record['decision_phase'] === 'spam_threshold', 'Record should include decision phase.' );
 eforms_test_assert( $record['value_stage'] === 'raw_declared', 'Record should include value stage.' );
+eforms_test_assert( ! isset( $record['soft_fail_count'] ), 'Record should not store computed soft_fail_count.' );
+eforms_test_assert( ! isset( $record['threshold'] ), 'Record should not store computed threshold.' );
 eforms_test_assert( $record['ip'] === '203.0.113.10', 'Record should respect privacy.ip_mode.' );
 eforms_test_assert( $record['uri'] === '/submit?eforms_public=1', 'Record should keep only eforms query params.' );
 eforms_test_assert( isset( $record['fields']['name'] ) && $record['fields']['name'] === 'Ada', 'Record should capture declared field content.' );
@@ -187,6 +190,46 @@ $limited = DeclinedReviewLog::query( array(), $config );
 eforms_test_assert( $limited['limited'] === true, 'Reader should report scan-limit truncation.' );
 eforms_test_assert( $limited['scanned'] === Anchors::get( 'DECLINED_REVIEW_SCAN_MAX_RECORDS' ), 'Reader should not scan beyond the configured scan limit.' );
 eforms_test_assert( DeclinedReviewLog::find( 'after-limit', array(), $config )['found'] === false, 'Detail lookup should also honor the scan limit.' );
+
+// Cleanup deletes only eligible declined-review files.
+$old_cleanup_path = rtrim( $dir, '/\\' ) . '/declined-20000101.jsonl';
+$fresh_cleanup_path = rtrim( $dir, '/\\' ) . '/declined-' . $today . '-7777.jsonl';
+$limit_control_path = rtrim( $dir, '/\\' ) . '/aaa-not-declined.jsonl';
+$control_path = rtrim( $dir, '/\\' ) . '/not-declined.jsonl';
+file_put_contents( $old_cleanup_path, '{"review_id":"old-cleanup"}' . "\n" );
+file_put_contents( $fresh_cleanup_path, '{"review_id":"fresh-cleanup"}' . "\n" );
+file_put_contents( $limit_control_path, '{"review_id":"limit-control-cleanup"}' . "\n" );
+file_put_contents( $control_path, '{"review_id":"control-cleanup"}' . "\n" );
+touch( $old_cleanup_path, time() - 172800 );
+touch( $fresh_cleanup_path, time() );
+touch( $limit_control_path, time() - 172800 );
+touch( $control_path, time() - 172800 );
+$zero_retention_config = $config;
+$zero_retention_config['declined_review']['retention_days'] = 0;
+$zero_retention = DeclinedReviewLog::prune_expired( $zero_retention_config, time() );
+eforms_test_assert( $zero_retention['ok'] === false && $zero_retention['reason'] === 'invalid_days', 'Retention cleanup should reject zero-day retention.' );
+eforms_test_assert( file_exists( $old_cleanup_path ) && file_exists( $fresh_cleanup_path ), 'Retention cleanup must not inherit manual zero-day clear-all semantics.' );
+
+$invalid_clear = DeclinedReviewLog::clear_older_than( Anchors::get( 'RETENTION_DAYS_MAX' ) + 1, $config );
+eforms_test_assert( $invalid_clear['ok'] === false && $invalid_clear['reason'] === 'invalid_days', 'Cleanup should reject invalid day cutoffs.' );
+eforms_test_assert( file_exists( $old_cleanup_path ), 'Invalid cleanup should not delete declined files.' );
+
+$limited_prune = DeclinedReviewLog::prune_expired( $config, time(), array( 'dry_run' => true, 'limit' => 1 ) );
+eforms_test_assert( $limited_prune['scanned'] === 1 && $limited_prune['candidates'] === 0, 'Retention cleanup scan limits should count non-declined files.' );
+eforms_test_assert( ! empty( $limited_prune['reached_limit'] ), 'Retention cleanup should report when the scan limit is reached.' );
+eforms_test_assert( file_exists( $old_cleanup_path ), 'Limited dry-run cleanup should not delete old declined files.' );
+
+$clear_old = DeclinedReviewLog::clear_older_than( 1, $config );
+eforms_test_assert( $clear_old['deleted'] === 1 && $clear_old['failed'] === 0, 'Cleanup should delete eligible old declined files.' );
+eforms_test_assert( ! file_exists( $old_cleanup_path ), 'Cleanup should delete old declined files.' );
+eforms_test_assert( file_exists( $fresh_cleanup_path ), 'Cleanup should keep fresh declined files.' );
+eforms_test_assert( file_exists( $limit_control_path ), 'Cleanup should keep non-declined files that consumed scan budget.' );
+eforms_test_assert( file_exists( $control_path ), 'Cleanup should keep non-declined files.' );
+
+$delete_all = DeclinedReviewLog::clear_older_than( 0, $config );
+eforms_test_assert( $delete_all['deleted'] > 0, 'Zero-day cleanup should delete declined-review files.' );
+eforms_test_assert( eforms_declined_test_files( $dir ) === array(), 'Zero-day cleanup should delete all declined-review files.' );
+eforms_test_assert( file_exists( $control_path ), 'Zero-day cleanup should still keep non-declined files.' );
 
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();

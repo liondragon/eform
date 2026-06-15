@@ -21,7 +21,7 @@ Quick reference for implementers. Each surface links to its authoritative sectio
 | `wp eforms spam-smoke` | WP-CLI | Runs a focused local diagnostic for documented spam protection paths | [Spam Smoke Diagnostic](#sec-spam-smoke-command) |
 | `wp eforms doctor` | WP-CLI | Runs active runtime health checks for storage, templates, GC readiness, CLI bootstrap, and config provenance | [Runtime Health Diagnostic](#sec-runtime-health-diagnostic) |
 | Settings → eForms | WP Admin | Curated admin settings with effective values and sources, plus explicit diagnostic actions | [Configuration](#sec-configuration), [Spam Smoke Diagnostic](#sec-spam-smoke-command), [Runtime Health Diagnostic](#sec-runtime-health-diagnostic) |
-| Tools → eForms Declined | WP Admin | Read-only declined-submission review surface | [Declined Review](#sec-declined-review) |
+| Tools → eForms Declined | WP Admin | Declined-submission review and maintenance surface | [Declined Review](#sec-declined-review) |
 
 Storage layout and paths: see [Shared lifecycle and storage contract](#sec-shared-lifecycle).
 
@@ -130,8 +130,8 @@ These anchors define the canonical numeric limits, TTLs, and bounds referenced t
 | `[THROTTLE_COOLDOWN_MAX]` | 600 | Upper bound for `throttle.per_ip.cooldown_seconds` (10 minutes) |
 | `[LOGGING_LEVEL_MIN]` | 0 | Lower bound for `logging.level` (errors only) |
 | `[LOGGING_LEVEL_MAX]` | 2 | Upper bound for `logging.level` (errors + warnings + info) |
-| `[RETENTION_DAYS_MIN]` | 1 | Lower bound for `logging.retention_days` and `logging.fail2ban.retention_days` |
-| `[RETENTION_DAYS_MAX]` | 365 | Upper bound for `logging.retention_days` and `logging.fail2ban.retention_days` (1 year) |
+| `[RETENTION_DAYS_MIN]` | 1 | Lower bound for retention-day settings |
+| `[RETENTION_DAYS_MAX]` | 365 | Upper bound for retention-day settings and declined-review manual clear cutoff (1 year) |
 | `[MAX_FIELDS_MIN]` | 1 | Lower bound for `validation.max_fields_per_form` |
 | `[MAX_FIELDS_MAX]` | 1000 | Upper bound for `validation.max_fields_per_form` |
 | `[MAX_OPTIONS_MIN]` | 1 | Lower bound for `validation.max_options_per_group` |
@@ -579,8 +579,9 @@ Notes (normative):
 	- wp_safe_redirect; same-origin only (scheme/host/port).
 
 <a id="sec-suspect-handling"></a>10. Suspect Handling
-	- add headers: X-EForms-Soft-Fails, X-EForms-Suspect; subject tag (configurable)
+	- add response headers: X-EForms-Soft-Fails, X-EForms-Suspect; subject tag (configurable)
 	- X-EForms-Soft-Fails value = `|soft_reasons|` (computed length of the deduplicated set)
+	- For delivered suspect emails, add outbound email header `X-EForms-Soft-Reasons` with the safe, deduplicated `soft_reasons` labels. Keep the email subject tag generic; do not add reason labels to the subject.
 
 <a id="sec-throttling"></a>11. Throttling (optional; file-based)
 	- Throttle uses a fixed 60s window tracked via byte-counter files under `${uploads.dir}/eforms-private/throttle/`. Throttle evaluation is part of the Security gate and runs before normalize/validate.
@@ -861,10 +862,11 @@ Notes (normative):
 	- Upload capture is metadata-only: field key, safe original name, size, MIME/type metadata when available, and upload error code. Do not retain rejected file bytes.
 - Admin viewer:
 	- Register Tools → eForms Declined for users with `manage_options`.
-	- Use WordPress admin primitives and escaped table/detail markup; do not render a raw text log dump.
+	- Use WordPress admin primitives and escaped table/detail/maintenance markup; do not render a raw text log dump.
 	- Default date range is `[DECLINED_REVIEW_ADMIN_DEFAULT_DAYS]`; maximum date window is `[DECLINED_REVIEW_ADMIN_MAX_DAYS]`; scan at most `[DECLINED_REVIEW_SCAN_MAX_RECORDS]` records per request; page size is `[DECLINED_REVIEW_PAGE_SIZE]`.
 	- Reader and admin UI MUST include primary files and rotated siblings.
 	- Detail lookup searches the active filtered date range for `review_id`; form and decision filters are preserved for list/back context, not applied to the detail lookup. If multiple records match, show the newest by timestamp; if none match, show a normal admin “record not found” notice and link back to the current list.
+	- Maintenance action: administrators may clear declined-review JSONL files older than a one-time `older_than_days` value validated in the range `0..[RETENTION_DAYS_MAX]`. `0` means clear all declined-review files. The flow MUST require a nonce-protected confirmation step before deletion, and deletion MUST target only files matching the declined-review JSONL family.
 	- Never expose raw filesystem paths or JSONL filenames in query parameters or page output.
 - Failure behavior:
 	- Declined-review write/read failures MUST NOT affect public submission behavior.

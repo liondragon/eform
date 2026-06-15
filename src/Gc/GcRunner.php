@@ -147,7 +147,7 @@ class GcRunner {
             return;
         }
 
-        self::scan_declined( $private_dir, $config, $now, $summary );
+        self::scan_declined( $config, $now, $summary );
     }
 
     private static function scan_tokens( $private_dir, $now, &$summary ) {
@@ -242,27 +242,32 @@ class GcRunner {
         );
     }
 
-    private static function scan_declined( $private_dir, $config, $now, &$summary ) {
-        $retention_seconds = (int) Config::value( $config, array( 'declined_review', 'retention_days' ), 1 ) * 86400;
+    private static function scan_declined( $config, $now, &$summary ) {
+        $remaining = max( 0, (int) $summary['limit'] - (int) $summary['scanned'] );
+        if ( $remaining <= 0 ) {
+            $summary['reached_limit'] = true;
+            return;
+        }
 
-        $declined_dir = rtrim( $private_dir, '/\\' ) . '/' . DeclinedReviewLog::DIR;
-        self::scan_files(
-            $declined_dir,
-            'declined',
-            $summary,
-            function ( $path ) use ( $now, $retention_seconds ) {
-                if ( ! DeclinedReviewLog::is_declined_file( basename( $path ) ) ) {
-                    return false;
-                }
-
-                $mtime = @filemtime( $path );
-                if ( ! is_int( $mtime ) ) {
-                    return false;
-                }
-
-                return $now >= ( $mtime + $retention_seconds );
-            }
+        $result = DeclinedReviewLog::prune_expired(
+            $config,
+            $now,
+            array(
+                'dry_run' => ! empty( $summary['dry_run'] ),
+                'limit' => $remaining,
+            )
         );
+
+        $result = is_array( $result ) ? $result : array();
+        foreach ( array( 'scanned', 'candidates', 'candidate_bytes', 'deleted', 'deleted_bytes' ) as $key ) {
+            $value = isset( $result[ $key ] ) && is_numeric( $result[ $key ] ) ? max( 0, (int) $result[ $key ] ) : 0;
+            $summary[ $key ] += $value;
+            $summary['by_type']['declined'][ $key ] += $value;
+        }
+
+        if ( ! empty( $result['reached_limit'] ) ) {
+            $summary['reached_limit'] = true;
+        }
     }
 
     private static function scan_files( $dir, $target, &$summary, $is_candidate ) {

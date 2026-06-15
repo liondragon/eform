@@ -91,6 +91,8 @@ class SubmitHandler {
         $form_files = self::form_files_payload( $files, $resolved_form_id );
 
         $security = self::call_security( $overrides, $trace, $trace_on, $post, $resolved_form_id, $request, $uploads_dir, $config );
+        $soft_signal = Security::soft_signal_context( $security, $config );
+        $security['soft_reasons'] = $soft_signal['soft_reasons'];
         $security_meta = self::security_fields( $post, $security );
         $declined = array(
             'config' => $config,
@@ -152,23 +154,18 @@ class SubmitHandler {
             return self::fail( $code, $status, $trace, $trace_on, $headers );
         }
 
-        $soft_fail_count = self::soft_fail_count( $security );
-        $spam_threshold = self::spam_soft_fail_threshold( $config );
-        $is_suspect = self::is_suspect_count( $soft_fail_count, $spam_threshold );
+        $soft_fail_count = $soft_signal['soft_fail_count'];
+        $is_suspect = $soft_signal['is_suspect'];
         if ( $is_suspect ) {
             self::emit_soft_fail_headers( $soft_fail_count, true );
         }
 
-        if ( self::is_spam_fail_count( $soft_fail_count, $spam_threshold ) ) {
+        if ( $soft_signal['is_spam'] ) {
             self::capture_declined_submission(
                 $declined,
                 'EFORMS_ERR_SPAM',
                 'spam_threshold',
-                'raw_declared',
-                array(
-                    'soft_fail_count' => $soft_fail_count,
-                    'threshold' => $spam_threshold,
-                )
+                'raw_declared'
             );
 
             return self::spam_short_circuit_result(
@@ -184,9 +181,7 @@ class SubmitHandler {
                 $request,
                 $config,
                 $trace,
-                $trace_on,
-                $soft_fail_count,
-                $spam_threshold
+                $trace_on
             );
         }
 
@@ -227,6 +222,8 @@ class SubmitHandler {
         }
 
         $security = self::apply_challenge_result( $security, $challenge );
+        $soft_signal = Security::soft_signal_context( $security, $config );
+        $security['soft_reasons'] = $soft_signal['soft_reasons'];
 
         // Reserve ledger marker before any side effects.
         $ledger = self::call_ledger_reserve( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
@@ -585,7 +582,7 @@ class SubmitHandler {
         return '';
     }
 
-    private static function spam_short_circuit_result( $trace_label, $error_code, $response, $files, $overrides, $form_id, $security, $security_meta, $uploads_dir, $request, $config, &$trace, $trace_on, $soft_fail_count = 0, $threshold = 0 ) {
+    private static function spam_short_circuit_result( $trace_label, $error_code, $response, $files, $overrides, $form_id, $security, $security_meta, $uploads_dir, $request, $config, &$trace, $trace_on ) {
         if ( $trace_on ) {
             $trace[] = $trace_label;
         }
@@ -599,7 +596,7 @@ class SubmitHandler {
             Honeypot::log_event( $form_id, $security, $response, $request );
         } else {
             self::call_spam_ledger_burn( $overrides, $form_id, $security['submission_id'], $uploads_dir, $request, $config );
-            self::log_spam_fail( $form_id, $security, $response, $soft_fail_count, $threshold, $request );
+            self::log_spam_fail( $form_id, $security, $response, $config, $request );
         }
 
         if ( $response === 'hard_fail' ) {
@@ -987,41 +984,6 @@ class SubmitHandler {
         return '';
     }
 
-    private static function soft_fail_count( $security ) {
-        if ( ! is_array( $security ) || ! isset( $security['soft_reasons'] ) || ! is_array( $security['soft_reasons'] ) ) {
-            return 0;
-        }
-
-        return count( $security['soft_reasons'] );
-    }
-
-    private static function is_suspect_count( $soft_fail_count, $threshold ) {
-        if ( $soft_fail_count <= 0 ) {
-            return false;
-        }
-
-        return $soft_fail_count < $threshold;
-    }
-
-    private static function is_spam_fail_count( $soft_fail_count, $threshold ) {
-        return $soft_fail_count > 0 && $soft_fail_count >= $threshold;
-    }
-
-    private static function spam_soft_fail_threshold( $config ) {
-        $threshold = 1;
-        if ( is_array( $config ) && isset( $config['spam'] ) && is_array( $config['spam'] ) ) {
-            if ( isset( $config['spam']['soft_fail_threshold'] ) && is_numeric( $config['spam']['soft_fail_threshold'] ) ) {
-                $threshold = (int) $config['spam']['soft_fail_threshold'];
-            }
-        }
-
-        if ( $threshold < 1 ) {
-            $threshold = 1;
-        }
-
-        return $threshold;
-    }
-
     private static function emit_soft_fail_headers( $soft_fail_count, $is_suspect ) {
         if ( $soft_fail_count <= 0 ) {
             return;
@@ -1037,15 +999,16 @@ class SubmitHandler {
         }
     }
 
-    private static function log_spam_fail( $form_id, $security, $response, $soft_fail_count, $threshold, $request ) {
+    private static function log_spam_fail( $form_id, $security, $response, $config, $request ) {
+        $soft_signal = Security::soft_signal_context( $security, $config );
         $meta = array(
             'form_id' => is_string( $form_id ) ? $form_id : '',
             'submission_id' => isset( $security['submission_id'] ) && is_string( $security['submission_id'] ) ? $security['submission_id'] : '',
             'mode' => isset( $security['mode'] ) && is_string( $security['mode'] ) ? $security['mode'] : '',
             'spam_decision' => 'fail',
-            'soft_reasons' => isset( $security['soft_reasons'] ) && is_array( $security['soft_reasons'] ) ? $security['soft_reasons'] : array(),
-            'soft_fail_count' => (int) $soft_fail_count,
-            'threshold' => (int) $threshold,
+            'soft_reasons' => $soft_signal['soft_reasons'],
+            'soft_fail_count' => $soft_signal['soft_fail_count'],
+            'threshold' => $soft_signal['threshold'],
             'stealth' => $response === Honeypot::RESPONSE_STEALTH_SUCCESS,
         );
 

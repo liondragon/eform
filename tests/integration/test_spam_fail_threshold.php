@@ -148,6 +148,8 @@ eforms_test_assert( $declined['total'] === 1, 'Threshold spam hard-fail should c
 $declined_record = $declined['records'][0];
 eforms_test_assert( $declined_record['decision_phase'] === 'spam_threshold', 'Spam declined record should identify the threshold phase.' );
 eforms_test_assert( $declined_record['value_stage'] === 'raw_declared', 'Spam declined record should capture raw declared values.' );
+eforms_test_assert( ! isset( $declined_record['soft_fail_count'] ), 'Spam declined record should not store computed soft_fail_count.' );
+eforms_test_assert( ! isset( $declined_record['threshold'] ), 'Spam declined record should not store computed threshold.' );
 eforms_test_assert( $declined_record['fields']['name'] === 'Ada', 'Spam declined record should include declared field content.' );
 
 // Given threshold=1 and one soft reason in stealth mode...

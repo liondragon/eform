@@ -105,6 +105,31 @@ class DeclinedReviewLog {
         );
     }
 
+    public static function clear_older_than( $older_than_days, $config = null, $now = null ) {
+        $config = is_array( $config ) ? $config : Config::get();
+        $older_than_days = self::normalize_clear_days( $older_than_days );
+        if ( $older_than_days === null ) {
+            return self::cleanup_summary( false, 'invalid_days' );
+        }
+
+        $now = is_numeric( $now ) ? (int) $now : time();
+        $cutoff = $older_than_days === 0 ? null : $now - ( $older_than_days * 86400 );
+        return self::delete_declined_files_before_cutoff( $cutoff, $config );
+    }
+
+    public static function prune_expired( $config = null, $now = null, $options = array() ) {
+        $config = is_array( $config ) ? $config : Config::get();
+        $retention_days = Config::value( $config, array( 'declined_review', 'retention_days' ), 1 );
+        $retention_days = self::normalize_retention_days( $retention_days );
+        if ( $retention_days === null ) {
+            return self::cleanup_summary( false, 'invalid_days' );
+        }
+
+        $now = is_numeric( $now ) ? (int) $now : time();
+        $cutoff = $now - ( $retention_days * 86400 );
+        return self::delete_declined_files_before_cutoff( $cutoff, $config, $options );
+    }
+
     private static function record_from_args( $args, $config ) {
         $context = isset( $args['context'] ) && is_array( $args['context'] ) ? $args['context'] : array();
         $request = isset( $args['request'] ) ? $args['request'] : null;
@@ -133,8 +158,6 @@ class DeclinedReviewLog {
             'decision_phase' => self::safe_token( isset( $args['decision_phase'] ) ? $args['decision_phase'] : '' ),
             'value_stage' => $value_stage,
             'soft_reasons' => self::string_list( isset( $security['soft_reasons'] ) ? $security['soft_reasons'] : array() ),
-            'soft_fail_count' => self::int_value( isset( $args['soft_fail_count'] ) ? $args['soft_fail_count'] : null ),
-            'threshold' => self::int_value( isset( $args['threshold'] ) ? $args['threshold'] : null ),
             'honeypot' => ! empty( $args['honeypot'] ),
             'challenge' => isset( $args['challenge'] ) && is_array( $args['challenge'] ) ? self::safe_meta( $args['challenge'] ) : array(),
             'ip' => ClientIp::present( ClientIp::resolve( $request, $config ), $config ),
@@ -150,7 +173,7 @@ class DeclinedReviewLog {
             return false;
         }
 
-        FileSink::prune_old_files( $dir, Config::value( $config, array( 'declined_review', 'retention_days' ), 1 ), array( __CLASS__, 'is_declined_file' ) );
+        self::prune_expired( $config );
         $line = FileSink::json_line( $record );
         if ( $line === '' ) {
             return false;
@@ -165,6 +188,71 @@ class DeclinedReviewLog {
 
     public static function is_declined_file( $entry ) {
         return FileSink::dated_file_date( $entry, self::FILE_PREFIX, self::FILE_EXT ) !== '';
+    }
+
+    public static function max_clear_days() {
+        return self::anchor( 'RETENTION_DAYS_MAX', 365 );
+    }
+
+    public static function normalize_clear_days( $value ) {
+        return self::normalize_days( $value, true );
+    }
+
+    private static function normalize_retention_days( $value ) {
+        return self::normalize_days( $value, false );
+    }
+
+    private static function delete_declined_files_before_cutoff( $cutoff, $config, $options = array() ) {
+        $dir = self::declined_dir( $config, false );
+        if ( $dir === '' ) {
+            return self::cleanup_summary( true, '' );
+        }
+
+        return FileSink::delete_matching_files(
+            $dir,
+            array( __CLASS__, 'is_declined_file' ),
+            function ( $entry, $path ) use ( $cutoff ) {
+                if ( $cutoff === null ) {
+                    return true;
+                }
+                $mtime = @filemtime( $path );
+                return is_int( $mtime ) && $mtime <= $cutoff;
+            },
+            $options
+        );
+    }
+
+    private static function cleanup_summary( $ok, $reason ) {
+        return array(
+            'ok' => (bool) $ok,
+            'reason' => (string) $reason,
+            'scanned' => 0,
+            'candidates' => 0,
+            'candidate_bytes' => 0,
+            'deleted' => 0,
+            'deleted_bytes' => 0,
+            'failed' => 0,
+            'reached_limit' => false,
+        );
+    }
+
+    private static function normalize_days( $value, $allow_zero ) {
+        if ( is_int( $value ) ) {
+            $days = $value;
+        } elseif ( is_string( $value ) && preg_match( '/^[0-9]+$/', $value ) === 1 ) {
+            $days = (int) $value;
+        } elseif ( is_float( $value ) && floor( $value ) === $value ) {
+            $days = (int) $value;
+        } else {
+            return null;
+        }
+
+        $min = $allow_zero ? 0 : self::anchor( 'RETENTION_DAYS_MIN', 1 );
+        if ( $days < $min || $days > self::max_clear_days() ) {
+            return null;
+        }
+
+        return $days;
     }
 
     private static function scan_records( $filters, $config, $match_callback, $max_scan ) {
@@ -422,10 +510,6 @@ class DeclinedReviewLog {
     private static function bounded_int( $value, $fallback, $min, $max ) {
         $value = is_numeric( $value ) ? (int) $value : (int) $fallback;
         return max( $min, min( $max, $value ) );
-    }
-
-    private static function int_value( $value ) {
-        return is_numeric( $value ) ? (int) $value : 0;
     }
 
     private static function safe_token( $value ) {
