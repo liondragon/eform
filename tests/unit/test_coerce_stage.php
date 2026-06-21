@@ -2,7 +2,7 @@
 /**
  * Unit tests for Coerce stage canonicalization.
  *
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../bootstrap.php';

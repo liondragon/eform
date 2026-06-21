@@ -2,7 +2,7 @@
 /**
  * Integration test for logging level-2 desc_sha1 emission.
  *
- * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
+ * Contract: Logging
  */
 
 require_once __DIR__ . '/../../src/Logging.php';

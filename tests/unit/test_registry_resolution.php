@@ -2,7 +2,7 @@
 /**
  * Unit tests for registry resolution behavior.
  *
- * Spec: Central registries (docs/Canonical_Spec.md#sec-central-registries)
+ * Contract: Central registries
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -68,6 +68,7 @@ try {
     eforms_test_assert( $payload['type'] === 'handler_resolution', 'FieldTypeRegistry should encode type.' );
     eforms_test_assert( $payload['id'] === 'missing', 'FieldTypeRegistry should encode id.' );
     eforms_test_assert( $payload['registry'] === 'FieldTypeRegistry', 'FieldTypeRegistry should encode registry.' );
+    eforms_test_assert( $payload['owner_path'] === 'docs/Owner_Index.md', 'FieldTypeRegistry should encode owner path.' );
 }
 eforms_test_assert( $threw, 'FieldTypeRegistry should throw on unknown id.' );
 
@@ -78,6 +79,7 @@ try {
     $threw   = true;
     $payload = eforms_test_parse_exception( $exception );
     eforms_test_assert( $payload['registry'] === 'ValidatorRegistry', 'ValidatorRegistry should encode registry.' );
+    eforms_test_assert( $payload['owner_path'] === 'docs/Owner_Index.md', 'ValidatorRegistry should encode owner path.' );
 }
 eforms_test_assert( $threw, 'ValidatorRegistry should throw on unknown id.' );
 
@@ -88,6 +90,7 @@ try {
     $threw   = true;
     $payload = eforms_test_parse_exception( $exception );
     eforms_test_assert( $payload['registry'] === 'NormalizerRegistry', 'NormalizerRegistry should encode registry.' );
+    eforms_test_assert( $payload['owner_path'] === 'docs/Owner_Index.md', 'NormalizerRegistry should encode owner path.' );
 }
 eforms_test_assert( $threw, 'NormalizerRegistry should throw on unknown id.' );
 
@@ -98,5 +101,6 @@ try {
     $threw   = true;
     $payload = eforms_test_parse_exception( $exception );
     eforms_test_assert( $payload['registry'] === 'RendererRegistry', 'RendererRegistry should encode registry.' );
+    eforms_test_assert( $payload['owner_path'] === 'docs/Owner_Index.md', 'RendererRegistry should encode owner path.' );
 }
 eforms_test_assert( $threw, 'RendererRegistry should throw on unknown id.' );

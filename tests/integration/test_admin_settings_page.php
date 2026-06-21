@@ -2,7 +2,7 @@
 /**
  * Integration tests for Settings -> eForms.
  *
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration).
+ * Contract: Configuration.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -129,8 +129,33 @@ $_GET = array( 'tab' => '<script>alert(1)</script>' );
 ob_start();
 SettingsAdmin::render_page();
 $html = ob_get_clean();
-eforms_test_assert( strpos( $html, 'eforms-settings-table' ) !== false, 'Settings page should render the unified settings table.' );
+eforms_test_assert( strpos( $html, 'class="eforms-settings-nav"' ) !== false, 'Settings page should render a section navigation bar.' );
+eforms_test_assert( strpos( $html, 'form="eforms-settings-form"' ) !== false, 'Settings navigation should include a save action tied to the settings form.' );
+eforms_test_assert( strpos( $html, 'id="eforms-settings-form"' ) !== false, 'Settings controls should stay in one save form.' );
+eforms_test_assert( strpos( $html, 'id="eforms-settings-logging"' ) !== false && strpos( $html, 'id="eforms-settings-spam-protection"' ) !== false && strpos( $html, 'id="eforms-settings-diagnostics"' ) !== false, 'Settings sections should have stable anchor targets.' );
+eforms_test_assert( strpos( $html, 'class="eforms-settings-panel"' ) !== false, 'Settings sections should render inside admin panels.' );
+eforms_test_assert( strpos( $html, 'aria-label="Logging settings"' ) !== false && strpos( $html, 'aria-label="Throttle settings"' ) !== false, 'Settings page should render grouped settings tables.' );
 eforms_test_assert( strpos( $html, 'Config Handle' ) !== false && strpos( $html, 'Effective' ) !== false && strpos( $html, 'Source' ) !== false && strpos( $html, 'Setting' ) !== false, 'Settings table should show controls with effective values and sources.' );
+eforms_test_assert( strpos( $html, 'class="eforms-setting-help"' ) !== false, 'Settings page should render pop-out setting help.' );
+eforms_test_assert( strpos( $html, 'class="button-link eforms-setting-help-dismiss"' ) !== false, 'Setting help should render a dismiss control.' );
+eforms_test_assert( strpos( $html, 'Dismiss help for Mode setting (challenge.mode)' ) !== false, 'Setting help dismiss buttons should be labelled.' );
+eforms_test_assert( strpos( $html, 'eformsSettingsHelpReady' ) !== false && strpos( $html, 'removeAttribute("open")' ) !== false, 'Setting help should include close behavior.' );
+eforms_test_assert( strpos( $html, 'Help for Mode' ) !== false, 'Setting help should be labelled for assistive technology.' );
+eforms_test_assert( strpos( $html, 'Help for Mode setting (challenge.mode)' ) !== false, 'Setting help labels should disambiguate duplicate labels.' );
+eforms_test_assert( strpos( $html, 'Available options: Off, Auto, Always Post.' ) !== false, 'Select help should derive available options from field metadata.' );
+eforms_test_assert( strpos( $html, 'Auto: only suspicious submissions are asked to verify.' ) !== false, 'Challenge help should explain available options in plain language.' );
+eforms_test_assert( strpos( $html, 'Spam Protection' ) !== false && strpos( $html, 'Rejection threshold' ) !== false, 'Settings page should expose spam protection controls.' );
+eforms_test_assert( strpos( $html, 'Controls how many suspicious signals are needed' ) !== false, 'Spam threshold help should explain practical effect.' );
+eforms_test_assert( strpos( $html, 'Spam rejection response' ) !== false, 'Spam response setting should be labelled by the decision it controls.' );
+eforms_test_assert( strpos( $html, 'eforms-protection-checks-table' ) !== false, 'Spam Protection should render a read-only checks table.' );
+eforms_test_assert( strpos( $html, '>Settings</h3>' ) !== false && strpos( $html, '>Built-in checks</h3>' ) !== false, 'Spam Protection should label editable settings and read-only checks consistently.' );
+foreach ( array( 'Hidden trap filled', 'Hidden trap missing', 'JavaScript marker missing', 'Origin missing or mismatched' ) as $check_label ) {
+    eforms_test_assert( strpos( $html, $check_label ) !== false, 'Protection checks table should include: ' . $check_label );
+}
+foreach ( array( 'Too fast', 'Too old', 'Spam threshold', 'Per-IP throttle' ) as $duplicate_label ) {
+    eforms_test_assert( strpos( $html, '<td>' . $duplicate_label . '</td>' ) === false, 'Protection checks table should not duplicate setting row: ' . $duplicate_label );
+}
+eforms_test_assert( strpos( $html, 'A direct POST that omits the hidden trap field adds honeypot_missing.' ) !== false, 'Protection checks should explain the missing honeypot soft signal.' );
 eforms_test_assert( strpos( $html, 'Run Spam Smoke Test' ) !== false, 'Settings page should render the spam smoke diagnostic action.' );
 eforms_test_assert( strpos( $html, 'Run Runtime Health Check' ) !== false, 'Settings page should render the runtime health diagnostic action.' );
 eforms_test_assert( strpos( $html, 'eforms-runtime-health-results' ) === false, 'Settings page should not render passive runtime health results before action.' );
@@ -148,10 +173,10 @@ $reset();
 AdminSettingsStore::replace_overrides( array( 'logging' => array( 'mode' => 'jsonl' ) ) );
 $smoke_html = SettingsAdmin::render_html( $diagnostic_post() );
 eforms_test_assert( strpos( $smoke_html, 'eforms-spam-smoke-results' ) !== false, 'Smoke run should render a compact result table.' );
-foreach ( array( 'baseline', 'honeypot', 'missing-js', 'too-fast', 'combined-soft', 'throttle', 'mint-oversized', 'mint-no-origin' ) as $name ) {
+foreach ( array( 'baseline', 'honeypot', 'missing-js', 'missing-honeypot', 'too-fast', 'combined-soft', 'challenge-auto', 'throttle', 'mint-oversized', 'mint-no-origin' ) as $name ) {
     eforms_test_assert( strpos( $smoke_html, '>' . $name . '<' ) !== false, 'Smoke result table should include check: ' . $name );
 }
-eforms_test_assert( substr_count( $smoke_html, '>PASS<' ) === 8, 'Successful smoke run should render eight passing rows.' );
+eforms_test_assert( substr_count( $smoke_html, '>PASS<' ) === 10, 'Successful smoke run should render ten passing rows.' );
 eforms_test_assert( strpos( $smoke_html, '>Expected<' ) !== false, 'Smoke result table should show expected outcomes.' );
 eforms_test_assert( strpos( $smoke_html, '>Config Scope<' ) !== false, 'Smoke result table should show temporary config assumptions.' );
 eforms_test_assert( strpos( $smoke_html, 'real email is suppressed' ) !== false || strpos( $smoke_html, 'Real email is suppressed' ) !== false, 'Smoke section should disclose that real email is suppressed.' );
@@ -163,7 +188,7 @@ $reset();
 AdminSettingsStore::replace_overrides( array( 'logging' => array( 'mode' => 'jsonl' ) ) );
 $doctor_html = SettingsAdmin::render_html( $runtime_health_post() );
 eforms_test_assert( strpos( $doctor_html, 'eforms-runtime-health-results' ) !== false, 'Runtime health run should render a compact result table.' );
-foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'templates', 'gc-readiness', 'cli-bootstrap', 'config-sources' ) as $name ) {
+foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'templates', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
     eforms_test_assert( strpos( $doctor_html, '>' . $name . '<' ) !== false, 'Runtime health result table should include check: ' . $name );
 }
 eforms_test_assert( substr_count( $doctor_html, '>FAIL<' ) === 0, 'Default runtime health run should not render failing rows.' );
@@ -180,6 +205,9 @@ $all_values = array(
     'logging.mode' => 'jsonl',
     'logging.level' => '2',
     'logging.retention_days' => '45',
+    'spam.soft_fail_threshold' => '3',
+    'security.min_fill_seconds' => '4',
+    'security.honeypot_response' => 'hard_fail',
     'challenge.mode' => 'auto',
     'challenge.site_key' => 'site-key',
     'challenge.secret_key' => 'stored-secret',
@@ -194,6 +222,7 @@ $stored = AdminSettingsStore::read_overrides();
 eforms_test_assert( $stored['declined_review']['enable'] === true, 'Declined review checkbox should save true.' );
 eforms_test_assert( $stored['declined_review']['retention_days'] === 14, 'Declined review retention should save as int.' );
 eforms_test_assert( $stored['logging']['mode'] === 'jsonl' && $stored['logging']['level'] === 2 && $stored['logging']['retention_days'] === 45, 'Logging group should save.' );
+eforms_test_assert( $stored['spam']['soft_fail_threshold'] === 3 && $stored['security']['min_fill_seconds'] === 4 && $stored['security']['honeypot_response'] === 'hard_fail', 'Spam protection group should save.' );
 eforms_test_assert( $stored['challenge']['mode'] === 'auto' && $stored['challenge']['site_key'] === 'site-key' && $stored['challenge']['secret_key'] === 'stored-secret', 'Challenge group should save.' );
 eforms_test_assert( $stored['throttle']['enable'] === true && $stored['throttle']['per_ip']['max_per_minute'] === 60 && $stored['throttle']['per_ip']['cooldown_seconds'] === 5, 'Throttle group should save.' );
 eforms_test_assert( $stored['privacy']['ip_mode'] === 'hash', 'Privacy group should save.' );
@@ -269,13 +298,16 @@ $clamped_external_html = SettingsAdmin::render_html();
 eforms_test_assert( strpos( $clamped_external_html, 'logging.level' ) !== false, 'Clamped external fields should render in the settings table.' );
 eforms_test_assert( strpos( $clamped_external_html, '<input type="hidden" name="' . SettingsFields::SUBMITTED_PATHS_KEY . '[]" value="logging.level"' ) === false, 'Clamped external fields should not render as editable settings.' );
 
-// The unified settings table combines editable controls with Config provenance and passive runtime checks.
+// Grouped settings tables keep editable controls with Config provenance and passive runtime checks.
 $reset();
 SettingsAdmin::handle_save( $post( array( 'logging.mode' => 'jsonl', 'challenge.secret_key' => 'stored-secret' ), array( 'logging.mode', 'challenge.secret_key' ) ) );
 $private_path = PrivateDir::path( $uploads_dir );
 eforms_test_remove_tree( $private_path );
 $settings = SettingsAdmin::render_html();
-eforms_test_assert( strpos( $settings, 'eforms-settings-table' ) !== false, 'Settings page should ignore legacy tab requests and render the unified table.' );
+eforms_test_assert( strpos( $settings, 'href="#eforms-settings-logging"' ) !== false && strpos( $settings, 'href="#eforms-settings-spam-protection"' ) !== false && strpos( $settings, 'href="#eforms-settings-storage"' ) !== false, 'Settings navigation should link to settings groups.' );
+eforms_test_assert( substr_count( $settings, 'class="widefat striped eforms-settings-table"' ) > 1, 'Settings page should render separate grouped settings tables.' );
+eforms_test_assert( strpos( $settings, 'aria-label="Storage settings"' ) !== false, 'Settings page should render storage as its own settings group.' );
+eforms_test_assert( strpos( $settings, 'colspan="5"' ) === false, 'Settings page should not render group headings as table rows.' );
 eforms_test_assert( strpos( $settings, 'eforms-' . 'overview' ) === false && strpos( $settings, 'nav-' . 'tab-wrapper' ) === false, 'Settings page should not keep legacy alternate-surface markup.' );
 eforms_test_assert( strpos( $settings, 'logging.mode' ) !== false && strpos( $settings, 'admin option' ) !== false, 'Settings table should show Config source labels.' );
 eforms_test_assert( strpos( $settings, 'Storage Base' ) !== false && strpos( $settings, 'Writable' ) !== false, 'Settings table should report writable upload-base state.' );

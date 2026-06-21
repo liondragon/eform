@@ -2,7 +2,7 @@
 /**
  * Unit tests for admin settings option persistence and config precedence.
  *
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration).
+ * Contract: Configuration.
  */
 
 require_once __DIR__ . '/../bootstrap.php';

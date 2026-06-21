@@ -2,7 +2,7 @@
 /**
  * WordPress admin viewer for declined-submission review records.
  *
- * Spec: Declined Review (docs/Canonical_Spec.md#sec-declined-review)
+ * Contract: Declined Review
  */
 
 require_once __DIR__ . '/../Config.php';

@@ -5,7 +5,7 @@
  * Educational note: this keeps template validation deterministic without
  * binding TemplateValidator to filesystem lookups.
  *
- * Spec: Email templates (docs/Canonical_Spec.md#sec-email-templates)
+ * Contract: Email templates
  */
 
 class EmailTemplateRegistry {

@@ -2,7 +2,7 @@
 /**
  * Unit tests for Normalize stage behavior.
  *
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../bootstrap.php';

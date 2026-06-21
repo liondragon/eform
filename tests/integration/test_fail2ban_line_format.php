@@ -2,7 +2,7 @@
 /**
  * Integration test for fail2ban line format, retention, and rotation.
  *
- * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
+ * Contract: Logging
  */
 
 require_once __DIR__ . '/../../src/Logging.php';

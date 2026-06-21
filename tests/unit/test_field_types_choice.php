@@ -2,8 +2,8 @@
 /**
  * Unit tests for choice field types (select/radio/checkbox).
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
- * Spec: Template options (docs/Canonical_Spec.md#sec-template-options)
+ * Contract: Field types
+ * Contract: Template options
  */
 
 require_once __DIR__ . '/../bootstrap.php';

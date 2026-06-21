@@ -5,7 +5,7 @@
  * Educational note: this helper mirrors the textarea-specific attributes and
  * escapes content safely for HTML output.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
+ * Contract: Field types
  */
 
 class FieldRenderers_Textarea {

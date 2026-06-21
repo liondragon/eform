@@ -2,8 +2,8 @@
 /**
  * Integration test for email attachments policy.
  *
- * Spec: Email delivery (docs/Canonical_Spec.md#sec-email)
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
+ * Contract: Email delivery
+ * Contract: Uploads
  */
 
 require_once __DIR__ . '/../bootstrap.php';

@@ -1,7 +1,7 @@
 <?php
 /**
  * Stable code surface (append-only).
- * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
+ * Contract: Error handling
  */
 
 class ErrorCodes

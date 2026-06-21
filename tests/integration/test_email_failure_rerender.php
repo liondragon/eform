@@ -2,9 +2,9 @@
 /**
  * Integration test for email-failure result-page contract.
  *
- * Spec: Email-failure recovery (docs/Canonical_Spec.md#sec-email-failure-recovery)
- * Spec: Hidden-mode email-failure recovery (docs/Canonical_Spec.md#sec-hidden-email-failure)
- * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
+ * Contract: Email-failure recovery
+ * Contract: Hidden-mode email-failure recovery
+ * Contract: Error handling
  */
 
 require_once __DIR__ . '/../bootstrap.php';

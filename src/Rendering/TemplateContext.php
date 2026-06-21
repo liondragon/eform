@@ -5,9 +5,9 @@
  * Educational note: This class resolves descriptors once per request so the
  * renderer and validator can reuse the same descriptor objects.
  *
- * Spec: Template model (docs/Canonical_Spec.md#sec-template-model)
- * Spec: Template context (docs/Canonical_Spec.md#sec-template-context)
- * Spec: Request lifecycle GET (docs/Canonical_Spec.md#sec-request-lifecycle-get)
+ * Contract: Template model
+ * Contract: Template context
+ * Contract: Request lifecycle GET
  */
 
 require_once __DIR__ . '/../Errors.php';

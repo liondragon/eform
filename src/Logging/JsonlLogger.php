@@ -2,7 +2,7 @@
 /**
  * JSONL logging sink with rotation and retention.
  *
- * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
+ * Contract: Logging
  */
 
 require_once __DIR__ . '/../Config.php';

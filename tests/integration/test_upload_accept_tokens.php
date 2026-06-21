@@ -2,10 +2,10 @@
 /**
  * Integration test for upload accept-token policy and validation.
  *
- * Spec: Uploads accept-token policy (docs/Canonical_Spec.md#sec-uploads-accept-tokens)
- * Spec: Default accept tokens callout (docs/Canonical_Spec.md#sec-uploads-accept-defaults)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
+ * Contract: Uploads accept-token policy
+ * Contract: Default accept tokens callout
+ * Contract: Validation pipeline
+ * Contract: Uploads
  */
 
 require_once __DIR__ . '/../bootstrap.php';

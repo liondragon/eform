@@ -2,8 +2,8 @@
 /**
  * Integration test for throttle Retry-After and entrypoint semantics.
  *
- * Spec: Throttling (docs/Canonical_Spec.md#sec-throttling)
- * Spec: Security (docs/Canonical_Spec.md#sec-security)
+ * Contract: Throttling
+ * Contract: Security
  */
 
 require_once __DIR__ . '/../bootstrap.php';

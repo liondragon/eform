@@ -2,7 +2,7 @@
 /**
  * Unit tests for Config admin schema, validation, and reporting.
  *
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration).
+ * Contract: Configuration.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -18,6 +18,9 @@ $expected_paths = array(
     'logging.mode',
     'logging.level',
     'logging.retention_days',
+    'security.honeypot_response',
+    'security.min_fill_seconds',
+    'spam.soft_fail_threshold',
     'challenge.mode',
     'challenge.site_key',
     'challenge.secret_key',
@@ -35,6 +38,8 @@ eforms_test_assert( ! isset( $schema['security.origin_mode'] ), 'Admin schema mu
 eforms_test_assert( $schema['challenge.secret_key']['secret'] === true, 'Secret key should be marked secret.' );
 eforms_test_assert( $schema['declined_review.retention_days']['nullable'] === true, 'Declined retention should be nullable.' );
 eforms_test_assert( $schema['logging.level']['min_anchor'] === 'LOGGING_LEVEL_MIN', 'Logging level should derive its min anchor.' );
+eforms_test_assert( $schema['security.min_fill_seconds']['min_anchor'] === 'MIN_FILL_SECONDS_MIN', 'Minimum fill time should derive its min anchor.' );
+eforms_test_assert( $schema['spam.soft_fail_threshold']['min'] === 1, 'Spam threshold should expose its minimum.' );
 
 $valid = Config::validate_admin_overrides(
     array(
@@ -46,6 +51,13 @@ $valid = Config::validate_admin_overrides(
             'mode' => 'jsonl',
             'level' => '2',
         ),
+        'security' => array(
+            'honeypot_response' => 'hard_fail',
+            'min_fill_seconds' => '3',
+        ),
+        'spam' => array(
+            'soft_fail_threshold' => '3',
+        ),
         'challenge' => array(
             'secret_key' => 'top-secret',
         ),
@@ -55,6 +67,9 @@ eforms_test_assert( $valid['ok'] === true, 'Valid admin overrides should pass.' 
 eforms_test_assert( $valid['overrides']['declined_review']['enable'] === true, 'Strict bool should be preserved.' );
 eforms_test_assert( $valid['overrides']['declined_review']['retention_days'] === null, 'Nullable values should be preserved.' );
 eforms_test_assert( $valid['overrides']['logging']['level'] === 2, 'Numeric admin ints should be normalized to int.' );
+eforms_test_assert( $valid['overrides']['security']['honeypot_response'] === 'hard_fail', 'Admin enum spam settings should be preserved.' );
+eforms_test_assert( $valid['overrides']['security']['min_fill_seconds'] === 3, 'Minimum fill time should save as int.' );
+eforms_test_assert( $valid['overrides']['spam']['soft_fail_threshold'] === 3, 'Spam threshold should save as int.' );
 
 $flat_valid = Config::validate_admin_flat_overrides(
     array(

@@ -5,7 +5,7 @@
  * Educational note: These tests intentionally do NOT load WordPress. When
  * WordPress APIs are needed, we stub the tiny subset used by the code under test.
  *
- * Spec: DRY principles (docs/Canonical_Spec.md#sec-dry-principles)
+ * Contract: DRY principles
  */
 
 if ( ! function_exists( 'eforms_test_assert' ) ) {

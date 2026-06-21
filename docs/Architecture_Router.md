@@ -1,12 +1,17 @@
 # Architecture Router
 
-Routing map only. `docs/Canonical_Spec.md` remains the behavior authority.
+This is the primary routing map for the eForms WordPress plugin implementation.
+
+This repo uses this router, `docs/Owner_Index.md`, `docs/overview.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests as the active implementation contracts.
 
 ## Project Doctrine
 
 - Prefer one canonical owner for reusable contracts.
-- Keep public behavior in the spec; keep owner lookup here and in `docs/Owner_Index.md`.
+- Keep durable operator-facing behavior in `docs/overview.md`; keep owner lookup here and in `docs/Owner_Index.md`; keep executable detail in code and tests.
+- Keep stable public/template/storage contracts in `docs/contracts/*`.
 - Extend existing owners before adding shared layers; add a shared layer only when it removes live duplication.
+- Do not add parallel compatibility paths, duplicate config/schema owners, or local bypasses for a documented owner.
+- If an `agent_docs` guide references canonical spec or implementation-plan workflows, translate that requirement to this repo's active carriers instead of recreating those files.
 
 ## Main Subsystems
 
@@ -21,6 +26,12 @@ Routing map only. `docs/Canonical_Spec.md` remains the behavior authority.
 - Runtime safety: `src/WordPressRuntime.php` owns fail-closed wrappers for required WordPress APIs used by load-bearing runtime paths.
 - Entropy: `src/Security/Entropy.php` owns secure random bytes and identifier generation for security-sensitive runtime identifiers.
 - Browser assets: `assets/forms.js` owns client enhancement, JS minting, submit blocking, and error focus behavior.
+
+## Contract Docs
+
+- `docs/contracts/Public_Contracts.md`: public surfaces, stable machine-readable outputs, config source precedence, error/result stability, and browser asset contract.
+- `docs/contracts/Template_Contract.md`: template file shape, field envelope, row groups, options, email block, sanitized fragments, and registry contract.
+- `docs/contracts/Runtime_Storage.md`: private storage layout, token and ledger semantics, cache safety, upload policy, throttling, and GC.
 
 ## Dependency Direction
 

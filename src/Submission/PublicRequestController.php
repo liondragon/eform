@@ -2,9 +2,9 @@
 /**
  * WordPress-facing public request controller.
  *
- * Spec: Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post)
- * Spec: Success behavior (docs/Canonical_Spec.md#sec-success)
- * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
+ * Contract: Request lifecycle POST
+ * Contract: Success behavior
+ * Contract: Cache-safety
  */
 
 require_once __DIR__ . '/../Errors.php';

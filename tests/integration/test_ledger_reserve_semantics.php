@@ -2,8 +2,8 @@
 /**
  * Integration tests for ledger reservation semantics.
  *
- * Spec: Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract)
- * Spec: Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post)
+ * Contract: Ledger reservation contract
+ * Contract: Request lifecycle POST
  */
 
 require_once __DIR__ . '/../bootstrap.php';

@@ -2,7 +2,7 @@
 /**
  * Unit tests for row group balance and wrapper emission.
  *
- * Spec: Row groups (docs/Canonical_Spec.md#sec-template-row-groups)
+ * Contract: Row groups
  */
 
 require_once __DIR__ . '/../bootstrap.php';

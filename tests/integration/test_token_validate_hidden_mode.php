@@ -2,11 +2,11 @@
 /**
  * Integration tests for hidden-mode token validation.
  *
- * Spec: Lifecycle quickstart (docs/Canonical_Spec.md#sec-lifecycle-quickstart)
- * Spec: Security (docs/Canonical_Spec.md#sec-security)
- * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
- * Spec: Timing checks (docs/Canonical_Spec.md#sec-timing-checks)
- * Spec: Spam decision (docs/Canonical_Spec.md#sec-spam-decision)
+ * Contract: Lifecycle quickstart
+ * Contract: Security
+ * Contract: Origin policy
+ * Contract: Timing checks
+ * Contract: Spam decision
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -38,6 +38,7 @@ $post = array(
     'eforms_token' => $mint['token'],
     'instance_id' => $mint['instance_id'],
     'js_ok' => '1',
+    'eforms_hp' => '',
 );
 $request = array(
     'headers' => array( 'Origin' => 'https://example.com' ),
@@ -67,6 +68,7 @@ $post = array(
     'eforms_token' => $mint['token'],
     'instance_id' => $mint['instance_id'],
     'js_ok' => '1',
+    'eforms_hp' => '',
 );
 $request = array(
     'headers' => array( 'Origin' => 'https://evil.test' ),
@@ -116,7 +118,7 @@ $post = array(
 $result = Security::token_validate( $post, 'contact', array() );
 eforms_test_assert( $result['token_ok'] === true, 'Token should validate for soft-fail scenario.' );
 eforms_test_assert(
-    $result['soft_reasons'] === array( 'min_fill_time', 'age_advisory', 'js_missing', 'origin_soft' ),
+    $result['soft_reasons'] === array( 'min_fill_time', 'age_advisory', 'honeypot_missing', 'js_missing', 'origin_soft' ),
     'Soft reasons should be ordered and deduplicated.'
 );
 eforms_test_assert( $result['require_challenge'] === true, 'Challenge should be required for auto mode with soft reasons.' );
@@ -127,7 +129,7 @@ eforms_test_assert( $result['require_challenge'] === true, 'Challenge should be 
 $post['eforms_email_retry'] = '1';
 $result = Security::token_validate( $post, 'contact', array() );
 eforms_test_assert(
-    $result['soft_reasons'] === array( 'min_fill_time', 'age_advisory', 'js_missing', 'origin_soft' ),
+    $result['soft_reasons'] === array( 'min_fill_time', 'age_advisory', 'honeypot_missing', 'js_missing', 'origin_soft' ),
     'Stale email retry marker should not bypass min_fill_time.'
 );
 
@@ -177,6 +179,7 @@ $post = array(
     'eforms_token' => $mint['token'],
     'instance_id' => $mint['instance_id'],
     'js_ok' => '1',
+    'eforms_hp' => '',
 );
 $result = Security::token_validate( $post, 'contact', array() );
 eforms_test_assert( $result['hard_fail'] === true, 'Missing Origin should hard-fail in hard mode.' );
@@ -196,6 +199,7 @@ $post = array(
     'eforms_token' => $mint['token'],
     'instance_id' => 'bad-instance',
     'js_ok' => '1',
+    'eforms_hp' => '',
 );
 $result = Security::token_validate( $post, 'contact', array() );
 eforms_test_assert( $result['hard_fail'] === true, 'Mismatched instance id should hard-fail.' );

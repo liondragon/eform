@@ -2,8 +2,8 @@
 /**
  * Uninstall cleanup entrypoint.
  *
- * Spec: Architecture and file layout (docs/Canonical_Spec.md#sec-architecture)
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration)
+ * Contract: Runtime storage cleanup
+ * Contract: Configuration
  */
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;

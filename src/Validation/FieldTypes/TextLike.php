@@ -4,8 +4,8 @@
  *
  * Educational note: descriptors are pure data; renderers/validators interpret them.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
- * Spec: display_format_tel tokens (docs/Canonical_Spec.md#sec-display-format-tel)
+ * Contract: Field types
+ * Contract: display_format_tel tokens
  */
 
 class FieldTypes_TextLike {

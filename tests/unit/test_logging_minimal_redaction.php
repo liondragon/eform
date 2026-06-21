@@ -2,7 +2,7 @@
 /**
  * Unit test for minimal logging privacy.
  *
- * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
+ * Contract: Logging
  */
 
 require_once __DIR__ . '/../../src/Logging.php';

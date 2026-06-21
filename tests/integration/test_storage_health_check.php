@@ -2,9 +2,9 @@
 /**
  * Integration tests for storage health check and private-dir hardening.
  *
- * Spec: Shared lifecycle and storage contract (docs/Canonical_Spec.md#sec-shared-lifecycle)
- * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
- * Spec: Security invariants (docs/Canonical_Spec.md#sec-security-invariants)
+ * Contract: Shared lifecycle and storage contract
+ * Contract: Cache-safety
+ * Contract: Security invariants
  */
 
 require_once __DIR__ . '/../bootstrap.php';

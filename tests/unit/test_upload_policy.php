@@ -2,8 +2,8 @@
 /**
  * Unit tests for upload MIME and accept-token policy.
  *
- * Spec: Uploads accept-token policy (docs/Canonical_Spec.md#sec-uploads-accept-tokens)
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
+ * Contract: Uploads accept-token policy
+ * Contract: Uploads
  */
 
 require_once __DIR__ . '/../bootstrap.php';

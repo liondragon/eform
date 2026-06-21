@@ -5,9 +5,9 @@
  * Educational note: this assembles headers and bodies deterministically and
  * delegates transport to wp_mail() without retries or SMTP customization.
  *
- * Spec: Email delivery (docs/Canonical_Spec.md#sec-email)
- * Spec: Email templates (docs/Canonical_Spec.md#sec-email-templates)
- * Spec: Email-failure recovery (docs/Canonical_Spec.md#sec-email-failure-recovery)
+ * Contract: Email delivery
+ * Contract: Email templates
+ * Contract: Email-failure recovery
  */
 
 require_once __DIR__ . '/../Config.php';

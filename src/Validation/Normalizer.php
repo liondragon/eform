@@ -5,7 +5,7 @@
  * Educational note: normalization is lossless; it shapes inputs for Validate
  * without rejecting or reordering values.
  *
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../Config.php';

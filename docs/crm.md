@@ -176,7 +176,7 @@ Allows experimentation (e.g., logging to external service, prototyping CRM mappi
 
 ## 6. Spec Section (Draft)
 
-Add to `Canonical_Spec.md` under a new section **30. DELIVERY ABSTRACTION** (or append to existing sections):
+If revived, route the delivery abstraction through the active carriers that own runtime storage, public contracts, and owner lookup:
 
 > ### 30.1 SubmissionPayload (internal)
 > After normalize/validate/coerce succeeds, `SubmitHandler` constructs an immutable `SubmissionPayload` containing `{ form_id, template_version, request_id, delivery_id, submission_id, canonical_values, upload_metadata, meta }`. All downstream delivery sinks consume this object.
@@ -203,5 +203,5 @@ Add to `Canonical_Spec.md` under a new section **30. DELIVERY ABSTRACTION** (or 
 - [ ] Create `src/Delivery/EmailSink.php` (wrap existing Emailer logic)
 - [ ] Refactor `SubmitHandler` to build `SubmissionPayload` and call `Delivery::deliver()`
 - [ ] Add `eforms_submission_payload` action hook
-- [ ] Update spec with delivery abstraction section
+- [ ] Update the active contract carriers with the delivery abstraction
 - [ ] Add `delivery_id` to JSONL log schema

@@ -5,9 +5,9 @@
  * Educational note: this stage wires the Security → Normalize → Validate → Coerce
  * pipeline in a deterministic order and returns structured results for rerender.
  *
- * Spec: Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
- * Spec: Security (docs/Canonical_Spec.md#sec-security)
+ * Contract: Request lifecycle POST
+ * Contract: Validation pipeline
+ * Contract: Security
  */
 
 require_once __DIR__ . '/../Config.php';
@@ -271,7 +271,7 @@ class SubmitHandler {
     /**
      * Perform PRG redirect after successful submission.
      *
-     * Spec: PRG status is fixed at 303. Success responses MUST satisfy cache-safety.
+     * Contract: PRG status is fixed at 303. Success responses MUST satisfy cache-safety.
      *
      * @param array $result Result from handle() with ok=true.
      * @param array $options Optional overrides for testing.

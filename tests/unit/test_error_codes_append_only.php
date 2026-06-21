@@ -2,8 +2,8 @@
 /**
  * Append-only guard for the stable code surface.
  *
- * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
- * Spec: Configuration (append-only machine-readable surfaces)
+ * Contract: Error handling
+ * Contract: Configuration (append-only machine-readable surfaces)
  */
 
 require_once __DIR__ . '/../bootstrap.php';

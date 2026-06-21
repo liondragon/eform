@@ -2,7 +2,7 @@
 /**
  * Integration tests for threshold spam-fail handling.
  *
- * Spec: Spam decision (docs/Canonical_Spec.md#sec-spam-decision)
+ * Contract: Spam decision
  */
 
 require_once __DIR__ . '/../bootstrap.php';

@@ -2,8 +2,8 @@
 /**
  * Unit tests for cross-field rules (bounded set).
  *
- * Spec: Cross-field rules (docs/Canonical_Spec.md#sec-cross-field-rules)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Cross-field rules
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../bootstrap.php';

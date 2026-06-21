@@ -1,8 +1,8 @@
 # Mixed-mode page behavior (manual)
 
-Spec: Assets (docs/Canonical_Spec.md#sec-assets)
-Spec: Submission protection (docs/Canonical_Spec.md#sec-submission-protection)
-Spec: Security invariants (docs/Canonical_Spec.md#sec-security-invariants)
+Contract: Assets
+Contract: Submission protection
+Contract: Security invariants
 
 ## Setup
 

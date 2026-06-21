@@ -4,7 +4,7 @@
  *
  * Educational note: descriptors are pure data; renderers/validators interpret them.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
+ * Contract: Field types
  */
 
 class FieldTypes_Textarea {

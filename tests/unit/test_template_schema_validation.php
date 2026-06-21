@@ -2,8 +2,8 @@
 /**
  * Unit tests for TemplateValidator schema/envelope validation.
  *
- * Spec: Template model (docs/Canonical_Spec.md#sec-template-model)
- * Spec: Template validation (docs/Canonical_Spec.md#sec-template-validation)
+ * Contract: Template model
+ * Contract: Template validation
  */
 
 require_once __DIR__ . '/../bootstrap.php';

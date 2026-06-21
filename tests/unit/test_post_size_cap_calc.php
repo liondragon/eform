@@ -2,8 +2,8 @@
 /**
  * Unit tests for POST size cap calculation.
  *
- * Spec: POST size cap (docs/Canonical_Spec.md#sec-post-size-cap);
- * Configuration (docs/Canonical_Spec.md#sec-configuration).
+ * Contract: POST size cap;
+ * Configuration.
  */
 
 require_once __DIR__ . '/../bootstrap.php';

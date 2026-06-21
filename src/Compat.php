@@ -6,8 +6,8 @@
  * On multi-webhead/container deployments that directory must be a shared,
  * persistent volume that preserves atomic rename and exclusive-create semantics.
  *
- * Spec: Compatibility and updates (docs/Canonical_Spec.md#sec-compatibility)
- * Spec: Shared lifecycle and storage contract (docs/Canonical_Spec.md#sec-shared-lifecycle)
+ * Contract: Compatibility and updates
+ * Contract: Shared lifecycle and storage contract
  */
 
 require_once __DIR__ . '/Config.php';

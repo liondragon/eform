@@ -2,7 +2,7 @@
 /**
  * Unit tests for shared Helpers.
  *
- * Spec: Central registries (internal only), Shared lifecycle and storage contract,
+ * Contract: Central registries (internal only), Shared lifecycle and storage contract,
  * Security invariants (Anchors: [TOKEN_TTL_MAX]).
  */
 

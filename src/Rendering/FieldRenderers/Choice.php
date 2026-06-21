@@ -5,8 +5,8 @@
  * Educational note: this helper builds deterministic attributes only. Higher
  * level layout (fieldset/legend) is handled by FormRenderer.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
- * Spec: Template options (docs/Canonical_Spec.md#sec-template-options)
+ * Contract: Field types
+ * Contract: Template options
  */
 
 class FieldRenderers_Choice {

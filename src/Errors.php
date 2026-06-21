@@ -2,7 +2,7 @@
 /**
  * Structured error container for renderer + submit flows.
  * 
- * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
+ * Contract: Error handling
  */
 
 require_once __DIR__ . '/ErrorCodes.php';

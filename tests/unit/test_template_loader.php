@@ -2,8 +2,8 @@
 /**
  * Unit tests for TemplateLoader (JSON decoding + version gate).
  *
- * Spec: Template JSON (docs/Canonical_Spec.md#sec-template-json)
- * Spec: Versioning & cache keys (docs/Canonical_Spec.md#sec-template-versioning)
+ * Contract: Template JSON
+ * Contract: Versioning & cache keys
  */
 
 require_once __DIR__ . '/../bootstrap.php';

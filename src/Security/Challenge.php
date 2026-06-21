@@ -2,8 +2,8 @@
 /**
  * Adaptive challenge verification helpers (Turnstile v1).
  *
- * Spec: Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Adaptive challenge
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../Config.php';
@@ -20,6 +20,26 @@ class Challenge {
      */
     public static function has_provider_response( $post ) {
         return self::provider_response( $post ) !== '';
+    }
+
+    /**
+     * Return challenge provider/key readiness in one owner-owned shape.
+     *
+     * @param array|null $config Optional config snapshot.
+     * @return array{provider: string, has_site_key: bool, has_secret_key: bool, configured: bool}
+     */
+    public static function configuration_status( $config = null ) {
+        $config = is_array( $config ) ? $config : Config::get();
+        $provider = self::challenge_provider( $config );
+        $has_site_key = self::challenge_site_key( $config ) !== '';
+        $has_secret_key = self::challenge_secret_key( $config ) !== '';
+
+        return array(
+            'provider' => $provider,
+            'has_site_key' => $has_site_key,
+            'has_secret_key' => $has_secret_key,
+            'configured' => $provider === 'turnstile' && $has_site_key && $has_secret_key,
+        );
     }
 
     /**
@@ -175,12 +195,8 @@ class Challenge {
     }
 
     private static function is_configured( $config ) {
-        $provider = self::challenge_provider( $config );
-        if ( $provider !== 'turnstile' ) {
-            return false;
-        }
-
-        return self::challenge_site_key( $config ) !== '' && self::challenge_secret_key( $config ) !== '';
+        $status = self::configuration_status( $config );
+        return ! empty( $status['configured'] );
     }
 
     private static function challenge_provider( $config ) {

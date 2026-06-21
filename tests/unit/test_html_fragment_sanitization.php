@@ -2,8 +2,8 @@
 /**
  * Unit tests for HTML fragment sanitization and enforcement.
  *
- * Spec: Template model (docs/Canonical_Spec.md#sec-template-model)
- * Spec: HTML-bearing fields (docs/Canonical_Spec.md#sec-html-fields)
+ * Contract: Template model
+ * Contract: HTML-bearing fields
  */
 
 require_once __DIR__ . '/../bootstrap.php';

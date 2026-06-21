@@ -5,7 +5,7 @@
  * Educational note: This registry is intentionally static and deterministic.
  * Unknown types fail fast with a structured RuntimeException payload.
  *
- * Spec: Central registries (docs/Canonical_Spec.md#sec-central-registries)
+ * Contract: Central registries
  */
 
 require_once __DIR__ . '/FieldTypes/TextLike.php';
@@ -66,7 +66,7 @@ class FieldTypeRegistry {
             'type' => 'handler_resolution',
             'id' => $id,
             'registry' => 'FieldTypeRegistry',
-            'spec_path' => 'docs/Canonical_Spec.md#sec-central-registries',
+            'owner_path' => 'docs/Owner_Index.md',
         );
 
         return new RuntimeException( json_encode( $payload ) );

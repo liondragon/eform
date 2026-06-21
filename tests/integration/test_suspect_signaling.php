@@ -2,8 +2,8 @@
 /**
  * Integration test for suspect signaling (headers + subject tag).
  *
- * Spec: Suspect handling (docs/Canonical_Spec.md#sec-suspect-handling)
- * Spec: Spam decision (docs/Canonical_Spec.md#sec-spam-decision)
+ * Contract: Suspect handling
+ * Contract: Spam decision
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -40,6 +40,7 @@ $post = array(
     'eforms_token' => $mint['token'],
     'instance_id' => $mint['instance_id'],
     'timestamp' => (string) $mint['issued_at'],
+    'eforms_hp' => '',
     'demo' => array(
         'name' => 'Ada',
         'email' => 'ada@example.com',
@@ -110,6 +111,7 @@ $post = array(
     'eforms_token' => $mint['token'],
     'instance_id' => $mint['instance_id'],
     'timestamp' => (string) $mint['issued_at'],
+    'eforms_hp' => '',
     'demo' => array(
         'email' => 'ada@example.com',
     ),

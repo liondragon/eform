@@ -2,9 +2,9 @@
 /**
  * FormRenderer for GET render (hidden-mode + JS-minted markup).
  *
- * Spec: Request lifecycle GET (docs/Canonical_Spec.md#sec-request-lifecycle-get)
- * Spec: Success behavior (docs/Canonical_Spec.md#sec-success)
- * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
+ * Contract: Request lifecycle GET
+ * Contract: Success behavior
+ * Contract: Cache-safety
  */
 
 require_once __DIR__ . '/../Config.php';

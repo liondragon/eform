@@ -2,7 +2,7 @@
 /**
  * Smoke test for the plugin bootstrap wiring.
  *
- * Spec: Architecture and file layout; Public surfaces index; Lazy-load lifecycle.
+ * Contract: Architecture and file layout; Public surfaces index; Lazy-load lifecycle.
  */
 
 require_once __DIR__ . '/../bootstrap.php';

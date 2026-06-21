@@ -5,7 +5,7 @@
  * Educational note: templates are PHP files that receive structured inputs
  * and are rendered via output buffering for deterministic assembly.
  *
- * Spec: Email templates (docs/Canonical_Spec.md#sec-email-templates)
+ * Contract: Email templates
  */
 
 class Templates {

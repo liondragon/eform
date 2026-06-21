@@ -2,9 +2,9 @@
 /**
  * Internal form protocol names shared across PHP and forms.js.
  *
- * Spec: Template model (docs/Canonical_Spec.md#sec-template-model)
- * Spec: Assets (docs/Canonical_Spec.md#sec-assets)
- * Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode)
+ * Contract: Template model
+ * Contract: Assets
+ * Contract: JS-minted mode contract
  */
 
 class FormProtocol {

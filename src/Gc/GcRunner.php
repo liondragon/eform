@@ -2,9 +2,9 @@
 /**
  * Garbage-collection runner for runtime artifacts.
  *
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
- * Spec: Throttling (docs/Canonical_Spec.md#sec-throttling)
- * Spec: Anchors (docs/Canonical_Spec.md#sec-anchors)
+ * Contract: Uploads
+ * Contract: Throttling
+ * Contract: Anchors
  */
 
 require_once __DIR__ . '/../Anchors.php';

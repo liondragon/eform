@@ -2,7 +2,7 @@
 /**
  * Unit tests for textarea field type descriptor + renderer.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
+ * Contract: Field types
  */
 
 require_once __DIR__ . '/../bootstrap.php';

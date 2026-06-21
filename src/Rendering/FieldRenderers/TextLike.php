@@ -5,7 +5,7 @@
  * Educational note: the renderer focuses on attribute assembly; higher-level
  * layout concerns live in FormRenderer.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
+ * Contract: Field types
  */
 
 class FieldRenderers_TextLike {

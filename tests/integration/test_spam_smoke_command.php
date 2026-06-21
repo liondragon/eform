@@ -2,10 +2,10 @@
 /**
  * Integration tests for the operator spam smoke command.
  *
- * Spec: Spam smoke command (docs/Canonical_Spec.md#sec-spam-smoke-command)
- * Spec: Honeypot (docs/Canonical_Spec.md#sec-honeypot)
- * Spec: Spam decision (docs/Canonical_Spec.md#sec-spam-decision)
- * Spec: Throttling (docs/Canonical_Spec.md#sec-throttling)
+ * Contract: Spam smoke command
+ * Contract: Honeypot
+ * Contract: Spam decision
+ * Contract: Throttling
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -27,19 +27,19 @@ $command_result = SpamSmokeCommand::run();
 
 eforms_test_assert( $result['ok'] === true, 'Spam smoke diagnostic should pass in the default test runtime.' );
 eforms_test_assert( $result['exit_code'] === 0, 'All-pass smoke run should expose exit_code=0.' );
-eforms_test_assert( count( $result['checks'] ) === 8, 'Spam smoke should run the focused behavior-class check set.' );
-eforms_test_assert( $result['summary']['passed'] === 8, 'All smoke checks should pass.' );
+eforms_test_assert( count( $result['checks'] ) === 10, 'Spam smoke should run the focused behavior-class check set.' );
+eforms_test_assert( $result['summary']['passed'] === 10, 'All smoke checks should pass.' );
 eforms_test_assert( $result['summary']['failed'] === 0, 'No smoke checks should fail.' );
 eforms_test_assert( $command_result['checks'] === $result['checks'], 'CLI adapter should expose the shared diagnostic result without its own check implementation.' );
-eforms_test_assert( SpamSmokeDiagnostic::summary_line( $result ) === '8 passed, 0 failed', 'Diagnostic owner should derive the shared summary line.' );
-eforms_test_assert( count( SpamSmokeDiagnostic::rows( $result ) ) === 8, 'Diagnostic owner should derive shared presentation rows.' );
+eforms_test_assert( SpamSmokeDiagnostic::summary_line( $result ) === '10 passed, 0 failed', 'Diagnostic owner should derive the shared summary line.' );
+eforms_test_assert( count( SpamSmokeDiagnostic::rows( $result ) ) === 10, 'Diagnostic owner should derive shared presentation rows.' );
 
 $checks = array();
 foreach ( $result['checks'] as $check ) {
     $checks[ $check['name'] ] = $check;
 }
 
-foreach ( array( 'baseline', 'honeypot', 'missing-js', 'too-fast', 'combined-soft', 'throttle', 'mint-oversized', 'mint-no-origin' ) as $name ) {
+foreach ( array( 'baseline', 'honeypot', 'missing-js', 'missing-honeypot', 'too-fast', 'combined-soft', 'challenge-auto', 'throttle', 'mint-oversized', 'mint-no-origin' ) as $name ) {
     eforms_test_assert( isset( $checks[ $name ] ), 'Missing smoke check: ' . $name );
     eforms_test_assert( $checks[ $name ]['ok'] === true, 'Smoke check should pass: ' . $name );
     eforms_test_assert( isset( $checks[ $name ]['expected'] ) && $checks[ $name ]['expected'] !== '', 'Smoke check should report expected result: ' . $name );
@@ -55,6 +55,10 @@ eforms_test_assert(
     'Missing-JS check should prove the js_missing soft reason.'
 );
 eforms_test_assert(
+    strpos( $checks['missing-honeypot']['observed'], 'honeypot_missing' ) !== false,
+    'Missing-honeypot check should prove omitted honeypot is a soft reason.'
+);
+eforms_test_assert(
     strpos( $checks['too-fast']['observed'], 'min_fill_time' ) !== false,
     'Too-fast check should prove the min_fill_time soft reason.'
 );
@@ -65,6 +69,14 @@ eforms_test_assert(
 eforms_test_assert(
     strpos( $checks['combined-soft']['config_scope'], 'missing JS plus positive min fill' ) !== false,
     'Combined-soft check should explain its temporary config assumptions.'
+);
+eforms_test_assert(
+    strpos( $checks['challenge-auto']['observed'], 'required' ) !== false && strpos( $checks['challenge-auto']['observed'], 'js_missing' ) !== false && strpos( $checks['challenge-auto']['observed'], 'honeypot_missing' ) !== false,
+    'Challenge-auto check should prove auto mode requires challenge for a synthetic soft signal.'
+);
+eforms_test_assert(
+    strpos( $checks['challenge-auto']['notes'], 'provider not contacted' ) !== false,
+    'Challenge-auto check should not depend on a remote provider call.'
 );
 eforms_test_assert(
     strpos( $checks['throttle']['notes'], '198.51.100.44' ) !== false,

@@ -2,9 +2,9 @@
 /**
  * Integration test for upload move-after-ledger and retention behavior.
  *
- * Spec: Uploads filename policy (docs/Canonical_Spec.md#sec-uploads-filenames)
- * Spec: Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract)
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
+ * Contract: Uploads filename policy
+ * Contract: Ledger reservation contract
+ * Contract: Uploads
  */
 
 require_once __DIR__ . '/../bootstrap.php';

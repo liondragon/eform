@@ -5,7 +5,7 @@
  * Educational note: ledger markers are created via exclusive-create to ensure
  * concurrent submissions cannot both succeed without a database.
  *
- * Spec: Ledger reservation contract (docs/Canonical_Spec.md#sec-ledger-contract)
+ * Contract: Ledger reservation contract
  */
 
 require_once __DIR__ . '/../Config.php';

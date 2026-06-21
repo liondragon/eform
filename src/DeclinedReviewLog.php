@@ -2,7 +2,7 @@
 /**
  * Declined-submission review store.
  *
- * Spec: Declined Review (docs/Canonical_Spec.md#sec-declined-review)
+ * Contract: Declined Review
  */
 
 require_once __DIR__ . '/Anchors.php';

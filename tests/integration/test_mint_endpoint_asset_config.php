@@ -2,8 +2,8 @@
 /**
  * Integration test for WordPress-provided mint endpoint script data.
  *
- * Spec: Assets (docs/Canonical_Spec.md#sec-assets)
- * Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode)
+ * Contract: Assets
+ * Contract: JS-minted mode contract
  */
 
 require_once __DIR__ . '/../bootstrap.php';

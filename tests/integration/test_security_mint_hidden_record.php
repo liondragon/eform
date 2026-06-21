@@ -2,8 +2,8 @@
 /**
  * Integration tests for hidden-mode token minting.
  *
- * Spec: Hidden-mode contract (docs/Canonical_Spec.md#sec-hidden-mode)
- * Spec: Security invariants (docs/Canonical_Spec.md#sec-security-invariants)
+ * Contract: Hidden-mode contract
+ * Contract: Security invariants
  */
 
 require_once __DIR__ . '/../bootstrap.php';

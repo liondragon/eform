@@ -2,7 +2,7 @@
 /**
  * Focused uninstall test for admin option cleanup before uploads API guards.
  *
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration)
+ * Contract: Configuration
  */
 
 if ( ! function_exists( 'eforms_test_assert' ) ) {

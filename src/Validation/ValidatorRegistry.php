@@ -5,7 +5,7 @@
  * Educational note: this registry maps handler IDs to callables and throws a
  * deterministic error payload when an unknown ID is requested.
  *
- * Spec: Central registries (docs/Canonical_Spec.md#sec-central-registries)
+ * Contract: Central registries
  */
 
 class ValidatorRegistry {
@@ -57,7 +57,7 @@ class ValidatorRegistry {
             'type' => 'handler_resolution',
             'id' => $id,
             'registry' => 'ValidatorRegistry',
-            'spec_path' => 'docs/Canonical_Spec.md#sec-central-registries',
+            'owner_path' => 'docs/Owner_Index.md',
         );
 
         return new RuntimeException( json_encode( $payload ) );

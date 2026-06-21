@@ -2,7 +2,7 @@
 /**
  * POST size cap calculation helper.
  *
- * Spec: POST size cap (docs/Canonical_Spec.md#sec-post-size-cap)
+ * Contract: POST size cap
  */
 
 require_once __DIR__ . '/../Config.php';

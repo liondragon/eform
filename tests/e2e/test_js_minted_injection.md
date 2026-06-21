@@ -1,7 +1,7 @@
 # JS-minted token injection (manual)
 
-Spec: Assets (docs/Canonical_Spec.md#sec-assets)
-Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode)
+Contract: Assets
+Contract: JS-minted mode contract
 
 ## Setup
 

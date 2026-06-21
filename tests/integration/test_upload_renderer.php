@@ -2,8 +2,8 @@
 /**
  * Integration tests for upload field rendering.
  *
- * Spec: Field descriptors and namespacing (docs/Canonical_Spec.md#sec-template-model-fields)
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
+ * Contract: Field descriptors and namespacing
+ * Contract: Field types
  */
 
 require_once __DIR__ . '/../bootstrap.php';

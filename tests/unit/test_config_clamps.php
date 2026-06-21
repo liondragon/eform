@@ -2,7 +2,7 @@
 /**
  * Unit tests for Config numeric clamping.
  *
- * Spec: Anchors (docs/Canonical_Spec.md#sec-anchors); Configuration (docs/Canonical_Spec.md#sec-configuration).
+ * Contract: Anchors; Configuration.
  */
 
 require_once __DIR__ . '/../bootstrap.php';

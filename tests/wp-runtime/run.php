@@ -5,7 +5,7 @@
  * This is a faithful fixture for the public surfaces used by the clear-win
  * slice: hooks, shortcode render, uploads, mail, cache headers, and PRG.
  *
- * Spec: Public surfaces index; Request lifecycle GET/POST; Success behavior.
+ * Contract: Public surfaces index; Request lifecycle GET/POST; Success behavior.
  */
 
 $root_dir = dirname( __DIR__, 2 );

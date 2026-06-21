@@ -2,7 +2,7 @@
 /**
  * Origin policy evaluation.
  *
- * Spec: Origin policy (docs/Canonical_Spec.md#sec-origin-policy)
+ * Contract: Origin policy
  */
 
 require_once __DIR__ . '/../Config.php';

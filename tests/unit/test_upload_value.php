@@ -2,7 +2,7 @@
 /**
  * Unit tests for shared upload value shape helpers.
  *
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
+ * Contract: Uploads
  */
 
 require_once __DIR__ . '/../bootstrap.php';

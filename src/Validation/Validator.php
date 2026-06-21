@@ -5,8 +5,8 @@
  * Educational note: this stage may reject. It collects all errors and does not
  * mutate values; Coerce is responsible for canonicalization after validation.
  *
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
- * Spec: Cross-field rules (docs/Canonical_Spec.md#sec-cross-field-rules)
+ * Contract: Validation pipeline
+ * Contract: Cross-field rules
  */
 
 require_once __DIR__ . '/../Config.php';

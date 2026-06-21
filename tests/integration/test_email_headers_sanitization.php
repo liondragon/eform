@@ -2,7 +2,7 @@
 /**
  * Integration test for email header sanitization and reply-to precedence.
  *
- * Spec: Email delivery (docs/Canonical_Spec.md#sec-email)
+ * Contract: Email delivery
  */
 
 require_once __DIR__ . '/../bootstrap.php';

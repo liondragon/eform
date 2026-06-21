@@ -2,8 +2,8 @@
 /**
  * Integration test for assets.css_disable.
  *
- * Spec: Assets (docs/Canonical_Spec.md#sec-assets)
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration)
+ * Contract: Assets
+ * Contract: Configuration
  */
 
 require_once __DIR__ . '/../bootstrap.php';

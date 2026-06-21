@@ -138,6 +138,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 |------|--------|------------------|
 | `security.token_ttl_seconds` | Controls how long a form token remains valid (clamped 1–86400s) | Shorter = tighter security but may frustrate slow users; longer = better UX but extends replay window |
 | `security.min_fill_seconds` | Minimum fill time (clamped 0–60s) | Adds `min_fill_time` soft signal if submitted too fast; helps catch bots |
+| `security.honeypot_response` | Controls the response when the hidden trap field is filled | `stealth_success` hides the block from bots; `hard_fail` shows a generic error |
 | `security.origin_mode` | `off` \| `soft` (log only) \| `hard` (fail) for Origin header checks | `hard` mode blocks cross-origin requests; test before enabling in production |
 | `spam.soft_fail_threshold` | Number of soft signals needed to trigger spam rejection | Lower (1-2) = stricter; higher (3-4) = more permissive. Clamped ≥1 |
 | `challenge.mode` | `off` \| `auto` (challenge suspects) \| `always_post` (challenge everyone) | `auto` only challenges when soft signals present; requires Turnstile keys |
@@ -168,13 +169,13 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 ### Safety
 
 - **Health Check:** System runs FS health checks on render/post; failures surface as `EFORMS_ERR_STORAGE_UNAVAILABLE`
-- **Spam Smoke:** Settings -> eForms and `wp eforms spam-smoke` run the same focused local diagnostic for the shipped contact form. It confirms the main spam gates are reachable and reports pass/fail without sending real email. It does not prove every real-world spam attempt will be blocked.
-- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, GC readiness, CLI bootstrap, and config-source visibility. It reports observable readiness only; it cannot prove system cron is configured.
+- **Spam Smoke:** Settings -> eForms and `wp eforms spam-smoke` run the same focused local diagnostic for the shipped contact form. It confirms the main spam gates are reachable, including that `challenge.mode=auto` requires verification for a synthetic suspect request, and reports pass/fail without sending real email. It does not prove every real-world spam attempt will be blocked.
+- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, GC readiness, CLI bootstrap, config-source visibility, and challenge configuration readiness. It reports observable readiness only; it cannot prove system cron is configured.
 - **Uninstall:** `uninstall.php` respects `install.uninstall.purge_*` flags in config to optionally wipe data
 
 ### Admin Monitoring
 
-- **Settings → eForms:** Curated admin settings for declined review, logging, challenge, throttle, and privacy, with effective values and source labels shown beside each control. Higher-priority drop-in/filter values appear as externally controlled rather than editable. Secrets are masked; blank secret saves keep the stored admin value unless explicitly cleared.
+- **Settings → eForms:** Curated admin settings for declined review, logging, spam protection, challenge, throttle, and privacy, with effective values and source labels shown beside each control. Spam Protection also shows a read-only checks table so operators can see which built-in checks are active, soft-signal, hard-block, quiet, or off. Higher-priority drop-in/filter values appear as externally controlled rather than editable. Secrets are masked; blank secret saves keep the stored admin value unless explicitly cleared.
 - **Tools → eForms Declined:** Declined-submission review table, shown only when `declined_review.enable=true` and available to administrators. It presents bounded submitted content for selected spam-review outcomes, rejection reasons, and request metadata so operators can spot false positives during rollout. Cleanup is normally retention-driven via `declined_review.retention_days` and `wp eforms gc`; administrators may also clear declined-review files older than a confirmed one-time day cutoff.
 - These admin pages are not a form builder, template editor, raw config editor, quarantine, moderation queue, or resend workflow.
 
@@ -240,7 +241,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 **Security Gate (hard failures stop here):**
 1. **Token validation:** Verify against persisted record; check TTL, mode, form_id match
-2. **Honeypot:** Check `eforms_hp` is empty
+2. **Honeypot:** Filled `eforms_hp` hard-fails; missing `eforms_hp` adds `honeypot_missing`
 3. **Timing checks:** Add soft signals for `min_fill_time` (too fast), `age_advisory` (too old)
 4. **Origin policy:** Evaluate Origin header per `security.origin_mode`
 5. **JS check:** Add `js_missing` soft signal when `js_ok != "1"`
@@ -257,7 +258,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 - On throttle: HTTP 429 "Please wait..." + `Retry-After` header
 - On spam-fail: Stealth success or generic error; logged with `spam_decision=fail` + `soft_reasons`
 - On validation errors: Rerender with per-field messages + error summary (first invalid focused)
-- **Signals collected:** `soft_reasons` array (`min_fill_time`, `age_advisory`, `js_missing`, `origin_soft`)
+- **Signals collected:** `soft_reasons` array (`min_fill_time`, `age_advisory`, `honeypot_missing`, `js_missing`, `origin_soft`)
 
 #### 4. Challenge Verification (Optional; When Triggered)
 
@@ -327,6 +328,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 **Soft Scoring (accumulates signals):**
 - `min_fill_time`: Submitted faster than `security.min_fill_seconds`
 - `age_advisory`: Token older than `security.max_form_age_seconds`
+- `honeypot_missing`: Hidden trap field omitted entirely
 - `origin_soft`: Origin header missing/mismatched (in soft mode)
 - `js_missing`: JS proof-of-work missing
 

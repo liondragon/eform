@@ -2,9 +2,9 @@
 /**
  * Integration tests for honeypot behavior.
  *
- * Spec: Honeypot (docs/Canonical_Spec.md#sec-honeypot)
- * Spec: Security (docs/Canonical_Spec.md#sec-security)
- * Spec: Spam decision (docs/Canonical_Spec.md#sec-spam-decision)
+ * Contract: Honeypot
+ * Contract: Security
+ * Contract: Spam decision
  */
 
 require_once __DIR__ . '/../bootstrap.php';

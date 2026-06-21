@@ -2,8 +2,8 @@
 /**
  * Integration test for JSONL logging schema, retention, and rotation.
  *
- * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration)
+ * Contract: Logging
+ * Contract: Configuration
  */
 
 require_once __DIR__ . '/../../src/Logging.php';

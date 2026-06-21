@@ -2,7 +2,7 @@
 /**
  * Guard that shipped template ids match their filename stems.
  *
- * Spec: Template JSON (docs/Canonical_Spec.md#sec-template-json)
+ * Contract: Template JSON
  */
 
 $base_dir = dirname( __DIR__, 2 ) . '/templates/forms';

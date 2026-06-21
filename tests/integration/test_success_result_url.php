@@ -2,9 +2,9 @@
 /**
  * Integration test for plugin-owned success result URLs.
  *
- * Spec: Success behavior (docs/Canonical_Spec.md#sec-success)
- * Spec: Result page flow (docs/Canonical_Spec.md#sec-success-flow)
- * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
+ * Contract: Success behavior
+ * Contract: Result page flow
+ * Contract: Cache-safety
  */
 
 require_once __DIR__ . '/../bootstrap.php';

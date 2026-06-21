@@ -5,7 +5,7 @@
  * Educational note: upload rendering only emits browser hints; server-side
  * upload validation and storage remain authoritative.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
+ * Contract: Field types
  */
 
 require_once __DIR__ . '/../../Uploads/UploadPolicy.php';

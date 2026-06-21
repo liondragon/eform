@@ -2,9 +2,9 @@
 /**
  * Client-IP resolution and privacy-safe presentation helpers.
  *
- * Spec: Privacy and IP handling (docs/Canonical_Spec.md#sec-privacy)
- * Spec: Throttling (docs/Canonical_Spec.md#sec-throttling)
- * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
+ * Contract: Privacy and IP handling
+ * Contract: Throttling
+ * Contract: Logging
  */
 
 require_once __DIR__ . '/../Config.php';

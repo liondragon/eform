@@ -4,7 +4,7 @@ Lightweight PHP form handler for WordPress.
 
 ## Installation
 
-Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Compatibility and Updates](docs/Canonical_Spec.md#sec-compatibility).
+Requirements: PHP 8.0+ and WordPress 5.8+.
 
 1. Place this repository root inside `wp-content/plugins/eforms/` so `eforms.php` is directly inside the plugin directory.
 2. (Optional for contributors) Run `composer install` from the repository root to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
@@ -12,9 +12,10 @@ Requirements: PHP 8.0+ and WordPress 5.8+, as detailed in [Canonical Spec → Co
 
 ## Documentation
 
-- [Canonical Spec](docs/Canonical_Spec.md) details the end-to-end submission, security, and rendering requirements the plugin must meet.
-- [Architecture Router](docs/Architecture_Router.md) maps the main owners and runtime lanes without redefining behavior.
+- [Architecture Router](docs/Architecture_Router.md) maps the main owners, runtime lanes, and routing rules.
 - [Owner Index](docs/Owner_Index.md) lists reusable ownership seams and forbidden local duplicates.
+- [Overview](docs/overview.md) describes operator-facing behavior and product intent.
+- [Public Contracts](docs/contracts/Public_Contracts.md), [Template Contract](docs/contracts/Template_Contract.md), and [Runtime Storage](docs/contracts/Runtime_Storage.md) carry stable implementation contracts that are too detailed for the overview.
 - [Roadmap](docs/roadmap.md) highlights upcoming milestones, outstanding work, and longer-term ideas.
 - [Past Decisions](docs/PAST_DECISIONS.md) records key design trade-offs and simplifications.
 - [Documentation Guide](docs/README.md) explains how the documentation set is organized.
@@ -74,7 +75,6 @@ add_filter('eforms_config', function ($config) {
 
 * CSRF protection via Origin checks and per-request tokens.
 * Token ledger prevents duplicate submissions.
-* Email-failure retries set a marker that suppresses the min-fill-time soft signal (see Canonical Spec).
 
 ### Rate Limiting
 

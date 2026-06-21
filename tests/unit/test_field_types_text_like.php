@@ -2,8 +2,8 @@
 /**
  * Unit tests for text-like field types and tel formatting.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
- * Spec: display_format_tel tokens (docs/Canonical_Spec.md#sec-display-format-tel)
+ * Contract: Field types
+ * Contract: display_format_tel tokens
  */
 
 require_once __DIR__ . '/../bootstrap.php';

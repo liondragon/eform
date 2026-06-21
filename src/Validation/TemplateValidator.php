@@ -5,9 +5,9 @@
  * Educational note: this file focuses on structural validation and unknown-key
  * rejection. Semantic checks (reserved keys, handler resolution) live elsewhere.
  *
- * Spec: Template JSON (docs/Canonical_Spec.md#sec-template-json)
- * Spec: Template validation (docs/Canonical_Spec.md#sec-template-validation)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Template JSON
+ * Contract: Template validation
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../Errors.php';

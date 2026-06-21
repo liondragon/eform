@@ -2,9 +2,9 @@
 /**
  * Integration tests for /eforms/mint contract.
  *
- * Spec: JS-minted mode contract (docs/Canonical_Spec.md#sec-js-mint-mode)
- * Spec: Throttling (docs/Canonical_Spec.md#sec-throttling)
- * Spec: Security (docs/Canonical_Spec.md#sec-security)
+ * Contract: JS-minted mode contract
+ * Contract: Throttling
+ * Contract: Security
  */
 
 require_once __DIR__ . '/../bootstrap.php';

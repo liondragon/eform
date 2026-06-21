@@ -289,6 +289,16 @@ class Config
                 'min_anchor' => 'RETENTION_DAYS_MIN',
                 'max_anchor' => 'RETENTION_DAYS_MAX',
             ),
+            'security.honeypot_response' => array('type' => 'enum'),
+            'security.min_fill_seconds' => array(
+                'type' => 'int',
+                'min_anchor' => 'MIN_FILL_SECONDS_MIN',
+                'max_anchor' => 'MIN_FILL_SECONDS_MAX',
+            ),
+            'spam.soft_fail_threshold' => array(
+                'type' => 'int',
+                'min' => 1,
+            ),
             'challenge.mode' => array('type' => 'enum'),
             'challenge.site_key' => array('type' => 'string'),
             'challenge.secret_key' => array('type' => 'string', 'secret' => true),
@@ -1109,7 +1119,7 @@ class Config
         );
         $config['validation'] = $validation;
 
-        // Clamp spam.soft_fail_threshold to minimum 1 per spec §8 (Spam Decision).
+        // Keep the spam rejection threshold at one or more signals.
         $spam = isset($config['spam']) && is_array($config['spam']) ? $config['spam'] : array();
         $spam_defaults = $defaults['spam'];
         $value = self::value_or_default($spam, 'soft_fail_threshold', $spam_defaults['soft_fail_threshold']);

@@ -5,11 +5,12 @@
  * Educational note: honeypot handling short-circuits the submission
  * pipeline to avoid running validation or side effects on spam input.
  *
- * Spec: Honeypot (docs/Canonical_Spec.md#sec-honeypot)
- * Spec: Spam decision (docs/Canonical_Spec.md#sec-spam-decision)
+ * Contract: Honeypot
+ * Contract: Spam decision
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../FormProtocol.php';
 
 class Honeypot {
     const RESPONSE_HARD_FAIL = 'hard_fail';
@@ -30,6 +31,28 @@ class Honeypot {
             'triggered' => $triggered,
             'response' => $response,
         );
+    }
+
+    /**
+     * Return soft spam reasons related to the honeypot control.
+     *
+     * A rendered eForms form posts the honeypot field as an empty value. Direct
+     * POST bots often omit empty controls entirely, so absence is suspicious but
+     * not enough by itself to hard-fail a submission.
+     *
+     * @param array $post
+     * @return string[]
+     */
+    public static function soft_reasons( $post ) {
+        if ( ! is_array( $post ) ) {
+            return array();
+        }
+
+        if ( ! array_key_exists( FormProtocol::FIELD_HONEYPOT, $post ) ) {
+            return array( 'honeypot_missing' );
+        }
+
+        return array();
     }
 
     /**
@@ -79,11 +102,11 @@ class Honeypot {
     }
 
     private static function triggered( $post ) {
-        if ( ! is_array( $post ) || ! array_key_exists( 'eforms_hp', $post ) ) {
+        if ( ! is_array( $post ) || ! array_key_exists( FormProtocol::FIELD_HONEYPOT, $post ) ) {
             return false;
         }
 
-        return self::value_present( $post['eforms_hp'] );
+        return self::value_present( $post[ FormProtocol::FIELD_HONEYPOT ] );
     }
 
     private static function response_mode( $config ) {

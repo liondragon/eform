@@ -1,17 +1,17 @@
 <?php
 /**
- * Spec-defined invariants (anchors).
+ * Fixed runtime invariants.
  *
- * These values are copied from docs/Canonical_Spec.md §sec-anchors at implementation time.
- * They define min/max bounds and fixed constants. Code MUST NOT parse the spec at runtime.
+ * Fixed runtime bounds and constants for eForms.
+ * Code MUST NOT parse documentation at runtime.
  *
- * If a spec anchor changes, update the corresponding value here.
+ * If a fixed value changes, update the corresponding tests and docs in the same task.
  */
 
 class Anchors
 {
     /**
-     * All anchor values from docs/Canonical_Spec.md §sec-anchors.
+     * All fixed runtime bounds and constants.
      */
     const VALUES = array(
         'MIN_FILL_SECONDS_MIN' => 0,
@@ -47,9 +47,9 @@ class Anchors
     );
 
     /**
-     * Get an anchor value by name.
+     * Get a fixed runtime value by name.
      *
-     * @param string $name Anchor name (e.g., 'TOKEN_TTL_MAX').
+     * @param string $name Value name (e.g., 'TOKEN_TTL_MAX').
      * @return int|null The value, or null if not found.
      */
     public static function get($name)

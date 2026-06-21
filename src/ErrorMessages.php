@@ -2,7 +2,7 @@
 /**
  * Stable public error-code messages.
  *
- * Spec: Error handling (docs/Canonical_Spec.md#sec-error-handling)
+ * Contract: Error handling
  */
 
 class ErrorMessages {

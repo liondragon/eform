@@ -2,8 +2,8 @@
 /**
  * Integration test for adaptive challenge render + verify flow.
  *
- * Spec: Adaptive challenge (docs/Canonical_Spec.md#sec-adaptive-challenge)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Adaptive challenge
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../bootstrap.php';

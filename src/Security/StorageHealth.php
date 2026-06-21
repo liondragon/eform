@@ -2,8 +2,8 @@
 /**
  * Storage health checks for private uploads.
  *
- * Spec: Shared lifecycle and storage contract (docs/Canonical_Spec.md#sec-shared-lifecycle)
- * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
+ * Contract: Shared lifecycle and storage contract
+ * Contract: Cache-safety
  */
 
 require_once __DIR__ . '/../Uploads/PrivateDir.php';

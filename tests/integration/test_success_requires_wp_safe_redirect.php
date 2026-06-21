@@ -2,7 +2,7 @@
 /**
  * Integration test for redirect safety fallback removal.
  *
- * Spec: Redirect Safety (docs/Canonical_Spec.md#sec-redirect-safety)
+ * Contract: Redirect Safety
  */
 
 require_once __DIR__ . '/../bootstrap.php';

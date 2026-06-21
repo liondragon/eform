@@ -5,7 +5,7 @@
  * Educational note: Coerce is pure and deterministic; it only canonicalizes
  * validated values without rejecting or performing side effects.
  *
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/FieldTypes/TextLike.php';

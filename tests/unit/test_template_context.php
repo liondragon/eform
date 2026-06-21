@@ -2,9 +2,9 @@
 /**
  * Unit tests for TemplateContext (descriptor resolution).
  *
- * Spec: Template model (docs/Canonical_Spec.md#sec-template-model)
- * Spec: TemplateContext (docs/Canonical_Spec.md#sec-template-context)
- * Spec: Request lifecycle GET (docs/Canonical_Spec.md#sec-request-lifecycle-get)
+ * Contract: Template model
+ * Contract: TemplateContext
+ * Contract: Request lifecycle GET
  */
 
 require_once __DIR__ . '/../bootstrap.php';

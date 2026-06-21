@@ -2,8 +2,8 @@
 /**
  * Integration tests for cache-safety when headers are already sent.
  *
- * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
- * Spec: Request lifecycle GET (docs/Canonical_Spec.md#sec-request-lifecycle-get)
+ * Contract: Cache-safety
+ * Contract: Request lifecycle GET
  */
 
 require_once __DIR__ . '/../bootstrap.php';

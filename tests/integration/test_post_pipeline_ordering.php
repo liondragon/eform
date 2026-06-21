@@ -2,8 +2,8 @@
 /**
  * Integration test for POST pipeline ordering.
  *
- * Spec: Request lifecycle POST (docs/Canonical_Spec.md#sec-request-lifecycle-post)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Request lifecycle POST
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../bootstrap.php';

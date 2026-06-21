@@ -2,7 +2,7 @@
 /**
  * Unit tests for Config bootstrap and override precedence.
  *
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration).
+ * Contract: Configuration.
  */
 
 require_once __DIR__ . '/../bootstrap.php';

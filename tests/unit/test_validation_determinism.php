@@ -2,8 +2,8 @@
 /**
  * Unit tests for deterministic validation ordering.
  *
- * Spec: DRY principles (docs/Canonical_Spec.md#sec-dry-principles)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: DRY principles
+ * Contract: Validation pipeline
  */
 
 require_once __DIR__ . '/../bootstrap.php';

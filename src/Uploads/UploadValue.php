@@ -2,7 +2,7 @@
 /**
  * Pure helpers for normalized upload value shape.
  *
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
+ * Contract: Uploads
  */
 
 class UploadValue {

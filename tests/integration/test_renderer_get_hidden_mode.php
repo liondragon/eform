@@ -2,9 +2,9 @@
 /**
  * Integration tests for hidden-mode GET render.
  *
- * Spec: Request lifecycle GET (docs/Canonical_Spec.md#sec-request-lifecycle-get)
- * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
- * Spec: Security invariants (docs/Canonical_Spec.md#sec-security-invariants)
+ * Contract: Request lifecycle GET
+ * Contract: Cache-safety
+ * Contract: Security invariants
  */
 
 require_once __DIR__ . '/../bootstrap.php';

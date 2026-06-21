@@ -2,7 +2,7 @@
 /**
  * Smoke test for compatibility guards (pure-PHP).
  *
- * Spec: Compatibility and updates; Shared lifecycle and storage contract.
+ * Contract: Compatibility and updates; Shared lifecycle and storage contract.
  */
 
 require_once __DIR__ . '/../bootstrap.php';

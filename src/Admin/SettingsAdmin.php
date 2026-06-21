@@ -2,7 +2,7 @@
 /**
  * Settings -> eForms admin surface.
  *
- * Spec: Configuration (docs/Canonical_Spec.md#sec-configuration)
+ * Contract: Configuration
  */
 
 require_once __DIR__ . '/../Config.php';
@@ -20,6 +20,7 @@ class SettingsAdmin {
     const DIAGNOSTIC_NONCE_FIELD = '_eforms_spam_smoke_nonce';
     const RUNTIME_HEALTH_ACTION = 'eforms_run_runtime_doctor';
     const RUNTIME_HEALTH_NONCE_FIELD = '_eforms_runtime_doctor_nonce';
+    const FORM_ID = 'eforms-settings-form';
 
     public static function register() {
         add_action( 'admin_menu', array( __CLASS__, 'register_menu' ) );
@@ -72,10 +73,13 @@ class SettingsAdmin {
         ob_start();
         echo '<div class="wrap eforms-settings-admin">';
         echo '<h1>' . esc_html( 'eForms' ) . '</h1>';
+        self::render_admin_styles();
+        self::render_help_script();
         if ( is_array( $notice ) ) {
             self::render_notice( $notice );
         }
 
+        self::render_settings_navigation();
         self::render_settings_form();
         self::render_diagnostics_section( $spam_diagnostic, $runtime_health );
 
@@ -192,28 +196,116 @@ class SettingsAdmin {
         $config = Config::get();
         $stored = AdminSettingsStore::read_overrides();
 
-        echo '<form method="post" action="">';
+        echo '<form id="' . esc_attr( self::FORM_ID ) . '" class="eforms-settings-form" method="post" action="">';
         echo '<input type="hidden" name="eforms_settings_action" value="' . esc_attr( self::SAVE_ACTION ) . '" />';
         self::nonce_field( self::NONCE_ACTION, self::NONCE_FIELD );
-        echo '<table class="widefat striped eforms-settings-table"><thead><tr>';
-        echo '<th>' . esc_html( 'Name' ) . '</th><th>' . esc_html( 'Config Handle' ) . '</th><th>' . esc_html( 'Effective' ) . '</th><th>' . esc_html( 'Source' ) . '</th><th>' . esc_html( 'Setting' ) . '</th>';
-        echo '</tr></thead><tbody>';
 
-        foreach ( SettingsFields::groups() as $group ) {
-            echo '<tr><th colspan="5">' . esc_html( $group['label'] ) . '</th></tr>';
-            foreach ( $group['fields'] as $field ) {
-                self::render_field_row( $field, $config, $report, $stored );
-            }
+        foreach ( SettingsFields::groups() as $key => $group ) {
+            self::render_settings_table( self::section_id( $group['label'] ), $group['label'], $group['fields'], $config, $report, $stored, $key );
         }
-        self::render_storage_row( $config, $report );
-
-        echo '</tbody></table>';
+        self::render_storage_table( $config, $report );
         self::submit_button();
         echo '</form>';
     }
 
+    private static function render_settings_navigation() {
+        echo '<nav class="eforms-settings-nav" aria-label="' . esc_attr( 'eForms settings sections' ) . '">';
+        foreach ( SettingsFields::groups() as $group ) {
+            echo '<a class="eforms-settings-nav__link" href="#' . esc_attr( self::section_id( $group['label'] ) ) . '">' . esc_html( $group['label'] ) . '</a>';
+        }
+        echo '<a class="eforms-settings-nav__link" href="#' . esc_attr( 'eforms-settings-storage' ) . '">' . esc_html( 'Storage' ) . '</a>';
+        echo '<a class="eforms-settings-nav__link" href="#' . esc_attr( 'eforms-settings-diagnostics' ) . '">' . esc_html( 'Diagnostics' ) . '</a>';
+        echo '<button type="submit" form="' . esc_attr( self::FORM_ID ) . '" class="button button-primary eforms-settings-nav__save">' . esc_html( 'Save Changes' ) . '</button>';
+        echo '</nav>';
+    }
+
+    private static function render_settings_table( $id, $label, $fields, $config, $report, $stored, $group_key = '' ) {
+        echo '<section id="' . esc_attr( $id ) . '" class="eforms-settings-section">';
+        echo '<div class="eforms-settings-panel">';
+        echo '<div class="eforms-settings-panel__header"><h2 class="eforms-settings-section-title">' . esc_html( $label ) . '</h2></div>';
+        echo '<div class="eforms-settings-panel__body">';
+        if ( $group_key === 'spam' ) {
+            echo '<h3 class="eforms-settings-subtitle">' . esc_html( 'Settings' ) . '</h3>';
+        }
+        echo '<table class="widefat striped eforms-settings-table" aria-label="' . esc_attr( $label . ' settings' ) . '">';
+        self::render_settings_table_head();
+        echo '<tbody>';
+        foreach ( $fields as $field ) {
+            self::render_field_row( $field, $config, $report, $stored );
+        }
+        echo '</tbody></table>';
+        if ( $group_key === 'spam' ) {
+            self::render_protection_checks( $config );
+        }
+        echo '</div></div></section>';
+    }
+
+    private static function render_settings_table_head() {
+        echo '<thead><tr>';
+        echo '<th>' . esc_html( 'Name' ) . '</th><th>' . esc_html( 'Config Handle' ) . '</th><th>' . esc_html( 'Effective' ) . '</th><th>' . esc_html( 'Source' ) . '</th><th>' . esc_html( 'Setting' ) . '</th>';
+        echo '</tr></thead>';
+    }
+
+    private static function render_protection_checks( $config ) {
+        echo '<div class="eforms-protection-checks" aria-label="' . esc_attr( 'Spam protection checks' ) . '">';
+        echo '<h3 class="eforms-settings-subtitle">' . esc_html( 'Built-in checks' ) . '</h3>';
+        echo '<table class="widefat striped eforms-protection-checks-table">';
+        echo '<thead><tr><th>' . esc_html( 'Check' ) . '</th><th>' . esc_html( 'Status' ) . '</th><th>' . esc_html( 'What happens' ) . '</th></tr></thead><tbody>';
+        foreach ( self::protection_check_rows( $config ) as $row ) {
+            echo '<tr class="eforms-protection-checks-table__row">';
+            echo '<td>' . esc_html( $row['label'] ) . '</td>';
+            echo '<td><span class="eforms-protection-checks-table__status">' . esc_html( $row['status'] ) . '</span></td>';
+            echo '<td>' . esc_html( $row['effect'] ) . '</td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+        echo '</div>';
+    }
+
+    private static function protection_check_rows( $config ) {
+        $origin_mode = (string) Config::value( $config, array( 'security', 'origin_mode' ), 'soft' );
+        $js_hard = Config::bool( $config, array( 'security', 'js_hard_mode' ), false );
+
+        $origin_status = 'Off';
+        $origin_effect = 'Origin header differences are ignored.';
+        if ( $origin_mode === 'soft' ) {
+            $origin_status = 'Active, soft signal';
+            $origin_effect = 'Missing or mismatched Origin adds origin_soft.';
+        } elseif ( $origin_mode === 'hard' ) {
+            $origin_status = 'Active, hard block';
+            $origin_effect = 'Cross-site or unknown Origin is blocked; missing Origin follows the configured missing-Origin rule.';
+        }
+
+        return array(
+            array(
+                'label' => 'Hidden trap filled',
+                'status' => 'Active, hard block',
+                'effect' => 'A non-empty hidden trap field blocks the submission before validation and email.',
+            ),
+            array(
+                'label' => 'Hidden trap missing',
+                'status' => 'Active, soft signal',
+                'effect' => 'A direct POST that omits the hidden trap field adds honeypot_missing.',
+            ),
+            array(
+                'label' => 'JavaScript marker missing',
+                'status' => $js_hard ? 'Active, hard block' : 'Active, soft signal',
+                'effect' => $js_hard ? 'Missing JavaScript proof blocks the submission.' : 'Missing JavaScript proof adds js_missing.',
+            ),
+            array(
+                'label' => 'Origin missing or mismatched',
+                'status' => $origin_status,
+                'effect' => $origin_effect,
+            ),
+        );
+    }
+
     private static function render_diagnostics_section( $spam_result, $runtime_result ) {
+        echo '<section id="eforms-settings-diagnostics" class="eforms-settings-section">';
+        echo '<div class="eforms-settings-panel">';
+        echo '<div class="eforms-settings-panel__header">';
         echo '<h2>' . esc_html( 'Diagnostics' ) . '</h2>';
+        echo '</div><div class="eforms-settings-panel__body">';
         echo '<p class="description">' . esc_html( 'Runs the same focused spam smoke diagnostic as WP-CLI. Real email is suppressed; runtime artifacts may appear in eForms logs/storage and are cleaned by normal GC. This verifies wiring, not real-world spam effectiveness.' ) . '</p>';
         self::render_diagnostic_form( self::DIAGNOSTIC_ACTION, self::DIAGNOSTIC_NONCE_FIELD, 'Run Spam Smoke Test' );
 
@@ -227,6 +319,7 @@ class SettingsAdmin {
         if ( is_array( $runtime_result ) ) {
             self::render_runtime_health_result( $runtime_result );
         }
+        echo '</div></div></section>';
     }
 
     private static function render_diagnostic_form( $action, $nonce_field, $button_text ) {
@@ -298,7 +391,9 @@ class SettingsAdmin {
         $display_value = array_key_exists( 'display_value', $report_entry ) ? $report_entry['display_value'] : $value;
 
         echo '<tr>';
-        echo '<td><label for="' . esc_attr( self::field_id( $path ) ) . '">' . esc_html( $field['label'] ) . '</label></td>';
+        echo '<td><label for="' . esc_attr( self::field_id( $path ) ) . '">' . esc_html( $field['label'] ) . '</label>';
+        self::render_field_help( $field );
+        echo '</td>';
         echo '<td><code>' . esc_html( $path ) . '</code></td>';
         echo '<td>' . esc_html( SettingsFields::display_value( $field, $display_value, $config ) ) . '</td>';
         echo '<td>' . esc_html( $source ) . '</td>';
@@ -327,10 +422,11 @@ class SettingsAdmin {
 
         if ( $control === 'select' ) {
             echo '<select id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '">';
-            $values = isset( $field['values'] ) && is_array( $field['values'] ) ? $field['values'] : array();
-            foreach ( $values as $option ) {
-                $selected = (string) $value === (string) $option ? ' selected="selected"' : '';
-                echo '<option value="' . esc_attr( $option ) . '"' . $selected . '>' . esc_html( self::option_label( $option ) ) . '</option>';
+            foreach ( $field['select_options'] as $option ) {
+                $option_value = $option['value'];
+                $option_label = $option['label'];
+                $selected = (string) $value === (string) $option_value ? ' selected="selected"' : '';
+                echo '<option value="' . esc_attr( $option_value ) . '"' . $selected . '>' . esc_html( $option_label ) . '</option>';
             }
             echo '</select>';
             return;
@@ -356,7 +452,72 @@ class SettingsAdmin {
         echo '<input id="' . esc_attr( $id ) . '" type="' . esc_attr( $type ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '"' . $attrs . ' class="regular-text" />';
     }
 
-    private static function render_storage_row( $config, $report ) {
+    private static function render_field_help( $field ) {
+        $help = isset( $field['help'] ) && is_array( $field['help'] ) ? $field['help'] : array();
+        if ( empty( $help ) ) {
+            return;
+        }
+
+        $path = isset( $field['path'] ) ? (string) $field['path'] : '';
+        $label = isset( $field['label'] ) ? (string) $field['label'] : $path;
+        $help_id = self::field_id( $path ) . '-help';
+
+        echo '<details class="eforms-setting-help">';
+        echo '<summary aria-label="' . esc_attr( 'Help for ' . $label . ' setting (' . $path . ')' ) . '" aria-controls="' . esc_attr( $help_id ) . '"><span aria-hidden="true">?</span></summary>';
+        echo '<div id="' . esc_attr( $help_id ) . '" class="eforms-setting-help-panel" role="note">';
+        echo '<button type="button" class="button-link eforms-setting-help-dismiss" aria-label="' . esc_attr( 'Dismiss help for ' . $label . ' setting (' . $path . ')' ) . '">' . esc_html( 'Dismiss' ) . '</button>';
+        foreach ( $help as $entry ) {
+            echo '<p>' . esc_html( $entry ) . '</p>';
+        }
+        echo '</div>';
+        echo '</details>';
+    }
+
+    private static function render_admin_styles() {
+        echo '<style>';
+        echo '.eforms-settings-admin{max-width:1120px;}';
+        echo '.eforms-settings-form{max-width:1040px;}';
+        echo '.eforms-settings-nav{position:sticky;z-index:10;top:32px;display:flex;flex-wrap:wrap;gap:6px;max-width:1040px;margin:0 0 24px;padding:10px 0;border-top:1px solid #dcdcde;border-bottom:1px solid #dcdcde;background:#f0f0f1;}';
+        echo '.eforms-settings-nav__link{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border:1px solid #c3c4c7;border-radius:4px;background:#fff;text-decoration:none;}';
+        echo '.eforms-settings-nav__save{margin-left:auto;}';
+        echo '.eforms-settings-section{max-width:1040px;margin:0 0 32px;scroll-margin-top:108px;}';
+        echo '.eforms-settings-panel{overflow:visible;border:1px solid #dcdcde;border-radius:6px;background:#fff;}';
+        echo '.eforms-settings-panel__header{padding:16px 18px;border-bottom:1px solid #f0f0f1;}';
+        echo '.eforms-settings-panel__header h2,.eforms-settings-section-title{margin:0;font-size:18px;line-height:1.3;}';
+        echo '.eforms-settings-panel__body{display:grid;gap:12px;padding:16px;}';
+        echo '.eforms-protection-checks{display:grid;gap:12px;}';
+        echo '.eforms-settings-subtitle{margin:0;font-size:14px;line-height:1.4;}';
+        echo '.eforms-protection-checks-table__row{color:#50575e;}';
+        echo '.eforms-protection-checks-table__status{display:inline-block;padding:2px 6px;border:1px solid #dcdcde;border-radius:4px;background:#f6f7f7;color:#3c434a;}';
+        echo '.eforms-settings-admin .eforms-setting-help{display:inline-block;position:relative;margin-left:6px;vertical-align:middle;}';
+        echo '.eforms-settings-admin .eforms-setting-help summary{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid #8c8f94;border-radius:50%;background:#fff;color:#1d2327;cursor:pointer;font-weight:600;line-height:1;list-style:none;}';
+        echo '.eforms-settings-admin .eforms-setting-help summary::-webkit-details-marker{display:none;}';
+        echo '.eforms-settings-admin .eforms-setting-help summary:focus{box-shadow:0 0 0 2px #2271b1;outline:2px solid transparent;}';
+        echo '.eforms-settings-admin .eforms-setting-help-panel{position:absolute;z-index:20;top:26px;left:0;width:min(360px,70vw);padding:10px 12px;border:1px solid #c3c4c7;background:#fff;box-shadow:0 8px 18px rgba(0,0,0,.16);font-weight:400;}';
+        echo '.eforms-settings-admin .eforms-setting-help-dismiss{float:right;margin-left:12px;}';
+        echo '.eforms-settings-admin .eforms-setting-help-panel p{margin:.35em 0;}';
+        echo '</style>';
+    }
+
+    private static function render_help_script() {
+        echo '<script>';
+        echo '(function(){';
+        echo 'if(window.eformsSettingsHelpReady){return;}';
+        echo 'window.eformsSettingsHelpReady=true;';
+        echo 'function closeHelp(except){document.querySelectorAll(".eforms-setting-help[open]").forEach(function(node){if(node!==except){node.removeAttribute("open");}});}';
+        echo 'document.addEventListener("click",function(event){';
+        echo 'var target=event.target;';
+        echo 'var help=target.closest?target.closest(".eforms-setting-help"):null;';
+        echo 'var dismiss=target.closest?target.closest(".eforms-setting-help-dismiss"):null;';
+        echo 'closeHelp(help);';
+        echo 'if(dismiss&&help){help.removeAttribute("open");var summary=help.querySelector("summary");if(summary){summary.focus();}}';
+        echo '});';
+        echo 'document.addEventListener("keydown",function(event){if(event.key==="Escape"){closeHelp(null);}});';
+        echo '}());';
+        echo '</script>';
+    }
+
+    private static function render_storage_table( $config, $report ) {
         $uploads_dir = Config::value( $config, array( 'uploads', 'dir' ), '' );
         $uploads_entry = isset( $report['uploads.dir'] ) && is_array( $report['uploads.dir'] ) ? $report['uploads.dir'] : array();
         $uploads_source = isset( $uploads_entry['source'] ) ? (string) $uploads_entry['source'] : 'default';
@@ -365,8 +526,16 @@ class SettingsAdmin {
             $status = 'Writable';
         }
 
-        echo '<tr><th colspan="5">' . esc_html( 'Storage' ) . '</th></tr>';
+        echo '<section id="eforms-settings-storage" class="eforms-settings-section">';
+        echo '<div class="eforms-settings-panel">';
+        echo '<div class="eforms-settings-panel__header"><h2 class="eforms-settings-section-title">' . esc_html( 'Storage' ) . '</h2></div>';
+        echo '<div class="eforms-settings-panel__body">';
+        echo '<table class="widefat striped eforms-settings-table" aria-label="' . esc_attr( 'Storage settings' ) . '">';
+        self::render_settings_table_head();
+        echo '<tbody>';
         echo '<tr><td>' . esc_html( 'Storage Base' ) . '</td><td><code>' . esc_html( 'uploads.dir' ) . '</code></td><td>' . esc_html( $status ) . '</td><td>' . esc_html( $uploads_source ) . '</td><td>' . esc_html( 'Read-only' ) . '</td></tr>';
+        echo '</tbody></table>';
+        echo '</div></div></section>';
     }
 
     private static function notice( $type, $message ) {
@@ -383,8 +552,8 @@ class SettingsAdmin {
         return 'eforms-setting-' . preg_replace( '/[^a-z0-9_-]+/i', '-', $path );
     }
 
-    private static function option_label( $value ) {
-        return ucwords( str_replace( '_', ' ', (string) $value ) );
+    private static function section_id( $label ) {
+        return 'eforms-settings-' . strtolower( preg_replace( '/[^a-z0-9_-]+/i', '-', (string) $label ) );
     }
 
     private static function can_manage() {

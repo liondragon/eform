@@ -2,8 +2,8 @@
 /**
  * Upload accept-token policy and MIME/extension validation helpers.
  *
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
- * Spec: Validation pipeline (docs/Canonical_Spec.md#sec-validation-pipeline)
+ * Contract: Uploads
+ * Contract: Validation pipeline
  */
 
 class UploadPolicy {

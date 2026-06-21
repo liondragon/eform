@@ -90,6 +90,14 @@ class SpamSmokeDiagnostic {
                 'strict temporary threshold'
             ),
             self::submit_scenario(
+                'missing-honeypot',
+                self::strict_spam_config( array( 'security' => array( 'min_fill_seconds' => 0 ) ) ),
+                array( 'js_ok' => true, 'honeypot' => false, 'omit_honeypot' => true ),
+                array( 'code' => 'EFORMS_ERR_SPAM', 'soft_reasons' => array( 'honeypot_missing' ), 'commit_calls' => 0 ),
+                'temporary strict spam threshold; honeypot field intentionally omitted',
+                'direct-post soft signal'
+            ),
+            self::submit_scenario(
                 'too-fast',
                 self::strict_spam_config( array( 'security' => array( 'min_fill_seconds' => self::stable_min_fill_seconds() ) ) ),
                 array( 'js_ok' => true, 'honeypot' => false ),
@@ -105,6 +113,7 @@ class SpamSmokeDiagnostic {
                 'temporary strict spam threshold; missing JS plus positive min fill window',
                 'multiple soft reasons'
             ),
+            self::challenge_auto_scenario(),
             self::mint_scenario(
                 'throttle',
                 array_replace_recursive( self::mint_config(), array( 'throttle' => array( 'enable' => true, 'per_ip' => array( 'max_per_minute' => $limit, 'cooldown_seconds' => 0 ) ) ) ),
@@ -129,6 +138,22 @@ class SpamSmokeDiagnostic {
                 'origin hard mode; request intentionally omits Origin',
                 ''
             ),
+        );
+    }
+
+    private static function challenge_auto_scenario() {
+        return array(
+            'kind' => 'challenge-auto',
+            'name' => 'challenge-auto',
+            'config' => self::submission_config(
+                array(
+                    'challenge' => array( 'mode' => 'auto' ),
+                    'security' => array( 'min_fill_seconds' => 0, 'js_hard_mode' => false ),
+                )
+            ),
+            'expect' => array( 'require_challenge' => true, 'soft_reasons' => array( 'js_missing', 'honeypot_missing' ) ),
+            'config_scope' => 'temporary auto challenge; missing JS and omitted honeypot soft signals',
+            'notes' => 'provider not contacted',
         );
     }
 
@@ -158,9 +183,13 @@ class SpamSmokeDiagnostic {
 
     private static function run_scenario( $scenario ) {
         try {
-            $observed = isset( $scenario['kind'] ) && $scenario['kind'] === 'mint'
-                ? self::run_mint_scenario( $scenario )
-                : self::run_submit_scenario( $scenario );
+            if ( isset( $scenario['kind'] ) && $scenario['kind'] === 'mint' ) {
+                $observed = self::run_mint_scenario( $scenario );
+            } elseif ( isset( $scenario['kind'] ) && $scenario['kind'] === 'challenge-auto' ) {
+                $observed = self::run_challenge_auto_scenario( $scenario );
+            } else {
+                $observed = self::run_submit_scenario( $scenario );
+            }
         } catch ( Throwable $e ) {
             $observed = array( 'ok' => false, 'observed' => 'exception', 'notes' => $e->getMessage() );
         }
@@ -176,6 +205,50 @@ class SpamSmokeDiagnostic {
         );
     }
 
+    private static function run_challenge_auto_scenario( $scenario ) {
+        return self::with_config(
+            $scenario['config'],
+            function () use ( $scenario ) {
+                $expect = isset( $scenario['expect'] ) && is_array( $scenario['expect'] ) ? $scenario['expect'] : array();
+                $mint = Security::mint_hidden_record(
+                    self::FORM_ID,
+                    null,
+                    array( 'client_ip' => self::SUBMIT_IP, 'request_id' => self::request_id() )
+                );
+                if ( ! is_array( $mint ) || empty( $mint['ok'] ) ) {
+                    return array(
+                        'ok' => false,
+                        'observed' => isset( $mint['code'] ) ? (string) $mint['code'] : 'mint_failed',
+                        'notes' => 'could not mint synthetic token',
+                    );
+                }
+
+                $post = array(
+                    FormProtocol::FIELD_TOKEN => $mint['token'],
+                    FormProtocol::FIELD_INSTANCE_ID => $mint['instance_id'],
+                    FormProtocol::FIELD_TIMESTAMP => (string) $mint['issued_at'],
+                );
+                $result = Security::token_validate(
+                    $post,
+                    self::FORM_ID,
+                    array( 'client_ip' => self::SUBMIT_IP, 'request_id' => self::request_id() )
+                );
+                $soft_reasons = isset( $result['soft_reasons'] ) && is_array( $result['soft_reasons'] ) ? $result['soft_reasons'] : array();
+                $requires_challenge = ! empty( $result['require_challenge'] );
+                $ok = $requires_challenge === ! empty( $expect['require_challenge'] );
+                foreach ( self::expect_list( $expect, 'soft_reasons' ) as $soft_reason ) {
+                    $ok = $ok && in_array( $soft_reason, $soft_reasons, true );
+                }
+
+                return array(
+                    'ok' => $ok,
+                    'observed' => ( $requires_challenge ? 'required ' : 'not required ' ) . implode( ',', $soft_reasons ),
+                    'notes' => isset( $scenario['notes'] ) ? (string) $scenario['notes'] : '',
+                );
+            }
+        );
+    }
+
     private static function run_submit_scenario( $scenario ) {
         return self::with_config(
             $scenario['config'],
@@ -186,6 +259,7 @@ class SpamSmokeDiagnostic {
                 $result = self::submit(
                     ! empty( $input['js_ok'] ),
                     ! empty( $input['honeypot'] ),
+                    ! empty( $input['omit_honeypot'] ),
                     array(
                         'ledger_reserve' => function () {
                             return array( 'ok' => true );
@@ -284,7 +358,7 @@ class SpamSmokeDiagnostic {
         return array( 'ok' => true );
     }
 
-    private static function submit( $js_ok, $honeypot, $overrides ) {
+    private static function submit( $js_ok, $honeypot, $omit_honeypot, $overrides ) {
         $mint = Security::mint_hidden_record(
             self::FORM_ID,
             null,
@@ -311,6 +385,8 @@ class SpamSmokeDiagnostic {
         }
         if ( $honeypot ) {
             $post[ FormProtocol::FIELD_HONEYPOT ] = 'bot';
+        } elseif ( ! $omit_honeypot ) {
+            $post[ FormProtocol::FIELD_HONEYPOT ] = '';
         }
         $post[ FormProtocol::FIELD_TOKEN ] = $mint['token'];
         $post[ FormProtocol::FIELD_INSTANCE_ID ] = $mint['instance_id'];
@@ -490,6 +566,10 @@ class SpamSmokeDiagnostic {
         $expect = isset( $scenario['expect'] ) && is_array( $scenario['expect'] ) ? $scenario['expect'] : array();
         if ( isset( $scenario['kind'] ) && $scenario['kind'] === 'mint' ) {
             return self::expect_int( $expect, 'status', 0 ) . ' ' . self::expect_string( $expect, 'code', '' );
+        }
+        if ( isset( $scenario['kind'] ) && $scenario['kind'] === 'challenge-auto' ) {
+            $required = ! empty( $expect['require_challenge'] ) ? 'required' : 'not required';
+            return trim( $required . ' ' . implode( ',', self::expect_list( $expect, 'soft_reasons' ) ) );
         }
 
         $code = self::expect_string( $expect, 'code', '' );

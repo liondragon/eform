@@ -2,8 +2,8 @@
 /**
  * Security helpers for token minting and validation.
  *
- * Spec: Hidden-mode contract (docs/Canonical_Spec.md#sec-hidden-mode)
- * Spec: Security invariants (docs/Canonical_Spec.md#sec-security-invariants)
+ * Contract: Hidden-mode contract
+ * Contract: Security invariants
  */
 
 require_once __DIR__ . '/../Config.php';
@@ -11,6 +11,7 @@ require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
 require_once __DIR__ . '/Entropy.php';
+require_once __DIR__ . '/Honeypot.php';
 require_once __DIR__ . '/OriginPolicy.php';
 require_once __DIR__ . '/Throttle.php';
 require_once __DIR__ . '/TimingSignals.php';
@@ -22,7 +23,7 @@ class Security
     const TOKEN_REGEX = '/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i';
     const INSTANCE_ID_REGEX = '/^[A-Za-z0-9_-]{22,32}$/';
     const TURNSTILE_RESPONSE_FIELD = 'cf-turnstile-response';
-    const SOFT_REASON_ORDER = array('min_fill_time', 'age_advisory', 'js_missing', 'origin_soft');
+    const SOFT_REASON_ORDER = array('min_fill_time', 'age_advisory', 'honeypot_missing', 'js_missing', 'origin_soft');
 
     /**
      * Mint and persist a hidden-mode token record.
@@ -237,6 +238,7 @@ class Security
         if (isset($timing_eval['soft_reasons']) && is_array($timing_eval['soft_reasons'])) {
             $soft_reasons = array_merge($soft_reasons, $timing_eval['soft_reasons']);
         }
+        $soft_reasons = array_merge($soft_reasons, Honeypot::soft_reasons($post));
 
         $soft_reasons = self::normalize_soft_reasons($soft_reasons);
         $require_challenge = self::challenge_required($config, $soft_reasons);

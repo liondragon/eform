@@ -2,9 +2,9 @@
 /**
  * Success handling for PRG (Post-Redirect-Get) flow.
  *
- * Spec: Success behavior (docs/Canonical_Spec.md#sec-success)
- * Spec: Result page success flow (docs/Canonical_Spec.md#sec-success-flow)
- * Spec: Cache-safety (docs/Canonical_Spec.md#sec-cache-safety)
+ * Contract: Success behavior
+ * Contract: Result page success flow
+ * Contract: Cache-safety
  */
 
 require_once __DIR__ . '/../ErrorMessages.php';
@@ -25,8 +25,8 @@ class Success {
     /**
      * Execute PRG redirect after successful submission.
      *
-     * Spec: PRG status is fixed at 303. Success responses MUST satisfy cache-safety.
-     * Spec: Redirects via wp_safe_redirect to the plugin-owned result page.
+     * Contract: PRG status is fixed at 303. Success responses MUST satisfy cache-safety.
+     * Contract: Redirects via wp_safe_redirect to the plugin-owned result page.
      *
      * @param array $context Template context with form identity.
      * @param array $options Optional overrides for testing.
@@ -116,7 +116,7 @@ class Success {
     /**
      * Emit cache-safety headers for success responses.
      *
-     * Spec: Success responses MUST satisfy cache-safety (Cache-Control: private, no-store, max-age=0).
+     * Contract: Success responses MUST satisfy cache-safety (Cache-Control: private, no-store, max-age=0).
      *
      * @return bool True if headers were sent successfully.
      */

@@ -5,7 +5,7 @@
  * Educational note: descriptors are pure data; upload handlers are stubbed
  * until the uploads subsystem lands.
  *
- * Spec: Field types (docs/Canonical_Spec.md#sec-field-types)
+ * Contract: Field types
  */
 
 class FieldTypes_Upload {

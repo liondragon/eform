@@ -2,9 +2,9 @@
 /**
  * Unit tests for shipped template fixtures and registry completeness.
  *
- * Spec: Template validation (docs/Canonical_Spec.md#sec-template-validation)
- * Spec: Templates to include (docs/Canonical_Spec.md#sec-templates-to-include)
- * Spec: Central registries (docs/Canonical_Spec.md#sec-central-registries)
+ * Contract: Template validation
+ * Contract: Templates to include
+ * Contract: Central registries
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -52,8 +52,8 @@ eforms_test_assert( ! empty( $files ), 'Shipped templates directory should inclu
 
 $contact = $base_dir . '/contact.json';
 $quote   = $base_dir . '/quote-request.json';
-eforms_test_assert( in_array( $contact, $files, true ), 'contact.json must be shipped per spec.' );
-eforms_test_assert( in_array( $quote, $files, true ), 'quote-request.json must be shipped per spec.' );
+    eforms_test_assert( in_array( $contact, $files, true ), 'contact.json must be shipped.' );
+    eforms_test_assert( in_array( $quote, $files, true ), 'quote-request.json must be shipped.' );
 
 foreach ( $files as $path ) {
     $slug = basename( $path, '.json' );

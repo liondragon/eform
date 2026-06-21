@@ -2,7 +2,7 @@
 /**
  * Shared locked file-write mechanics for logging sinks.
  *
- * Spec: Logging (docs/Canonical_Spec.md#sec-logging)
+ * Contract: Logging
  */
 
 class FileSink {

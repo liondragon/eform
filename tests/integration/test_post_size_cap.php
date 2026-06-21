@@ -2,7 +2,7 @@
 /**
  * Integration test for POST size cap enforcement.
  *
- * Spec: POST size cap (docs/Canonical_Spec.md#sec-post-size-cap)
+ * Contract: POST size cap
  */
 
 require_once __DIR__ . '/../bootstrap.php';

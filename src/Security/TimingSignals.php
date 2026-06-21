@@ -2,7 +2,7 @@
 /**
  * Timing-derived soft signals for spam decisioning.
  *
- * Spec: Timing checks (docs/Canonical_Spec.md#sec-timing-checks)
+ * Contract: Timing checks
  */
 
 require_once __DIR__ . '/../Config.php';

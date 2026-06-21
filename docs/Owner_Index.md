@@ -1,6 +1,20 @@
 # Owner Index
 
-Reusable owner map only. Behavior remains authoritative in `docs/Canonical_Spec.md`.
+This is the canonical anti-drift rulebook for reusable owners, extension paths, forbidden local seams, and verification hooks.
+
+Behavior authority lives in `docs/overview.md`, this owner map, `docs/Architecture_Router.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests.
+
+## Contract Carrier Completion Rule
+
+For subsystem creation/deletion, shared runtime work, admin surface changes, config owner changes, persistence/storage-owner changes, public endpoint behavior, or cross-owner seams:
+
+- update `docs/Architecture_Router.md` when the runtime center, subsystem boundary, dependency direction, or project doctrine changes
+- update `docs/Owner_Index.md` when a reusable owner, extension path, forbidden local seam, or verification hook changes
+- update `docs/overview.md` when operator-facing behavior changes
+- update `docs/contracts/*` when stable public surfaces, template contracts, storage/runtime contracts, machine-readable outputs, or compatibility assumptions change
+- update affected code-owner docs or READMEs when they exist
+
+If one remains unchanged, the handoff must explicitly say why.
 
 | Artifact / Feature | Canonical Owner | Allowed Extension Path | Forbidden Local Seams | Verification Hook |
 |--------------------|-----------------|------------------------|-----------------------|-------------------|

@@ -2,7 +2,7 @@
 /**
  * Integration tests for the declined-review wp-admin surface.
  *
- * Spec: Declined Review (docs/Canonical_Spec.md#sec-declined-review)
+ * Contract: Declined Review
  */
 
 require_once __DIR__ . '/../bootstrap.php';

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Gc/GcRunner.php';
 require_once __DIR__ . '/../Logging/JsonlLogger.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
+require_once __DIR__ . '/../Security/Challenge.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Security/Throttle.php';
 require_once __DIR__ . '/../Submission/Ledger.php';
@@ -24,6 +25,7 @@ class RuntimeHealthDiagnostic {
             self::check_gc_readiness(),
             self::check_cli_bootstrap(),
             self::check_config_sources(),
+            self::check_challenge_config(),
         );
 
         return self::result( $checks );
@@ -166,6 +168,22 @@ class RuntimeHealthDiagnostic {
         $uploads = isset( $report['uploads.dir'] ) && is_array( $report['uploads.dir'] ) ? $report['uploads.dir'] : array();
         $source = isset( $uploads['source'] ) ? (string) $uploads['source'] : 'unknown';
         return self::check( 'config-sources', 'PASS', 'provenance available', 'effective config provenance available', 'uploads.dir source=' . $source );
+    }
+
+    private static function check_challenge_config() {
+        $config = Config::get();
+        $mode = Config::value( $config, array( 'challenge', 'mode' ), 'off' );
+        $mode = is_string( $mode ) && $mode !== '' ? $mode : 'off';
+        if ( $mode === 'off' ) {
+            return self::check( 'challenge-config', 'PASS', 'mode off', 'keys required only when challenge enabled', 'challenge disabled' );
+        }
+
+        $status = Challenge::configuration_status( $config );
+        if ( ! empty( $status['configured'] ) ) {
+            return self::check( 'challenge-config', 'PASS', 'mode ' . $mode . ' configured', 'Turnstile site and secret keys configured', 'provider=turnstile' );
+        }
+
+        return self::check( 'challenge-config', 'WARN', 'mode ' . $mode . ' missing keys', 'Turnstile site and secret keys configured', 'set challenge.site_key and challenge.secret_key' );
     }
 
     private static function dir_usable( $uploads_dir, $name ) {

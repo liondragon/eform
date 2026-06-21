@@ -2,8 +2,8 @@
 /**
  * Upload storage and retention helpers.
  *
- * Spec: Uploads (docs/Canonical_Spec.md#sec-uploads)
- * Spec: Uploads filename policy (docs/Canonical_Spec.md#sec-uploads-filenames)
+ * Contract: Uploads
+ * Contract: Uploads filename policy
  */
 
 require_once __DIR__ . '/../Helpers.php';

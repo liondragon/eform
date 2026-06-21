@@ -2,7 +2,7 @@
 /**
  * Private uploads directory hardening.
  *
- * Spec: Shared lifecycle and storage contract (docs/Canonical_Spec.md#sec-shared-lifecycle)
+ * Contract: Shared lifecycle and storage contract
  */
 
 class PrivateDir {

@@ -2,8 +2,8 @@
 /**
  * Integration test for accessibility error summary rendering.
  *
- * Spec: Accessibility (docs/Canonical_Spec.md#sec-accessibility)
- * Spec: Assets (docs/Canonical_Spec.md#sec-assets)
+ * Contract: Accessibility
+ * Contract: Assets
  */
 
 require_once __DIR__ . '/../bootstrap.php';
