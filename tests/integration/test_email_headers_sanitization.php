@@ -119,6 +119,7 @@ eforms_test_assert( $from === 'From: Ada Injected <contact@example.com>', 'From 
 eforms_test_assert( $reply_to === 'Reply-To: ada@example.com', 'Reply-To should default to the canonical email field when no fixed reply_to_address is configured.' );
 eforms_test_assert( $soft_reasons === 'X-EForms-Soft-Reasons: origin_soft', 'Soft reason header should keep only safe deduplicated reason tokens.' );
 eforms_test_assert( strpos( implode( "\n", $headers ), 'Bcc:' ) === false, 'Soft reason header should not allow injected headers.' );
+eforms_test_assert( strpos( $body, '<!doctype html>' ) !== false && strpos( $body, '<html>' ) !== false && strpos( $body, '<body>' ) !== false, 'HTML body should render as a complete HTML document.' );
 eforms_test_assert( strpos( $body, '<table role="presentation"' ) !== false, 'HTML body should render included fields as a table.' );
 eforms_test_assert( strpos( $body, 'Form:' ) === false, 'Default email body should not include automatic form metadata.' );
 eforms_test_assert( strpos( $body, 'Submission:' ) === false, 'Default email body should not include automatic submission metadata.' );
@@ -127,6 +128,55 @@ eforms_test_assert( strpos( $body, '<th scope="row" style="font-weight:bold;text
 eforms_test_assert( strpos( $body, '<a href="mailto:ada@example.com">ada@example.com</a>' ) !== false, 'HTML body should render email values as mailto links.' );
 eforms_test_assert( strpos( $body, 'Sent from:' ) !== false, 'HTML body should render ip with a friendly label.' );
 eforms_test_assert( strpos( $body, 'name:' ) === false, 'HTML body should not render backend field keys as labels.' );
+eforms_test_assert( isset( $result['alt_body'] ) && strpos( $result['alt_body'], 'Name:' ) !== false && strpos( $result['alt_body'], '<table' ) === false, 'HTML email should carry a plain-text alternative body.' );
+eforms_test_assert( isset( $call['alt_body'] ) && $call['alt_body'] === $result['alt_body'], 'wp_mail should receive the rendered plain-text alternative through PHPMailer.' );
+eforms_test_assert( empty( $GLOBALS['eforms_test_hooks']['action']['phpmailer_init'] ), 'Temporary PHPMailer AltBody hook should be removed after send.' );
+
+eforms_test_reset_mail();
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config ) {
+        $config['email']['from_address'] = 'contact@example.com';
+        $config['email']['html'] = false;
+        $config['email']['reply_to_address'] = 'legacy-team@example.com';
+        return $config;
+    }
+);
+Config::reset_for_tests();
+$auto_result = Emailer::send( $context, $values, $security, array( 'client_ip' => '203.0.113.42' ), Config::get() );
+$auto_headers = implode( "\n", $auto_result['headers'] );
+eforms_test_assert( strpos( $auto_headers, 'Reply-To: legacy-team@example.com' ) !== false, 'Auto Reply-To mode should preserve existing fixed-address precedence.' );
+
+eforms_test_reset_mail();
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config ) {
+        $config['email']['from_address'] = 'contact@example.com';
+        $config['email']['html'] = false;
+        $config['email']['reply_to_mode'] = 'fixed';
+        $config['email']['reply_to_address'] = 'team@example.com';
+        return $config;
+    }
+);
+Config::reset_for_tests();
+$fixed_result = Emailer::send( $context, $values, $security, array( 'client_ip' => '203.0.113.42' ), Config::get() );
+$fixed_headers = implode( "\n", $fixed_result['headers'] );
+eforms_test_assert( strpos( $fixed_headers, 'Reply-To: team@example.com' ) !== false, 'Fixed Reply-To mode should use the configured address.' );
+
+eforms_test_reset_mail();
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config ) {
+        $config['email']['from_address'] = 'contact@example.com';
+        $config['email']['html'] = false;
+        $config['email']['reply_to_mode'] = 'none';
+        return $config;
+    }
+);
+Config::reset_for_tests();
+$none_result = Emailer::send( $context, $values, $security, array( 'client_ip' => '203.0.113.42' ), Config::get() );
+$none_headers = implode( "\n", $none_result['headers'] );
+eforms_test_assert( strpos( $none_headers, 'Reply-To:' ) === false, 'None Reply-To mode should omit the Reply-To header.' );
 
 eforms_test_remove_tree( $template_dir );
 

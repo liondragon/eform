@@ -66,7 +66,7 @@ Renderer-generated names use `{form_id}[{field_key}]`, appending `[]` only for m
 - `email.to` is a string email address or list of string email addresses. Scalars normalize to a single-element list.
 - Addresses validate as single addresses through WordPress `is_email()`; display names and comma-separated lists are not accepted.
 - `email.subject` and `email.email_template` are required strings.
-- `email.email_template` references `templates/email/{name}.txt.php` or `{name}.html.php`.
+- `email.email_template` references the paired `templates/email/{name}.txt.php` and `{name}.html.php` bodies. HTML sends use the text body as the plain-text alternative.
 - `email.include_fields` may reference template field keys plus `ip`, `submitted_at`, `form_id`, `instance_id`, and `submission_id`.
 - `email.display_format_tel` supports `xxx-xxx-xxxx`, `(xxx) xxx-xxxx`, and `xxx.xxx.xxxx`.
 
@@ -83,4 +83,3 @@ Renderer-generated names use `{form_id}[{field_key}]`, appending `[]` only for m
 - Consumers resolve handlers through registry `resolve()` helpers.
 - Unknown handlers throw deterministic `RuntimeException` payloads containing `type`, `id`, `registry`, and `owner_path`.
 - Do not add public filters for registry mutation.
-

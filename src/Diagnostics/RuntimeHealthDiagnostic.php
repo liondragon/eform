@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../Email/Templates.php';
 require_once __DIR__ . '/../Gc/GcRunner.php';
 require_once __DIR__ . '/../Logging/JsonlLogger.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
@@ -22,6 +23,7 @@ class RuntimeHealthDiagnostic {
             self::check_private_storage(),
             self::check_runtime_dirs(),
             self::check_templates(),
+            self::check_mail_format(),
             self::check_gc_readiness(),
             self::check_cli_bootstrap(),
             self::check_config_sources(),
@@ -135,6 +137,26 @@ class RuntimeHealthDiagnostic {
         }
 
         return self::check( 'templates', 'PASS', count( $files ) . ' valid', 'all shipped templates valid', '' );
+    }
+
+    private static function check_mail_format() {
+        $html = Templates::render( 'default', true, array() );
+        $text = Templates::render( 'default', false, array() );
+        if ( ! is_array( $html ) || empty( $html['ok'] ) || ! is_array( $text ) || empty( $text['ok'] ) ) {
+            return self::check( 'mail-format', 'WARN', 'template pair incomplete', 'HTML template with text alternative', 'default email template should ship both HTML and text bodies' );
+        }
+
+        $html_body = isset( $html['body'] ) ? $html['body'] : '';
+        if ( ! is_string( $html_body ) ) {
+            return self::check( 'mail-format', 'WARN', 'html unreadable', 'HTML template with text alternative', 'default HTML email template could not be inspected' );
+        }
+
+        $has_document = stripos( $html_body, '<html' ) !== false && stripos( $html_body, '<body' ) !== false;
+        if ( ! $has_document ) {
+            return self::check( 'mail-format', 'WARN', 'html fragment', 'HTML template with text alternative', 'wrap default HTML email in a full document' );
+        }
+
+        return self::check( 'mail-format', 'PASS', 'full html + text alternative', 'HTML template with text alternative', 'SpamAssassin headers are added by the mail stack, not eForms' );
     }
 
     private static function check_gc_readiness() {

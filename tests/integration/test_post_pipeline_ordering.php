@@ -30,6 +30,7 @@ $post = array(
     'instance_id' => $mint['instance_id'],
     'timestamp' => (string) $mint['issued_at'],
     'js_ok' => '1',
+    FormProtocol::FIELD_HONEYPOT => '',
     'demo' => array(
         'name' => 'Ada',
     ),

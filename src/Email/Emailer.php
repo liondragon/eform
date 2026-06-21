@@ -103,6 +103,15 @@ class Emailer {
 
         $body = self::expand_tokens( $rendered['body'], $tokens );
         $body = self::normalize_body( $body, $is_html );
+        $alt_body = '';
+        if ( $is_html ) {
+            $alt_rendered = Templates::render( $template_name, false, $template_data );
+            if ( ! is_array( $alt_rendered ) || empty( $alt_rendered['ok'] ) ) {
+                return self::failure( 'template_render_failed', $alt_rendered );
+            }
+            $alt_body = self::expand_tokens( $alt_rendered['body'], $tokens );
+            $alt_body = self::normalize_body( $alt_body, false );
+        }
         $attachment_policy = self::select_attachments( $context, $values, $config );
         $attachments = isset( $attachment_policy['attachments'] ) && is_array( $attachment_policy['attachments'] )
             ? $attachment_policy['attachments']
@@ -111,6 +120,9 @@ class Emailer {
             ? $attachment_policy['overflow_names']
             : array();
         $body = self::append_attachment_overflow_summary( $body, $overflow_names, $is_html );
+        if ( $alt_body !== '' ) {
+            $alt_body = self::append_attachment_overflow_summary( $alt_body, $overflow_names, false );
+        }
 
         $headers = self::build_headers( $config, $values, $canonical['fields'], $email, $request, $soft_signal );
         if ( $headers === null ) {
@@ -118,6 +130,7 @@ class Emailer {
         }
 
         self::register_failed_hook();
+        $alt_body_hook = self::register_alt_body_hook( $alt_body );
         self::$last_context = array(
             'form_id' => is_string( $form_id ) ? $form_id : '',
             'submission_id' => is_string( $submission_id ) ? $submission_id : '',
@@ -136,6 +149,8 @@ class Emailer {
             $error_class = get_class( $exception );
             $error_message = $exception->getMessage();
             $ok = false;
+        } finally {
+            self::remove_alt_body_hook( $alt_body_hook );
         }
 
         if ( ! $ok ) {
@@ -153,6 +168,7 @@ class Emailer {
                 'to' => $to_list,
                 'headers' => $headers,
                 'body' => $body,
+                'alt_body' => $alt_body,
                 'attachments' => $attachments,
                 'attachments_overflow' => $overflow_names,
             ) );
@@ -164,6 +180,7 @@ class Emailer {
             'subject' => $subject,
             'body' => $body,
             'headers' => $headers,
+            'alt_body' => $alt_body,
             'to' => $to_list,
             'attachments' => $attachments,
             'attachments_overflow' => $overflow_names,
@@ -196,6 +213,29 @@ class Emailer {
         if ( function_exists( 'add_action' ) ) {
             add_action( 'wp_mail_failed', array( 'Emailer', 'handle_wp_mail_failed' ), 10, 1 );
         }
+    }
+
+    private static function register_alt_body_hook( $alt_body ) {
+        if ( ! is_string( $alt_body ) || trim( $alt_body ) === '' || ! function_exists( 'add_action' ) ) {
+            return null;
+        }
+
+        $callback = function ( $phpmailer ) use ( $alt_body ) {
+            if ( is_object( $phpmailer ) ) {
+                $phpmailer->AltBody = $alt_body;
+            }
+        };
+        add_action( 'phpmailer_init', $callback, 10, 1 );
+
+        return $callback;
+    }
+
+    private static function remove_alt_body_hook( $callback ) {
+        if ( $callback === null || ! function_exists( 'remove_action' ) ) {
+            return;
+        }
+
+        remove_action( 'phpmailer_init', $callback, 10 );
     }
 
     private static function phpmailer_error_info() {
@@ -696,6 +736,12 @@ class Emailer {
     }
 
     private static function resolve_reply_to( $config, $values, $canonical_fields, $email, $request ) {
+        $mode = Config::value( $config, array( 'email', 'reply_to_mode' ), 'auto' );
+        $mode = is_string( $mode ) && in_array( $mode, array( 'auto', 'field', 'fixed', 'none' ), true ) ? $mode : 'auto';
+        if ( $mode === 'none' ) {
+            return '';
+        }
+
         $reply_to = Config::value( $config, array( 'email', 'reply_to_address' ) );
         if ( is_array( $reply_to ) ) {
             $reply_to = '';
@@ -703,11 +749,16 @@ class Emailer {
 
         $reply_to = self::sanitize_email_value( $reply_to );
 
-        if ( $reply_to !== '' ) {
+        if ( $mode === 'fixed' || ( $mode === 'auto' && $reply_to !== '' ) ) {
             if ( self::is_valid_email( $reply_to ) ) {
                 return $reply_to;
             }
-            self::warn_header_value( 'reply_to_address_invalid', $reply_to, $config, $request );
+            if ( $reply_to !== '' ) {
+                self::warn_header_value( 'reply_to_address_invalid', $reply_to, $config, $request );
+            }
+            if ( $mode === 'fixed' ) {
+                return '';
+            }
         }
 
         $reply_field = Config::value( $config, array( 'email', 'reply_to_field' ) );

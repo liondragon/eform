@@ -3,6 +3,13 @@ declare(strict_types=1);
 defined('ABSPATH') || exit;
 // Rendered when email.email_template="default".
 ?>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>eForms submission</title>
+</head>
+<body>
 <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
 <?php foreach ($display_rows as $row):
     $label = isset($row['label']) ? (string) $row['label'] : '';
@@ -21,3 +28,5 @@ defined('ABSPATH') || exit;
 </tr>
 <?php endforeach; ?>
 </table>
+</body>
+</html>

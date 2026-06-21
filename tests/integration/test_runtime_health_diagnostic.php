@@ -20,17 +20,17 @@ $rows = RuntimeHealthDiagnostic::rows( $result );
 
 eforms_test_assert( $result['ok'] === true, 'Runtime health should pass with warnings in the default test runtime.' );
 eforms_test_assert( $result['exit_code'] === 0, 'Warn-only runtime health should expose exit_code=0.' );
-eforms_test_assert( count( $result['checks'] ) === 8, 'Runtime health should run the focused readiness check set.' );
+eforms_test_assert( count( $result['checks'] ) === 9, 'Runtime health should run the focused readiness check set.' );
 eforms_test_assert( $command_result['checks'] === $result['checks'], 'CLI adapter should expose the shared runtime health result without its own check implementation.' );
 eforms_test_assert( function_exists( 'eforms_cli_doctor' ), 'Bootstrap should expose the wp eforms doctor handler.' );
-eforms_test_assert( RuntimeHealthDiagnostic::summary_line( $result ) === '7 passed, 1 warning, 0 failed', 'Runtime health should summarize pass/warn/fail counts.' );
+eforms_test_assert( RuntimeHealthDiagnostic::summary_line( $result ) === '8 passed, 1 warning, 0 failed', 'Runtime health should summarize pass/warn/fail counts.' );
 
 $checks = array();
 foreach ( $result['checks'] as $check ) {
     $checks[ $check['name'] ] = $check;
 }
 
-foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'templates', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
+foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'templates', 'mail-format', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
     eforms_test_assert( isset( $checks[ $name ] ), 'Missing runtime health check: ' . $name );
     eforms_test_assert( isset( $checks[ $name ]['observed'] ) && $checks[ $name ]['observed'] !== '', 'Runtime health should report observed result: ' . $name );
     eforms_test_assert( isset( $checks[ $name ]['expected'] ) && $checks[ $name ]['expected'] !== '', 'Runtime health should report expected result: ' . $name );
@@ -39,6 +39,7 @@ foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'templates',
 eforms_test_assert( $checks['cli-bootstrap']['result'] === 'WARN', 'Non-CLI test runtime should produce a CLI bootstrap warning.' );
 eforms_test_assert( $checks['gc-readiness']['result'] === 'PASS', 'Fresh runtime storage should pass GC dry-run readiness.' );
 eforms_test_assert( $checks['runtime-dirs']['notes'] === 'temporary probes cleaned', 'Runtime dir check should report probe cleanup.' );
+eforms_test_assert( $checks['mail-format']['result'] === 'PASS', 'Default mail format should pass with full HTML and text alternative.' );
 eforms_test_assert( $checks['challenge-config']['result'] === 'PASS', 'Challenge config should pass when challenge mode is off.' );
 
 foreach ( $rows as $row ) {

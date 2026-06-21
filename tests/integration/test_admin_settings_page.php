@@ -144,6 +144,12 @@ eforms_test_assert( strpos( $html, 'Help for Mode' ) !== false, 'Setting help sh
 eforms_test_assert( strpos( $html, 'Help for Mode setting (challenge.mode)' ) !== false, 'Setting help labels should disambiguate duplicate labels.' );
 eforms_test_assert( strpos( $html, 'Available options: Off, Auto, Always Post.' ) !== false, 'Select help should derive available options from field metadata.' );
 eforms_test_assert( strpos( $html, 'Auto: only suspicious submissions are asked to verify.' ) !== false, 'Challenge help should explain available options in plain language.' );
+eforms_test_assert( strpos( $html, 'Email' ) !== false && strpos( $html, 'Reply-To mode' ) !== false && strpos( $html, 'HTML email' ) !== false, 'Settings page should expose email formatting and reply-to controls.' );
+eforms_test_assert( strpos( $html, 'Available options: Auto, Field, Fixed, None.' ) !== false, 'Reply-To mode help should derive available options from field metadata.' );
+eforms_test_assert( strpos( $html, 'Auto: uses the fixed Reply-To address when set; otherwise uses the submitted email field.' ) !== false, 'Reply-To mode help should explain the compatibility-preserving auto mode.' );
+eforms_test_assert( strpos( $html, 'Used by Auto when set, and required when Reply-To mode is Fixed.' ) !== false, 'Fixed Reply-To help should match auto/fixed precedence.' );
+eforms_test_assert( strpos( $html, 'Used by Field mode, and by Auto when no fixed Reply-To address is set.' ) !== false, 'Reply-To field help should match auto/field precedence.' );
+eforms_test_assert( strpos( $html, 'On: eForms sends HTML with a plain-text alternative for better mail compatibility.' ) !== false, 'HTML email help should explain the multipart plain-text alternative.' );
 eforms_test_assert( strpos( $html, 'Spam Protection' ) !== false && strpos( $html, 'Rejection threshold' ) !== false, 'Settings page should expose spam protection controls.' );
 eforms_test_assert( strpos( $html, 'Controls how many suspicious signals are needed' ) !== false, 'Spam threshold help should explain practical effect.' );
 eforms_test_assert( strpos( $html, 'Spam rejection response' ) !== false, 'Spam response setting should be labelled by the decision it controls.' );
@@ -188,7 +194,7 @@ $reset();
 AdminSettingsStore::replace_overrides( array( 'logging' => array( 'mode' => 'jsonl' ) ) );
 $doctor_html = SettingsAdmin::render_html( $runtime_health_post() );
 eforms_test_assert( strpos( $doctor_html, 'eforms-runtime-health-results' ) !== false, 'Runtime health run should render a compact result table.' );
-foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'templates', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
+foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'templates', 'mail-format', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
     eforms_test_assert( strpos( $doctor_html, '>' . $name . '<' ) !== false, 'Runtime health result table should include check: ' . $name );
 }
 eforms_test_assert( substr_count( $doctor_html, '>FAIL<' ) === 0, 'Default runtime health run should not render failing rows.' );
@@ -205,6 +211,11 @@ $all_values = array(
     'logging.mode' => 'jsonl',
     'logging.level' => '2',
     'logging.retention_days' => '45',
+    'email.from_address' => 'contact@example.com',
+    'email.html' => '1',
+    'email.reply_to_mode' => 'fixed',
+    'email.reply_to_address' => 'team@example.com',
+    'email.reply_to_field' => 'email',
     'spam.soft_fail_threshold' => '3',
     'security.min_fill_seconds' => '4',
     'security.honeypot_response' => 'hard_fail',
@@ -222,6 +233,7 @@ $stored = AdminSettingsStore::read_overrides();
 eforms_test_assert( $stored['declined_review']['enable'] === true, 'Declined review checkbox should save true.' );
 eforms_test_assert( $stored['declined_review']['retention_days'] === 14, 'Declined review retention should save as int.' );
 eforms_test_assert( $stored['logging']['mode'] === 'jsonl' && $stored['logging']['level'] === 2 && $stored['logging']['retention_days'] === 45, 'Logging group should save.' );
+eforms_test_assert( $stored['email']['from_address'] === 'contact@example.com' && $stored['email']['html'] === true && $stored['email']['reply_to_mode'] === 'fixed' && $stored['email']['reply_to_address'] === 'team@example.com' && $stored['email']['reply_to_field'] === 'email', 'Email group should save.' );
 eforms_test_assert( $stored['spam']['soft_fail_threshold'] === 3 && $stored['security']['min_fill_seconds'] === 4 && $stored['security']['honeypot_response'] === 'hard_fail', 'Spam protection group should save.' );
 eforms_test_assert( $stored['challenge']['mode'] === 'auto' && $stored['challenge']['site_key'] === 'site-key' && $stored['challenge']['secret_key'] === 'stored-secret', 'Challenge group should save.' );
 eforms_test_assert( $stored['throttle']['enable'] === true && $stored['throttle']['per_ip']['max_per_minute'] === 60 && $stored['throttle']['per_ip']['cooldown_seconds'] === 5, 'Throttle group should save.' );

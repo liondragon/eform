@@ -93,6 +93,78 @@ class SettingsFields {
                     ),
                 ),
             ),
+            'email' => array(
+                'label' => 'Email',
+                'fields' => array(
+                    self::field(
+                        'email.from_address',
+                        'From address',
+                        'text',
+                        $schema,
+                        array(
+                            'help' => array(
+                                'Sets the address eForms uses as the sender for notification emails.',
+                                'Leave blank to use no-reply at this site domain.',
+                                'Use an address on this site domain so mail providers are less likely to treat the message as forged.',
+                            ),
+                        )
+                    ),
+                    self::field(
+                        'email.html',
+                        'HTML email',
+                        'checkbox',
+                        $schema,
+                        array(
+                            'help' => array(
+                                'Controls whether notification emails are sent as formatted HTML.',
+                                'Off: eForms sends plain-text email only.',
+                                'On: eForms sends HTML with a plain-text alternative for better mail compatibility.',
+                            ),
+                        )
+                    ),
+                    self::field(
+                        'email.reply_to_mode',
+                        'Reply-To mode',
+                        'select',
+                        $schema,
+                        array(
+                            'help' => array(
+                                'Controls which address receives replies to the notification email.',
+                                'Auto: uses the fixed Reply-To address when set; otherwise uses the submitted email field.',
+                                'Field: replies go to the submitted email field, or to the configured field key below.',
+                                'Fixed: replies go to the fixed Reply-To address below.',
+                                'None: eForms does not add a Reply-To header.',
+                            ),
+                        )
+                    ),
+                    self::field(
+                        'email.reply_to_address',
+                        'Fixed Reply-To address',
+                        'text',
+                        $schema,
+                        array(
+                            'help' => array(
+                                'Used by Auto when set, and required when Reply-To mode is Fixed.',
+                                'Use a site-owned inbox when you want replies to avoid freemail sender signals.',
+                                'Leave blank to clear the admin override.',
+                            ),
+                        )
+                    ),
+                    self::field(
+                        'email.reply_to_field',
+                        'Reply-To field key',
+                        'text',
+                        $schema,
+                        array(
+                            'help' => array(
+                                'Used by Field mode, and by Auto when no fixed Reply-To address is set.',
+                                'Leave blank to use the standard email field.',
+                                'Enter another form field key only when that field contains the visitor email address.',
+                            ),
+                        )
+                    ),
+                ),
+            ),
             'spam' => array(
                 'label' => 'Spam Protection',
                 'fields' => array(

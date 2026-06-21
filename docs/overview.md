@@ -170,12 +170,12 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 - **Health Check:** System runs FS health checks on render/post; failures surface as `EFORMS_ERR_STORAGE_UNAVAILABLE`
 - **Spam Smoke:** Settings -> eForms and `wp eforms spam-smoke` run the same focused local diagnostic for the shipped contact form. It confirms the main spam gates are reachable, including that `challenge.mode=auto` requires verification for a synthetic suspect request, and reports pass/fail without sending real email. It does not prove every real-world spam attempt will be blocked.
-- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, GC readiness, CLI bootstrap, config-source visibility, and challenge configuration readiness. It reports observable readiness only; it cannot prove system cron is configured.
+- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, mail-format readiness, GC readiness, CLI bootstrap, config-source visibility, and challenge configuration readiness. It reports observable readiness only; it cannot prove system cron is configured.
 - **Uninstall:** `uninstall.php` respects `install.uninstall.purge_*` flags in config to optionally wipe data
 
 ### Admin Monitoring
 
-- **Settings → eForms:** Curated admin settings for declined review, logging, spam protection, challenge, throttle, and privacy, with effective values and source labels shown beside each control. Spam Protection also shows a read-only checks table so operators can see which built-in checks are active, soft-signal, hard-block, quiet, or off. Higher-priority drop-in/filter values appear as externally controlled rather than editable. Secrets are masked; blank secret saves keep the stored admin value unless explicitly cleared.
+- **Settings → eForms:** Curated admin settings for declined review, email, logging, spam protection, challenge, throttle, and privacy, with effective values and source labels shown beside each control. Spam Protection also shows a read-only checks table so operators can see which built-in checks are active, soft-signal, hard-block, quiet, or off. Higher-priority drop-in/filter values appear as externally controlled rather than editable. Secrets are masked; blank secret saves keep the stored admin value unless explicitly cleared.
 - **Tools → eForms Declined:** Declined-submission review table, shown only when `declined_review.enable=true` and available to administrators. It presents bounded submitted content for selected spam-review outcomes, rejection reasons, and request metadata so operators can spot false positives during rollout. Cleanup is normally retention-driven via `declined_review.retention_days` and `wp eforms gc`; administrators may also clear declined-review files older than a confirmed one-time day cutoff.
 - These admin pages are not a form builder, template editor, raw config editor, quarantine, moderation queue, or resend workflow.
 
@@ -519,9 +519,10 @@ Exhaustive knob coverage organized by domain (for spec generation and advanced c
 | | `privacy.client_ip_header` | string | Proxy header name | e.g., `X-Forwarded-For` |
 | | `privacy.trusted_proxies` | array | CIDR list | Only trust when `REMOTE_ADDR` matches |
 | **Email** | `email.from_address` | string | From address (same-domain only) | Defaults to `no-reply@{site_domain}` |
-| | `email.reply_to_address` | string | Reply-To address | Takes precedence over `reply_to_field` |
-| | `email.reply_to_field` | string | Reply-To field key | Ignored when `reply_to_address` set |
-| | `email.html` | bool | Send HTML emails | `false` = text/plain only |
+| | `email.reply_to_mode` | enum | Reply-To behavior | `auto` = fixed address when set, otherwise submitted email field; `field` = submitted email field; `fixed` = fixed address; `none` = no Reply-To |
+| | `email.reply_to_address` | string | Fixed Reply-To address | Used by `auto` when set and required by `fixed` |
+| | `email.reply_to_field` | string | Reply-To field key | Used by `field` and by `auto` when no fixed address is set; blank uses `email` |
+| | `email.html` | bool | Send HTML emails | `false` = text/plain only; `true` = HTML with plain-text alternative |
 | **HTML5** | `html5.client_validation` | bool | Browser native validation | `true` = omit `novalidate`; `false` = suppress native UI |
 | **Validation** | `validation.max_fields_per_form` | int | Field count cap | Clamped 1–1000 |
 | | `validation.max_options_per_group` | int | Option count cap | Clamped 1–1000 |

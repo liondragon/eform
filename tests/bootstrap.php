@@ -230,12 +230,23 @@ if ( ! function_exists( 'wp_mail' ) ) {
             $GLOBALS['eforms_test_mail_calls'] = array();
         }
 
+        $phpmailer = (object) array( 'AltBody' => '' );
+        $callbacks = isset( $GLOBALS['eforms_test_hooks']['action']['phpmailer_init'] ) && is_array( $GLOBALS['eforms_test_hooks']['action']['phpmailer_init'] )
+            ? $GLOBALS['eforms_test_hooks']['action']['phpmailer_init']
+            : array();
+        foreach ( $callbacks as $callback ) {
+            if ( is_callable( $callback ) ) {
+                call_user_func( $callback, $phpmailer );
+            }
+        }
+
         $GLOBALS['eforms_test_mail_calls'][] = array(
             'to' => $to,
             'subject' => $subject,
             'message' => $message,
             'headers' => $headers,
             'attachments' => $attachments,
+            'alt_body' => $phpmailer->AltBody,
         );
 
         return isset( $GLOBALS['eforms_test_mail_return'] ) ? (bool) $GLOBALS['eforms_test_mail_return'] : true;
@@ -464,6 +475,27 @@ if ( ! function_exists( 'add_action' ) ) {
         }
         $GLOBALS['eforms_test_hooks']['action'][ $hook ][] = $callback;
         return true;
+    }
+}
+
+if ( ! function_exists( 'remove_action' ) ) {
+    function remove_action( $hook, $callback, $priority = 10 ) {
+        if ( ! isset( $GLOBALS['eforms_test_hooks']['action'][ $hook ] ) || ! is_array( $GLOBALS['eforms_test_hooks']['action'][ $hook ] ) ) {
+            return false;
+        }
+
+        $removed = false;
+        $remaining = array();
+        foreach ( $GLOBALS['eforms_test_hooks']['action'][ $hook ] as $registered ) {
+            if ( $registered === $callback ) {
+                $removed = true;
+                continue;
+            }
+            $remaining[] = $registered;
+        }
+
+        $GLOBALS['eforms_test_hooks']['action'][ $hook ] = $remaining;
+        return $removed;
     }
 }
 
