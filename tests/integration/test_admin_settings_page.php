@@ -154,11 +154,21 @@ eforms_test_assert( strpos( $html, 'Spam Protection' ) !== false && strpos( $htm
 eforms_test_assert( strpos( $html, 'Controls how many suspicious signals are needed' ) !== false, 'Spam threshold help should explain practical effect.' );
 eforms_test_assert( strpos( $html, 'Content filter mode' ) !== false && strpos( $html, 'Blocked Phrases' ) !== false, 'Settings page should expose content filter controls under Spam Protection.' );
 eforms_test_assert( strpos( $html, 'Available options: Off, Suspect, Reject.' ) !== false, 'Content filter mode help should derive available options from field metadata.' );
+eforms_test_assert( strpos( $html, 'Checks submitted text fields against the Blocked Phrases list.' ) !== false, 'Content filter mode help should reference the current setting label.' );
 eforms_test_assert( strpos( $html, 'Suspect: matching submissions still send email, but the email and logs are tagged for review.' ) !== false, 'Content filter help should explain suspect mode in plain language.' );
-eforms_test_assert( strpos( $html, '<textarea id="eforms-setting-spam-content_filter-blocked_terms" name="' . SettingsFields::VALUES_KEY . '[spam.content_filter.blocked_terms]"' ) !== false, 'Blocked terms should render as the canonical fallback textarea.' );
-eforms_test_assert( strpos( $html, 'Enter one word or phrase per line. Blank lines are ignored.' ) !== false, 'Blocked terms help should explain the newline contract.' );
+eforms_test_assert( strpos( $html, 'class="eforms-content-terms-editor" data-eforms-content-terms-editor' ) !== false, 'Blocked Phrases should render the single-field editor shell.' );
+eforms_test_assert( strpos( $html, '<textarea id="eforms-setting-spam-content_filter-blocked_terms" name="' . SettingsFields::VALUES_KEY . '[spam.content_filter.blocked_terms]" rows="6" class="large-text code eforms-content-terms-editor__textarea" data-eforms-content-terms-source>' ) !== false, 'Blocked Phrases should keep the canonical submitted textarea as the no-JS fallback.' );
+eforms_test_assert( strpos( $html, 'data-eforms-content-entry' ) !== false && strpos( $html, 'data-eforms-content-add>Add</button>' ) !== false, 'Blocked Phrases should render one universal entry field and one add action.' );
+eforms_test_assert( strpos( $html, 'data-eforms-content-bulk' ) === false && strpos( $html, 'Paste multiple' ) === false, 'Blocked Phrases should not render a second bulk-paste field.' );
+eforms_test_assert( strpos( $html, 'Already added.' ) !== false, 'Blocked Phrases editor should include duplicate feedback.' );
+eforms_test_assert( strpos( $html, 'No blocked phrases yet.' ) !== false, 'Blocked Phrases editor should restore the empty state after the last pill is removed.' );
+eforms_test_assert( strpos( $html, 'event.key==="Enter"&&!event.shiftKey' ) !== false, 'Blocked Phrases entry should use Enter for approval and leave Shift+Enter for new lines.' );
+eforms_test_assert( strpos( $html, 'sourceTerms(input&&input.value)' ) !== false, 'Blocked Phrases entry should parse multi-line input from the single field.' );
+eforms_test_assert( strpos( $html, 'form.addEventListener("submit"' ) !== false, 'Blocked Phrases editor should commit pending entry text before settings save.' );
+eforms_test_assert( strpos( $html, 'source.value=terms.join("\\n")' ) !== false, 'Blocked Phrases editor should submit one normalized term per line.' );
+eforms_test_assert( strpos( $html, 'Type a phrase and press Enter or Add.' ) !== false && strpos( $html, 'Use Shift+Enter or paste to enter multiple lines before adding.' ) !== false, 'Blocked terms help should explain Enter approval and multi-line entry.' );
 eforms_test_assert( strpos( $html, 'Spam rejection response' ) !== false, 'Spam response setting should be labelled by the decision it controls.' );
-eforms_test_assert( strpos( $html, 'Spam rejection response' ) < strpos( $html, 'Blocked Phrases' ), 'Blocked Phrases should be the last editable Spam Protection setting.' );
+eforms_test_assert( strpos( $html, '>Spam rejection response</label>' ) < strpos( $html, '>Blocked Phrases</label>' ), 'Blocked Phrases should be the last editable Spam Protection setting.' );
 eforms_test_assert( strpos( $html, 'eforms-protection-checks-table' ) !== false, 'Spam Protection should render a read-only checks table.' );
 eforms_test_assert( strpos( $html, '>Settings</h3>' ) !== false && strpos( $html, '>Built-in checks</h3>' ) !== false, 'Spam Protection should label editable settings and read-only checks consistently.' );
 foreach ( array( 'Hidden trap filled', 'Hidden trap missing', 'JavaScript marker missing', 'Origin missing or mismatched' ) as $check_label ) {
@@ -288,6 +298,25 @@ eforms_test_assert( $content_save['type'] === 'success', 'Content filter setting
 $content_stored = AdminSettingsStore::read_overrides();
 eforms_test_assert( $content_stored['spam']['content_filter']['mode'] === 'reject', 'Content filter mode should persist.' );
 eforms_test_assert( $content_stored['spam']['content_filter']['blocked_terms'] === "casino\nseo services", 'Content filter terms should normalize and remove blank lines on save.' );
+$content_editor_html = SettingsAdmin::render_html();
+eforms_test_assert( strpos( $content_editor_html, 'terms=sourceTerms(source.value)' ) !== false, 'Blocked Phrases editor should hydrate pills from the canonical textarea value.' );
+eforms_test_assert( strpos( $content_editor_html, 'remove.setAttribute("aria-label","Remove blocked phrase: "+term)' ) !== false, 'Hydrated blocked phrase pills should expose accessible remove buttons.' );
+eforms_test_assert( strpos( $content_editor_html, 'data-term="casino"' ) === false && strpos( $content_editor_html, 'data-term="seo services"' ) === false, 'Blocked Phrases should not duplicate hidden server-rendered pills.' );
+eforms_test_assert( strpos( $content_editor_html, "casino\nseo services</textarea>" ) !== false, 'Canonical textarea should keep one normalized term per line.' );
+
+$comma_phrase = SettingsAdmin::handle_save(
+    $post(
+        array(
+            'spam.content_filter.blocked_terms' => "ACME, Inc\nCasino",
+        ),
+        array( 'spam.content_filter.blocked_terms' )
+    )
+);
+eforms_test_assert( $comma_phrase['type'] === 'success', 'Comma phrases should remain valid blocked phrases.' );
+$comma_phrase_html = SettingsAdmin::render_html();
+eforms_test_assert( strpos( $comma_phrase_html, 'data-term="acme, inc"' ) === false, 'Blocked Phrases should not server-render comma phrase pills.' );
+eforms_test_assert( strpos( $comma_phrase_html, "acme, inc\ncasino</textarea>" ) !== false, 'Canonical textarea should preserve comma phrases as newline-separated terms.' );
+$current_content_stored = AdminSettingsStore::read_overrides();
 
 $duplicate_terms = SettingsAdmin::handle_save(
     $post(
@@ -298,7 +327,7 @@ $duplicate_terms = SettingsAdmin::handle_save(
     )
 );
 eforms_test_assert( $duplicate_terms['type'] === 'error', 'Duplicate content filter terms should reject the save.' );
-eforms_test_assert( AdminSettingsStore::read_overrides() === $content_stored, 'Duplicate content terms should preserve the existing admin option.' );
+eforms_test_assert( AdminSettingsStore::read_overrides() === $current_content_stored, 'Duplicate content terms should preserve the existing admin option.' );
 
 $oversized_terms = SettingsAdmin::handle_save(
     $post(
@@ -309,7 +338,7 @@ $oversized_terms = SettingsAdmin::handle_save(
     )
 );
 eforms_test_assert( $oversized_terms['type'] === 'error', 'Oversized content filter terms should reject the save.' );
-eforms_test_assert( AdminSettingsStore::read_overrides() === $content_stored, 'Oversized content terms should preserve the existing admin option.' );
+eforms_test_assert( AdminSettingsStore::read_overrides() === $current_content_stored, 'Oversized content terms should preserve the existing admin option.' );
 
 // Secrets are masked, blank keeps the stored secret, and explicit clear removes only the admin override.
 $reset();
@@ -367,6 +396,7 @@ $external_content_html = SettingsAdmin::render_html();
 eforms_test_assert( strpos( $external_content_html, 'spam.content_filter.mode' ) !== false && strpos( $external_content_html, 'spam.content_filter.blocked_terms' ) !== false, 'Externally controlled content filter fields should still show effective values.' );
 eforms_test_assert( strpos( $external_content_html, '<input type="hidden" name="' . SettingsFields::SUBMITTED_PATHS_KEY . '[]" value="spam.content_filter.mode"' ) === false, 'Externally controlled content mode should not render as editable.' );
 eforms_test_assert( strpos( $external_content_html, '<textarea id="eforms-setting-spam-content_filter-blocked_terms"' ) === false, 'Externally controlled blocked terms should not render the textarea.' );
+eforms_test_assert( strpos( $external_content_html, '<div class="eforms-content-terms-editor" data-eforms-content-terms-editor' ) === false, 'Externally controlled blocked terms should not render the editable term editor shell.' );
 
 // Grouped settings tables keep editable controls with Config provenance and passive runtime checks.
 $reset();

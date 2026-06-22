@@ -189,7 +189,7 @@ class SettingsFields {
                         $schema,
                         array(
                             'help' => array(
-                                'Checks submitted text fields against the blocked words and phrases below.',
+                                'Checks submitted text fields against the Blocked Phrases list.',
                                 'Off: content terms are not checked.',
                                 'Suspect: matching submissions still send email, but the email and logs are tagged for review.',
                                 'Reject: matching submissions are blocked before email after any required challenge passes.',
@@ -226,11 +226,13 @@ class SettingsFields {
                     self::field(
                         'spam.content_filter.blocked_terms',
                         'Blocked Phrases',
-                        'textarea',
+                        'content_terms',
                         $schema,
                         array(
                             'help' => array(
-                                'Enter one word or phrase per line. Blank lines are ignored.',
+                                'Type a phrase and press Enter or Add.',
+                                'Use Shift+Enter or paste to enter multiple lines before adding.',
+                                'Each line becomes one blocked phrase. Blank lines are ignored.',
                                 'Terms are lowercased and extra spaces are collapsed when saved.',
                                 'Single words match whole words; phrases match normalized submitted text.',
                                 'Duplicate or too-long terms are rejected so the saved list stays deterministic.',
@@ -472,7 +474,7 @@ class SettingsFields {
             }
 
             $value = trim( (string) $raw );
-            if ( $value === '' && ( ! empty( $field['nullable'] ) || $control === 'text' || $control === 'textarea' ) ) {
+            if ( $value === '' && ( ! empty( $field['nullable'] ) || $control === 'text' || $control === 'textarea' || $control === 'content_terms' ) ) {
                 unset( $flat[ $path ] );
                 continue;
             }

@@ -124,18 +124,19 @@ Existing patterns checked:
 
 Options considered:
 - Option A: Add content controls inside Spam Protection. Pros: one save surface, provenance retained, no new navigation. Cons: Spam Protection panel grows. Reuse: `SettingsAdmin` and `SettingsFields`. Best when the controls directly affect spam handling.
-- Option B: Add a separate Content Filter page. Pros: more room for future rule management. Cons: premature surface split and extra navigation for a two-field feature. Reuse: weaker.
+- Option B: Add a separate Content Filter page. Pros: more room for future rule management. Cons: premature surface split and extra navigation for a bounded feature. Reuse: weaker.
 - Option C: Drop-in config only. Pros: lowest UI risk. Cons: non-developers cannot operate it and it hides an operator-facing runtime behavior.
-- Option D: Hybrid term editor inside Spam Protection. Pros: compact daily editing, visible existing terms, inline duplicate feedback, and bulk paste support. Cons: requires one focused admin UI component and progressive-enhancement tests.
+- Option D: Single-field term editor inside Spam Protection. Pros: compact daily editing, visible existing terms, inline duplicate feedback, and multi-line paste/Shift+Enter support without a second input. Cons: requires one focused admin UI component and progressive-enhancement tests.
 
-Decision: Add compact controls inside the existing Spam Protection settings group, with a hybrid term editor for `spam.content_filter.blocked_terms`.
+Decision: Add compact controls inside the existing Spam Protection settings group, with a single-field term editor for `spam.content_filter.blocked_terms`.
 
-Why: The operator job is adjusting spam behavior, not managing a separate rules database. The existing Settings -> eForms shell already handles provenance, help popouts, and saves. A hybrid editor gives the final UI a better routine workflow without changing the backend newline-list contract.
+Why: The operator job is adjusting spam behavior, not managing a separate rules database. The existing Settings -> eForms shell already handles provenance, help popouts, and saves. A single entry field keeps the UI simple while still supporting quick add, removal, and pasted lists without changing the backend newline-list contract.
 
 Rejected:
 - Separate page: too much surface for a bounded phrase list.
 - Drop-in only: too hidden for the requested operator control.
 - Pure pill UI: weak for bulk import and long phrases.
+- Two-field hybrid UI: splits the same job across quick-add and bulk-paste controls.
 - Raw textarea only: workable fallback, but poorer for routine review and removal once the list grows.
 
 Reuse contract:
@@ -147,8 +148,8 @@ Reuse contract:
 Surface contract:
 - Entry point: Settings -> eForms -> Spam Protection.
 - Visual hierarchy: existing Spam Protection settings first; content filter controls grouped below or within the settings subsection.
-- Controls: mode select, hybrid blocked-terms editor.
-- Hybrid editor: existing terms render as removable pills; one quick-add input adds a term on Enter or Add; "Paste multiple" opens a small textarea where newline-separated and comma-separated pasted lists become pills.
+- Controls: mode select, single-field blocked-terms editor.
+- Single-field editor: existing terms render as removable pills; one entry field adds on Enter or Add; Shift+Enter or pasted line breaks allow multiple lines before adding.
 - Fallback contract: the submitted value remains one normalized term per line in `spam.content_filter.blocked_terms`; with JavaScript unavailable, administrators can still edit the newline textarea directly.
 - Help: plain-language warning to start with Suspect; one term per line; no regex.
 - Save feedback: existing settings save notice.
@@ -159,7 +160,7 @@ Primitive map:
 - Page shell: `SettingsAdmin`.
 - Field matrix: `SettingsFields`.
 - Form persistence: `AdminSettingsStore` through `Config` validation.
-- Local CSS/classes/selectors: one focused admin settings term-editor component; no global UI framework.
+- Local CSS/classes/selectors: one focused admin settings term-editor component; no global UI framework and no second bulk-paste field.
 
 Not shown:
 - Per-term IDs, per-term table rows, individual enable toggles, match counters, AI suggestions, regex editor, provider scoring, or delivered-message review actions.
@@ -171,7 +172,7 @@ Delete / do not build:
 - Do not make the JavaScript component the only way to edit terms; the newline-list control remains the canonical submitted shape.
 
 Verification:
-- `tests/integration/test_admin_settings_page.php` proves controls, help text, mode options, hybrid editor markup, fallback newline field, duplicate messaging, and old duplicate/raw surfaces absent.
+- `tests/integration/test_admin_settings_page.php` proves controls, help text, mode options, single-field editor markup, fallback newline field, duplicate messaging, and old duplicate/raw surfaces absent.
 
 ## Invariant Matrix
 
@@ -186,7 +187,7 @@ Verification:
 | Content filter does not change existing soft-threshold semantics | Existing spam-threshold tests remain green; new tests prove content suspect does not become threshold spam when `spam.soft_fail_threshold=1` | Source/grep check proves content labels are not appended to `Security::SOFT_REASON_ORDER` or `soft_reasons` for v1 threshold math |
 | Visitor and normal-log privacy is preserved | Tests prove visitor response and normal logs expose reason/hash/field keys only | Tests prove matched raw term text is absent from visitor response, email headers, and normal JSONL logs |
 | Bounded config prevents unbounded operator input | Unit/config tests prove max term count, max term length, blank-line cleanup, and oversized admin input handling | Admin save test rejects oversized/malformed term list without partial unsafe persistence |
-| Hybrid term editor preserves the backend contract | Admin tests prove pills, remove buttons, quick-add input, Paste multiple affordance, and no-JS newline textarea are rendered for `spam.content_filter.blocked_terms` | Save tests prove submitted values still reach Config as one normalized term per line with no per-term IDs, toggles, stats, or database rows |
+| Single-field term editor preserves the backend contract | Admin tests prove pills, remove buttons, one entry field, Enter approval, Shift+Enter multi-line support, and no-JS newline textarea are rendered for `spam.content_filter.blocked_terms` | Save tests prove submitted values still reach Config as one normalized term per line with no second bulk field, per-term IDs, toggles, stats, or database rows |
 | Duplicate handling uses matcher normalization | UI tests or markup/static tests prove duplicate feedback says "Already added"; server tests reject normalized duplicates such as `Casino`, ` casino `, and `CASINO` | Source check proves duplicate checks do not use raw string comparison that disagrees with `ContentFilter` normalization |
 
 ## Phases
@@ -301,10 +302,10 @@ Non-Goals:
   - `Verified via:` `php tests/integration/test_spam_smoke_command.php && php tests/integration/test_admin_settings_page.php`
   - `Reasoning:` `medium`
 
-### Phase 4 - Hybrid Blocked-Terms Editor
+### Phase 4 - Single-Field Blocked-Terms Editor
 
 Goals:
-- Provide the final compact admin workflow for routine term review, add, remove, and bulk import.
+- Provide the final compact admin workflow for routine term review, add, remove, and multi-line paste.
 - Keep `spam.content_filter.blocked_terms` as a boring newline-list value for config, tests, and runtime code.
 
 Non-Goals:
@@ -312,13 +313,13 @@ Non-Goals:
 - No per-term IDs, toggles, counters, stats, database rows, or async saves.
 - No regex or provider scoring UI.
 
-- [ ] P4.T1 Build progressive hybrid term editor
+- [x] P4.T1 Build progressive single-field term editor
   - `Type:` `ui-ownership`
   - `Artifacts:` `src/Admin/SettingsFields.php`, `src/Admin/SettingsAdmin.php`, optional focused admin settings asset if the component should not stay inline, `tests/integration/test_admin_settings_page.php`
   - `Interfaces:` Settings -> eForms -> Spam Protection; `spam.content_filter.blocked_terms`; existing settings save form
   - `Owner:` `SettingsFields` declares the field/control type and mapper; `SettingsAdmin` renders and enhances the control
   - `Depends On:` P3.T1
-  - `Done When:` existing terms render as pills with accessible remove buttons, quick-add supports Enter and Add, Paste multiple opens a textarea that accepts newline-separated and comma-separated lists, normalized duplicates are rejected inline as "Already added.", the canonical submitted textarea contains one normalized term per line, and no-JS fallback editing remains available
+  - `Done When:` existing terms render as pills with accessible remove buttons, one entry field supports Enter or Add to commit, Shift+Enter and pasted line breaks allow multiple lines before commit, normalized duplicates are rejected inline as "Already added.", the canonical submitted textarea contains one normalized term per line, and no-JS fallback editing remains available
   - `Verified via:` `php tests/integration/test_admin_settings_page.php`
   - `Reasoning:` `high`
   - `Old Visible Owner:` fallback textarea from P3.T1
