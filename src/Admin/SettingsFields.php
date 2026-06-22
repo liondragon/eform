@@ -184,12 +184,12 @@ class SettingsFields {
                     ),
                     self::field(
                         'spam.content_filter.mode',
-                        'Content filter mode',
+                        'Action',
                         'select',
                         $schema,
                         array(
                             'help' => array(
-                                'Checks submitted text fields against the Blocked Phrases list.',
+                                'Controls what happens when submitted text matches a blocked phrase.',
                                 'Off: content terms are not checked.',
                                 'Suspect: matching submissions still send email, but the email and logs are tagged for review.',
                                 'Reject: matching submissions are blocked before email after any required challenge passes.',
@@ -225,7 +225,7 @@ class SettingsFields {
                     ),
                     self::field(
                         'spam.content_filter.blocked_terms',
-                        'Blocked Phrases',
+                        'Blocked phrases',
                         'content_terms',
                         $schema,
                         array(

@@ -135,8 +135,10 @@ eforms_test_assert( strpos( $html, 'id="eforms-settings-form"' ) !== false, 'Set
 eforms_test_assert( strpos( $html, 'id="eforms-settings-logging"' ) !== false && strpos( $html, 'id="eforms-settings-spam-protection"' ) !== false && strpos( $html, 'id="eforms-settings-diagnostics"' ) !== false, 'Settings sections should have stable anchor targets.' );
 eforms_test_assert( strpos( $html, 'class="eforms-settings-panel"' ) !== false, 'Settings sections should render inside admin panels.' );
 eforms_test_assert( strpos( $html, 'aria-label="Logging settings"' ) !== false && strpos( $html, 'aria-label="Throttle settings"' ) !== false, 'Settings page should render grouped settings tables.' );
-eforms_test_assert( strpos( $html, 'Config Handle' ) !== false && strpos( $html, 'Effective' ) !== false && strpos( $html, 'Source' ) !== false && strpos( $html, 'Setting' ) !== false, 'Settings table should show controls with effective values and sources.' );
+eforms_test_assert( strpos( $html, '<th>Name</th><th>Setting</th>' ) !== false, 'Settings table should show only the user-facing setting columns.' );
+eforms_test_assert( strpos( $html, '<th>Config Handle</th>' ) === false && strpos( $html, '<th>Effective</th>' ) === false && strpos( $html, '<th>Source</th>' ) === false, 'Settings table should not show redundant config, effective, or source columns.' );
 eforms_test_assert( strpos( $html, 'class="eforms-setting-help"' ) !== false, 'Settings page should render pop-out setting help.' );
+eforms_test_assert( strpos( $html, 'Config handle: <code>logging.mode</code>' ) !== false, 'Setting help should keep the config handle available without making it a table column.' );
 eforms_test_assert( strpos( $html, 'class="button-link eforms-setting-help-dismiss"' ) !== false, 'Setting help should render a dismiss control.' );
 eforms_test_assert( strpos( $html, 'Dismiss help for Mode setting (challenge.mode)' ) !== false, 'Setting help dismiss buttons should be labelled.' );
 eforms_test_assert( strpos( $html, 'eformsSettingsHelpReady' ) !== false && strpos( $html, 'removeAttribute("open")' ) !== false, 'Setting help should include close behavior.' );
@@ -152,9 +154,10 @@ eforms_test_assert( strpos( $html, 'Used by Field mode, and by Auto when no fixe
 eforms_test_assert( strpos( $html, 'On: eForms sends HTML with a plain-text alternative for better mail compatibility.' ) !== false, 'HTML email help should explain the multipart plain-text alternative.' );
 eforms_test_assert( strpos( $html, 'Spam Protection' ) !== false && strpos( $html, 'Rejection threshold' ) !== false, 'Settings page should expose spam protection controls.' );
 eforms_test_assert( strpos( $html, 'Controls how many suspicious signals are needed' ) !== false, 'Spam threshold help should explain practical effect.' );
-eforms_test_assert( strpos( $html, 'Content filter mode' ) !== false && strpos( $html, 'Blocked Phrases' ) !== false, 'Settings page should expose content filter controls under Spam Protection.' );
+eforms_test_assert( strpos( $html, 'Blocked content' ) !== false && strpos( $html, '>Action</label>' ) !== false && strpos( $html, '>Blocked phrases</label>' ) !== false, 'Settings page should group content filter controls under one Blocked content setting.' );
+eforms_test_assert( strpos( $html, 'Content filter mode' ) === false, 'Settings page should not keep the old standalone content-filter mode label.' );
 eforms_test_assert( strpos( $html, 'Available options: Off, Suspect, Reject.' ) !== false, 'Content filter mode help should derive available options from field metadata.' );
-eforms_test_assert( strpos( $html, 'Checks submitted text fields against the Blocked Phrases list.' ) !== false, 'Content filter mode help should reference the current setting label.' );
+eforms_test_assert( strpos( $html, 'Controls what happens when submitted text matches a blocked phrase.' ) !== false, 'Blocked content action help should explain the grouped setting.' );
 eforms_test_assert( strpos( $html, 'Suspect: matching submissions still send email, but the email and logs are tagged for review.' ) !== false, 'Content filter help should explain suspect mode in plain language.' );
 eforms_test_assert( strpos( $html, 'class="eforms-content-terms-editor" data-eforms-content-terms-editor' ) !== false, 'Blocked Phrases should render the single-field editor shell.' );
 eforms_test_assert( strpos( $html, '<textarea id="eforms-setting-spam-content_filter-blocked_terms" name="' . SettingsFields::VALUES_KEY . '[spam.content_filter.blocked_terms]" rows="6" class="large-text code eforms-content-terms-editor__textarea" data-eforms-content-terms-source>' ) !== false, 'Blocked Phrases should keep the canonical submitted textarea as the no-JS fallback.' );
@@ -168,7 +171,7 @@ eforms_test_assert( strpos( $html, 'form.addEventListener("submit"' ) !== false,
 eforms_test_assert( strpos( $html, 'source.value=terms.join("\\n")' ) !== false, 'Blocked Phrases editor should submit one normalized term per line.' );
 eforms_test_assert( strpos( $html, 'Type a phrase and press Enter or Add.' ) !== false && strpos( $html, 'Use Shift+Enter or paste to enter multiple lines before adding.' ) !== false, 'Blocked terms help should explain Enter approval and multi-line entry.' );
 eforms_test_assert( strpos( $html, 'Spam rejection response' ) !== false, 'Spam response setting should be labelled by the decision it controls.' );
-eforms_test_assert( strpos( $html, '>Spam rejection response</label>' ) < strpos( $html, '>Blocked Phrases</label>' ), 'Blocked Phrases should be the last editable Spam Protection setting.' );
+eforms_test_assert( strpos( $html, 'Spam rejection response' ) < strpos( $html, 'eforms-settings-blocked-content-row' ), 'Blocked content should be the last editable Spam Protection setting.' );
 eforms_test_assert( strpos( $html, 'eforms-protection-checks-table' ) !== false, 'Spam Protection should render a read-only checks table.' );
 eforms_test_assert( strpos( $html, '>Settings</h3>' ) !== false && strpos( $html, '>Built-in checks</h3>' ) !== false, 'Spam Protection should label editable settings and read-only checks consistently.' );
 foreach ( array( 'Hidden trap filled', 'Hidden trap missing', 'JavaScript marker missing', 'Origin missing or mismatched' ) as $check_label ) {
@@ -259,7 +262,7 @@ eforms_test_assert( $stored['challenge']['mode'] === 'auto' && $stored['challeng
 eforms_test_assert( $stored['throttle']['enable'] === true && $stored['throttle']['per_ip']['max_per_minute'] === 60 && $stored['throttle']['per_ip']['cooldown_seconds'] === 5, 'Throttle group should save.' );
 eforms_test_assert( $stored['privacy']['ip_mode'] === 'hash', 'Privacy group should save.' );
 $challenge_html = SettingsAdmin::render_html();
-eforms_test_assert( strpos( $challenge_html, '>Configured<' ) !== false, 'Challenge mode display should be derived from field metadata and key state.' );
+eforms_test_assert( strpos( $challenge_html, 'Status: Configured' ) !== false, 'Challenge mode status should stay near its control without requiring an Effective column.' );
 
 // Missing checkbox values map to false only when the field was editable/submitted.
 $notice = SettingsAdmin::handle_save( $post( array(), array( 'throttle.enable' ) ) );
@@ -380,6 +383,7 @@ eforms_test_assert( $external['type'] === 'success', 'Externally controlled subm
 eforms_test_assert( AdminSettingsStore::read_overrides() === array( 'logging' => array( 'mode' => 'jsonl' ) ), 'Externally controlled field should preserve the stored admin override.' );
 $external_html = SettingsAdmin::render_html();
 eforms_test_assert( strpos( $external_html, 'Controlled externally' ) !== false, 'Externally controlled fields should be visibly non-editable.' );
+eforms_test_assert( strpos( $external_html, 'Controlled externally by config file.' ) !== false, 'Externally controlled fields should show provenance only when it affects editability.' );
 eforms_test_assert( strpos( $external_html, 'name="' . SettingsFields::VALUES_KEY . '[challenge.mode]"' ) !== false, 'Externally controlled settings should not disable unrelated fields.' );
 
 $reset();
@@ -393,10 +397,11 @@ $reset();
 $write_dropin( array( 'spam' => array( 'content_filter' => array( 'mode' => 'reject', 'blocked_terms' => 'casino' ) ) ) );
 Config::reset_for_tests();
 $external_content_html = SettingsAdmin::render_html();
-eforms_test_assert( strpos( $external_content_html, 'spam.content_filter.mode' ) !== false && strpos( $external_content_html, 'spam.content_filter.blocked_terms' ) !== false, 'Externally controlled content filter fields should still show effective values.' );
+eforms_test_assert( strpos( $external_content_html, 'spam.content_filter.mode' ) !== false && strpos( $external_content_html, 'spam.content_filter.blocked_terms' ) !== false, 'Externally controlled content filter fields should still show their values.' );
 eforms_test_assert( strpos( $external_content_html, '<input type="hidden" name="' . SettingsFields::SUBMITTED_PATHS_KEY . '[]" value="spam.content_filter.mode"' ) === false, 'Externally controlled content mode should not render as editable.' );
 eforms_test_assert( strpos( $external_content_html, '<textarea id="eforms-setting-spam-content_filter-blocked_terms"' ) === false, 'Externally controlled blocked terms should not render the textarea.' );
 eforms_test_assert( strpos( $external_content_html, '<div class="eforms-content-terms-editor" data-eforms-content-terms-editor' ) === false, 'Externally controlled blocked terms should not render the editable term editor shell.' );
+eforms_test_assert( strpos( $external_content_html, 'Blocked content' ) !== false && substr_count( $external_content_html, 'Controlled externally by config file.' ) >= 2, 'Externally controlled blocked content should stay grouped while showing each controlling source.' );
 
 // Grouped settings tables keep editable controls with Config provenance and passive runtime checks.
 $reset();
@@ -407,9 +412,9 @@ $settings = SettingsAdmin::render_html();
 eforms_test_assert( strpos( $settings, 'href="#eforms-settings-logging"' ) !== false && strpos( $settings, 'href="#eforms-settings-spam-protection"' ) !== false && strpos( $settings, 'href="#eforms-settings-storage"' ) !== false, 'Settings navigation should link to settings groups.' );
 eforms_test_assert( substr_count( $settings, 'class="widefat striped eforms-settings-table"' ) > 1, 'Settings page should render separate grouped settings tables.' );
 eforms_test_assert( strpos( $settings, 'aria-label="Storage settings"' ) !== false, 'Settings page should render storage as its own settings group.' );
-eforms_test_assert( strpos( $settings, 'colspan="5"' ) === false, 'Settings page should not render group headings as table rows.' );
+eforms_test_assert( strpos( $settings, 'colspan="2"' ) === false && strpos( $settings, 'colspan="5"' ) === false, 'Settings page should not render group headings as table rows.' );
 eforms_test_assert( strpos( $settings, 'eforms-' . 'overview' ) === false && strpos( $settings, 'nav-' . 'tab-wrapper' ) === false, 'Settings page should not keep legacy alternate-surface markup.' );
-eforms_test_assert( strpos( $settings, 'logging.mode' ) !== false && strpos( $settings, 'admin option' ) !== false, 'Settings table should show Config source labels.' );
+eforms_test_assert( strpos( $settings, 'Config handle: <code>logging.mode</code>' ) !== false && strpos( $settings, '>admin option<' ) === false, 'Settings table should hide routine provenance while keeping config handles in help.' );
 eforms_test_assert( strpos( $settings, 'Storage Base' ) !== false && strpos( $settings, 'Writable' ) !== false, 'Settings table should report writable upload-base state.' );
 eforms_test_assert( strpos( $settings, 'Private ' . 'Storage' ) === false && strpos( $settings, 'Drop-in ' . 'File' ) === false, 'Settings table should not show passive legacy status rows.' );
 eforms_test_assert( strpos( $settings, 'stored-secret' ) === false, 'Settings table must not expose raw secrets.' );

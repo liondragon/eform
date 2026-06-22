@@ -16,7 +16,7 @@ This file lists stable public and machine-readable surfaces. Operator narrative 
 | `wp eforms gc` | `src/Gc/GcRunner.php` and CLI adapter | Prunes expired runtime artifacts. |
 | `wp eforms spam-smoke` | `src/Diagnostics/SpamSmokeDiagnostic.php` and CLI/admin adapters | Runs focused spam-path smoke checks. |
 | `wp eforms doctor` | `src/Diagnostics/RuntimeHealthDiagnostic.php` and CLI/admin adapters | Runs active host/runtime readiness checks. |
-| Settings -> eForms | `src/Admin/SettingsAdmin.php` and `src/Admin/SettingsFields.php` | Curated admin config surface with effective values, sources, help, and diagnostic actions. |
+| Settings -> eForms | `src/Admin/SettingsAdmin.php` and `src/Admin/SettingsFields.php` | Curated admin config surface with grouped controls, setting help, external-control status, and diagnostic actions. |
 | Tools -> eForms Declined | `src/Admin/DeclinedReviewAdmin.php` and `src/DeclinedReviewLog.php` | Declined-submission review and maintenance surface. |
 
 ## `/eforms/mint`

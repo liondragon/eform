@@ -21,6 +21,8 @@ class SettingsAdmin {
     const RUNTIME_HEALTH_ACTION = 'eforms_run_runtime_doctor';
     const RUNTIME_HEALTH_NONCE_FIELD = '_eforms_runtime_doctor_nonce';
     const FORM_ID = 'eforms-settings-form';
+    const CONTENT_FILTER_MODE_PATH = 'spam.content_filter.mode';
+    const CONTENT_FILTER_TERMS_PATH = 'spam.content_filter.blocked_terms';
 
     public static function register() {
         add_action( 'admin_menu', array( __CLASS__, 'register_menu' ) );
@@ -204,7 +206,7 @@ class SettingsAdmin {
         foreach ( SettingsFields::groups() as $key => $group ) {
             self::render_settings_table( self::section_id( $group['label'] ), $group['label'], $group['fields'], $config, $report, $stored, $key );
         }
-        self::render_storage_table( $config, $report );
+        self::render_storage_table( $config );
         self::submit_button();
         echo '</form>';
     }
@@ -231,7 +233,15 @@ class SettingsAdmin {
         echo '<table class="widefat striped eforms-settings-table" aria-label="' . esc_attr( $label . ' settings' ) . '">';
         self::render_settings_table_head();
         echo '<tbody>';
+        $fields_by_path = self::fields_by_path( $fields );
         foreach ( $fields as $field ) {
+            if ( $group_key === 'spam' && $field['path'] === self::CONTENT_FILTER_MODE_PATH && isset( $fields_by_path[ self::CONTENT_FILTER_TERMS_PATH ] ) ) {
+                continue;
+            }
+            if ( $group_key === 'spam' && $field['path'] === self::CONTENT_FILTER_TERMS_PATH && isset( $fields_by_path[ self::CONTENT_FILTER_MODE_PATH ] ) ) {
+                self::render_blocked_content_row( $fields_by_path[ self::CONTENT_FILTER_MODE_PATH ], $field, $config, $report, $stored );
+                continue;
+            }
             self::render_field_row( $field, $config, $report, $stored );
         }
         echo '</tbody></table>';
@@ -243,8 +253,19 @@ class SettingsAdmin {
 
     private static function render_settings_table_head() {
         echo '<thead><tr>';
-        echo '<th>' . esc_html( 'Name' ) . '</th><th>' . esc_html( 'Config Handle' ) . '</th><th>' . esc_html( 'Effective' ) . '</th><th>' . esc_html( 'Source' ) . '</th><th>' . esc_html( 'Setting' ) . '</th>';
+        echo '<th>' . esc_html( 'Name' ) . '</th><th>' . esc_html( 'Setting' ) . '</th>';
         echo '</tr></thead>';
+    }
+
+    private static function fields_by_path( $fields ) {
+        $out = array();
+        foreach ( $fields as $field ) {
+            if ( isset( $field['path'] ) ) {
+                $out[ $field['path'] ] = $field;
+            }
+        }
+
+        return $out;
     }
 
     private static function render_protection_checks( $config ) {
@@ -384,6 +405,36 @@ class SettingsAdmin {
     }
 
     private static function render_field_row( $field, $config, $report, $stored ) {
+        echo '<tr>';
+        echo '<td><label class="eforms-settings-row-label" for="' . esc_attr( self::field_id( $field['path'] ) ) . '">' . esc_html( $field['label'] ) . '</label>';
+        self::render_field_help( $field );
+        echo '</td>';
+        echo '<td>';
+        self::render_setting_cell( $field, $config, $report, $stored );
+        echo '</td>';
+        echo '</tr>';
+    }
+
+    private static function render_blocked_content_row( $mode_field, $terms_field, $config, $report, $stored ) {
+        echo '<tr class="eforms-settings-table__grouped-row eforms-settings-blocked-content-row">';
+        echo '<td><span class="eforms-settings-row-label">' . esc_html( 'Blocked content' ) . '</span></td>';
+        echo '<td><div class="eforms-settings-compound-control">';
+        self::render_compound_setting( $mode_field, $config, $report, $stored );
+        self::render_compound_setting( $terms_field, $config, $report, $stored );
+        echo '</div></td>';
+        echo '</tr>';
+    }
+
+    private static function render_compound_setting( $field, $config, $report, $stored ) {
+        echo '<div class="eforms-settings-compound-control__item">';
+        echo '<div class="eforms-settings-compound-control__label"><label for="' . esc_attr( self::field_id( $field['path'] ) ) . '">' . esc_html( $field['label'] ) . '</label>';
+        self::render_field_help( $field );
+        echo '</div>';
+        self::render_setting_cell( $field, $config, $report, $stored );
+        echo '</div>';
+    }
+
+    private static function render_setting_cell( $field, $config, $report, $stored ) {
         $path = $field['path'];
         $report_entry = isset( $report[ $path ] ) && is_array( $report[ $path ] ) ? $report[ $path ] : array();
         $externally_controlled = isset( $report_entry['externally_controlled'] ) && (bool) $report_entry['externally_controlled'];
@@ -391,22 +442,30 @@ class SettingsAdmin {
         $value = Config::value( $config, explode( '.', $path ), '' );
         $display_value = array_key_exists( 'display_value', $report_entry ) ? $report_entry['display_value'] : $value;
 
-        echo '<tr>';
-        echo '<td><label for="' . esc_attr( self::field_id( $path ) ) . '">' . esc_html( $field['label'] ) . '</label>';
-        self::render_field_help( $field );
-        echo '</td>';
-        echo '<td><code>' . esc_html( $path ) . '</code></td>';
-        echo '<td>' . esc_html( SettingsFields::display_value( $field, $display_value, $config ) ) . '</td>';
-        echo '<td>' . esc_html( $source ) . '</td>';
-        echo '<td>';
         if ( $externally_controlled ) {
-            echo '<span class="description">' . esc_html( 'Controlled externally' ) . '</span>';
+            echo '<span class="eforms-settings-readonly-value">' . esc_html( SettingsFields::display_value( $field, $display_value, $config ) ) . '</span>';
+            echo '<p class="description">' . esc_html( 'Controlled externally by ' . $source . '.' ) . '</p>';
         } else {
             echo '<input type="hidden" name="' . esc_attr( SettingsFields::SUBMITTED_PATHS_KEY ) . '[]" value="' . esc_attr( $path ) . '" />';
             self::render_control( $field, $value, $stored );
+            self::render_control_status( $field, $display_value, $config );
         }
-        echo '</td>';
-        echo '</tr>';
+    }
+
+    private static function render_control_status( $field, $display_value, $config ) {
+        if ( ! empty( $field['secret'] ) ) {
+            $display = SettingsFields::display_value( $field, $display_value, $config );
+            if ( $display !== '' ) {
+                echo '<p class="description">' . esc_html( 'Stored: ' . $display ) . '</p>';
+            }
+            return;
+        }
+
+        if ( ! isset( $field['display'] ) || $field['display'] !== 'challenge_status' ) {
+            return;
+        }
+
+        echo '<p class="description">' . esc_html( 'Status: ' . SettingsFields::display_value( $field, $display_value, $config ) ) . '</p>';
     }
 
     private static function render_control( $field, $value, $stored ) {
@@ -477,6 +536,9 @@ class SettingsAdmin {
         echo '<summary aria-label="' . esc_attr( 'Help for ' . $label . ' setting (' . $path . ')' ) . '" aria-controls="' . esc_attr( $help_id ) . '"><span aria-hidden="true">?</span></summary>';
         echo '<div id="' . esc_attr( $help_id ) . '" class="eforms-setting-help-panel" role="note">';
         echo '<button type="button" class="button-link eforms-setting-help-dismiss" aria-label="' . esc_attr( 'Dismiss help for ' . $label . ' setting (' . $path . ')' ) . '">' . esc_html( 'Dismiss' ) . '</button>';
+        if ( $path !== '' ) {
+            echo '<p>' . esc_html( 'Config handle: ' ) . '<code>' . esc_html( $path ) . '</code></p>';
+        }
         foreach ( $help as $entry ) {
             echo '<p>' . esc_html( $entry ) . '</p>';
         }
@@ -507,6 +569,10 @@ class SettingsAdmin {
         echo '.eforms-settings-admin .eforms-setting-help-panel{position:absolute;z-index:20;top:26px;left:0;width:min(360px,70vw);padding:10px 12px;border:1px solid #c3c4c7;background:#fff;box-shadow:0 8px 18px rgba(0,0,0,.16);font-weight:400;}';
         echo '.eforms-settings-admin .eforms-setting-help-dismiss{float:right;margin-left:12px;}';
         echo '.eforms-settings-admin .eforms-setting-help-panel p{margin:.35em 0;}';
+        echo '.eforms-settings-row-label{font-weight:600;}';
+        echo '.eforms-settings-compound-control{display:grid;gap:14px;max-width:700px;}';
+        echo '.eforms-settings-compound-control__item{display:grid;gap:6px;}';
+        echo '.eforms-settings-compound-control__label{font-weight:600;}';
         echo '.eforms-content-terms-editor{display:grid;gap:8px;max-width:560px;}';
         echo '.eforms-content-terms-editor[hidden]{display:none;}';
         echo '.eforms-content-terms-editor__list{display:flex;flex-wrap:wrap;gap:6px;margin:0;}';
@@ -661,10 +727,8 @@ HTML;
         echo '<textarea id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" rows="6" class="large-text code eforms-content-terms-editor__textarea" data-eforms-content-terms-source>' . self::esc_textarea( $value ) . '</textarea>';
     }
 
-    private static function render_storage_table( $config, $report ) {
+    private static function render_storage_table( $config ) {
         $uploads_dir = Config::value( $config, array( 'uploads', 'dir' ), '' );
-        $uploads_entry = isset( $report['uploads.dir'] ) && is_array( $report['uploads.dir'] ) ? $report['uploads.dir'] : array();
-        $uploads_source = isset( $uploads_entry['source'] ) ? (string) $uploads_entry['source'] : 'default';
         $status = 'Unavailable';
         if ( is_string( $uploads_dir ) && $uploads_dir !== '' && is_dir( $uploads_dir ) && is_writable( $uploads_dir ) ) {
             $status = 'Writable';
@@ -677,7 +741,7 @@ HTML;
         echo '<table class="widefat striped eforms-settings-table" aria-label="' . esc_attr( 'Storage settings' ) . '">';
         self::render_settings_table_head();
         echo '<tbody>';
-        echo '<tr><td>' . esc_html( 'Storage Base' ) . '</td><td><code>' . esc_html( 'uploads.dir' ) . '</code></td><td>' . esc_html( $status ) . '</td><td>' . esc_html( $uploads_source ) . '</td><td>' . esc_html( 'Read-only' ) . '</td></tr>';
+        echo '<tr><td>' . esc_html( 'Storage Base' ) . '</td><td>' . esc_html( $status ) . '</td></tr>';
         echo '</tbody></table>';
         echo '</div></div></section>';
     }

@@ -118,19 +118,19 @@ User job: An administrator needs to add, review, paste, and remove obvious spam 
 Task class: new/material settings surface, but inside the existing Settings -> eForms page.
 
 Existing patterns checked:
-- Settings -> eForms grouped settings panels: fits because content filter is a runtime option with source/provenance and save behavior.
+- Settings -> eForms grouped settings panels: fits because content filter is a runtime option with existing save behavior and external-control status.
 - Spam Protection editable settings plus built-in checks: fits because this is spam-specific, operator-facing, and should stay near threshold/min-fill/rejection-response controls.
 - Tools -> eForms Declined: does not fit because this is review/inspection, not configuration.
 
 Options considered:
-- Option A: Add content controls inside Spam Protection. Pros: one save surface, provenance retained, no new navigation. Cons: Spam Protection panel grows. Reuse: `SettingsAdmin` and `SettingsFields`. Best when the controls directly affect spam handling.
+- Option A: Add grouped Blocked content controls inside Spam Protection. Pros: one save surface, external-control status retained, no new navigation, and the action/phrase relationship is visible. Cons: Spam Protection panel grows. Reuse: `SettingsAdmin` and `SettingsFields`. Best when the controls directly affect spam handling.
 - Option B: Add a separate Content Filter page. Pros: more room for future rule management. Cons: premature surface split and extra navigation for a bounded feature. Reuse: weaker.
 - Option C: Drop-in config only. Pros: lowest UI risk. Cons: non-developers cannot operate it and it hides an operator-facing runtime behavior.
 - Option D: Single-field term editor inside Spam Protection. Pros: compact daily editing, visible existing terms, inline duplicate feedback, and multi-line paste/Shift+Enter support without a second input. Cons: requires one focused admin UI component and progressive-enhancement tests.
 
-Decision: Add compact controls inside the existing Spam Protection settings group, with a single-field term editor for `spam.content_filter.blocked_terms`.
+Decision: Add a compact Blocked content setting inside the existing Spam Protection settings group, with an Action select for `spam.content_filter.mode` and a single-field term editor for `spam.content_filter.blocked_terms`.
 
-Why: The operator job is adjusting spam behavior, not managing a separate rules database. The existing Settings -> eForms shell already handles provenance, help popouts, and saves. A single entry field keeps the UI simple while still supporting quick add, removal, and pasted lists without changing the backend newline-list contract.
+Why: The operator job is adjusting spam behavior, not managing a separate rules database. The existing Settings -> eForms shell already handles help popouts, external-control status, and saves. A single entry field keeps the UI simple while still supporting quick add, removal, and pasted lists without changing the backend newline-list contract.
 
 Rejected:
 - Separate page: too much surface for a bounded phrase list.
@@ -147,8 +147,8 @@ Reuse contract:
 
 Surface contract:
 - Entry point: Settings -> eForms -> Spam Protection.
-- Visual hierarchy: existing Spam Protection settings first; content filter controls grouped below or within the settings subsection.
-- Controls: mode select, single-field blocked-terms editor.
+- Visual hierarchy: existing Spam Protection settings first; Blocked content groups the content-filter action and phrase editor together below the other spam settings.
+- Controls: Action select, single-field blocked-terms editor.
 - Single-field editor: existing terms render as removable pills; one entry field adds on Enter or Add; Shift+Enter or pasted line breaks allow multiple lines before adding.
 - Fallback contract: the submitted value remains one normalized term per line in `spam.content_filter.blocked_terms`; with JavaScript unavailable, administrators can still edit the newline textarea directly.
 - Help: plain-language warning to start with Suspect; one term per line; no regex.
@@ -278,13 +278,13 @@ Non-Goals:
 - No separate Tools page.
 - No per-term database rows, IDs, toggles, stats, or separate rules table.
 
-- [ ] P3.T1 Expose Content Filter controls in Spam Protection
+- [ ] P3.T1 Expose Blocked content controls in Spam Protection
   - `Type:` `ui-ownership`
   - `Artifacts:` `src/Admin/SettingsFields.php`, `src/Admin/SettingsAdmin.php` if textarea support is needed, `src/Config.php`, `tests/integration/test_admin_settings_page.php`
-  - `Interfaces:` Settings -> eForms; admin override validation; effective source/provenance display
+  - `Interfaces:` Settings -> eForms; admin override validation; external-control provenance display
   - `Owner:` `src/Admin/SettingsFields.php` for field metadata and mapper, `src/Admin/SettingsAdmin.php` for render only if existing controls need textarea support
   - `Depends On:` P1.T2
-  - `Done When:` mode select and fallback blocked-terms textarea render under Spam Protection, save through existing mapper to `spam.content_filter.*`, show help text, preserve external-control behavior, clean blank lines, reject duplicate and oversized invalid input cleanly, and provide the canonical field enhanced by P4
+  - `Done When:` one Blocked content setting renders Action and fallback blocked-terms textarea under Spam Protection, saves through existing mapper to `spam.content_filter.*`, shows help text, preserves external-control behavior, cleans blank lines, rejects duplicate and oversized invalid input cleanly, and provides the canonical field enhanced by P4
   - `Verified via:` `php tests/integration/test_admin_settings_page.php`
   - `Reasoning:` `high`
   - `Old Visible Owner:` none; feature absent
