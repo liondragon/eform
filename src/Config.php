@@ -44,6 +44,10 @@ class Config
         ),
         'spam' => array(
             'soft_fail_threshold' => self::DEFAULT_SPAM_SOFT_FAIL_THRESHOLD,
+            'content_filter' => array(
+                'mode' => 'off',
+                'blocked_terms' => '',
+            ),
         ),
         'challenge' => array(
             'mode' => 'off',
@@ -305,6 +309,8 @@ class Config
                 'type' => 'int',
                 'min' => 1,
             ),
+            'spam.content_filter.mode' => array('type' => 'enum'),
+            'spam.content_filter.blocked_terms' => array('type' => 'content_terms'),
             'challenge.mode' => array('type' => 'enum'),
             'challenge.site_key' => array('type' => 'string'),
             'challenge.secret_key' => array('type' => 'string', 'secret' => true),
@@ -542,6 +548,15 @@ class Config
                 return null;
             }
             return $value;
+        }
+
+        if ($type === 'content_terms') {
+            $parsed = self::parse_content_terms($value);
+            if (empty($parsed['ok'])) {
+                $errors[] = array('path' => $path, 'reason' => self::content_terms_error_reason($parsed));
+                return null;
+            }
+            return $parsed['normalized_text'];
         }
 
         if ($type === 'enum') {
@@ -912,6 +927,16 @@ class Config
             return $value;
         }
 
+        if ($rule !== null && isset($rule['type']) && $rule['type'] === 'content_terms') {
+            $parsed = self::parse_content_terms($value);
+            if (empty($parsed['ok'])) {
+                self::record_schema_error($errors, $path, self::content_terms_error_reason($parsed));
+                return $is_override ? null : $default;
+            }
+
+            return $parsed['normalized_text'];
+        }
+
         if (is_bool($default)) {
             if (!is_bool($value)) {
                 self::record_schema_error($errors, $path, 'type');
@@ -953,11 +978,44 @@ class Config
         );
     }
 
+    private static function parse_content_terms($value)
+    {
+        if (!class_exists('ContentFilter')) {
+            require_once __DIR__ . '/Spam/ContentFilter.php';
+        }
+
+        return ContentFilter::parse_terms_text($value);
+    }
+
+    private static function content_filter_mode_values()
+    {
+        if (!class_exists('ContentFilter')) {
+            require_once __DIR__ . '/Spam/ContentFilter.php';
+        }
+
+        return ContentFilter::mode_values();
+    }
+
+    private static function content_terms_error_reason($parsed)
+    {
+        if (is_array($parsed) && isset($parsed['errors']) && is_array($parsed['errors'])) {
+            foreach ($parsed['errors'] as $error) {
+                if (is_array($error) && isset($error['reason']) && is_string($error['reason']) && $error['reason'] !== '') {
+                    return $error['reason'];
+                }
+            }
+        }
+
+        return 'content_terms';
+    }
+
     private static function schema_rule($path)
     {
         $rules = array(
             'security.origin_mode' => array('type' => 'enum', 'values' => array('off', 'soft', 'hard')),
             'security.honeypot_response' => array('type' => 'enum', 'values' => array('stealth_success', 'hard_fail')),
+            'spam.content_filter.mode' => array('type' => 'enum', 'values' => self::content_filter_mode_values()),
+            'spam.content_filter.blocked_terms' => array('type' => 'content_terms'),
             'challenge.mode' => array('type' => 'enum', 'values' => array('off', 'auto', 'always_post')),
             'challenge.provider' => array('type' => 'enum', 'values' => array('turnstile')),
             'email.reply_to_mode' => array('type' => 'enum', 'values' => array('auto', 'field', 'fixed', 'none')),

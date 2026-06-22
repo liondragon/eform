@@ -35,6 +35,8 @@ $required = array(
     'MAX_OPTIONS_MAX',
     'MAX_MULTIVALUE_MIN',
     'MAX_MULTIVALUE_MAX',
+    'CONTENT_FILTER_MAX_TERMS',
+    'CONTENT_FILTER_MAX_TERM_CHARS',
 );
 foreach ( $required as $anchor ) {
     eforms_test_assert( array_key_exists( $anchor, $anchors ), 'Missing anchor: ' . $anchor );

@@ -432,6 +432,11 @@ class SettingsAdmin {
             return;
         }
 
+        if ( $control === 'textarea' ) {
+            echo '<textarea id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" rows="6" class="large-text code">' . self::esc_textarea( $value ) . '</textarea>';
+            return;
+        }
+
         if ( ! empty( $field['secret'] ) ) {
             $has_stored = Config::has_path( $stored, explode( '.', $path ) );
             echo '<input id="' . esc_attr( $id ) . '" type="password" name="' . esc_attr( $name ) . '" value="" autocomplete="new-password" />';
@@ -582,5 +587,13 @@ class SettingsAdmin {
 
     private static function unslash( $value ) {
         return function_exists( 'wp_unslash' ) ? wp_unslash( $value ) : $value;
+    }
+
+    private static function esc_textarea( $value ) {
+        if ( function_exists( 'esc_textarea' ) ) {
+            return esc_textarea( $value );
+        }
+
+        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
     }
 }

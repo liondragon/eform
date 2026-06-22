@@ -27,19 +27,19 @@ $command_result = SpamSmokeCommand::run();
 
 eforms_test_assert( $result['ok'] === true, 'Spam smoke diagnostic should pass in the default test runtime.' );
 eforms_test_assert( $result['exit_code'] === 0, 'All-pass smoke run should expose exit_code=0.' );
-eforms_test_assert( count( $result['checks'] ) === 10, 'Spam smoke should run the focused behavior-class check set.' );
-eforms_test_assert( $result['summary']['passed'] === 10, 'All smoke checks should pass.' );
+eforms_test_assert( count( $result['checks'] ) === 12, 'Spam smoke should run the focused behavior-class check set.' );
+eforms_test_assert( $result['summary']['passed'] === 12, 'All smoke checks should pass.' );
 eforms_test_assert( $result['summary']['failed'] === 0, 'No smoke checks should fail.' );
 eforms_test_assert( $command_result['checks'] === $result['checks'], 'CLI adapter should expose the shared diagnostic result without its own check implementation.' );
-eforms_test_assert( SpamSmokeDiagnostic::summary_line( $result ) === '10 passed, 0 failed', 'Diagnostic owner should derive the shared summary line.' );
-eforms_test_assert( count( SpamSmokeDiagnostic::rows( $result ) ) === 10, 'Diagnostic owner should derive shared presentation rows.' );
+eforms_test_assert( SpamSmokeDiagnostic::summary_line( $result ) === '12 passed, 0 failed', 'Diagnostic owner should derive the shared summary line.' );
+eforms_test_assert( count( SpamSmokeDiagnostic::rows( $result ) ) === 12, 'Diagnostic owner should derive shared presentation rows.' );
 
 $checks = array();
 foreach ( $result['checks'] as $check ) {
     $checks[ $check['name'] ] = $check;
 }
 
-foreach ( array( 'baseline', 'honeypot', 'missing-js', 'missing-honeypot', 'too-fast', 'combined-soft', 'challenge-auto', 'throttle', 'mint-oversized', 'mint-no-origin' ) as $name ) {
+foreach ( array( 'baseline', 'honeypot', 'missing-js', 'missing-honeypot', 'too-fast', 'combined-soft', 'content-filter-suspect', 'content-filter-reject', 'challenge-auto', 'throttle', 'mint-oversized', 'mint-no-origin' ) as $name ) {
     eforms_test_assert( isset( $checks[ $name ] ), 'Missing smoke check: ' . $name );
     eforms_test_assert( $checks[ $name ]['ok'] === true, 'Smoke check should pass: ' . $name );
     eforms_test_assert( isset( $checks[ $name ]['expected'] ) && $checks[ $name ]['expected'] !== '', 'Smoke check should report expected result: ' . $name );
@@ -69,6 +69,22 @@ eforms_test_assert(
 eforms_test_assert(
     strpos( $checks['combined-soft']['config_scope'], 'missing JS plus positive min fill' ) !== false,
     'Combined-soft check should explain its temporary config assumptions.'
+);
+eforms_test_assert(
+    strpos( $checks['content-filter-suspect']['observed'], 'content=suspect' ) !== false && strpos( $checks['content-filter-suspect']['observed'], 'real email suppressed' ) !== false,
+    'Content-filter suspect check should prove a synthetic term tags a submission without sending real email.'
+);
+eforms_test_assert(
+    strpos( $checks['content-filter-suspect']['config_scope'], 'synthetic phrase' ) !== false && strpos( $checks['content-filter-suspect']['notes'], 'operator terms not read' ) !== false,
+    'Content-filter suspect check should disclose that it uses temporary synthetic config.'
+);
+eforms_test_assert(
+    strpos( $checks['content-filter-reject']['observed'], 'EFORMS_ERR_SPAM' ) !== false && strpos( $checks['content-filter-reject']['observed'], 'content=reject' ) !== false,
+    'Content-filter reject check should prove a synthetic term reaches the spam reject path.'
+);
+eforms_test_assert(
+    strpos( $checks['content-filter-reject']['observed'], 'burn=1' ) !== false,
+    'Content-filter reject check should prove the spam short-circuit burns the token path.'
 );
 eforms_test_assert(
     strpos( $checks['challenge-auto']['observed'], 'required' ) !== false && strpos( $checks['challenge-auto']['observed'], 'js_missing' ) !== false && strpos( $checks['challenge-auto']['observed'], 'honeypot_missing' ) !== false,

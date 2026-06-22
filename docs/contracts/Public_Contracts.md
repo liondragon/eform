@@ -38,6 +38,7 @@ This file lists stable public and machine-readable surfaces. Operator narrative 
 - Drop-in/filter-controlled values render as externally controlled in wp-admin and are excluded from admin mutation.
 - Stored admin secrets are never rendered raw. Blank secret submissions preserve existing stored admin secrets; explicit clear controls remove only the stored admin override.
 - Config keys, error codes, `/eforms/mint` JSON fields, and log schemas evolve append-only unless the user explicitly approves a breaking contract change.
+- `spam.content_filter.mode` accepts `off`, `suspect`, or `reject`. `spam.content_filter.blocked_terms` is a bounded newline list of plain words or phrases; it is not regex.
 
 ## Error And Result Contracts
 
@@ -45,6 +46,7 @@ This file lists stable public and machine-readable surfaces. Operator narrative 
 - Token, duplicate, and expired-submission failures share the public message: "This form was already submitted or has expired - please reload the page."
 - Email-send failure after ledger reservation redirects to the plugin-owned email-failure result page. The ledger remains burned; runtime must not preserve submitted field values, mint a retry token, render a submitted-content summary, or rerender the form as a retry path.
 - Suspicious but delivered emails may add a generic subject tag and `X-EForms-Soft-Reasons` with safe deduplicated soft-reason labels.
+- Content-filter suspect decisions are separate from soft-signal threshold math. Delivered suspect emails may add a generic subject tag and safe content-filter metadata such as `X-EForms-Content-Reasons`; public responses and normal logs must not expose raw blocked terms or submitted content.
 
 ## Browser Asset Contract
 
@@ -54,4 +56,3 @@ This file lists stable public and machine-readable surfaces. Operator narrative 
 - JS must not overwrite non-empty `eforms_token`, `instance_id`, or `timestamp` fields.
 - Mixed-mode pages call `/eforms/mint` only for JS-minted forms and never for hidden-token forms.
 - The Turnstile provider script is enqueued only when a challenge is rendered. Only the site key may reach browser markup; secret keys stay server-side.
-

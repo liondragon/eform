@@ -11,6 +11,7 @@ require_once __DIR__ . '/Privacy/ClientIp.php';
 require_once __DIR__ . '/Logging/JsonlLogger.php';
 require_once __DIR__ . '/Logging/Fail2banLogger.php';
 require_once __DIR__ . '/Security/Entropy.php';
+require_once __DIR__ . '/Spam/ContentFilter.php';
 
 class Logging {
     const REQUEST_ID_MAX_BYTES = 128;
@@ -36,6 +37,9 @@ class Logging {
 
         $meta['request_id'] = self::resolve_request_id_from_meta( $meta, $request );
         $meta = self::inject_runtime_meta( $meta, $request, $config );
+        if ( isset( $meta['content_filter'] ) ) {
+            $meta['content_filter'] = self::sanitize_content_filter_meta( $meta['content_filter'] );
+        }
 
         $raw_ip = self::resolve_raw_ip( $meta, $request, $config );
         Fail2banLogger::emit( is_string( $code ) ? $code : '', $meta, $raw_ip, $config );
@@ -321,6 +325,9 @@ class Logging {
         if ( isset( $meta['soft_reasons'] ) && is_array( $meta['soft_reasons'] ) ) {
             $payload['soft_reasons'] = array_values( array_filter( $meta['soft_reasons'], 'is_string' ) );
         }
+        if ( isset( $meta['content_filter'] ) && is_array( $meta['content_filter'] ) && ! empty( $meta['content_filter'] ) ) {
+            $payload['content_filter'] = $meta['content_filter'];
+        }
 
         return $payload;
     }
@@ -343,6 +350,7 @@ class Logging {
             'transport',
             'error_class',
             'desc_sha1',
+            'content_filter',
         );
 
         $sanitized = array();
@@ -354,6 +362,13 @@ class Logging {
             if ( $key === 'soft_reasons' ) {
                 if ( is_array( $meta[ $key ] ) ) {
                     $sanitized[ $key ] = array_values( array_filter( $meta[ $key ], 'is_string' ) );
+                }
+                continue;
+            }
+
+            if ( $key === 'content_filter' ) {
+                if ( is_array( $meta[ $key ] ) && ! empty( $meta[ $key ] ) ) {
+                    $sanitized[ $key ] = $meta[ $key ];
                 }
                 continue;
             }
@@ -521,6 +536,10 @@ class Logging {
         }
 
         return $sanitized;
+    }
+
+    private static function sanitize_content_filter_meta( $value ) {
+        return ContentFilter::safe_metadata( $value );
     }
 
     private static function resolve_desc_sha1( $meta, $config ) {

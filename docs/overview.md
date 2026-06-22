@@ -141,6 +141,8 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 | `security.honeypot_response` | Controls the response when the hidden trap field is filled | `stealth_success` hides the block from bots; `hard_fail` shows a generic error |
 | `security.origin_mode` | `off` \| `soft` (log only) \| `hard` (fail) for Origin header checks | `hard` mode blocks cross-origin requests; test before enabling in production |
 | `spam.soft_fail_threshold` | Number of soft signals needed to trigger spam rejection | Lower (1-2) = stricter; higher (3-4) = more permissive. Clamped ≥1 |
+| `spam.content_filter.mode` | `off` \| `suspect` \| `reject` for locally blocked words and phrases | Default off. Suspect tags delivered mail; reject blocks after validation and challenge. Uses plain terms, not regex |
+| `spam.content_filter.blocked_terms` | Newline list of blocked words or phrases | Max 100 terms, 80 characters each. Terms match submitted scalar text fields only |
 | `challenge.mode` | `off` \| `auto` (challenge suspects) \| `always_post` (challenge everyone) | `auto` only challenges when soft signals present; requires Turnstile keys |
 | `throttle.enable` | Toggles file-based per-IP rate limiting | Requires reliable file-locking support; verify with your host before enabling |
 | `logging.mode` | `off` \| `minimal` (error_log) \| `jsonl` (structured files) | JSONL recommended for forensics; minimal for lightweight ops |
@@ -257,6 +259,8 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 - On hard fail (honeypot): Per config (`stealth_success` mimics success; `hard_fail` shows generic error)
 - On throttle: HTTP 429 "Please wait..." + `Retry-After` header
 - On spam-fail: Stealth success or generic error; logged with `spam_decision=fail` + `soft_reasons`
+- On content-filter suspect: Email is delivered with content-filter metadata; existing soft-signal threshold math does not turn this into rejection
+- On content-filter reject: The token is consumed and the submission is blocked before uploads move or email sends
 - On validation errors: Rerender with per-field messages + error summary (first invalid focused)
 - **Signals collected:** `soft_reasons` array (`min_fill_time`, `age_advisory`, `honeypot_missing`, `js_missing`, `origin_soft`)
 
@@ -282,12 +286,13 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 #### 5. Commit — Ledger + Side Effects
 
-1. **Ledger reservation:** Mark submission token as used (prevents duplicate submissions)
+1. **Content filter checkpoint:** After validation, coercion, and any required challenge success, compare coerced scalar text field values with `spam.content_filter.blocked_terms`
+2. **Ledger reservation:** Mark submission token as used (prevents duplicate submissions)
    - If already marked: treat as duplicate submission
    - On storage errors: hard fail with system error message
-2. **Upload moves:** Move uploaded files to private storage with unique names
-3. **Email send:** Render email template, attach files (respecting size limits), send via WordPress
-4. **Log:** Record event (when logging enabled)
+3. **Upload moves:** Move uploaded files to private storage with unique names
+4. **Email send:** Render email template, attach files (respecting size limits), send via WordPress
+5. **Log:** Record event (when logging enabled)
 
 **Operator sees:**
 - On duplicate: "This form was already submitted or has expired - please reload the page"
@@ -335,6 +340,13 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 **Spam Decision:**
 - If `soft_fail_count >= spam.soft_fail_threshold` → reject (stealth or hard per `honeypot_response`)
 - *Operator sees: In logs (level ≥1): `spam_decision=fail` with triggering `soft_reasons`. User sees stealth success or generic error.*
+
+**Content Filter (separate from soft scoring):**
+- `spam.content_filter.mode=off`: no content phrase check runs.
+- `suspect`: matching submitted scalar text is delivered and tagged for operators; it does not count toward `spam.soft_fail_threshold`.
+- `reject`: matching submitted scalar text is rejected after validation and challenge success, with the token consumed to prevent replay.
+- Terms are plain words or phrases. Matching is case-insensitive, collapses whitespace, trims leading/trailing punctuation, matches phrases as normalized contained phrases, and matches single words only at string boundaries or non-letter/non-digit boundaries.
+- Normal logs and visitor responses expose reason labels, match hashes, and field keys only; they do not expose raw blocked terms or submitted content.
 
 ### Failure Modes Reference
 
@@ -497,6 +509,8 @@ Exhaustive knob coverage organized by domain (for spec generation and advanced c
 | | `security.max_post_bytes` | int | POST size cap | Never exceeds PHP INI limits |
 | | `security.js_hard_mode` | bool | Hard-fail when `js_ok` marker missing | Blocks non-JS users; keep opt-in |
 | **Spam** | `spam.soft_fail_threshold` | int | Soft signal count to trigger spam rejection | Clamped ≥1 |
+| | `spam.content_filter.mode` | enum | Local blocked-term handling | `{off, suspect, reject}` |
+| | `spam.content_filter.blocked_terms` | string | Newline list of plain blocked words or phrases | Max 100 terms; max 80 chars each; blank lines ignored; duplicates rejected by normalized form |
 | **Challenge** | `challenge.mode` | enum | When to require CAPTCHA | `{off, auto, always_post}` |
 | | `challenge.provider` | enum | Provider (v1) | `{turnstile}` (hcaptcha/recaptcha reserved) |
 | | `challenge.site_key` | string | Turnstile site key | Required when `mode != off` |

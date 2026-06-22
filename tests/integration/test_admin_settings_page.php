@@ -152,7 +152,13 @@ eforms_test_assert( strpos( $html, 'Used by Field mode, and by Auto when no fixe
 eforms_test_assert( strpos( $html, 'On: eForms sends HTML with a plain-text alternative for better mail compatibility.' ) !== false, 'HTML email help should explain the multipart plain-text alternative.' );
 eforms_test_assert( strpos( $html, 'Spam Protection' ) !== false && strpos( $html, 'Rejection threshold' ) !== false, 'Settings page should expose spam protection controls.' );
 eforms_test_assert( strpos( $html, 'Controls how many suspicious signals are needed' ) !== false, 'Spam threshold help should explain practical effect.' );
+eforms_test_assert( strpos( $html, 'Content filter mode' ) !== false && strpos( $html, 'Blocked Phrases' ) !== false, 'Settings page should expose content filter controls under Spam Protection.' );
+eforms_test_assert( strpos( $html, 'Available options: Off, Suspect, Reject.' ) !== false, 'Content filter mode help should derive available options from field metadata.' );
+eforms_test_assert( strpos( $html, 'Suspect: matching submissions still send email, but the email and logs are tagged for review.' ) !== false, 'Content filter help should explain suspect mode in plain language.' );
+eforms_test_assert( strpos( $html, '<textarea id="eforms-setting-spam-content_filter-blocked_terms" name="' . SettingsFields::VALUES_KEY . '[spam.content_filter.blocked_terms]"' ) !== false, 'Blocked terms should render as the canonical fallback textarea.' );
+eforms_test_assert( strpos( $html, 'Enter one word or phrase per line. Blank lines are ignored.' ) !== false, 'Blocked terms help should explain the newline contract.' );
 eforms_test_assert( strpos( $html, 'Spam rejection response' ) !== false, 'Spam response setting should be labelled by the decision it controls.' );
+eforms_test_assert( strpos( $html, 'Spam rejection response' ) < strpos( $html, 'Blocked Phrases' ), 'Blocked Phrases should be the last editable Spam Protection setting.' );
 eforms_test_assert( strpos( $html, 'eforms-protection-checks-table' ) !== false, 'Spam Protection should render a read-only checks table.' );
 eforms_test_assert( strpos( $html, '>Settings</h3>' ) !== false && strpos( $html, '>Built-in checks</h3>' ) !== false, 'Spam Protection should label editable settings and read-only checks consistently.' );
 foreach ( array( 'Hidden trap filled', 'Hidden trap missing', 'JavaScript marker missing', 'Origin missing or mismatched' ) as $check_label ) {
@@ -179,12 +185,14 @@ $reset();
 AdminSettingsStore::replace_overrides( array( 'logging' => array( 'mode' => 'jsonl' ) ) );
 $smoke_html = SettingsAdmin::render_html( $diagnostic_post() );
 eforms_test_assert( strpos( $smoke_html, 'eforms-spam-smoke-results' ) !== false, 'Smoke run should render a compact result table.' );
-foreach ( array( 'baseline', 'honeypot', 'missing-js', 'missing-honeypot', 'too-fast', 'combined-soft', 'challenge-auto', 'throttle', 'mint-oversized', 'mint-no-origin' ) as $name ) {
+foreach ( array( 'baseline', 'honeypot', 'missing-js', 'missing-honeypot', 'too-fast', 'combined-soft', 'content-filter-suspect', 'content-filter-reject', 'challenge-auto', 'throttle', 'mint-oversized', 'mint-no-origin' ) as $name ) {
     eforms_test_assert( strpos( $smoke_html, '>' . $name . '<' ) !== false, 'Smoke result table should include check: ' . $name );
 }
-eforms_test_assert( substr_count( $smoke_html, '>PASS<' ) === 10, 'Successful smoke run should render ten passing rows.' );
+eforms_test_assert( substr_count( $smoke_html, '>PASS<' ) === 12, 'Successful smoke run should render twelve passing rows.' );
 eforms_test_assert( strpos( $smoke_html, '>Expected<' ) !== false, 'Smoke result table should show expected outcomes.' );
 eforms_test_assert( strpos( $smoke_html, '>Config Scope<' ) !== false, 'Smoke result table should show temporary config assumptions.' );
+eforms_test_assert( strpos( $smoke_html, 'content=reject burn=1' ) !== false, 'Smoke result table should show content-filter reject evidence.' );
+eforms_test_assert( strpos( $smoke_html, 'operator terms not read' ) !== false, 'Smoke result table should disclose synthetic content-filter config.' );
 eforms_test_assert( strpos( $smoke_html, 'real email is suppressed' ) !== false || strpos( $smoke_html, 'Real email is suppressed' ) !== false, 'Smoke section should disclose that real email is suppressed.' );
 eforms_test_assert( AdminSettingsStore::read_overrides() === array( 'logging' => array( 'mode' => 'jsonl' ) ), 'Smoke run should not persist settings.' );
 eforms_test_assert( ! isset( $_SERVER['CONTENT_LENGTH'] ), 'Smoke run should restore CONTENT_LENGTH after admin execution.' );
@@ -217,6 +225,8 @@ $all_values = array(
     'email.reply_to_address' => 'team@example.com',
     'email.reply_to_field' => 'email',
     'spam.soft_fail_threshold' => '3',
+    'spam.content_filter.mode' => 'suspect',
+    'spam.content_filter.blocked_terms' => "Casino\nSEO   Services",
     'security.min_fill_seconds' => '4',
     'security.honeypot_response' => 'hard_fail',
     'challenge.mode' => 'auto',
@@ -234,7 +244,7 @@ eforms_test_assert( $stored['declined_review']['enable'] === true, 'Declined rev
 eforms_test_assert( $stored['declined_review']['retention_days'] === 14, 'Declined review retention should save as int.' );
 eforms_test_assert( $stored['logging']['mode'] === 'jsonl' && $stored['logging']['level'] === 2 && $stored['logging']['retention_days'] === 45, 'Logging group should save.' );
 eforms_test_assert( $stored['email']['from_address'] === 'contact@example.com' && $stored['email']['html'] === true && $stored['email']['reply_to_mode'] === 'fixed' && $stored['email']['reply_to_address'] === 'team@example.com' && $stored['email']['reply_to_field'] === 'email', 'Email group should save.' );
-eforms_test_assert( $stored['spam']['soft_fail_threshold'] === 3 && $stored['security']['min_fill_seconds'] === 4 && $stored['security']['honeypot_response'] === 'hard_fail', 'Spam protection group should save.' );
+eforms_test_assert( $stored['spam']['soft_fail_threshold'] === 3 && $stored['spam']['content_filter']['mode'] === 'suspect' && $stored['spam']['content_filter']['blocked_terms'] === "casino\nseo services" && $stored['security']['min_fill_seconds'] === 4 && $stored['security']['honeypot_response'] === 'hard_fail', 'Spam protection group should save.' );
 eforms_test_assert( $stored['challenge']['mode'] === 'auto' && $stored['challenge']['site_key'] === 'site-key' && $stored['challenge']['secret_key'] === 'stored-secret', 'Challenge group should save.' );
 eforms_test_assert( $stored['throttle']['enable'] === true && $stored['throttle']['per_ip']['max_per_minute'] === 60 && $stored['throttle']['per_ip']['cooldown_seconds'] === 5, 'Throttle group should save.' );
 eforms_test_assert( $stored['privacy']['ip_mode'] === 'hash', 'Privacy group should save.' );
@@ -252,14 +262,54 @@ $notice = SettingsAdmin::handle_save(
         array(
             'declined_review.retention_days' => '',
             'challenge.site_key' => '',
+            'spam.content_filter.blocked_terms' => '',
         ),
-        array( 'declined_review.retention_days', 'challenge.site_key' )
+        array( 'declined_review.retention_days', 'challenge.site_key', 'spam.content_filter.blocked_terms' )
     )
 );
 eforms_test_assert( $notice['type'] === 'success', 'Blank nullable/text fields should save as clears.' );
 $cleared = AdminSettingsStore::read_overrides();
 eforms_test_assert( ! isset( $cleared['declined_review']['retention_days'] ), 'Blank nullable field should clear stored override.' );
 eforms_test_assert( ! isset( $cleared['challenge']['site_key'] ), 'Blank site key should clear stored override.' );
+eforms_test_assert( ! isset( $cleared['spam']['content_filter']['blocked_terms'] ), 'Blank blocked terms textarea should clear stored override.' );
+
+// Content filter textarea input is normalized, and invalid lists preserve the existing option.
+$reset();
+$content_save = SettingsAdmin::handle_save(
+    $post(
+        array(
+            'spam.content_filter.mode' => 'reject',
+            'spam.content_filter.blocked_terms' => " Casino \n\n SEO   Services \n",
+        ),
+        array( 'spam.content_filter.mode', 'spam.content_filter.blocked_terms' )
+    )
+);
+eforms_test_assert( $content_save['type'] === 'success', 'Content filter settings should save through the admin mapper.' );
+$content_stored = AdminSettingsStore::read_overrides();
+eforms_test_assert( $content_stored['spam']['content_filter']['mode'] === 'reject', 'Content filter mode should persist.' );
+eforms_test_assert( $content_stored['spam']['content_filter']['blocked_terms'] === "casino\nseo services", 'Content filter terms should normalize and remove blank lines on save.' );
+
+$duplicate_terms = SettingsAdmin::handle_save(
+    $post(
+        array(
+            'spam.content_filter.blocked_terms' => "Casino\n casino ",
+        ),
+        array( 'spam.content_filter.blocked_terms' )
+    )
+);
+eforms_test_assert( $duplicate_terms['type'] === 'error', 'Duplicate content filter terms should reject the save.' );
+eforms_test_assert( AdminSettingsStore::read_overrides() === $content_stored, 'Duplicate content terms should preserve the existing admin option.' );
+
+$oversized_terms = SettingsAdmin::handle_save(
+    $post(
+        array(
+            'spam.content_filter.blocked_terms' => str_repeat( 'x', Anchors::get( 'CONTENT_FILTER_MAX_TERM_CHARS' ) + 1 ),
+        ),
+        array( 'spam.content_filter.blocked_terms' )
+    )
+);
+eforms_test_assert( $oversized_terms['type'] === 'error', 'Oversized content filter terms should reject the save.' );
+eforms_test_assert( AdminSettingsStore::read_overrides() === $content_stored, 'Oversized content terms should preserve the existing admin option.' );
 
 // Secrets are masked, blank keeps the stored secret, and explicit clear removes only the admin override.
 $reset();
@@ -309,6 +359,14 @@ Config::reset_for_tests();
 $clamped_external_html = SettingsAdmin::render_html();
 eforms_test_assert( strpos( $clamped_external_html, 'logging.level' ) !== false, 'Clamped external fields should render in the settings table.' );
 eforms_test_assert( strpos( $clamped_external_html, '<input type="hidden" name="' . SettingsFields::SUBMITTED_PATHS_KEY . '[]" value="logging.level"' ) === false, 'Clamped external fields should not render as editable settings.' );
+
+$reset();
+$write_dropin( array( 'spam' => array( 'content_filter' => array( 'mode' => 'reject', 'blocked_terms' => 'casino' ) ) ) );
+Config::reset_for_tests();
+$external_content_html = SettingsAdmin::render_html();
+eforms_test_assert( strpos( $external_content_html, 'spam.content_filter.mode' ) !== false && strpos( $external_content_html, 'spam.content_filter.blocked_terms' ) !== false, 'Externally controlled content filter fields should still show effective values.' );
+eforms_test_assert( strpos( $external_content_html, '<input type="hidden" name="' . SettingsFields::SUBMITTED_PATHS_KEY . '[]" value="spam.content_filter.mode"' ) === false, 'Externally controlled content mode should not render as editable.' );
+eforms_test_assert( strpos( $external_content_html, '<textarea id="eforms-setting-spam-content_filter-blocked_terms"' ) === false, 'Externally controlled blocked terms should not render the textarea.' );
 
 // Grouped settings tables keep editable controls with Config provenance and passive runtime checks.
 $reset();

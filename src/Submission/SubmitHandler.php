@@ -20,6 +20,7 @@ require_once __DIR__ . '/../Security/Challenge.php';
 require_once __DIR__ . '/../Security/Honeypot.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Security/StorageHealth.php';
+require_once __DIR__ . '/../Spam/ContentFilter.php';
 require_once __DIR__ . '/../Email/Emailer.php';
 require_once __DIR__ . '/../Uploads/UploadStore.php';
 require_once __DIR__ . '/Ledger.php';
@@ -225,6 +226,41 @@ class SubmitHandler {
         $soft_signal = Security::soft_signal_context( $security, $config );
         $security['soft_reasons'] = $soft_signal['soft_reasons'];
 
+        $content_filter = self::call_content_filter( $overrides, $trace, $trace_on, $context, $coerced, $config );
+        if ( ContentFilter::is_matched( $content_filter ) ) {
+            $content_filter = ContentFilter::safe_metadata( $content_filter );
+            $security['content_filter'] = $content_filter;
+            if ( ContentFilter::is_reject( $content_filter ) ) {
+                $declined['security'] = $security;
+                $declined['values'] = self::extract_values( $coerced );
+                self::capture_declined_submission(
+                    $declined,
+                    'EFORMS_ERR_SPAM',
+                    'content_filter',
+                    'canonical',
+                    array( 'content_filter' => $content_filter )
+                );
+
+                return self::spam_short_circuit_result(
+                    'content_filter_reject',
+                    'EFORMS_ERR_SPAM',
+                    $honeypot['response'],
+                    $files,
+                    $overrides,
+                    $resolved_form_id,
+                    $security,
+                    $security_meta,
+                    $uploads_dir,
+                    $request,
+                    $config,
+                    $trace,
+                    $trace_on
+                );
+            }
+
+            self::log_content_filter_suspect( $resolved_form_id, $security, $request );
+        }
+
         // Reserve ledger marker before any side effects.
         $ledger = self::call_ledger_reserve( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
         if ( ! self::ledger_ok( $ledger ) ) {
@@ -363,6 +399,23 @@ class SubmitHandler {
         }
 
         return Challenge::verify( $post, $request, $config, $security );
+    }
+
+    private static function call_content_filter( $overrides, &$trace, $trace_on, $context, $coerced, $config ) {
+        if ( ! ContentFilter::is_enabled( $config ) ) {
+            return ContentFilter::evaluate( $context, $coerced, $config );
+        }
+
+        if ( $trace_on ) {
+            $trace[] = 'content_filter';
+        }
+
+        $callable = self::override_callable( $overrides, 'content_filter' );
+        if ( $callable ) {
+            return call_user_func( $callable, $context, $coerced, $config );
+        }
+
+        return ContentFilter::evaluate( $context, $coerced, $config );
     }
 
     private static function call_commit( $overrides, &$trace, $trace_on, $context, $coerced, $security, $request, $config ) {
@@ -1011,8 +1064,26 @@ class SubmitHandler {
             'threshold' => $soft_signal['threshold'],
             'stealth' => $response === Honeypot::RESPONSE_STEALTH_SUCCESS,
         );
+        if ( isset( $security['content_filter'] ) && is_array( $security['content_filter'] ) ) {
+            $meta['content_filter'] = $security['content_filter'];
+        }
 
         Logging::event( 'warning', 'EFORMS_ERR_SPAM', $meta, $request );
+    }
+
+    private static function log_content_filter_suspect( $form_id, $security, $request ) {
+        $meta = array(
+            'form_id' => is_string( $form_id ) ? $form_id : '',
+            'submission_id' => isset( $security['submission_id'] ) && is_string( $security['submission_id'] ) ? $security['submission_id'] : '',
+            'mode' => isset( $security['mode'] ) && is_string( $security['mode'] ) ? $security['mode'] : '',
+            'spam_decision' => 'suspect',
+        );
+
+        if ( isset( $security['content_filter'] ) && is_array( $security['content_filter'] ) ) {
+            $meta['content_filter'] = $security['content_filter'];
+        }
+
+        Logging::event( 'info', 'EFORMS_CONTENT_FILTER_SUSPECT', $meta, $request );
     }
 
     private static function error_code_from_result( $result ) {

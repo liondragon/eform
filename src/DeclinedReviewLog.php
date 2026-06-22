@@ -10,6 +10,7 @@ require_once __DIR__ . '/Config.php';
 require_once __DIR__ . '/Helpers.php';
 require_once __DIR__ . '/Privacy/ClientIp.php';
 require_once __DIR__ . '/Security/Entropy.php';
+require_once __DIR__ . '/Spam/ContentFilter.php';
 require_once __DIR__ . '/Uploads/PrivateDir.php';
 require_once __DIR__ . '/Uploads/UploadValue.php';
 require_once __DIR__ . '/Logging/FileSink.php';
@@ -160,6 +161,7 @@ class DeclinedReviewLog {
             'soft_reasons' => self::string_list( isset( $security['soft_reasons'] ) ? $security['soft_reasons'] : array() ),
             'honeypot' => ! empty( $args['honeypot'] ),
             'challenge' => isset( $args['challenge'] ) && is_array( $args['challenge'] ) ? self::safe_meta( $args['challenge'] ) : array(),
+            'content_filter' => self::content_filter_meta( $args ),
             'ip' => ClientIp::present( ClientIp::resolve( $request, $config ), $config ),
             'uri' => Helpers::filtered_uri( $request ),
             'fields' => $fields,
@@ -471,6 +473,15 @@ class DeclinedReviewLog {
             }
         }
         return $out;
+    }
+
+    private static function content_filter_meta( $args ) {
+        $value = array();
+        if ( is_array( $args ) && isset( $args['content_filter'] ) && is_array( $args['content_filter'] ) ) {
+            $value = $args['content_filter'];
+        }
+
+        return ContentFilter::safe_metadata( $value );
     }
 
     private static function warn_write_failed( $record, $request ) {

@@ -14,6 +14,7 @@ require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Privacy/ClientIp.php';
 require_once __DIR__ . '/../Security/Security.php';
+require_once __DIR__ . '/../Spam/ContentFilter.php';
 require_once __DIR__ . '/../Uploads/UploadValue.php';
 require_once __DIR__ . '/../Validation/FieldTypes/TextLike.php';
 require_once __DIR__ . '/Templates.php';
@@ -80,7 +81,8 @@ class Emailer {
         }
 
         $soft_signal = Security::soft_signal_context( $security, $config );
-        if ( ! empty( $soft_signal['is_suspect'] ) ) {
+        $content_filter = self::content_filter_metadata( $security );
+        if ( ! empty( $soft_signal['is_suspect'] ) || ContentFilter::is_suspect( $content_filter ) ) {
             $subject = self::apply_suspect_subject_tag( $subject, $config );
             if ( $subject === '' ) {
                 return self::failure( 'subject_empty' );
@@ -124,7 +126,7 @@ class Emailer {
             $alt_body = self::append_attachment_overflow_summary( $alt_body, $overflow_names, false );
         }
 
-        $headers = self::build_headers( $config, $values, $canonical['fields'], $email, $request, $soft_signal );
+        $headers = self::build_headers( $config, $values, $canonical['fields'], $email, $request, $soft_signal, $content_filter );
         if ( $headers === null ) {
             return self::failure( 'headers_invalid' );
         }
@@ -654,7 +656,7 @@ class Emailer {
         return $out;
     }
 
-    private static function build_headers( $config, $values, $canonical_fields, $email, $request, $soft_signal = array() ) {
+    private static function build_headers( $config, $values, $canonical_fields, $email, $request, $soft_signal = array(), $content_filter = array() ) {
         $headers = array();
 
         $from = self::resolve_from_address( $config, $request );
@@ -692,7 +694,27 @@ class Emailer {
             }
         }
 
+        if ( ContentFilter::is_matched( $content_filter ) ) {
+            if ( isset( $content_filter['reason'] ) && $content_filter['reason'] !== '' ) {
+                $headers[] = 'X-EForms-Content-Reasons: ' . $content_filter['reason'];
+            }
+            if ( ! empty( $content_filter['match_ids'] ) ) {
+                $headers[] = 'X-EForms-Content-Match-Ids: ' . implode( ', ', $content_filter['match_ids'] );
+            }
+            if ( ! empty( $content_filter['field_keys'] ) ) {
+                $headers[] = 'X-EForms-Content-Fields: ' . implode( ', ', $content_filter['field_keys'] );
+            }
+        }
+
         return $headers;
+    }
+
+    private static function content_filter_metadata( $security ) {
+        if ( ! is_array( $security ) || ! isset( $security['content_filter'] ) || ! is_array( $security['content_filter'] ) ) {
+            return array();
+        }
+
+        return ContentFilter::safe_metadata( $security['content_filter'] );
     }
 
     private static function resolve_from_name( $canonical_fields = array() ) {

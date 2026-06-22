@@ -18,6 +18,7 @@ This repo uses this router, `docs/Owner_Index.md`, `docs/overview.md`, `docs/con
 - Rendering: `src/Rendering/` loads templates, builds context, renders forms, and enqueues browser assets.
 - Submission: `src/Submission/` handles public POST routing, virtual result-page GET routing, pipeline orchestration, ledger reservation, and result redirects.
 - Security: `src/Security/` owns tokens, origin policy, challenge verification, throttling, and mint endpoint behavior.
+- Spam policy: `src/Spam/ContentFilter.php` owns local blocked-term parsing, normalization, field selection, and matching; it does not own request behavior soft signals or threshold math.
 - Validation and registries: `src/Validation/` owns template validation, field descriptors, normalizers, validators, and handler registries.
 - Email and result pages: `src/Email/` owns outbound email assembly; `src/Submission/Success.php` owns result-page URL/query handling.
 - Declined review: `src/DeclinedReviewLog.php` owns declined-submission content capture and file-backed reads; `src/Admin/DeclinedReviewAdmin.php` owns the Tools admin viewer.

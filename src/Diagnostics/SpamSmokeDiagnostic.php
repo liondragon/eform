@@ -9,6 +9,7 @@ require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Security/MintEndpoint.php';
 require_once __DIR__ . '/../Security/Security.php';
+require_once __DIR__ . '/../Spam/ContentFilter.php';
 require_once __DIR__ . '/../Submission/SubmitHandler.php';
 
 class SpamSmokeDiagnostic {
@@ -112,6 +113,22 @@ class SpamSmokeDiagnostic {
                 array( 'code' => 'EFORMS_ERR_SPAM', 'soft_reasons' => array( 'min_fill_time', 'js_missing' ), 'commit_calls' => 0 ),
                 'temporary strict spam threshold; missing JS plus positive min fill window',
                 'multiple soft reasons'
+            ),
+            self::submit_scenario(
+                'content-filter-suspect',
+                self::content_filter_config( ContentFilter::MODE_SUSPECT ),
+                array( 'js_ok' => true, 'honeypot' => false, 'message' => 'Please review the diagnostic smoke phrase.' ),
+                array( 'code' => 'ok', 'commit_calls' => 1, 'content_decision' => ContentFilter::MODE_SUSPECT, 'content_reason' => ContentFilter::REASON_BLOCKED_TERM, 'content_fields' => array( 'message' ) ),
+                'temporary content filter suspect mode with synthetic phrase',
+                'real email suppressed; operator terms not read'
+            ),
+            self::submit_scenario(
+                'content-filter-reject',
+                self::content_filter_config( ContentFilter::MODE_REJECT ),
+                array( 'js_ok' => true, 'honeypot' => false, 'message' => 'Please review the diagnostic smoke phrase.' ),
+                array( 'code' => 'EFORMS_ERR_SPAM', 'commit_calls' => 0, 'burn_calls' => 1, 'content_decision' => ContentFilter::MODE_REJECT ),
+                'temporary content filter reject mode with synthetic phrase',
+                'operator terms not read'
             ),
             self::challenge_auto_scenario(),
             self::mint_scenario(
@@ -256,10 +273,12 @@ class SpamSmokeDiagnostic {
                 $input = isset( $scenario['input'] ) && is_array( $scenario['input'] ) ? $scenario['input'] : array();
                 $expect = isset( $scenario['expect'] ) && is_array( $scenario['expect'] ) ? $scenario['expect'] : array();
                 $calls = array( 'burn' => 0, 'commit' => 0 );
+                $content_filter = array();
                 $result = self::submit(
                     ! empty( $input['js_ok'] ),
                     ! empty( $input['honeypot'] ),
                     ! empty( $input['omit_honeypot'] ),
+                    self::expect_string( $input, 'message', 'Smoke test submission.' ),
                     array(
                         'ledger_reserve' => function () {
                             return array( 'ok' => true );
@@ -268,8 +287,11 @@ class SpamSmokeDiagnostic {
                             $calls['burn'] += 1;
                             return array( 'ok' => true );
                         },
-                        'commit' => function () use ( &$calls ) {
+                        'commit' => function ( $context, $coerced, $security ) use ( &$calls, &$content_filter ) {
                             $calls['commit'] += 1;
+                            if ( is_array( $security ) && isset( $security['content_filter'] ) && is_array( $security['content_filter'] ) ) {
+                                $content_filter = ContentFilter::safe_metadata( $security['content_filter'] );
+                            }
                             return array( 'ok' => true, 'status' => 200 );
                         },
                     )
@@ -289,10 +311,29 @@ class SpamSmokeDiagnostic {
                 foreach ( self::expect_list( $expect, 'soft_reasons' ) as $soft_reason ) {
                     $ok = $ok && in_array( $soft_reason, $soft_reasons, true );
                 }
+                $content_expected = self::expect_string( $expect, 'content_decision', '' );
+                if ( $content_expected === ContentFilter::MODE_SUSPECT ) {
+                    $ok = $ok
+                        && isset( $content_filter['decision'] )
+                        && $content_filter['decision'] === ContentFilter::MODE_SUSPECT
+                        && self::expect_string( $expect, 'content_reason', '' ) === ( isset( $content_filter['reason'] ) ? (string) $content_filter['reason'] : '' );
+                    foreach ( self::expect_list( $expect, 'content_fields' ) as $field_key ) {
+                        $fields = isset( $content_filter['field_keys'] ) && is_array( $content_filter['field_keys'] ) ? $content_filter['field_keys'] : array();
+                        $ok = $ok && in_array( $field_key, $fields, true );
+                    }
+                } elseif ( $content_expected === ContentFilter::MODE_REJECT ) {
+                    $trace = is_array( $result ) && isset( $result['trace'] ) && is_array( $result['trace'] ) ? $result['trace'] : array();
+                    $ok = $ok && in_array( 'content_filter_reject', $trace, true );
+                }
 
                 $observed = $code === 'ok'
                     ? 'reached commit override; real email suppressed'
                     : trim( $code . ' ' . implode( ',', $soft_reasons ) );
+                if ( $content_expected === ContentFilter::MODE_SUSPECT && isset( $content_filter['decision'] ) ) {
+                    $observed .= ' content=' . $content_filter['decision'];
+                } elseif ( $content_expected === ContentFilter::MODE_REJECT ) {
+                    $observed .= ' content=reject burn=' . $calls['burn'];
+                }
                 $notes = isset( $scenario['notes'] ) && $scenario['notes'] !== '' ? $scenario['notes'] : 'commit calls=' . $calls['commit'];
 
                 return array( 'ok' => $ok, 'observed' => $observed, 'notes' => $notes );
@@ -358,7 +399,7 @@ class SpamSmokeDiagnostic {
         return array( 'ok' => true );
     }
 
-    private static function submit( $js_ok, $honeypot, $omit_honeypot, $overrides ) {
+    private static function submit( $js_ok, $honeypot, $omit_honeypot, $message, $overrides ) {
         $mint = Security::mint_hidden_record(
             self::FORM_ID,
             null,
@@ -377,7 +418,7 @@ class SpamSmokeDiagnostic {
             self::FORM_ID => array(
                 'name' => 'Smoke Test',
                 'email' => 'smoke@example.test',
-                'message' => 'Smoke test submission.',
+                'message' => (string) $message,
             ),
         );
         if ( $js_ok ) {
@@ -443,6 +484,19 @@ class SpamSmokeDiagnostic {
         return array_replace_recursive(
             self::submission_config( array( 'spam' => array( 'soft_fail_threshold' => 1 ) ) ),
             $extra
+        );
+    }
+
+    private static function content_filter_config( $mode ) {
+        return self::submission_config(
+            array(
+                'spam' => array(
+                    'content_filter' => array(
+                        'mode' => $mode,
+                        'blocked_terms' => 'diagnostic smoke phrase',
+                    ),
+                ),
+            )
         );
     }
 

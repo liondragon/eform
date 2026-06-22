@@ -183,6 +183,20 @@ class SettingsFields {
                         )
                     ),
                     self::field(
+                        'spam.content_filter.mode',
+                        'Content filter mode',
+                        'select',
+                        $schema,
+                        array(
+                            'help' => array(
+                                'Checks submitted text fields against the blocked words and phrases below.',
+                                'Off: content terms are not checked.',
+                                'Suspect: matching submissions still send email, but the email and logs are tagged for review.',
+                                'Reject: matching submissions are blocked before email after any required challenge passes.',
+                            ),
+                        )
+                    ),
+                    self::field(
                         'security.min_fill_seconds',
                         'Minimum fill time',
                         'number',
@@ -206,6 +220,20 @@ class SettingsFields {
                                 'Stealth success: rejected spam sees a success-shaped response, but eForms skips validation and email.',
                                 'Hard fail: rejected spam sees a generic form error.',
                                 'Used when the hidden trap is filled or when suspicious signals reach the rejection threshold.',
+                            ),
+                        )
+                    ),
+                    self::field(
+                        'spam.content_filter.blocked_terms',
+                        'Blocked Phrases',
+                        'textarea',
+                        $schema,
+                        array(
+                            'help' => array(
+                                'Enter one word or phrase per line. Blank lines are ignored.',
+                                'Terms are lowercased and extra spaces are collapsed when saved.',
+                                'Single words match whole words; phrases match normalized submitted text.',
+                                'Duplicate or too-long terms are rejected so the saved list stays deterministic.',
                             ),
                         )
                     ),
@@ -444,7 +472,7 @@ class SettingsFields {
             }
 
             $value = trim( (string) $raw );
-            if ( $value === '' && ( ! empty( $field['nullable'] ) || $control === 'text' ) ) {
+            if ( $value === '' && ( ! empty( $field['nullable'] ) || $control === 'text' || $control === 'textarea' ) ) {
                 unset( $flat[ $path ] );
                 continue;
             }

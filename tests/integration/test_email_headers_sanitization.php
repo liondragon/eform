@@ -132,6 +132,31 @@ eforms_test_assert( isset( $result['alt_body'] ) && strpos( $result['alt_body'],
 eforms_test_assert( isset( $call['alt_body'] ) && $call['alt_body'] === $result['alt_body'], 'wp_mail should receive the rendered plain-text alternative through PHPMailer.' );
 eforms_test_assert( empty( $GLOBALS['eforms_test_hooks']['action']['phpmailer_init'] ), 'Temporary PHPMailer AltBody hook should be removed after send.' );
 
+$content_match_id = sha1( 'casino' );
+eforms_test_reset_mail();
+$content_security = array(
+    'submission_id' => 'submission-2',
+    'mode' => 'hidden',
+    'soft_reasons' => array(),
+    'content_filter' => array(
+        'matched' => true,
+        'decision' => 'suspect',
+        'reason' => 'content_blocked_term',
+        'match_ids' => array( $content_match_id, 'casino' ),
+        'field_keys' => array( 'name' ),
+    ),
+);
+$content_result = Emailer::send( $context, $values, $content_security, array( 'client_ip' => '203.0.113.42' ), Config::get() );
+$content_call = $GLOBALS['eforms_test_mail_calls'][0];
+$content_headers = implode( "\n", $content_call['headers'] );
+eforms_test_assert( $content_result['ok'] === true, 'Content suspect email should send successfully.' );
+eforms_test_assert( strpos( $content_call['subject'], '[Suspect] ' ) === 0, 'Content-only suspect submissions should receive a subject tag.' );
+eforms_test_assert( strpos( $content_headers, 'X-EForms-Soft-Reasons:' ) === false, 'Content-only suspect emails should not invent soft-reason headers.' );
+eforms_test_assert( strpos( $content_headers, 'X-EForms-Content-Reasons: content_blocked_term' ) !== false, 'Content suspect email should include a stable content reason header.' );
+eforms_test_assert( strpos( $content_headers, 'X-EForms-Content-Match-Ids: ' . $content_match_id ) !== false, 'Content suspect email should include stable match IDs.' );
+eforms_test_assert( strpos( $content_headers, 'X-EForms-Content-Fields: name' ) !== false, 'Content suspect email should include matched field keys.' );
+eforms_test_assert( strpos( $content_headers, 'casino' ) === false, 'Content suspect email headers must not expose raw blocked terms.' );
+
 eforms_test_reset_mail();
 eforms_test_set_filter(
     'eforms_config',

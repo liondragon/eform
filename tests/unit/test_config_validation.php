@@ -115,7 +115,46 @@ foreach (Logging::$events as $event) {
 
 eforms_test_assert($found, 'Expected schema warning for challenge.mode.' );
 
-// Case 5: filter invalid values are sanitized (no drop-in warning requirement).
+// Case 5: content-filter drop-in values are normalized and invalid lists fall back.
+$remove_dropin();
+Logging::reset_for_tests();
+$write_dropin(array(
+    'spam' => array(
+        'content_filter' => array(
+            'mode' => 'reject',
+            'blocked_terms' => "Casino\nSEO   Services",
+        ),
+    ),
+));
+Config::reset_for_tests();
+$config = Config::get();
+
+eforms_test_assert($config['spam']['content_filter']['mode'] === 'reject', 'Content filter mode should accept canonical enum values.' );
+eforms_test_assert($config['spam']['content_filter']['blocked_terms'] === "casino\nseo services", 'Content filter terms should normalize drop-in values.' );
+
+Logging::reset_for_tests();
+$write_dropin(array(
+    'spam' => array(
+        'content_filter' => array(
+            'blocked_terms' => "Casino\n casino ",
+        ),
+    ),
+));
+Config::reset_for_tests();
+$config = Config::get();
+
+eforms_test_assert($config['spam']['content_filter']['blocked_terms'] === $defaults['spam']['content_filter']['blocked_terms'], 'Invalid content term lists should fall back to defaults.' );
+$found = false;
+foreach (Logging::$events as $event) {
+    if ($event['code'] === 'EFORMS_CONFIG_DROPIN_INVALID' && isset($event['meta']['path']) && $event['meta']['path'] === 'spam.content_filter.blocked_terms') {
+        $found = true;
+        eforms_test_assert($event['meta']['reason'] === 'duplicate', 'Duplicate content term failures should be tagged with reason=duplicate.' );
+    }
+}
+
+eforms_test_assert($found, 'Expected schema warning for spam.content_filter.blocked_terms.' );
+
+// Case 6: filter invalid values are sanitized (no drop-in warning requirement).
 $remove_dropin();
 Logging::reset_for_tests();
 eforms_test_set_filter(

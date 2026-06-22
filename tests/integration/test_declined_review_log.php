@@ -46,6 +46,13 @@ if ( ! function_exists( 'eforms_declined_test_capture_args' ) ) {
             'decision_code' => 'EFORMS_ERR_SPAM',
             'decision_phase' => 'spam_threshold',
             'value_stage' => 'raw_declared',
+            'content_filter' => array(
+                'matched' => true,
+                'decision' => 'reject',
+                'reason' => 'content_blocked_term',
+                'match_ids' => array( sha1( 'casino' ), 'casino' ),
+                'field_keys' => array( 'message' ),
+            ),
             'values' => array(
                 'name' => 'Ada',
                 'email' => 'ada@example.com',
@@ -125,6 +132,11 @@ eforms_test_assert( $record['decision_phase'] === 'spam_threshold', 'Record shou
 eforms_test_assert( $record['value_stage'] === 'raw_declared', 'Record should include value stage.' );
 eforms_test_assert( ! isset( $record['soft_fail_count'] ), 'Record should not store computed soft_fail_count.' );
 eforms_test_assert( ! isset( $record['threshold'] ), 'Record should not store computed threshold.' );
+eforms_test_assert( $record['content_filter']['reason'] === 'content_blocked_term', 'Record should include the stable content-filter reason.' );
+eforms_test_assert( $record['content_filter']['decision'] === 'reject', 'Record should include content-filter decision metadata.' );
+eforms_test_assert( $record['content_filter']['match_ids'] === array( sha1( 'casino' ) ), 'Record should include stable content-filter match IDs.' );
+eforms_test_assert( $record['content_filter']['field_keys'] === array( 'message' ), 'Record should include matched content field keys.' );
+eforms_test_assert( strpos( json_encode( $record['content_filter'] ), 'casino' ) === false, 'Record content-filter metadata must not expose raw blocked terms.' );
 eforms_test_assert( $record['ip'] === '203.0.113.10', 'Record should respect privacy.ip_mode.' );
 eforms_test_assert( $record['uri'] === '/submit?eforms_public=1', 'Record should keep only eforms query params.' );
 eforms_test_assert( isset( $record['fields']['name'] ) && $record['fields']['name'] === 'Ada', 'Record should capture declared field content.' );

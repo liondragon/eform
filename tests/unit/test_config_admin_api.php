@@ -10,6 +10,7 @@ eforms_test_define_wp_content( 'eforms-config-admin-api' );
 eforms_test_reset_options();
 
 require_once __DIR__ . '/../../src/Config.php';
+require_once __DIR__ . '/../../src/Spam/ContentFilter.php';
 
 $schema = Config::admin_schema();
 $expected_paths = array(
@@ -18,9 +19,16 @@ $expected_paths = array(
     'logging.mode',
     'logging.level',
     'logging.retention_days',
+    'email.from_address',
+    'email.html',
+    'email.reply_to_mode',
+    'email.reply_to_address',
+    'email.reply_to_field',
     'security.honeypot_response',
     'security.min_fill_seconds',
     'spam.soft_fail_threshold',
+    'spam.content_filter.mode',
+    'spam.content_filter.blocked_terms',
     'challenge.mode',
     'challenge.site_key',
     'challenge.secret_key',
@@ -40,6 +48,8 @@ eforms_test_assert( $schema['declined_review.retention_days']['nullable'] === tr
 eforms_test_assert( $schema['logging.level']['min_anchor'] === 'LOGGING_LEVEL_MIN', 'Logging level should derive its min anchor.' );
 eforms_test_assert( $schema['security.min_fill_seconds']['min_anchor'] === 'MIN_FILL_SECONDS_MIN', 'Minimum fill time should derive its min anchor.' );
 eforms_test_assert( $schema['spam.soft_fail_threshold']['min'] === 1, 'Spam threshold should expose its minimum.' );
+eforms_test_assert( $schema['spam.content_filter.mode']['values'] === ContentFilter::mode_values(), 'Content filter mode should expose canonical enum values.' );
+eforms_test_assert( $schema['spam.content_filter.blocked_terms']['type'] === 'content_terms', 'Content filter terms should use the owner-owned validator type.' );
 
 $valid = Config::validate_admin_overrides(
     array(
@@ -57,6 +67,10 @@ $valid = Config::validate_admin_overrides(
         ),
         'spam' => array(
             'soft_fail_threshold' => '3',
+            'content_filter' => array(
+                'mode' => 'suspect',
+                'blocked_terms' => "Casino\nSEO   Services",
+            ),
         ),
         'challenge' => array(
             'secret_key' => 'top-secret',
@@ -70,6 +84,8 @@ eforms_test_assert( $valid['overrides']['logging']['level'] === 2, 'Numeric admi
 eforms_test_assert( $valid['overrides']['security']['honeypot_response'] === 'hard_fail', 'Admin enum spam settings should be preserved.' );
 eforms_test_assert( $valid['overrides']['security']['min_fill_seconds'] === 3, 'Minimum fill time should save as int.' );
 eforms_test_assert( $valid['overrides']['spam']['soft_fail_threshold'] === 3, 'Spam threshold should save as int.' );
+eforms_test_assert( $valid['overrides']['spam']['content_filter']['mode'] === 'suspect', 'Content filter mode should save as enum.' );
+eforms_test_assert( $valid['overrides']['spam']['content_filter']['blocked_terms'] === "casino\nseo services", 'Content filter terms should save in normalized newline form.' );
 
 $flat_valid = Config::validate_admin_flat_overrides(
     array(
@@ -98,6 +114,20 @@ eforms_test_assert( $bad_enum['errors'][0]['reason'] === 'enum', 'Enum errors sh
 
 $bad_type = Config::validate_admin_overrides( array( 'throttle' => array( 'enable' => '1' ) ) );
 eforms_test_assert( $bad_type['ok'] === false, 'Invalid admin bool types should reject the whole payload.' );
+
+$bad_content_mode = Config::validate_admin_overrides( array( 'spam' => array( 'content_filter' => array( 'mode' => 'block' ) ) ) );
+eforms_test_assert( $bad_content_mode['ok'] === false, 'Invalid content filter mode should reject admin payloads.' );
+eforms_test_assert( $bad_content_mode['errors'][0]['path'] === 'spam.content_filter.mode', 'Invalid content mode should identify the path.' );
+eforms_test_assert( $bad_content_mode['errors'][0]['reason'] === 'enum', 'Invalid content mode should identify reason=enum.' );
+
+$duplicate_terms = Config::validate_admin_overrides( array( 'spam' => array( 'content_filter' => array( 'blocked_terms' => "Casino\n casino " ) ) ) );
+eforms_test_assert( $duplicate_terms['ok'] === false, 'Duplicate normalized content terms should reject admin payloads.' );
+eforms_test_assert( $duplicate_terms['errors'][0]['path'] === 'spam.content_filter.blocked_terms', 'Duplicate content terms should identify the path.' );
+eforms_test_assert( $duplicate_terms['errors'][0]['reason'] === 'duplicate', 'Duplicate content terms should identify reason=duplicate.' );
+
+$long_terms = Config::validate_admin_overrides( array( 'spam' => array( 'content_filter' => array( 'blocked_terms' => str_repeat( 'x', Anchors::get( 'CONTENT_FILTER_MAX_TERM_CHARS' ) + 1 ) ) ) ) );
+eforms_test_assert( $long_terms['ok'] === false, 'Oversized content terms should reject admin payloads.' );
+eforms_test_assert( $long_terms['errors'][0]['reason'] === 'max_chars', 'Oversized content terms should identify reason=max_chars.' );
 
 $masked = Config::mask_secret_value( 'challenge.secret_key', 'top-secret' );
 eforms_test_assert( $masked !== 'top-secret' && $masked === '********', 'Secret masking should be centralized in Config.' );

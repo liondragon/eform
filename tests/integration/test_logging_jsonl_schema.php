@@ -54,6 +54,7 @@ $request = array(
     ),
 );
 
+$content_match_id = sha1( 'casino' );
 Logging::event(
     'warning',
     'EFORMS_ERR_TOKEN',
@@ -62,6 +63,13 @@ Logging::event(
         'submission_id' => 'subm-1',
         'message' => 'token failed',
         'soft_reasons' => array( 'origin_soft' ),
+        'content_filter' => array(
+            'matched' => true,
+            'decision' => 'reject',
+            'reason' => 'content_blocked_term',
+            'match_ids' => array( $content_match_id, 'casino' ),
+            'field_keys' => array( 'message' ),
+        ),
     ),
     $request
 );
@@ -129,6 +137,11 @@ eforms_test_assert( isset( $payload['desc_sha1'] ) && $payload['desc_sha1'] === 
 eforms_test_assert( isset( $payload['meta'] ) && is_array( $payload['meta'] ), 'JSONL payload should include meta object.' );
 eforms_test_assert( isset( $payload['meta']['ua'] ) && $payload['meta']['ua'] === 'ExampleBrowser/1.0', 'JSONL meta should include normalized user agent when logging.headers=true.' );
 eforms_test_assert( isset( $payload['meta']['origin'] ) && $payload['meta']['origin'] === 'https://example.com', 'JSONL meta should include normalized origin when logging.headers=true.' );
+eforms_test_assert( $payload['content_filter']['reason'] === 'content_blocked_term', 'JSONL payload should include content-filter reason metadata.' );
+eforms_test_assert( $payload['content_filter']['match_ids'] === array( $content_match_id ), 'JSONL payload should include stable content-filter match IDs.' );
+eforms_test_assert( $payload['content_filter']['field_keys'] === array( 'message' ), 'JSONL payload should include content-filter field keys.' );
+eforms_test_assert( $payload['meta']['content_filter']['match_ids'] === array( $content_match_id ), 'JSONL meta should include sanitized content-filter metadata.' );
+eforms_test_assert( strpos( json_encode( $payload['content_filter'] ), 'casino' ) === false, 'JSONL content-filter payload must not expose raw blocked terms.' );
 
 $race_dir = eforms_test_tmp_root( 'eforms-logging-jsonl-race' );
 mkdir( $race_dir, 0700, true );
