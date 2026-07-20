@@ -1,0 +1,133 @@
+{
+  "id": "virtual-estimate",
+  "version": "1",
+  "title": "Virtual Estimate",
+  "result_pages": {
+    "success": {
+      "title": "Your Estimate Request Was Sent",
+      "message": "Thank you for sending the project details and photos. We will review the information and follow up within 2 business days. If the floor or project scope needs a closer inspection, we will discuss whether an in-person estimate makes sense.\n\nThe Flooring Artists Team"
+    }
+  },
+  "email": {
+    "to": "office@flooringartists.com",
+    "subject": "Virtual Estimate - {{field.name}} - {{field.zip_us}}",
+    "email_template": "default",
+    "include_fields": [
+      "name",
+      "email",
+      "tel_us",
+      "zip_us",
+      "square_footage",
+      "project_description",
+      "listing_url",
+      "project_photos",
+      "submitted_at",
+      "submission_id"
+    ],
+    "display_format_tel": "xxx-xxx-xxxx"
+  },
+  "fields": [
+    {
+      "type": "row_group",
+      "mode": "start",
+      "tag": "section",
+      "class": "virtual-estimate-section virtual-estimate-section--contact"
+    },
+    {
+      "key": "name",
+      "type": "name",
+      "label": "Your name",
+      "required": true,
+      "placeholder": "Your name *",
+      "autocomplete": "name",
+      "before_html": "<h2>Contact information</h2>"
+    },
+    {
+      "key": "email",
+      "type": "email",
+      "label": "Email",
+      "required": true,
+      "placeholder": "Email address *",
+      "autocomplete": "email"
+    },
+    {
+      "key": "tel_us",
+      "type": "tel_us",
+      "label": "Phone",
+      "required": true,
+      "placeholder": "Phone number *",
+      "autocomplete": "tel"
+    },
+    {
+      "key": "zip_us",
+      "type": "zip_us",
+      "label": "Project ZIP code",
+      "required": true,
+      "placeholder": "Project ZIP code *",
+      "autocomplete": "postal-code"
+    },
+    {
+      "type": "row_group",
+      "mode": "end"
+    },
+    {
+      "type": "row_group",
+      "mode": "start",
+      "tag": "section",
+      "class": "virtual-estimate-section virtual-estimate-section--project"
+    },
+    {
+      "key": "square_footage",
+      "type": "number",
+      "label": "Approximate total square footage",
+      "required": true,
+      "placeholder": "Approximate square footage *",
+      "min": 1,
+      "step": 1,
+      "before_html": "<h2>Project details</h2>"
+    },
+    {
+      "key": "listing_url",
+      "type": "url",
+      "label": "Real-estate listing URL (optional)",
+      "placeholder": "Real-estate listing URL (optional)"
+    },
+    {
+      "key": "project_description",
+      "type": "textarea",
+      "label": "Project description",
+      "required": true,
+      "placeholder": "Describe your flooring project *",
+      "after_html": "<p class=\"virtual-estimate-help\">For a mixed project, list each area separately and include its approximate square footage plus any stairs, landings, repairs, installation, refinishing, or demolition.</p>"
+    },
+    {
+      "type": "row_group",
+      "mode": "end"
+    },
+    {
+      "type": "row_group",
+      "mode": "start",
+      "tag": "section",
+      "class": "virtual-estimate-section virtual-estimate-section--photos"
+    },
+    {
+      "key": "project_photos",
+      "type": "files",
+      "label": "Choose photos",
+      "required": true,
+      "accept": [
+        "image"
+      ],
+      "max_file_bytes": 2097152,
+      "max_files": 24,
+      "email_attach": true,
+      "before_html": "<h2>Project photos</h2><p class=\"virtual-estimate-section-copy\">Show the full areas that need work and any damaged or unusual sections.</p>",
+      "after_html": "<span class=\"virtual-estimate-upload-status\" role=\"status\" aria-atomic=\"true\" data-selected-singular=\"photo selected\" data-selected-plural=\"photos selected\">No photos selected</span><p class=\"virtual-estimate-help\">Up to 24 JPG, PNG, GIF, or WebP images, 2 MB each.</p>"
+    },
+    {
+      "type": "row_group",
+      "mode": "end"
+    }
+  ],
+  "submit_button_text": "Send Estimate Request"
+}
