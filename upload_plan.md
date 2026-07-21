@@ -99,6 +99,7 @@ Execute tasks in numeric order. A task may start only when every dependency is c
 - `Depends On:` T1
 - `Work:`
   - Define staged `image` as JPEG, PNG, WebP, HEIC, and HEIF without a separate HEIC template token; keep GIF rejected and synchronous policy unchanged.
+  - Make Imagick with HEIC/HEIF decode and JPEG encode support the sole staged-image backend. Remove the staged GD path while preserving synchronous GD behavior.
   - Define the one-decode normalization order, review-master/preview artifacts, source-fact manifest fields, atomic two-derivative commit, and source deletion.
   - Bump the managed manifest version and replace managed `original*` fields with unambiguous `source_*` facts and `master_*` artifact fields.
   - Replace signed variant `original` with `master`; specify `.jpg` response filenames and “High-resolution” gallery language.
@@ -119,13 +120,14 @@ Execute tasks in numeric order. A task may start only when every dependency is c
 - `Depends On:` T2
 - `Work:`
   - Validate extension, `fileinfo` MIME, source bytes, dimensions, pixel bounds, memory, and execution limits before expensive work.
+  - Route every staged source through the one Imagick normalization path; fail readiness instead of falling back to GD.
   - Decode only the primary image; reject unsupported multi-image inputs.
   - Apply orientation, convert pixels to the defined sRGB output, flatten transparency onto `#ffffff`, then remove EXIF, GPS, XMP, IPTC, comments, and source profiles.
   - Produce review master and preview from the same normalized decoded image. Do not derive the preview by decoding the encoded master.
   - Apply the exact bounded Anchor ladders. Delete an oversized candidate before the next attempt; reject the whole item if either derivative cannot fit.
   - Return bounded source facts/digest and derivative facts/digests without exposing private paths.
 - `Done When:` Every successful source produces two validated JPEG derivatives and every terminal path removes the source and partial outputs.
-- `No-Fallback:` No second decode, untouched-source retention, conditional normalization, unbounded retry, source-as-master, or backend-specific behavior that changes the contract.
+- `No-Fallback:` No second decode, staged GD fallback, untouched-source retention, conditional normalization, unbounded retry, source-as-master, or backend-specific behavior that changes the contract.
 - `Verified Via:` real JPEG/PNG/WebP/HEIC/HEIF fixtures; primary-image HEIC; orientation; wide-gamut-to-sRGB; white alpha flattening; metadata/GPS absence; exact attempt sequences; residue tests; synchronous regression suite
 
 ### [ ] T4 Migrate manifests, atomic commit, capacity accounting, GC, and recovery
@@ -181,7 +183,7 @@ Execute tasks in numeric order. A task may start only when every dependency is c
 - `Work:`
   - Install locked browser dependencies with `npm ci --prefix tests/e2e`; do not change the lockfile.
   - Run the canonical PHP unit/integration/smoke suite, PHP lint, WordPress runtime smoke, real WordPress REST preview/master adapter, template slug guard, JavaScript syntax check, and all Playwright tests.
-  - Run the image suite in an environment with GD where relevant and Imagick HEIC/HEIF support. Required release branches must pass rather than skip.
+  - Run staged image tests in an environment with Imagick HEIC/HEIF decode and JPEG encode support. The genuine HEIC fixture must pass `fileinfo`, decode, validation, and derivative checks in required release mode rather than skip; GD coverage remains only for synchronous uploads.
   - Run stale scans for managed `original` fields/routes/copy, direct manifest/capacity writes, credential/path leakage, duplicate protocol names, and obsolete HEIC opt-in behavior.
 - `Done When:` Every required branch is green, every skip is proven unrelated to the release path, and failures map to a task rather than an undocumented exception.
 - `Verified Via:` saved command output and clean test summaries; no generated test-results artifact is included in the commit

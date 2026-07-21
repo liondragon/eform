@@ -300,45 +300,30 @@ $spoofed_heic = UploadPolicy::validate_item(
 );
 eforms_test_assert( $spoofed_heic['ok'] === false, 'HEIC opt-in should still reject a HEIC extension whose bytes are JPEG.' );
 
-if ( class_exists( 'Imagick' ) && ! empty( Imagick::queryFormats( 'HEIC' ) ) ) {
-    $generated_heic_path = $tmp_dir . '/camera.heic';
-    $generated_heic = null;
-    try {
-        $generated_heic = new Imagick();
-        $generated_heic->newImage( 12, 8, new ImagickPixel( '#336699' ) );
-        $generated_heic->setImageFormat( 'heic' );
-        $generated = $generated_heic->writeImage( $generated_heic_path );
-    } catch ( Throwable $error ) {
-        $generated = false;
-    } finally {
-        if ( $generated_heic instanceof Imagick ) {
-            $generated_heic->clear();
-            $generated_heic->destroy();
-        }
-    }
+$require_heic = getenv( 'EFORMS_REQUIRE_STAGED_HEIC' ) === '1';
+$heic_bytes = eforms_test_fixture_bytes( 'staged-landscape.heic' );
+eforms_test_assert( strlen( $heic_bytes ) === 2363, 'The genuine HEIC fixture byte length should remain stable.' );
+eforms_test_assert( hash( 'sha256', $heic_bytes ) === '11ffd8eb6c8249ca473ea6856c27eefcdb866125a807e514dbd12e1c80d20a4d', 'The genuine HEIC fixture digest should remain stable.' );
+$heic_path = eforms_test_write_file( $tmp_dir, 'camera.heic', $heic_bytes );
+$heic_mime = UploadPolicy::detect_mime( $heic_path );
+$heic_backend = class_exists( 'Imagick' ) && ! empty( Imagick::queryFormats( 'HEIC' ) );
 
-    if ( $generated && is_file( $generated_heic_path ) ) {
-        $generated_mime = UploadPolicy::detect_mime( $generated_heic_path );
-        if ( in_array( $generated_mime, array( 'image/heic', 'image/heif' ), true ) ) {
-            $validated_heic = UploadPolicy::validate_item(
-                array( 'tmp_name' => $generated_heic_path, 'original_name' => 'camera.heic', 'size' => filesize( $generated_heic_path ), 'error' => UPLOAD_ERR_OK ),
-                $heic_field,
-                $readiness
-            );
-            eforms_test_assert( ! empty( $validated_heic['ok'] ) && $validated_heic['backend'] === 'imagick', 'An opted-in HEIC image should pass staged validation through Imagick.' );
-            eforms_test_assert( $validated_heic['width'] === 12 && $validated_heic['height'] === 8, 'HEIC dimensions should be bounded through the Imagick probe.' );
+if ( $heic_backend && in_array( $heic_mime, array( 'image/heic', 'image/heif' ), true ) ) {
+    $validated_heic = UploadPolicy::validate_item(
+        array( 'tmp_name' => $heic_path, 'original_name' => 'camera.heic', 'size' => filesize( $heic_path ), 'error' => UPLOAD_ERR_OK ),
+        $heic_field,
+        $readiness
+    );
+    eforms_test_assert( ! empty( $validated_heic['ok'] ) && $validated_heic['backend'] === 'imagick', 'The genuine HEIC fixture should pass staged validation through Imagick.' );
+    eforms_test_assert( $validated_heic['width'] === 120 && $validated_heic['height'] === 60, 'HEIC dimensions should be bounded through the Imagick probe.' );
 
-            $heic_preview_path = $tmp_dir . '/heic-preview.jpg';
-            $heic_preview = UploadPolicy::create_staged_preview( $validated_heic, $heic_preview_path );
-            eforms_test_assert( ! empty( $heic_preview['ok'] ) && UploadPolicy::detect_mime( $heic_preview_path ) === 'image/jpeg', 'An opted-in HEIC original should produce the canonical JPEG preview.' );
-        } else {
-            echo "HEIC conversion checks skipped: generated fixture is not recognized as HEIC by fileinfo.\n";
-        }
-    } else {
-        echo "HEIC conversion checks skipped: local ImageMagick cannot write the fixture.\n";
-    }
+    $heic_preview_path = $tmp_dir . '/heic-preview.jpg';
+    $heic_preview = UploadPolicy::create_staged_preview( $validated_heic, $heic_preview_path );
+    eforms_test_assert( ! empty( $heic_preview['ok'] ) && UploadPolicy::detect_mime( $heic_preview_path ) === 'image/jpeg', 'The genuine HEIC fixture should produce the canonical JPEG preview.' );
+} elseif ( $require_heic ) {
+    eforms_test_assert( false, 'Required staged HEIC checks need fileinfo HEIC detection and an Imagick HEIC decode delegate.' );
 } else {
-    echo "HEIC conversion checks skipped: local ImageMagick HEIC support is unavailable.\n";
+    echo "HEIC conversion checks skipped: local fileinfo or Imagick HEIC decode support is unavailable.\n";
 }
 
 $oversized_png = $fixtures['png']['bytes'];

@@ -35,6 +35,8 @@ jobs:
           coverage: none
 
       - name: Run canonical pure-PHP tests
+        env:
+          EFORMS_REQUIRE_STAGED_HEIC: '1'
         run: |
           set -euo pipefail
           find tests/unit tests/integration tests/smoke -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php
