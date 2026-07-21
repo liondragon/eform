@@ -31,12 +31,19 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
+          extensions: gd, imagick
           coverage: none
 
-      - name: Run canonical unit + integration tests
+      - name: Run canonical pure-PHP tests
         run: |
           set -euo pipefail
-          find tests/unit tests/integration -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php
+          find tests/unit tests/integration tests/smoke -type f -name 'test_*.php' -print0 | sort -z | xargs -0 -n1 php
+
+      - name: Run static contract guards
+        run: php tests/tools/assert-template-slugs.php
+
+      - name: Run WordPress-runtime fixture
+        run: php tests/wp-runtime/run.php
 
       - name: Install WP-CLI
         run: |
@@ -52,7 +59,7 @@ jobs:
           set -euo pipefail
 
           mkdir -p "${WP_ROOT}"
-          wp core download --path="${WP_ROOT}" --skip-content
+          wp core download --path="${WP_ROOT}"
           wp config create \
             --path="${WP_ROOT}" \
             --dbname=wordpress \
@@ -67,7 +74,7 @@ jobs:
           PHP
 
           wp --path="${WP_ROOT}" core install \
-            --url="http://example.test" \
+            --url="http://127.0.0.1:8080" \
             --title="eForms CI" \
             --admin_user=admin \
             --admin_password=admin \
@@ -84,6 +91,13 @@ jobs:
         run: |
           set -euo pipefail
           wp --path="${WP_ROOT}" eforms gc --dry-run --limit=1
+
+      - name: Smoke staged-preview REST adapter
+        env:
+          WP_ROOT: ${{ runner.temp }}/wordpress
+        run: |
+          set -euo pipefail
+          wp --path="${WP_ROOT}" eval-file "${WP_ROOT}/wp-content/plugins/eforms/tests/wp-runtime/rest-preview.php"
 
       - name: Setup Node.js for E2E
         uses: actions/setup-node@v4
@@ -120,15 +134,26 @@ jobs:
             --post_content=$'[eform id="contact" cacheable="false"]\n[eform id="quote-request" cacheable="true"]' \
             --porcelain)
 
+          STAGED_PAGE_ID=$(wp --path="${WP_ROOT}" post create \
+            --post_type=page \
+            --post_status=publish \
+            --post_title='E2E Staged Upload' \
+            --post_content='[eform id="upload-test" cacheable="false"]' \
+            --porcelain)
+
+          mkdir -p "${WP_ROOT}/wp-content/mu-plugins"
+          cp "${GITHUB_WORKSPACE}/tests/e2e/fixtures/force-mail-success.php" "${WP_ROOT}/wp-content/mu-plugins/eforms-e2e-mail.php"
+
           wp --path="${WP_ROOT}" option update permalink_structure '/%postname%/'
           wp --path="${WP_ROOT}" rewrite flush --hard
 
-          wp --path="${WP_ROOT}" server --host=127.0.0.1 --port=8080 >"${RUNNER_TEMP}/wp-server.log" 2>&1 &
+          wp --path="${WP_ROOT}" server --host=127.0.0.1 --port=8080 --config="${GITHUB_WORKSPACE}/tests/e2e/fixtures/php.ini" >"${RUNNER_TEMP}/wp-server.log" 2>&1 &
           echo "WP_SERVER_PID=$!" >> "${GITHUB_ENV}"
 
           echo "EFORMS_E2E_BASE_URL=http://127.0.0.1:8080" >> "${GITHUB_ENV}"
           echo "EFORMS_E2E_JS_PAGE_URL=http://127.0.0.1:8080/?p=${JS_PAGE_ID}" >> "${GITHUB_ENV}"
           echo "EFORMS_E2E_MIXED_PAGE_URL=http://127.0.0.1:8080/?p=${MIXED_PAGE_ID}" >> "${GITHUB_ENV}"
+          echo "EFORMS_E2E_STAGED_PAGE_URL=http://127.0.0.1:8080/?p=${STAGED_PAGE_ID}" >> "${GITHUB_ENV}"
           echo "WP_SERVER_LOG=${RUNNER_TEMP}/wp-server.log" >> "${GITHUB_ENV}"
 
           for i in $(seq 1 40); do
