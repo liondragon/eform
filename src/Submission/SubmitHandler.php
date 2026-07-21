@@ -23,6 +23,7 @@ require_once __DIR__ . '/../Security/StorageHealth.php';
 require_once __DIR__ . '/../Spam/ContentFilter.php';
 require_once __DIR__ . '/../Email/Emailer.php';
 require_once __DIR__ . '/../Uploads/UploadStore.php';
+require_once __DIR__ . '/../Uploads/UploadBatchStore.php';
 require_once __DIR__ . '/Ledger.php';
 require_once __DIR__ . '/Success.php';
 require_once __DIR__ . '/../Validation/Coercer.php';
@@ -71,14 +72,14 @@ class SubmitHandler {
         $template_base = self::override_value( $overrides, 'template_base_dir' );
         $template = TemplateLoader::load( $resolved_form_id, $template_base );
         if ( ! is_array( $template ) || empty( $template['ok'] ) ) {
-            $code = self::error_code_from_result( $template );
+            $code = Errors::first_code( is_array( $template ) && isset( $template['errors'] ) ? $template['errors'] : null );
             $status = $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' ? 500 : 400;
             return self::fail( $code, $status, $trace, $trace_on );
         }
 
         $context_result = TemplateContext::build( $template['template'], $template['version'] );
         if ( ! is_array( $context_result ) || empty( $context_result['ok'] ) ) {
-            $code = self::error_code_from_errors( isset( $context_result['errors'] ) ? $context_result['errors'] : null );
+            $code = Errors::first_code( isset( $context_result['errors'] ) ? $context_result['errors'] : null );
             $status = $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' ? 500 : 400;
             return self::fail( $code, $status, $trace, $trace_on );
         }
@@ -87,13 +88,17 @@ class SubmitHandler {
         $descriptors = isset( $context['descriptors'] ) && is_array( $context['descriptors'] ) ? $context['descriptors'] : array();
         Logging::remember_descriptors( $descriptors );
         $post = self::post_payload( $request );
+        $upload_credentials = self::upload_credentials( $post );
+        unset( $post[ FormProtocol::FIELD_UPLOAD_BATCHES ] );
+        if ( is_array( $request ) && isset( $request['post'] ) && is_array( $request['post'] ) ) {
+            unset( $request['post'][ FormProtocol::FIELD_UPLOAD_BATCHES ] );
+        }
         $files = self::files_payload( $request );
         $form_post = self::form_payload( $post, $resolved_form_id );
         $form_files = self::form_files_payload( $files, $resolved_form_id );
 
-        $security = self::call_security( $overrides, $trace, $trace_on, $post, $resolved_form_id, $request, $uploads_dir, $config );
-        $soft_signal = Security::soft_signal_context( $security, $config );
-        $security['soft_reasons'] = $soft_signal['soft_reasons'];
+        $allow_expired_recovery = self::has_staged_recovery_candidate( $context, $upload_credentials );
+        $security = self::call_security( $overrides, $trace, $trace_on, $post, $resolved_form_id, $request, $uploads_dir, $config, $allow_expired_recovery );
         $security_meta = self::security_fields( $post, $security );
         $declined = array(
             'config' => $config,
@@ -155,6 +160,24 @@ class SubmitHandler {
             return self::fail( $code, $status, $trace, $trace_on, $headers );
         }
 
+        $staged = null;
+        if ( ! empty( $security['token_expired'] ) ) {
+            $staged = self::resolve_staged_uploads(
+                $context,
+                $upload_credentials,
+                $post,
+                $form_files,
+                $security,
+                $uploads_dir
+            );
+            if ( ! self::staged_recovery_allowed( $staged ) ) {
+                return self::fail( 'EFORMS_ERR_TOKEN', 400, $trace, $trace_on );
+            }
+        }
+
+        $soft_signal = Security::soft_signal_context( $security, $config );
+        $security['soft_reasons'] = $soft_signal['soft_reasons'];
+
         $soft_fail_count = $soft_signal['soft_fail_count'];
         $is_suspect = $soft_signal['is_suspect'];
         if ( $is_suspect ) {
@@ -186,16 +209,44 @@ class SubmitHandler {
             );
         }
 
+        if ( $staged === null ) {
+            $staged = self::resolve_staged_uploads(
+                $context,
+                $upload_credentials,
+                $post,
+                $form_files,
+                $security,
+                $uploads_dir
+            );
+        }
+        if ( ! empty( $staged['errors'] ) && $staged['errors'] instanceof Errors && $staged['errors']->any() ) {
+            if ( ! self::restore_recovered_claims_before_ledger( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request ) ) {
+                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
+            }
+            $result = self::error_result( 200, $staged['errors'], $security, $security_meta, $trace, $trace_on );
+            $result['validated_upload_batches'] = $staged['rerender'];
+            return $result;
+        }
+
         $normalized = self::call_normalize( $overrides, $trace, $trace_on, $context, $form_post, $form_files );
+        $normalized = self::inject_staged_values( $normalized, $staged );
         $validated = self::call_validate( $overrides, $trace, $trace_on, $context, $normalized );
 
         if ( ! self::validation_ok( $validated ) ) {
-            return self::validation_result( $validated, $security, $security_meta, $trace, $trace_on );
+            if ( ! self::restore_recovered_claims_before_ledger( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request ) ) {
+                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
+            }
+            $result = self::validation_result( $validated, $security, $security_meta, $trace, $trace_on );
+            $result['validated_upload_batches'] = $staged['rerender'];
+            return $result;
         }
 
         $coerced = self::call_coerce( $overrides, $trace, $trace_on, $context, $validated );
         $challenge = self::call_challenge( $overrides, $trace, $trace_on, $post, $request, $config, $security );
         if ( ! self::challenge_ok( $challenge ) ) {
+            if ( ! self::restore_recovered_claims_before_ledger( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request ) ) {
+                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
+            }
             $code = self::challenge_error_code( $challenge );
             if ( $code === 'EFORMS_CHALLENGE_UNCONFIGURED' ) {
                 return self::fail( $code, 500, $trace, $trace_on );
@@ -219,7 +270,9 @@ class SubmitHandler {
                 );
             }
             $errors = self::errors_for_code( 'EFORMS_ERR_CHALLENGE_FAILED' );
-            return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
+            $result = self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
+            $result['validated_upload_batches'] = $staged['rerender'];
+            return $result;
         }
 
         $security = self::apply_challenge_result( $security, $challenge );
@@ -261,18 +314,34 @@ class SubmitHandler {
             self::log_content_filter_suspect( $resolved_form_id, $security, $request );
         }
 
-        // Reserve ledger marker before any side effects.
-        $ledger = self::call_ledger_reserve( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
-        if ( ! self::ledger_ok( $ledger ) ) {
-            if ( self::ledger_duplicate( $ledger ) ) {
-                return self::fail( 'EFORMS_ERR_TOKEN', 400, $trace, $trace_on );
-            }
-
-            self::log_ledger_failure( $ledger, $resolved_form_id, $security, $request );
-            return self::fail( 'EFORMS_ERR_LEDGER_IO', 500, $trace, $trace_on );
+        $freeze = self::freeze_staged_uploads( $staged, $security['submission_id'], $uploads_dir );
+        if ( empty( $freeze['ok'] ) ) {
+            self::reopen_new_claims_if_unused( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request );
+            $code = self::staged_store_error_code( $freeze );
+            return self::fail( $code, self::staged_store_error_status( $code ), $trace, $trace_on );
         }
 
-        $commit = self::call_commit( $overrides, $trace, $trace_on, $context, $coerced, $security, $request, $config );
+        // Reserve ledger marker before any external side effects.
+        $ledger = self::call_ledger_reserve( $overrides, $resolved_form_id, $security['submission_id'], $uploads_dir, $request, $config );
+        if ( ! self::ledger_ok( $ledger ) ) {
+            if ( self::ledger_duplicate( $ledger ) && self::staged_recovery_allowed( $staged ) ) {
+                // The exact pre-email aggregate claim is the only duplicate exception.
+            } elseif ( self::ledger_duplicate( $ledger ) ) {
+                self::reopen_new_claims_if_unused( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request );
+                return self::fail( 'EFORMS_ERR_TOKEN', 400, $trace, $trace_on );
+            } else {
+                self::reopen_new_claims_if_unused( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request );
+                self::log_ledger_failure( $ledger, $resolved_form_id, $security, $request );
+                return self::fail( 'EFORMS_ERR_LEDGER_IO', 500, $trace, $trace_on );
+            }
+        }
+
+        $finalized = self::finalize_staged_uploads( $staged, $security['submission_id'], $uploads_dir );
+        if ( empty( $finalized['ok'] ) ) {
+            return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
+        }
+
+        $commit = self::call_commit( $overrides, $trace, $trace_on, $context, $coerced, $security, $request, $config, $staged );
         if ( self::commit_email_failed( $commit ) ) {
             return self::email_failure_result( $commit, $context, $coerced, $security, $resolved_form_id, $uploads_dir, $request, $config, $trace, $trace_on );
         }
@@ -327,7 +396,7 @@ class SubmitHandler {
         return Success::redirect( $context, $options );
     }
 
-    private static function call_security( $overrides, &$trace, $trace_on, $post, $form_id, $request, $uploads_dir, $config ) {
+    private static function call_security( $overrides, &$trace, $trace_on, $post, $form_id, $request, $uploads_dir, $config, $allow_expired_recovery = false ) {
         if ( $trace_on ) {
             $trace[] = 'security';
         }
@@ -337,7 +406,263 @@ class SubmitHandler {
             return call_user_func( $callable, $post, $form_id, $request, $uploads_dir, $config );
         }
 
-        return Security::token_validate( $post, $form_id, $request, $uploads_dir );
+        $options = $allow_expired_recovery ? array( 'allow_expired' => true ) : array();
+        return Security::token_validate( $post, $form_id, $request, $uploads_dir, $options );
+    }
+
+    private static function resolve_staged_uploads( $context, $credentials, $post, $files, $security, $uploads_dir ) {
+        $errors = new Errors();
+        $field = is_array( $context ) && isset( $context['staged_field'] ) && is_array( $context['staged_field'] )
+            ? $context['staged_field']
+            : null;
+        $key = is_array( $field ) && isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
+        if ( $credentials === null ) {
+            $errors->add_global( 'EFORMS_ERR_TOKEN' );
+        }
+        $credentials = is_array( $credentials ) ? $credentials : array();
+        foreach ( $credentials as $credential_key => $value ) {
+            if ( ! is_string( $credential_key ) || $key === '' || $credential_key !== $key ) {
+                $errors->add_global( 'EFORMS_ERR_TOKEN' );
+            }
+        }
+
+        $file_map = UploadValue::file_map_from_payload( $files );
+        $rerender = array();
+        if ( $key !== '' && isset( $file_map[ $key ] ) ) {
+            $body_items = UploadValue::items( $file_map[ $key ] );
+            foreach ( $body_items as $body_item ) {
+                if ( ! UploadValue::is_no_file( $body_item ) ) {
+                    $errors->add_field( $key, 'EFORMS_ERR_UPLOAD_TYPE', 'Staged photos must finish uploading before submission.' );
+                    break;
+                }
+            }
+        }
+
+        $state = null;
+        if ( $key !== '' && isset( $credentials[ $key ] ) ) {
+            $entry = $credentials[ $key ];
+            $entry_keys = is_array( $entry ) ? array_keys( $entry ) : array();
+            sort( $entry_keys, SORT_STRING );
+            if ( $entry_keys !== array( FormProtocol::UPLOAD_BATCH_ID, FormProtocol::UPLOAD_BATCH_SECRET ) ) {
+                $errors->add_field( $key, 'EFORMS_ERR_TOKEN' );
+            } else {
+                $batch_id = isset( $entry[ FormProtocol::UPLOAD_BATCH_ID ] ) && is_string( $entry[ FormProtocol::UPLOAD_BATCH_ID ] )
+                    ? $entry[ FormProtocol::UPLOAD_BATCH_ID ]
+                    : '';
+                $batch_secret = isset( $entry[ FormProtocol::UPLOAD_BATCH_SECRET ] ) && is_string( $entry[ FormProtocol::UPLOAD_BATCH_SECRET ] )
+                    ? $entry[ FormProtocol::UPLOAD_BATCH_SECRET ]
+                    : '';
+                if ( $batch_id === '' || $batch_secret === '' ) {
+                    $errors->add_field( $key, 'EFORMS_ERR_TOKEN' );
+                } else {
+                    $binding = array(
+                        'raw_token' => self::post_string( $post, FormProtocol::FIELD_TOKEN ),
+                        'form_id' => isset( $context['id'] ) ? $context['id'] : '',
+                        'instance_id' => self::post_string( $post, FormProtocol::FIELD_INSTANCE_ID ),
+                        'field_key' => $key,
+                    );
+                    $resolved = UploadBatchStore::resolve_open( $batch_id, $batch_secret, $binding, $field, $uploads_dir );
+                    $phase = 'open';
+                    if ( empty( $resolved['ok'] ) ) {
+                        $resolved = UploadBatchStore::resolve_recovery(
+                            $batch_id,
+                            $batch_secret,
+                            $binding,
+                            $field,
+                            isset( $security['submission_id'] ) ? $security['submission_id'] : '',
+                            $uploads_dir
+                        );
+                        $phase = isset( $resolved['phase'] ) ? $resolved['phase'] : '';
+                    }
+                    if ( empty( $resolved['ok'] ) ) {
+                        $errors->add_field( $key, 'EFORMS_ERR_TOKEN' );
+                    } else {
+                        $state = array(
+                            'key' => $key,
+                            'batch_id' => $batch_id,
+                            'batch_secret' => $batch_secret,
+                            'binding' => $binding,
+                            'field' => $field,
+                            'items' => isset( $resolved['items'] ) && is_array( $resolved['items'] ) ? $resolved['items'] : array(),
+                            'phase' => $phase,
+                            'accept_expired' => ! empty( $resolved['accept_expired'] ),
+                            'preexisting_recovery' => $phase !== 'open',
+                            'newly_claimed' => false,
+                        );
+                        if ( $phase === 'open' ) {
+                            $rerender[ $key ] = array(
+                                FormProtocol::UPLOAD_BATCH_ID => $batch_id,
+                                FormProtocol::UPLOAD_BATCH_SECRET => $batch_secret,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        return array( 'errors' => $errors, 'state' => $state, 'rerender' => $rerender );
+    }
+
+    /**
+     * Restore a recovered pre-ledger claim while ledger reservation is excluded.
+     * A durable marker keeps the aggregate terminal and its credentials hidden.
+     */
+    private static function restore_recovered_claims_before_ledger( &$staged, $form_id, $submission_id, $uploads_dir, $request ) {
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        if ( ! is_array( $state ) || ! isset( $state['phase'] ) || $state['phase'] !== 'finalizing' || empty( $state['preexisting_recovery'] ) ) {
+            return true;
+        }
+
+        $restored = Ledger::run_if_unused(
+            $form_id,
+            $submission_id,
+            $uploads_dir,
+            function () use ( &$staged, $submission_id, $uploads_dir ) {
+                $state = $staged['state'];
+                if ( ! empty( $state['accept_expired'] ) ) {
+                    $staged['rerender'][ $state['key'] ] = array(
+                        FormProtocol::UPLOAD_BATCH_ID => $state['batch_id'],
+                        FormProtocol::UPLOAD_BATCH_SECRET => $state['batch_secret'],
+                    );
+                    return array( 'ok' => true );
+                }
+                $reopened = UploadBatchStore::reopen_claim( $state['batch_id'], $submission_id, $uploads_dir );
+                if ( empty( $reopened['ok'] ) ) {
+                    return array( 'ok' => false );
+                }
+                $staged['state']['phase'] = 'open';
+                $staged['state']['preexisting_recovery'] = false;
+                $staged['state']['newly_claimed'] = false;
+                $staged['rerender'][ $state['key'] ] = array(
+                    FormProtocol::UPLOAD_BATCH_ID => $state['batch_id'],
+                    FormProtocol::UPLOAD_BATCH_SECRET => $state['batch_secret'],
+                );
+                return array( 'ok' => true );
+            },
+            $request
+        );
+
+        if ( empty( $restored['ok'] ) ) {
+            return ! empty( $restored['duplicate'] );
+        }
+        return isset( $restored['result']['ok'] ) && $restored['result']['ok'] === true;
+    }
+
+    private static function inject_staged_values( $normalized, $staged ) {
+        $normalized = is_array( $normalized ) ? $normalized : array();
+        if ( ! isset( $normalized['values'] ) || ! is_array( $normalized['values'] ) ) {
+            $normalized['values'] = array();
+        }
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        if ( is_array( $state ) ) {
+            $normalized['values'][ $state['key'] ] = isset( $state['items'] ) && is_array( $state['items'] ) ? $state['items'] : array();
+        }
+        return $normalized;
+    }
+
+    private static function freeze_staged_uploads( &$staged, $submission_id, $uploads_dir ) {
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        if ( ! is_array( $state ) || $state['phase'] === 'finalized' || $state['phase'] === 'finalizing' ) {
+            return array( 'ok' => true );
+        }
+        $claim = UploadBatchStore::claim_finalization(
+            $state['batch_id'],
+            $state['batch_secret'],
+            $state['binding'],
+            $state['field'],
+            $state['items'],
+            $submission_id,
+            $uploads_dir
+        );
+        if ( empty( $claim['ok'] ) ) {
+            return is_array( $claim )
+                ? $claim
+                : array( 'ok' => false, 'code' => 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'reason' => 'claim_failed' );
+        }
+        $staged['state']['phase'] = 'finalizing';
+        $staged['state']['newly_claimed'] = empty( $claim['recovered'] );
+        $staged['state']['preexisting_recovery'] = ! empty( $claim['recovered'] );
+        return array( 'ok' => true );
+    }
+
+    private static function staged_store_error_code( $result ) {
+        return is_array( $result )
+            && isset( $result['code'] )
+            && is_string( $result['code'] )
+            && $result['code'] !== ''
+            ? $result['code']
+            : 'EFORMS_ERR_STORAGE_UNAVAILABLE';
+    }
+
+    private static function staged_store_error_status( $code ) {
+        return $code === 'EFORMS_ERR_TOKEN' ? 400 : 500;
+    }
+
+    private static function reopen_new_claims_if_unused( $staged, $form_id, $submission_id, $uploads_dir, $request ) {
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        if ( ! is_array( $state ) || empty( $state['newly_claimed'] ) ) {
+            return;
+        }
+
+        Ledger::run_if_unused(
+            $form_id,
+            $submission_id,
+            $uploads_dir,
+            function () use ( $state, $submission_id, $uploads_dir ) {
+                return UploadBatchStore::reopen_claim( $state['batch_id'], $submission_id, $uploads_dir );
+            },
+            $request
+        );
+    }
+
+    private static function staged_recovery_allowed( $staged ) {
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        return is_array( $state ) && ! empty( $state['preexisting_recovery'] );
+    }
+
+    private static function finalize_staged_uploads( $staged, $submission_id, $uploads_dir ) {
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        if ( ! is_array( $state ) || $state['phase'] === 'finalized' ) {
+            return array( 'ok' => true );
+        }
+        $result = UploadBatchStore::finalize( $state['batch_id'], $submission_id, $uploads_dir );
+        if ( empty( $result['ok'] ) ) {
+            return array( 'ok' => false );
+        }
+        return array( 'ok' => true );
+    }
+
+    private static function upload_credentials( $post ) {
+        if ( ! is_array( $post ) || ! array_key_exists( FormProtocol::FIELD_UPLOAD_BATCHES, $post ) ) {
+            return array();
+        }
+        return is_array( $post[ FormProtocol::FIELD_UPLOAD_BATCHES ] )
+            ? $post[ FormProtocol::FIELD_UPLOAD_BATCHES ]
+            : null;
+    }
+
+    private static function has_staged_recovery_candidate( $context, $credentials ) {
+        $field = is_array( $context ) && isset( $context['staged_field'] ) && is_array( $context['staged_field'] )
+            ? $context['staged_field']
+            : null;
+        $key = is_array( $field ) && isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
+        return $key !== '' && is_array( $credentials ) && array_key_exists( $key, $credentials );
+    }
+
+    private static function without_staged_descriptors( $context ) {
+        $context = is_array( $context ) ? $context : array();
+        $field = isset( $context['staged_field'] ) && is_array( $context['staged_field'] ) ? $context['staged_field'] : null;
+        $key = is_array( $field ) && isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
+        if ( $key === '' || ! isset( $context['descriptors'] ) || ! is_array( $context['descriptors'] ) ) {
+            return $context;
+        }
+        $context['descriptors'] = array_values( array_filter(
+            $context['descriptors'],
+            function ( $descriptor ) use ( $key ) {
+                return ! is_array( $descriptor ) || ! isset( $descriptor['key'] ) || $descriptor['key'] !== $key;
+            }
+        ) );
+        return $context;
     }
 
     private static function call_normalize( $overrides, &$trace, $trace_on, $context, $post, $files ) {
@@ -418,7 +743,7 @@ class SubmitHandler {
         return ContentFilter::evaluate( $context, $coerced, $config );
     }
 
-    private static function call_commit( $overrides, &$trace, $trace_on, $context, $coerced, $security, $request, $config ) {
+    private static function call_commit( $overrides, &$trace, $trace_on, $context, $coerced, $security, $request, $config, $staged ) {
         if ( $trace_on ) {
             $trace[] = 'commit';
         }
@@ -428,16 +753,21 @@ class SubmitHandler {
             return call_user_func( $callable, $context, $coerced, $security, $request, $config );
         }
 
-        return self::default_commit( $context, $coerced, $security, $request, $config );
+        return self::default_commit( $context, $coerced, $security, $request, $config, $staged, $overrides );
     }
 
-    private static function default_commit( $context, $coerced, $security, $request, $config ) {
+    private static function default_commit( $context, $coerced, $security, $request, $config, $staged, $overrides ) {
         $uploads_dir = self::uploads_dir( $config );
         $submission_id = is_array( $security ) && isset( $security['submission_id'] ) && is_string( $security['submission_id'] )
             ? $security['submission_id']
             : '';
 
-        $move = UploadStore::move_after_ledger( $context, $coerced, $submission_id, $uploads_dir );
+        $move_context = self::without_staged_descriptors( $context );
+        if ( ! empty( $staged['state'] ) ) {
+            $move = UploadStore::move_staged_after_ledger( $move_context, $coerced, $submission_id, $uploads_dir );
+        } else {
+            $move = UploadStore::move_after_ledger( $move_context, $coerced, $submission_id, $uploads_dir );
+        }
         if ( ! is_array( $move ) || empty( $move['ok'] ) ) {
             return array(
                 'ok' => false,
@@ -452,10 +782,44 @@ class SubmitHandler {
             : self::extract_values( $coerced );
         $stored = isset( $move['stored'] ) && is_array( $move['stored'] ) ? $move['stored'] : array();
 
-        $email = Emailer::send( $context, $values, $security, $request, $config );
+        $attempt = null;
+        $before_transport = null;
+        if ( ! empty( $staged['state'] ) ) {
+            $before_transport = function () use ( $overrides, $submission_id, $uploads_dir, &$attempt ) {
+                $before_marker = self::override_callable( $overrides, 'before_email_attempt_marker' );
+                if ( $before_marker ) {
+                    call_user_func( $before_marker, $submission_id, $uploads_dir );
+                }
+                $attempt = UploadBatchStore::mark_email_attempted( $submission_id, $uploads_dir );
+                if ( empty( $attempt['ok'] ) ) {
+                    return false;
+                }
+                $after_marker = self::override_callable( $overrides, 'after_email_attempt_marker' );
+                if ( $after_marker ) {
+                    call_user_func( $after_marker, $submission_id, $uploads_dir );
+                }
+                return true;
+            };
+        }
+
+        $email = Emailer::send( $context, $values, $security, $request, $config, $before_transport );
+
+        if ( is_array( $attempt ) && empty( $attempt['ok'] ) ) {
+            // A concurrent winner may already be entering wp_mail() with these same recovered paths.
+            return array(
+                'ok' => false,
+                'status' => 500,
+                'error_code' => 'EFORMS_ERR_STORAGE_UNAVAILABLE',
+                'reason' => 'email_attempt_marker_failed',
+                'values' => $values,
+                'stored' => $stored,
+            );
+        }
 
         if ( ! is_array( $email ) || empty( $email['ok'] ) ) {
-            UploadStore::apply_retention( $stored, $config );
+            if ( empty( $staged['state'] ) || ( is_array( $attempt ) && ! empty( $attempt['ok'] ) ) ) {
+                UploadStore::apply_retention( $stored, $config );
+            }
             return array(
                 'ok' => false,
                 'status' => 500,
@@ -804,7 +1168,7 @@ class SubmitHandler {
         $result = array(
             'ok' => false,
             'status' => (int) $status,
-            'error_code' => self::error_code_from_errors( $errors ),
+            'error_code' => Errors::first_code( $errors ),
             'errors' => $errors,
             'mode' => isset( $security['mode'] ) ? $security['mode'] : '',
             'submission_id' => isset( $security['submission_id'] ) ? $security['submission_id'] : '',
@@ -1086,34 +1450,4 @@ class SubmitHandler {
         Logging::event( 'info', 'EFORMS_CONTENT_FILTER_SUSPECT', $meta, $request );
     }
 
-    private static function error_code_from_result( $result ) {
-        if ( is_array( $result ) && isset( $result['errors'] ) ) {
-            return self::error_code_from_errors( $result['errors'] );
-        }
-
-        return 'EFORMS_ERR_SCHEMA_OBJECT';
-    }
-
-    private static function error_code_from_errors( $errors ) {
-        if ( $errors instanceof Errors ) {
-            $data = $errors->to_array();
-            if ( isset( $data['_global'] ) && is_array( $data['_global'] ) ) {
-                foreach ( $data['_global'] as $entry ) {
-                    if ( is_array( $entry ) && isset( $entry['code'] ) && is_string( $entry['code'] ) ) {
-                        return $entry['code'];
-                    }
-                }
-            }
-        }
-
-        if ( is_array( $errors ) && isset( $errors['_global'] ) && is_array( $errors['_global'] ) ) {
-            foreach ( $errors['_global'] as $entry ) {
-                if ( is_array( $entry ) && isset( $entry['code'] ) && is_string( $entry['code'] ) ) {
-                    return $entry['code'];
-                }
-            }
-        }
-
-        return 'EFORMS_ERR_SCHEMA_OBJECT';
-    }
 }

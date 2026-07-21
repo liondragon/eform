@@ -205,6 +205,10 @@ eforms_test_assert(
     count( $GLOBALS['eforms_test_remote_posts'] ) === 1,
     'Turnstile verify endpoint should be called exactly once.'
 );
+eforms_test_assert(
+    $GLOBALS['eforms_test_remote_posts'][0]['args']['body']['idempotency_key'] === $mint['token'],
+    'Turnstile verification should reuse the submission UUID as its provider idempotency key.'
+);
 $declined = DeclinedReviewLog::query( array(), Config::get() );
 eforms_test_assert( $declined['total'] === 0, 'Successful challenge verification should not create a declined-review record.' );
 

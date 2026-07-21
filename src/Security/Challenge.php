@@ -91,7 +91,8 @@ class Challenge {
             $response,
             self::challenge_secret_key( $config ),
             self::http_timeout( $config ),
-            self::request_client_ip( $request )
+            self::request_client_ip( $request ),
+            self::idempotency_key( $security )
         );
 
         if ( ! is_array( $verify ) || empty( $verify['ok'] ) ) {
@@ -112,7 +113,7 @@ class Challenge {
         );
     }
 
-    private static function verify_turnstile( $response_token, $secret_key, $timeout_seconds, $client_ip ) {
+    private static function verify_turnstile( $response_token, $secret_key, $timeout_seconds, $client_ip, $idempotency_key ) {
         if ( ! function_exists( 'wp_remote_post' ) ) {
             return array( 'ok' => false, 'reason' => 'transport_unavailable' );
         }
@@ -124,6 +125,9 @@ class Challenge {
 
         if ( $client_ip !== '' ) {
             $body['remoteip'] = $client_ip;
+        }
+        if ( $idempotency_key !== '' ) {
+            $body['idempotency_key'] = $idempotency_key;
         }
 
         $http = wp_remote_post(
@@ -158,6 +162,15 @@ class Challenge {
         }
 
         return array( 'ok' => true );
+    }
+
+    private static function idempotency_key( $security ) {
+        $value = is_array( $security ) && isset( $security['submission_id'] ) && is_string( $security['submission_id'] )
+            ? strtolower( trim( $security['submission_id'] ) )
+            : '';
+        return preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $value ) === 1
+            ? $value
+            : '';
     }
 
     private static function remote_status( $response ) {

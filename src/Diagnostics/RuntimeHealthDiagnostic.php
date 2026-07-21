@@ -6,29 +6,49 @@
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Email/Templates.php';
 require_once __DIR__ . '/../Gc/GcRunner.php';
+require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Logging/JsonlLogger.php';
+require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Security/Challenge.php';
+require_once __DIR__ . '/../Security/PostSize.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Security/Throttle.php';
 require_once __DIR__ . '/../Submission/Ledger.php';
+require_once __DIR__ . '/../Uploads/UploadBatchStore.php';
+require_once __DIR__ . '/../Uploads/UploadPolicy.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
 
 class RuntimeHealthDiagnostic {
     const PROBE_FILENAME = '.eforms-doctor-probe';
 
-    public static function run() {
+    public static function run( $observations = array() ) {
+        $observations = is_array( $observations ) ? $observations : array();
+        $templates = self::template_inventory();
+        $staged_fields = $templates['staged_fields'];
+        $uploads_base = self::check_uploads_base();
+        $private_lease = $uploads_base['result'] === 'PASS'
+            ? PrivateDir::acquire_write_lease( self::uploads_dir() )
+            : false;
         $checks = array(
-            self::check_uploads_base(),
-            self::check_private_storage(),
-            self::check_runtime_dirs(),
-            self::check_templates(),
+            $uploads_base,
+            self::check_private_storage( $private_lease ),
+            self::check_runtime_dirs( $private_lease ),
+            self::check_staged_image_processing( $observations, $staged_fields ),
+            self::check_managed_capacity( $observations, $private_lease ),
+            self::check_managed_upload_dirs( $private_lease ),
+            self::check_staged_request_limits( $observations, $staged_fields ),
+            self::check_staged_throttle(),
+            self::check_templates( $templates ),
             self::check_mail_format(),
             self::check_gc_readiness(),
             self::check_cli_bootstrap(),
             self::check_config_sources(),
             self::check_challenge_config(),
         );
+        if ( $private_lease instanceof PrivateDirLease ) {
+            $private_lease->release();
+        }
 
         return self::result( $checks );
     }
@@ -78,14 +98,12 @@ class RuntimeHealthDiagnostic {
         return self::check( 'uploads-base', 'PASS', 'writable', 'writable uploads base', 'raw path hidden' );
     }
 
-    private static function check_private_storage() {
-        $private = PrivateDir::ensure( self::uploads_dir() );
-        if ( ! is_array( $private ) || empty( $private['ok'] ) ) {
-            $reason = is_array( $private ) && isset( $private['error'] ) ? (string) $private['error'] : 'private_dir_unavailable';
-            return self::check( 'private-storage', 'FAIL', $reason, 'private dir protected', 'could not create/protect eforms-private' );
+    private static function check_private_storage( $private_lease ) {
+        if ( ! $private_lease instanceof PrivateDirLease ) {
+            return self::check( 'private-storage', 'FAIL', self::private_storage_unavailable_reason(), 'private dir protected', 'could not create/protect eforms-private' );
         }
 
-        $path = isset( $private['path'] ) ? (string) $private['path'] : '';
+        $path = $private_lease->private_dir();
         foreach ( array( PrivateDir::INDEX_FILENAME, PrivateDir::HTACCESS_FILENAME, PrivateDir::WEBCONFIG_FILENAME ) as $file ) {
             if ( ! is_file( rtrim( $path, '/\\' ) . '/' . $file ) ) {
                 return self::check( 'private-storage', 'FAIL', $file . ' missing', 'private dir protected', 'deny-rule file missing' );
@@ -95,12 +113,15 @@ class RuntimeHealthDiagnostic {
         return self::check( 'private-storage', 'PASS', 'created/protected', 'private dir protected', 'raw path hidden' );
     }
 
-    private static function check_runtime_dirs() {
-        $uploads_dir = self::uploads_dir();
+    private static function check_runtime_dirs( $private_lease ) {
+        if ( ! $private_lease instanceof PrivateDirLease ) {
+            return self::check( 'runtime-dirs', 'FAIL', self::private_storage_unavailable_reason(), 'token/ledger/log/throttle usable', 'private lifecycle lease unavailable' );
+        }
+
         $names = array( Security::TOKENS_DIR, Ledger::LEDGER_DIR, JsonlLogger::LOG_DIR, Throttle::THROTTLE_DIR );
         $failed = array();
         foreach ( $names as $name ) {
-            if ( ! self::dir_usable( $uploads_dir, $name ) ) {
+            if ( ! self::dir_usable( $private_lease, $name ) ) {
                 $failed[] = $name;
             }
         }
@@ -112,31 +133,133 @@ class RuntimeHealthDiagnostic {
         return self::check( 'runtime-dirs', 'PASS', 'usable', 'token/ledger/log/throttle usable', 'temporary probes cleaned' );
     }
 
-    private static function check_templates() {
-        $dir = dirname( __DIR__, 2 ) . '/templates/forms';
-        if ( ! is_dir( $dir ) ) {
-            return self::check( 'templates', 'FAIL', 'missing directory', 'all shipped templates valid', 'templates/forms is unavailable' );
+    private static function check_managed_upload_dirs( $private_lease ) {
+        if ( ! $private_lease instanceof PrivateDirLease ) {
+            return self::check( 'managed-upload-dirs', 'FAIL', self::private_storage_unavailable_reason(), 'staged/finalized storage protected and writable', 'private lifecycle lease unavailable' );
         }
 
-        $files = glob( rtrim( $dir, '/\\' ) . '/*.json' );
-        if ( ! is_array( $files ) || empty( $files ) ) {
-            return self::check( 'templates', 'WARN', 'no json templates', 'all shipped templates valid', 'no shipped form templates found' );
-        }
-
-        $invalid = array();
-        foreach ( $files as $path ) {
-            $form_id = basename( $path, '.json' );
-            $loaded = TemplateLoader::load( $form_id, $dir );
-            if ( empty( $loaded['ok'] ) ) {
-                $invalid[] = $form_id;
+        $failed = array();
+        foreach ( array( UploadBatchStore::STAGED_DIR, UploadBatchStore::SUBMISSIONS_DIR ) as $name ) {
+            if ( ! self::dir_usable( $private_lease, $name, true ) ) {
+                $failed[] = $name;
             }
         }
+        if ( ! empty( $failed ) ) {
+            return self::check( 'managed-upload-dirs', 'FAIL', implode( ',', $failed ), 'staged/finalized storage protected and writable', 'one or more managed dirs failed write/delete probe' );
+        }
+        return self::check( 'managed-upload-dirs', 'PASS', 'protected and writable', 'staged/finalized storage protected and writable', 'private deny rules active; temporary probes cleaned' );
+    }
 
-        if ( ! empty( $invalid ) ) {
-            return self::check( 'templates', 'FAIL', implode( ',', $invalid ), 'all shipped templates valid', 'invalid shipped templates' );
+    private static function check_staged_image_processing( $observations, $staged_fields ) {
+        $mimes = self::required_staged_mimes( $staged_fields );
+        $formats = array_map(
+            function ( $mime ) {
+                return strtoupper( substr( $mime, 6 ) );
+            },
+            $mimes
+        );
+        $expected = 'fileinfo + ' . implode( '/', $formats ) . ' decode + JPEG encode + resource allowance';
+        $fileinfo = array_key_exists( 'fileinfo', $observations )
+            ? (bool) $observations['fileinfo']
+            : extension_loaded( 'fileinfo' ) && function_exists( 'finfo_open' );
+        if ( ! $fileinfo ) {
+            return self::check( 'staged-image-processing', 'FAIL', 'fileinfo unavailable', $expected, 'enable the PHP fileinfo extension' );
         }
 
-        return self::check( 'templates', 'PASS', count( $files ) . ' valid', 'all shipped templates valid', '' );
+        $options = array();
+        foreach ( array( 'memory_limit', 'execution_limit', 'editor_support', 'imagick_support' ) as $key ) {
+            if ( array_key_exists( $key, $observations ) ) {
+                $options[ $key ] = $observations[ $key ];
+            }
+        }
+        $failures = array();
+        foreach ( $mimes as $mime ) {
+            $ready = UploadPolicy::staged_host_readiness( $mime, $options );
+            if ( empty( $ready['ok'] ) ) {
+                $failures[] = substr( $mime, 6 ) . ':' . ( isset( $ready['reason'] ) ? $ready['reason'] : 'unavailable' );
+            }
+        }
+        if ( ! empty( $failures ) ) {
+            $requirements = 'requires at least ' . self::format_bytes( Anchors::get( 'STAGED_IMAGE_MIN_MEMORY_BYTES' ) )
+                . ' memory and ' . Anchors::get( 'STAGED_IMAGE_MIN_EXECUTION_SECONDS' ) . ' seconds execution time, or unlimited values';
+            return self::check( 'staged-image-processing', 'FAIL', implode( ',', $failures ), $expected, $requirements );
+        }
+        return self::check( 'staged-image-processing', 'PASS', 'fileinfo and image editor ready', $expected, 'JPEG previews normalize orientation, strip metadata, and flatten alpha' );
+    }
+
+    private static function check_managed_capacity( $observations, $private_lease ) {
+        $integer_bytes = array_key_exists( 'php_int_size', $observations ) ? $observations['php_int_size'] : PHP_INT_SIZE;
+        if ( ! UploadBatchStore::capacity_platform_supported( $integer_bytes ) ) {
+            return self::check( 'managed-capacity', 'FAIL', '32-bit PHP integers', '64-bit PHP integers with consistent accounting and provisioned storage', 'managed upload capacity cannot represent its fixed 50 GiB ceiling on this runtime' );
+        }
+        $health = UploadBatchStore::capacity_health( self::uploads_dir(), $private_lease );
+        if ( empty( $health['ok'] ) ) {
+            $reason = isset( $health['reason'] ) ? (string) $health['reason'] : 'capacity_unavailable';
+            return self::check( 'managed-capacity', 'FAIL', $reason, 'accounting consistent and filesystem provisioned', 'capacity record could not be read safely' );
+        }
+        $capacity = $health['capacity'];
+        if ( empty( $capacity['consistent'] ) ) {
+            return self::check( 'managed-capacity', 'FAIL', 'accounting inconsistent', 'accounting consistent and filesystem provisioned', 'investigate interrupted writes, then run wp eforms gc --reconcile-capacity' );
+        }
+        $uploads_dir = self::uploads_dir();
+        $total = array_key_exists( 'disk_total_bytes', $observations ) ? $observations['disk_total_bytes'] : @disk_total_space( $uploads_dir );
+        $free = array_key_exists( 'disk_free_bytes', $observations ) ? $observations['disk_free_bytes'] : @disk_free_space( $uploads_dir );
+        $required_total = Anchors::get( 'MANAGED_UPLOAD_MAX_BYTES' ) + Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' );
+        if ( ! is_numeric( $total ) || ! is_numeric( $free ) ) {
+            return self::check( 'managed-capacity', 'FAIL', 'filesystem capacity unavailable', 'accounting consistent and filesystem provisioned', 'disk total/free-space observations are required' );
+        }
+        if ( (int) $total < $required_total || (int) $free < Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) ) {
+            $provision = 'provision ' . self::format_bytes( Anchors::get( 'MANAGED_UPLOAD_MAX_BYTES' ) )
+                . ' managed capacity plus ' . self::format_bytes( Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) ) . ' operational free-space reserve';
+            return self::check( 'managed-capacity', 'FAIL', 'filesystem below ceiling + reserve', 'accounting consistent and filesystem provisioned', $provision );
+        }
+        if ( (int) $capacity['committing_bytes'] > 0 || (int) $capacity['orphaned_bytes'] > 0 ) {
+            return self::check( 'managed-capacity', 'WARN', 'unsettled reservations detected', 'accounting consistent and filesystem provisioned', 'run wp eforms gc --reconcile-capacity to settle committed or orphaned reservations' );
+        }
+        return self::check( 'managed-capacity', 'PASS', self::format_bytes( $capacity['total_bytes'] ) . ' accounted; filesystem ready', 'accounting consistent and filesystem provisioned', 'runtime reservations also preserve the ' . self::format_bytes( Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) ) . ' free-space reserve' );
+    }
+
+    private static function check_staged_request_limits( $observations, $staged_fields ) {
+        $required_file = self::largest_staged_file_bytes( $staged_fields );
+        if ( $required_file <= 0 ) {
+            return self::check( 'staged-request-limits', 'PASS', 'no active staged fields', 'PHP limits cover largest staged item', 'recheck after enabling a staged field' );
+        }
+        $overhead = Anchors::get( 'STAGED_MULTIPART_OVERHEAD_BYTES' );
+        if ( $required_file > PHP_INT_MAX - $overhead ) {
+            return self::check( 'staged-request-limits', 'FAIL', 'largest staged item cannot fit within a PHP request cap', 'PHP limits cover largest staged item plus multipart overhead', 'lower the staged item limit to leave room for multipart overhead' );
+        }
+        $required_request = $required_file + $overhead;
+        $upload_raw = array_key_exists( 'upload_max_filesize', $observations ) ? $observations['upload_max_filesize'] : ini_get( 'upload_max_filesize' );
+        $post_raw = array_key_exists( 'post_max_size', $observations ) ? $observations['post_max_size'] : ini_get( 'post_max_size' );
+        $upload_bytes = Helpers::bytes_from_ini( is_scalar( $upload_raw ) ? (string) $upload_raw : '' );
+        $request_bytes = PostSize::effective_cap( PostSize::CT_MULTIPART, Config::get(), $post_raw, $upload_raw );
+        if ( $upload_bytes < $required_file || $request_bytes < $required_request ) {
+            return self::check( 'staged-request-limits', 'FAIL', 'effective request limit below ' . self::format_bytes( $required_request ), 'PHP limits cover largest staged item plus multipart overhead', 'raise upload_max_filesize and post_max_size above the largest staged item plus multipart overhead' );
+        }
+        return self::check( 'staged-request-limits', 'PASS', 'effective request limit covers ' . self::format_bytes( $required_request ), 'PHP limits cover largest staged item plus multipart overhead', 'web-server request limits must be checked separately' );
+    }
+
+    private static function check_staged_throttle() {
+        $config = Config::get();
+        $enabled = Config::bool( $config, array( 'throttle', 'enable' ), false );
+        $limit = Config::value( $config, array( 'throttle', 'per_ip', 'max_per_minute' ), 0 );
+        if ( ! $enabled || ! is_numeric( $limit ) || (int) $limit < 1 ) {
+            return self::check( 'staged-throttle', 'FAIL', 'disabled', 'per-IP throttle enabled for staged endpoints', 'image decoding is intentionally unavailable for production until throttling is enabled' );
+        }
+        return self::check( 'staged-throttle', 'PASS', 'enabled at ' . (int) $limit . '/minute', 'per-IP throttle enabled for staged endpoints', 'tune for multi-file uploads and shared-IP traffic' );
+    }
+
+    private static function check_templates( $templates ) {
+        if ( empty( $templates['directory'] ) ) {
+            return self::check( 'templates', 'FAIL', 'missing directory', 'all shipped templates valid', 'templates/forms is unavailable' );
+        }
+        if ( empty( $templates['files'] ) ) {
+            return self::check( 'templates', 'WARN', 'no json templates', 'all shipped templates valid', 'no shipped form templates found' );
+        }
+        if ( ! empty( $templates['invalid'] ) ) {
+            return self::check( 'templates', 'FAIL', implode( ',', $templates['invalid'] ), 'all shipped templates valid', 'invalid shipped templates' );
+        }
+        return self::check( 'templates', 'PASS', $templates['files'] . ' valid', 'all shipped templates valid', '' );
     }
 
     private static function check_mail_format() {
@@ -208,15 +331,25 @@ class RuntimeHealthDiagnostic {
         return self::check( 'challenge-config', 'WARN', 'mode ' . $mode . ' missing keys', 'Turnstile site and secret keys configured', 'set challenge.site_key and challenge.secret_key' );
     }
 
-    private static function dir_usable( $uploads_dir, $name ) {
-        $dir = PrivateDir::subdir( $uploads_dir, $name, true );
+    private static function dir_usable( $private_lease, $name, $with_protection = false ) {
+        $dir = PrivateDir::leased_subdir( $private_lease, $name, true, $with_protection );
         if ( $dir === '' ) {
             return false;
         }
 
         $probe = rtrim( $dir, '/\\' ) . '/' . self::PROBE_FILENAME;
-        $written = @file_put_contents( $probe, 'ok', LOCK_EX );
-        if ( $written === false ) {
+        if ( is_link( $probe ) || file_exists( $probe ) ) {
+            return false;
+        }
+        $handle = @fopen( $probe, 'xb' );
+        if ( $handle === false ) {
+            @unlink( $probe );
+            return false;
+        }
+        $written = @fwrite( $handle, 'ok' );
+        $flushed = ! function_exists( 'fflush' ) || @fflush( $handle );
+        fclose( $handle );
+        if ( $written !== 2 || ! $flushed || ! @chmod( $probe, 0600 ) || is_link( $probe ) ) {
             @unlink( $probe );
             return false;
         }
@@ -226,9 +359,76 @@ class RuntimeHealthDiagnostic {
         return $read === 'ok' && ! file_exists( $probe );
     }
 
+    private static function private_storage_unavailable_reason() {
+        return PrivateDir::is_purged( self::uploads_dir() ) ? 'managed_purged' : 'upload_lifecycle_unavailable';
+    }
+
     private static function uploads_dir() {
         $config = Config::get();
         return Config::value( $config, array( 'uploads', 'dir' ), '' );
+    }
+
+    private static function largest_staged_file_bytes( $staged_fields ) {
+        $largest = 0;
+        foreach ( $staged_fields as $field ) {
+            if ( isset( $field['max_file_bytes'] ) && is_int( $field['max_file_bytes'] ) ) {
+                $largest = max( $largest, $field['max_file_bytes'] );
+            }
+        }
+        return $largest;
+    }
+
+    private static function required_staged_mimes( $staged_fields ) {
+        $tokens = array( 'image' => true );
+        foreach ( $staged_fields as $field ) {
+            $accept = isset( $field['accept'] ) && is_array( $field['accept'] ) ? $field['accept'] : array();
+            foreach ( UploadPolicy::resolve_tokens( $accept, false, 'staged' ) as $token ) {
+                $tokens[ $token ] = true;
+            }
+        }
+        return UploadPolicy::staged_mimes( array_keys( $tokens ) );
+    }
+
+    private static function template_inventory() {
+        $dir = dirname( __DIR__, 2 ) . '/templates/forms';
+        if ( ! is_dir( $dir ) ) {
+            return array( 'directory' => false, 'files' => 0, 'invalid' => array(), 'staged_fields' => array() );
+        }
+        $files = glob( rtrim( $dir, '/\\' ) . '/*.json' );
+        $files = is_array( $files ) ? $files : array();
+        $invalid = array();
+        $staged = array();
+        foreach ( $files as $path ) {
+            $form_id = basename( $path, '.json' );
+            $loaded = TemplateLoader::load( $form_id, $dir );
+            $built = ! empty( $loaded['ok'] )
+                ? TemplateContext::build( $loaded['template'], $loaded['version'] )
+                : array( 'ok' => false );
+            if ( empty( $built['ok'] ) || ! isset( $built['context'] ) || ! is_array( $built['context'] ) ) {
+                $invalid[] = $form_id;
+                continue;
+            }
+            if ( isset( $built['context']['staged_field'] ) && is_array( $built['context']['staged_field'] ) ) {
+                $staged[] = $built['context']['staged_field'];
+            }
+        }
+        return array(
+            'directory' => true,
+            'files' => count( $files ),
+            'invalid' => $invalid,
+            'staged_fields' => $staged,
+        );
+    }
+
+    private static function format_bytes( $bytes ) {
+        $bytes = is_numeric( $bytes ) ? max( 0, (int) $bytes ) : 0;
+        if ( $bytes >= 1073741824 && $bytes % 1073741824 === 0 ) {
+            return ( $bytes / 1073741824 ) . ' GiB';
+        }
+        if ( $bytes >= 1048576 && $bytes % 1048576 === 0 ) {
+            return ( $bytes / 1048576 ) . ' MiB';
+        }
+        return $bytes . ' bytes';
     }
 
     private static function result( $checks ) {

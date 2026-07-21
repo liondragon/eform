@@ -1,6 +1,6 @@
 {
   "id": "upload-test",
-  "version": "1",
+  "version": "2",
   "title": "Upload Test",
   "result_pages": {
     "success": {
@@ -13,7 +13,8 @@
     "email_template": "default",
     "include_fields": [
       "name",
-      "file1"
+      "file1",
+      "photos"
     ]
   },
   "fields": [
@@ -30,6 +31,19 @@
         "pdf"
       ],
       "email_attach": true
+    },
+    {
+      "key": "photos",
+      "type": "files",
+      "label": "Photos",
+      "accept": [
+        "image"
+      ],
+      "upload_mode": "staged",
+      "max_file_bytes": 20971520,
+      "max_files": 24,
+      "max_total_bytes": 314572800,
+      "email_attach": false
     }
   ],
   "submit_button_text": "Send"

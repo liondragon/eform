@@ -11,46 +11,7 @@ defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 require_once __DIR__ . '/src/Config.php';
 require_once __DIR__ . '/src/Admin/AdminSettingsStore.php';
 require_once __DIR__ . '/src/Uploads/PrivateDir.php';
-
-if ( ! function_exists( 'eforms_uninstall_get_bool' ) ) {
-    /**
-     * Read a nested boolean-ish value from config.
-     *
-     * @param array $config
-     * @param array $segments
-     * @return bool
-     */
-    function eforms_uninstall_get_bool( $config, $segments ) {
-        if ( ! is_array( $config ) || ! is_array( $segments ) ) {
-            return false;
-        }
-
-        $cursor = $config;
-        foreach ( $segments as $segment ) {
-            if ( ! is_array( $cursor ) || ! array_key_exists( $segment, $cursor ) ) {
-                return false;
-            }
-            $cursor = $cursor[ $segment ];
-        }
-
-        if ( is_bool( $cursor ) ) {
-            return $cursor;
-        }
-        if ( is_numeric( $cursor ) ) {
-            return (int) $cursor !== 0;
-        }
-        if ( is_string( $cursor ) ) {
-            $value = strtolower( trim( $cursor ) );
-            if ( $value === '' ) {
-                return false;
-            }
-
-            return ! in_array( $value, array( '0', 'false', 'off', 'no' ), true );
-        }
-
-        return false;
-    }
-}
+require_once __DIR__ . '/src/Uploads/UploadBatchStore.php';
 
 if ( ! function_exists( 'eforms_uninstall_remove_tree' ) ) {
     /**
@@ -249,22 +210,21 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
     /**
      * Execute uninstall cleanup respecting purge flags.
      *
-     * @return void
+     * @return array{ok:bool, reason:string}
      */
     function eforms_uninstall_run() {
-        AdminSettingsStore::delete_all();
-
-        if ( ! eforms_uninstall_ensure_wp_upload_dir() ) {
-            return;
-        }
-
         Config::bootstrap();
         $config = Config::get();
 
-        $purge_logs = eforms_uninstall_get_bool( $config, array( 'install', 'uninstall', 'purge_logs' ) );
-        $purge_uploads = eforms_uninstall_get_bool( $config, array( 'install', 'uninstall', 'purge_uploads' ) );
+        $purge_logs = Config::bool( $config, array( 'install', 'uninstall', 'purge_logs' ), false );
+        $purge_uploads = Config::bool( $config, array( 'install', 'uninstall', 'purge_uploads' ), false );
         if ( ! $purge_logs && ! $purge_uploads ) {
-            return;
+            AdminSettingsStore::delete_all();
+            return array( 'ok' => true, 'reason' => '' );
+        }
+
+        if ( ! eforms_uninstall_ensure_wp_upload_dir() ) {
+            return array( 'ok' => false, 'reason' => 'uploads_api_unavailable' );
         }
 
         $uploads_dir = '';
@@ -279,17 +239,62 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
         }
 
         if ( $uploads_dir === '' || ! is_dir( $uploads_dir ) ) {
-            return;
+            return array( 'ok' => false, 'reason' => 'uploads_dir_unavailable' );
         }
 
         $private_dir = PrivateDir::path( $uploads_dir );
-        $private_exists = $private_dir !== '' && is_dir( $private_dir );
+        $private_exists = $private_dir !== '' && is_dir( $private_dir ) && ! is_link( $private_dir );
 
-        if ( $purge_uploads && $private_exists ) {
+        if ( $purge_uploads ) {
+            $lifecycle = PrivateDir::acquire_purge_lease( $uploads_dir );
+            if ( ! $lifecycle instanceof PrivateDirLease ) {
+                return array( 'ok' => false, 'reason' => 'upload_lifecycle_unavailable' );
+            }
+            $private_dir = $lifecycle->private_dir();
+            $private_exists = true;
+            $managed_lock = UploadBatchStore::acquire_purge_capacity_lock( $lifecycle );
+            if ( ! is_resource( $managed_lock ) ) {
+                $lifecycle->release();
+                return array( 'ok' => false, 'reason' => 'managed_capacity_lock_unavailable' );
+            }
+            $staged_dir = $private_dir . '/' . UploadBatchStore::STAGED_DIR;
+            $submissions_dir = $private_dir . '/' . UploadBatchStore::SUBMISSIONS_DIR;
+            $aggregate_locks = UploadBatchStore::prelock_purge_aggregates( $lifecycle );
+            if ( ! is_array( $aggregate_locks ) ) {
+                UploadBatchStore::release_purge_locks( $managed_lock );
+                $lifecycle->release();
+                return array( 'ok' => false, 'reason' => 'managed_aggregate_lock_unavailable' );
+            }
+            if ( ! PrivateDir::mark_purged( $lifecycle ) ) {
+                UploadBatchStore::release_purge_locks( $aggregate_locks );
+                UploadBatchStore::release_purge_locks( $managed_lock );
+                $lifecycle->release();
+                return array( 'ok' => false, 'reason' => 'purge_barrier_unavailable' );
+            }
+
+            // The durable barrier blocks queued aggregate writers; close their
+            // handles before deletion so Windows can unlink each lock inode.
+            UploadBatchStore::release_purge_locks( $aggregate_locks );
             eforms_uninstall_remove_tree( $private_dir . '/tokens' );
             eforms_uninstall_remove_tree( $private_dir . '/ledger' );
             eforms_uninstall_remove_tree( $private_dir . '/uploads' );
             eforms_uninstall_remove_tree( $private_dir . '/throttle' );
+            eforms_uninstall_remove_tree( $staged_dir );
+            eforms_uninstall_remove_tree( $submissions_dir );
+            $managed_roots_removed = ! file_exists( $staged_dir ) && ! file_exists( $submissions_dir );
+            if ( $managed_roots_removed ) {
+                eforms_uninstall_remove_tree( $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME );
+            }
+            UploadBatchStore::release_purge_locks( $managed_lock );
+            $lifecycle->release();
+            if ( ! $managed_roots_removed
+                || file_exists( $private_dir . '/tokens' )
+                || file_exists( $private_dir . '/ledger' )
+                || file_exists( $private_dir . '/uploads' )
+                || file_exists( $private_dir . '/throttle' )
+            ) {
+                return array( 'ok' => false, 'reason' => 'upload_purge_incomplete' );
+            }
         }
 
         if ( $purge_logs ) {
@@ -306,7 +311,18 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
         if ( $private_exists ) {
             eforms_uninstall_try_remove_empty_chain( $private_dir, $uploads_dir );
         }
+
+        AdminSettingsStore::delete_all();
+        return array( 'ok' => true, 'reason' => '' );
     }
 }
 
-eforms_uninstall_run();
+$eforms_uninstall_result = eforms_uninstall_run();
+if ( empty( $eforms_uninstall_result['ok'] ) ) {
+    $reason = isset( $eforms_uninstall_result['reason'] ) ? $eforms_uninstall_result['reason'] : 'unknown';
+    $message = 'eForms uninstall could not safely purge runtime data (' . $reason . '). Plugin deletion was stopped.';
+    if ( function_exists( 'wp_die' ) ) {
+        wp_die( $message );
+    }
+    throw new RuntimeException( $message );
+}

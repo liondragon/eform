@@ -113,6 +113,15 @@ eforms_test_assert( strpos( $html, 'name="' . FormProtocol::FIELD_HONEYPOT . '"'
 eforms_test_assert( count( $GLOBALS['eforms_test_inline_scripts'] ) === 1, 'Renderer should add one inline settings block.' );
 $protocol = eforms_protocol_test_extract_protocol_settings( $GLOBALS['eforms_test_inline_scripts'][0]['data'] );
 eforms_test_assert( $protocol === FormProtocol::browser_settings(), 'Browser protocol settings should match FormProtocol.' );
+eforms_test_assert( FormProtocol::UPLOAD_BATCH_PARAM === 'batch_id', 'FormProtocol should own the managed batch route parameter.' );
+eforms_test_assert( FormProtocol::UPLOAD_ITEM_PARAM === 'upload_id', 'FormProtocol should own the managed item route parameter.' );
+eforms_test_assert(
+    $protocol['upload']['runtime'] === FormProtocol::upload_runtime()
+        && $protocol['upload']['runtime']['batchSecretBytes'] === Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' )
+        && $protocol['upload']['runtime']['uploadIdBytes'] === Anchors::get( 'MANAGED_UPLOAD_ID_BYTES' )
+        && $protocol['upload']['runtime']['concurrency'] === Anchors::get( 'MANAGED_UPLOAD_CONCURRENCY' ),
+    'Browser upload runtime bounds should come from Anchors through FormProtocol.'
+);
 
 // Given the mint endpoint receives the protocol-owned form param...
 // When it returns a successful response...

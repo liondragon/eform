@@ -144,9 +144,15 @@ Logging modes: `off`, `minimal`, `jsonl`. See `Config` for options.
 
 Uploads are stored in `wp-content/uploads/eforms-private` with strict perms.
 
+Staged photo fields require PHP `fileinfo`, an image editor that can decode JPEG/PNG/WebP and encode JPEG, at least 768 MiB effective PHP memory, and at least 60 seconds of execution time (or unlimited values). A field may explicitly add the `heic` accept token for HEIC/HEIF input when Imagick has its HEIC delegate; GD is not a HEIC fallback. Set `upload_max_filesize`, `post_max_size`, and the web-server request limit above the largest staged item plus multipart overhead. GIF remains rejected; previews are orientation-normalized, metadata-stripped JPEGs that start at quality 82 and reduce quality or dimensions as needed, with transparent pixels flattened. HEIC/HEIF uses the container's primary image.
+
+Managed staged and finalized files share a fixed 50 GiB accounting ceiling and preserve a separate 10 GiB free-disk reserve. Provision the filesystem for at least 60 GiB plus unrelated WordPress content. Enable the existing per-IP throttle before serving a staged form; because batch creation and every upload attempt consume throttle capacity, tune `throttle.per_ip.max_per_minute` for multi-file forms and users behind shared IPs.
+
 ### Maintenance (Required)
 
-Run `wp eforms gc` via system cron to prune expired token records and uploads. The plugin also runs best-effort GC on request shutdown, but cron is the primary mechanism.
+Run `wp eforms gc` via system cron to prune expired token records and uploads, including abandoned staged batches and expired finalized galleries. Use `wp eforms gc --dry-run` after deployment to confirm access and candidate accounting. PHP cannot prove that external cron is scheduled, so monitor that job separately.
+
+If the doctor reports interrupted managed-capacity accounting, investigate the storage failure and then run `wp eforms gc --reconcile-capacity`. This explicit repair performs a full managed-file scan; ordinary scheduled GC remains batch-bounded.
 
 Ledger markers are pruned by `wp eforms gc` after the associated token is expired.
 
@@ -183,7 +189,9 @@ wp eforms doctor
 ```
 
 The doctor checks observable host/runtime readiness: uploads writability,
-private storage protection, runtime subdirectory usability, shipped templates,
-GC dry-run readiness, CLI bootstrap, and config source visibility. It reports
-PASS/WARN/FAIL rows and does not store diagnostic history. It cannot prove that
-system cron is configured; schedule `wp eforms gc` separately.
+private storage protection, runtime subdirectory usability, staged image
+processing and PHP request limits, managed-capacity consistency and disk
+provisioning, mandatory staged throttling, shipped templates, GC dry-run
+readiness, CLI bootstrap, and config source visibility. It reports PASS/WARN/FAIL
+rows and does not store diagnostic history. It cannot prove that system cron is
+configured; schedule and monitor `wp eforms gc` separately.

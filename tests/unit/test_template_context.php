@@ -71,7 +71,8 @@ $context = $result['context'];
 eforms_test_assert( is_array( $context ), 'TemplateContext should return a context array.' );
 eforms_test_assert( $context['id'] === 'demo_form', 'TemplateContext should preserve the template id.' );
 eforms_test_assert( $context['version'] === 'v1', 'TemplateContext should honor the version override.' );
-eforms_test_assert( $context['has_uploads'] === false, 'TemplateContext should report no uploads for text-only templates.' );
+eforms_test_assert( $context['has_synchronous_uploads'] === false, 'TemplateContext should report no synchronous upload transport for text-only templates.' );
+eforms_test_assert( $context['staged_field'] === null, 'TemplateContext should expose no staged field for text-only templates.' );
 
 $descriptors = $context['descriptors'];
 eforms_test_assert( is_array( $descriptors ), 'TemplateContext should expose descriptors as an array.' );
@@ -99,3 +100,20 @@ $codes  = eforms_test_collect_codes( $result['errors'] );
 eforms_test_assert( $result['ok'] === true, 'TemplateContext should accept valid templates without overrides.' );
 eforms_test_assert( empty( $codes ), 'TemplateContext should not emit errors for valid templates.' );
 eforms_test_assert( $result['context']['version'] === '1', 'TemplateContext should use the template version when provided.' );
+
+$staged_template = eforms_test_base_template();
+$staged_template['id'] = 'demo_staged';
+$staged_template['version'] = '2';
+$staged_template['fields'][] = array(
+    'key' => 'photos',
+    'type' => 'files',
+    'accept' => array( 'image' ),
+    'upload_mode' => 'staged',
+    'max_file_bytes' => 1048576,
+    'max_files' => 2,
+    'max_total_bytes' => 2097152,
+);
+$staged_template['email']['include_fields'][] = 'photos';
+$staged_result = TemplateContext::build( $staged_template );
+eforms_test_assert( $staged_result['ok'] === true, 'TemplateContext should accept one staged field.' );
+eforms_test_assert( $staged_result['context']['staged_field']['key'] === 'photos', 'TemplateContext should expose the single validated staged field.' );

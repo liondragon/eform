@@ -7,6 +7,8 @@
  */
 
 require_once __DIR__ . '/ErrorMessages.php';
+require_once __DIR__ . '/FormProtocol.php';
+require_once __DIR__ . '/Uploads/PrivateDir.php';
 
 if ( ! function_exists( 'eforms_register_autoloader' ) ) {
     /**
@@ -115,6 +117,161 @@ if ( ! function_exists( 'eforms_register_rewrite_rule' ) ) {
     }
 }
 
+if ( ! function_exists( 'eforms_activate' ) ) {
+    /**
+     * Reopen managed storage after reinstall.
+     */
+    function eforms_activate() {
+        if ( class_exists( 'Config' ) && class_exists( 'PrivateDir' ) ) {
+            Config::bootstrap();
+            $config = Config::get();
+            $configured_uploads_dir = Config::value( $config, array( 'uploads', 'dir' ), '' );
+            $uploads_dir = is_string( $configured_uploads_dir ) ? rtrim( $configured_uploads_dir, '/\\' ) : '';
+            if ( $uploads_dir !== '' ) {
+                if ( ! PrivateDir::resume_after_install( $uploads_dir ) ) {
+                    $message = 'eForms could not reopen its managed storage. The plugin was not activated.';
+                    if ( function_exists( 'deactivate_plugins' ) && defined( 'EFORMS_PLUGIN_FILE' ) ) {
+                        $plugin = function_exists( 'plugin_basename' ) ? plugin_basename( EFORMS_PLUGIN_FILE ) : EFORMS_PLUGIN_FILE;
+                        deactivate_plugins( $plugin, true );
+                    }
+                    if ( function_exists( 'wp_die' ) ) {
+                        wp_die( $message );
+                    }
+                    throw new RuntimeException( $message );
+                }
+            }
+        }
+        return true;
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_route_request' ) ) {
+    function eforms_rest_route_request( $request ) {
+        if ( ! is_object( $request ) || ! method_exists( $request, 'get_route' ) ) {
+            return false;
+        }
+        $route = $request->get_route();
+        return is_string( $route ) && preg_match( '#^/eforms(?:/|$)#', $route ) === 1;
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_pre_dispatch' ) ) {
+    function eforms_rest_pre_dispatch( $result, $server, $request ) {
+        if ( $result !== null || ! eforms_rest_route_request( $request ) || ! method_exists( $request, 'get_method' ) || strtoupper( $request->get_method() ) !== 'OPTIONS' ) {
+            return $result;
+        }
+        if ( ! class_exists( 'OriginPolicy' ) ) {
+            require_once __DIR__ . '/Security/OriginPolicy.php';
+        }
+        $origin = OriginPolicy::evaluate( $request, Config::get() );
+        if ( ! is_array( $origin ) || ! isset( $origin['state'] ) || $origin['state'] !== 'same' ) {
+            return new WP_Error(
+                'EFORMS_ERR_ORIGIN_FORBIDDEN',
+                'Origin forbidden.',
+                array( 'status' => 403 )
+            );
+        }
+        return $result;
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_strip_cors_headers' ) ) {
+    function eforms_rest_strip_cors_headers( $served, $result, $request ) {
+        if ( ! eforms_rest_route_request( $request ) ) {
+            return $served;
+        }
+        $cors_headers = array( 'Access-Control-Allow-Origin', 'Access-Control-Allow-Methods', 'Access-Control-Allow-Headers', 'Access-Control-Allow-Credentials', 'Access-Control-Expose-Headers', 'Access-Control-Max-Age' );
+        if ( is_object( $result ) && method_exists( $result, 'get_headers' ) && method_exists( $result, 'set_headers' ) ) {
+            $response_headers = $result->get_headers();
+            if ( is_array( $response_headers ) ) {
+                foreach ( array_keys( $response_headers ) as $header ) {
+                    foreach ( $cors_headers as $cors_header ) {
+                        if ( strcasecmp( $header, $cors_header ) === 0 ) {
+                            unset( $response_headers[ $header ] );
+                            break;
+                        }
+                    }
+                }
+                $result->set_headers( $response_headers );
+            }
+        }
+        foreach ( $cors_headers as $header ) {
+            if ( function_exists( 'header_remove' ) && ! headers_sent() ) {
+                header_remove( $header );
+            }
+        }
+        return $served;
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_upload_batch_response' ) ) {
+    function eforms_rest_upload_batch_response( $request, $action ) {
+        if ( ! class_exists( 'UploadBatchEndpoint' ) ) {
+            require_once __DIR__ . '/Uploads/UploadBatchEndpoint.php';
+        }
+        $result = call_user_func( array( 'UploadBatchEndpoint', $action ), $request );
+        $body = isset( $result['body'] ) ? $result['body'] : array( 'error' => 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
+        if ( $action === 'preview' && isset( $result['status'] ) && (int) $result['status'] === 200 && is_string( $body ) ) {
+            $body = new RawRestBody( $body );
+        }
+
+        return eforms_rest_response(
+            $body,
+            isset( $result['status'] ) ? (int) $result['status'] : 503,
+            isset( $result['headers'] ) && is_array( $result['headers'] ) ? $result['headers'] : array()
+        );
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_serve_raw_body' ) ) {
+    /**
+     * Serve explicitly marked binary REST bodies after WordPress sends headers.
+     */
+    function eforms_rest_serve_raw_body( $served, $result ) {
+        if ( $served || ! is_object( $result ) || ! method_exists( $result, 'get_data' ) ) {
+            return $served;
+        }
+
+        $body = $result->get_data();
+        if ( ! $body instanceof RawRestBody ) {
+            return $served;
+        }
+
+        echo $body->bytes();
+        return true;
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_upload_batch_create' ) ) {
+    function eforms_rest_upload_batch_create( $request ) {
+        return eforms_rest_upload_batch_response( $request, 'create' );
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_upload_batch_status' ) ) {
+    function eforms_rest_upload_batch_status( $request ) {
+        return eforms_rest_upload_batch_response( $request, 'status' );
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_upload_batch_item' ) ) {
+    function eforms_rest_upload_batch_item( $request ) {
+        $action = '';
+        if ( is_object( $request ) && method_exists( $request, 'get_method' ) ) {
+            $action = strtoupper( (string) $request->get_method() ) === 'DELETE' ? 'delete' : 'upload';
+        } elseif ( is_array( $request ) && isset( $request['method'] ) ) {
+            $action = strtoupper( (string) $request['method'] ) === 'DELETE' ? 'delete' : 'upload';
+        }
+        return eforms_rest_upload_batch_response( $request, $action === 'delete' ? 'delete' : 'upload' );
+    }
+}
+
+if ( ! function_exists( 'eforms_rest_upload_batch_preview' ) ) {
+    function eforms_rest_upload_batch_preview( $request ) {
+        return eforms_rest_upload_batch_response( $request, 'preview' );
+    }
+}
+
 if ( ! function_exists( 'eforms_rest_response' ) ) {
     /**
      * Build a REST response with required cache-safety headers.
@@ -192,6 +349,42 @@ if ( ! function_exists( 'eforms_register_rest_routes' ) ) {
             array(
                 'methods'             => $methods,
                 'callback'            => 'eforms_rest_mint_stub',
+                'permission_callback' => 'eforms_rest_allow_public',
+            )
+        );
+        register_rest_route(
+            'eforms',
+            '/upload-batches',
+            array(
+                'methods'             => $methods,
+                'callback'            => 'eforms_rest_upload_batch_create',
+                'permission_callback' => 'eforms_rest_allow_public',
+            )
+        );
+        register_rest_route(
+            'eforms',
+            '/upload-batches/(?P<' . FormProtocol::UPLOAD_BATCH_PARAM . '>' . FormProtocol::upload_batch_id_pattern( false ) . ')',
+            array(
+                'methods'             => $methods,
+                'callback'            => 'eforms_rest_upload_batch_status',
+                'permission_callback' => 'eforms_rest_allow_public',
+            )
+        );
+        register_rest_route(
+            'eforms',
+            '/upload-batches/(?P<' . FormProtocol::UPLOAD_BATCH_PARAM . '>' . FormProtocol::upload_batch_id_pattern( false ) . ')/items/(?P<' . FormProtocol::UPLOAD_ITEM_PARAM . '>' . FormProtocol::managed_id_pattern( false ) . ')',
+            array(
+                'methods'             => $methods,
+                'callback'            => 'eforms_rest_upload_batch_item',
+                'permission_callback' => 'eforms_rest_allow_public',
+            )
+        );
+        register_rest_route(
+            'eforms',
+            '/upload-batches/(?P<' . FormProtocol::UPLOAD_BATCH_PARAM . '>' . FormProtocol::upload_batch_id_pattern( false ) . ')/items/(?P<' . FormProtocol::UPLOAD_ITEM_PARAM . '>' . FormProtocol::managed_id_pattern( false ) . ')/preview',
+            array(
+                'methods'             => $methods,
+                'callback'            => 'eforms_rest_upload_batch_preview',
                 'permission_callback' => 'eforms_rest_allow_public',
             )
         );
@@ -291,6 +484,12 @@ if ( ! function_exists( 'eforms_register_hooks' ) ) {
             add_action( 'template_redirect', array( 'PublicRequestController', 'handle_template_redirect' ), 0 );
             add_action( 'init', 'eforms_register_cli', 20 );
             eforms_register_admin();
+        }
+
+        if ( function_exists( 'add_filter' ) ) {
+            add_filter( 'rest_pre_dispatch', 'eforms_rest_pre_dispatch', 5, 3 );
+            add_filter( 'rest_pre_serve_request', 'eforms_rest_strip_cors_headers', 15, 3 );
+            add_filter( 'rest_pre_serve_request', 'eforms_rest_serve_raw_body', 20, 2 );
         }
     }
 }

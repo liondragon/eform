@@ -65,6 +65,26 @@ foreach ( $files as $path ) {
     $codes = eforms_test_collect_codes( $errors );
     eforms_test_assert( empty( $codes ), 'Shipped template ' . $slug . ' should pass preflight.' );
 
+    if ( $slug === 'virtual-estimate' ) {
+        $photo_fields = array_values( array_filter(
+            $template['fields'],
+            function ( $field ) {
+                return is_array( $field ) && isset( $field['key'] ) && $field['key'] === 'project_photos';
+            }
+        ) );
+        $photos = isset( $photo_fields[0] ) ? $photo_fields[0] : array();
+        eforms_test_assert(
+            count( $photo_fields ) === 1
+                && ! isset( $photos['upload_mode'] )
+                && ! isset( $photos['max_total_bytes'] )
+                && isset( $photos['max_file_bytes'] )
+                && $photos['max_file_bytes'] === 2097152
+                && isset( $photos['email_attach'] )
+                && $photos['email_attach'] === true,
+            'Virtual Estimate must remain on its synchronous attachment path until staged host readiness is approved.'
+        );
+    }
+
     if ( isset( $template['fields'] ) && is_array( $template['fields'] ) ) {
         foreach ( $template['fields'] as $field ) {
             if ( ! is_array( $field ) ) {

@@ -38,6 +38,8 @@ $timing_signals = eforms_protocol_guard_read( 'src/Security/TimingSignals.php' )
 $normalizer = eforms_protocol_guard_read( 'src/Validation/Normalizer.php' );
 $validator = eforms_protocol_guard_read( 'src/Validation/Validator.php' );
 $upload_store = eforms_protocol_guard_read( 'src/Uploads/UploadStore.php' );
+$upload_endpoint = eforms_protocol_guard_read( 'src/Uploads/UploadBatchEndpoint.php' );
+$bootstrap = eforms_protocol_guard_read( 'src/bootstrap.php' );
 $emailer = eforms_protocol_guard_read( 'src/Email/Emailer.php' );
 $jsonl_logger = eforms_protocol_guard_read( 'src/Logging/JsonlLogger.php' );
 $fail2ban_logger = eforms_protocol_guard_read( 'src/Logging/Fail2banLogger.php' );
@@ -65,6 +67,7 @@ eforms_test_assert( strpos( $submit_handler, 'private static function soft_fail_
 eforms_test_assert( strpos( $submit_handler, 'private static function is_suspect_count' ) === false, 'SubmitHandler must not own suspect threshold logic.' );
 eforms_test_assert( strpos( $submit_handler, 'private static function is_spam_fail_count' ) === false, 'SubmitHandler must not own spam threshold logic.' );
 eforms_test_assert( strpos( $submit_handler, 'private static function spam_soft_fail_threshold' ) === false, 'SubmitHandler must not own soft-fail threshold normalization.' );
+eforms_test_assert( strpos( $submit_handler, 'Errors::first_code' ) !== false, 'SubmitHandler should use Errors for primary-code selection.' );
 
 eforms_test_assert( strpos( $public_controller, 'private static function reserved_keys' ) === false, 'PublicRequestController must not own a reserved-key map.' );
 eforms_test_assert( strpos( $public_controller, 'FormProtocol::post_detection_keys' ) !== false, 'PublicRequestController should use FormProtocol detection keys.' );
@@ -82,6 +85,7 @@ eforms_protocol_guard_assert_no_post_literal( $timing_signals, FormProtocol::FIE
 eforms_test_assert( strpos( $form_renderer, 'last_textlike_index' ) === false, 'FormRenderer must not own a local text-like enterkeyhint list.' );
 eforms_test_assert( strpos( $form_renderer, 'is_textlike_descriptor' ) === false, 'FormRenderer must not own text-like descriptor predicates.' );
 eforms_test_assert( strpos( $form_renderer, 'descriptor_accepts_enterkeyhint' ) !== false, 'FormRenderer should consume descriptor enterkeyhint metadata.' );
+eforms_test_assert( strpos( $form_renderer, 'Errors::first_code' ) !== false, 'FormRenderer should use Errors for primary-code selection.' );
 
 eforms_test_assert( strpos( $normalizer, 'UploadValue::' ) !== false, 'Normalizer should route upload shape checks through UploadValue.' );
 eforms_test_assert( strpos( $validator, 'UploadValue::' ) !== false, 'Validator should route upload shape checks through UploadValue.' );
@@ -92,6 +96,13 @@ eforms_test_assert( strpos( $normalizer, 'private static function is_no_file' ) 
 eforms_test_assert( strpos( $validator, 'private static function is_upload_item' ) === false, 'Validator must not keep a local upload item predicate.' );
 eforms_test_assert( strpos( $upload_store, 'private static function is_upload_item' ) === false, 'UploadStore must not keep a local upload item predicate.' );
 eforms_test_assert( strpos( $emailer, 'private static function is_upload_item' ) === false, 'Emailer must not keep a local upload item predicate.' );
+eforms_protocol_guard_assert_protocol_owner( $upload_endpoint, 'UPLOAD_BATCH_PARAM', 'UploadBatchEndpoint' );
+eforms_protocol_guard_assert_protocol_owner( $upload_endpoint, 'UPLOAD_ITEM_PARAM', 'UploadBatchEndpoint' );
+eforms_test_assert( strpos( $upload_endpoint, 'UploadValue::file_item_from_payload' ) !== false, 'UploadBatchEndpoint should delegate raw file payload shaping to UploadValue.' );
+eforms_test_assert( strpos( $upload_endpoint, 'UploadBatchStore::preview_bytes' ) !== false, 'UploadBatchEndpoint should stream staged previews through the locked store owner.' );
+eforms_test_assert( strpos( $bootstrap, 'FormProtocol::upload_batch_id_pattern' ) !== false && strpos( $bootstrap, 'FormProtocol::managed_id_pattern' ) !== false, 'REST routes should derive managed path shapes from FormProtocol.' );
+eforms_test_assert( strpos( $emailer, 'ReviewController::email_gallery_reference' ) !== false, 'Emailer should request validated gallery context from ReviewController.' );
+eforms_test_assert( strpos( $emailer, 'UploadValue::staged_items' ) !== false, 'Emailer should use UploadValue for staged list shaping.' );
 
 eforms_test_assert( strpos( $jsonl_logger, 'FileSink::append_dated_jsonl' ) !== false, 'JsonlLogger should delegate dated JSONL append mechanics to FileSink.' );
 eforms_test_assert( strpos( $jsonl_logger, 'FileSink::prune_old_files' ) !== false, 'JsonlLogger should delegate generic pruning mechanics to FileSink.' );
@@ -106,3 +117,4 @@ foreach ( $config_consumers as $path => $contents ) {
 }
 
 eforms_test_assert( strpos( $forms_js, 'settings.protocol' ) !== false, 'forms.js should consume the emitted protocol settings.' );
+eforms_test_assert( strpos( $form_renderer, 'FormProtocol::browser_settings' ) !== false, 'FormRenderer should emit the browser protocol from FormProtocol.' );

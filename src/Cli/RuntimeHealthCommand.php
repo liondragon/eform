@@ -18,8 +18,8 @@ class RuntimeHealthCommand {
         return $result;
     }
 
-    public static function run() {
-        return RuntimeHealthDiagnostic::run();
+    public static function run( $observations = array() ) {
+        return RuntimeHealthDiagnostic::run( $observations );
     }
 
     private static function emit_cli_output( $result ) {

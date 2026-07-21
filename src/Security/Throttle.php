@@ -33,6 +33,11 @@ class Throttle {
             return array( 'ok' => true, 'code' => 'disabled' );
         }
 
+        $max_per_minute = self::config_int( $config, array( 'throttle', 'per_ip', 'max_per_minute' ), 0 );
+        if ( $max_per_minute <= 0 ) {
+            return array( 'ok' => true, 'code' => 'disabled' );
+        }
+
         $ip_hash = self::resolve_ip_hash( $request, $config );
         if ( $ip_hash === '' ) {
             // Spec gate: run throttle only when a key is available.
@@ -44,14 +49,9 @@ class Throttle {
             return array( 'ok' => false, 'code' => 'storage', 'reason' => 'uploads_dir_unavailable' );
         }
 
-        $private = PrivateDir::ensure( $uploads_dir );
-        if ( ! is_array( $private ) || empty( $private['ok'] ) ) {
-            return array( 'ok' => false, 'code' => 'storage', 'reason' => 'private_dir_unavailable' );
-        }
-
-        $max_per_minute = self::config_int( $config, array( 'throttle', 'per_ip', 'max_per_minute' ), 0 );
-        if ( $max_per_minute <= 0 ) {
-            return array( 'ok' => true, 'code' => 'disabled' );
+        $lifecycle = PrivateDir::acquire_write_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            return array( 'ok' => false, 'code' => 'storage', 'reason' => 'upload_lifecycle_unavailable' );
         }
 
         $cooldown_seconds = self::config_int( $config, array( 'throttle', 'per_ip', 'cooldown_seconds' ), 0 );
@@ -63,19 +63,17 @@ class Throttle {
         $window_start = (int) ( floor( $now / self::WINDOW_SECONDS ) * self::WINDOW_SECONDS );
         $window_end = $window_start + self::WINDOW_SECONDS;
 
-        $throttle_dir = rtrim( $private['path'], '/\\' ) . '/' . self::THROTTLE_DIR;
-        if ( ! self::ensure_dir( $throttle_dir ) ) {
-            return array( 'ok' => false, 'code' => 'storage', 'reason' => 'throttle_dir_unavailable' );
-        }
-
-        $shard_dir = $throttle_dir . '/' . Helpers::h2( $ip_hash );
-        if ( ! self::ensure_dir( $shard_dir ) ) {
+        $shard_dir = PrivateDir::leased_relative_dir( $lifecycle, self::THROTTLE_DIR . '/' . Helpers::h2( $ip_hash ), true );
+        if ( $shard_dir === '' ) {
             return array( 'ok' => false, 'code' => 'storage', 'reason' => 'throttle_shard_unavailable' );
         }
 
         $cooldown_path = $shard_dir . '/' . $ip_hash . self::COOLDOWN_SUFFIX;
         if ( $cooldown_seconds > 0 ) {
             $sentinel_mtime = self::cooldown_mtime( $cooldown_path );
+            if ( $sentinel_mtime === false ) {
+                return array( 'ok' => false, 'code' => 'storage', 'reason' => 'cooldown_open_failed' );
+            }
             if ( $sentinel_mtime !== null && $sentinel_mtime > ( $now - $cooldown_seconds ) ) {
                 $cooldown_remaining = max( 0, ( $sentinel_mtime + $cooldown_seconds ) - $now );
                 $retry_after = self::retry_after( $window_end, $now, $cooldown_remaining );
@@ -85,7 +83,7 @@ class Throttle {
         }
 
         $tally_path = $shard_dir . '/' . $ip_hash . self::TALLY_SUFFIX;
-        $handle = @fopen( $tally_path, 'c+b' );
+        $handle = self::open_regular_file( $tally_path, 'c+b' );
         if ( $handle === false ) {
             return array( 'ok' => false, 'code' => 'storage', 'reason' => 'tally_open_failed' );
         }
@@ -111,8 +109,11 @@ class Throttle {
 
         if ( $size >= $max_per_minute ) {
             if ( $cooldown_seconds > 0 ) {
-                @touch( $cooldown_path );
-                @chmod( $cooldown_path, 0600 );
+                if ( ! self::touch_regular_file( $cooldown_path ) ) {
+                    flock( $handle, LOCK_UN );
+                    fclose( $handle );
+                    return array( 'ok' => false, 'code' => 'storage', 'reason' => 'cooldown_open_failed' );
+                }
             }
             flock( $handle, LOCK_UN );
             fclose( $handle );
@@ -157,7 +158,7 @@ class Throttle {
         }
 
         $mtime = self::cooldown_mtime( $cooldown_path );
-        if ( $mtime === null ) {
+        if ( $mtime === null || $mtime === false ) {
             return 0;
         }
 
@@ -166,6 +167,9 @@ class Throttle {
 
     private static function cooldown_mtime( $cooldown_path ) {
         clearstatcache( true, $cooldown_path );
+        if ( is_link( $cooldown_path ) || ( file_exists( $cooldown_path ) && ! is_file( $cooldown_path ) ) ) {
+            return false;
+        }
         if ( ! file_exists( $cooldown_path ) ) {
             return null;
         }
@@ -176,6 +180,31 @@ class Throttle {
         }
 
         return $mtime;
+    }
+
+    private static function open_regular_file( $path, $mode ) {
+        if ( is_link( $path ) || ( file_exists( $path ) && ! is_file( $path ) ) ) {
+            return false;
+        }
+        return @fopen( $path, $mode );
+    }
+
+    private static function touch_regular_file( $path ) {
+        if ( is_link( $path ) || ( file_exists( $path ) && ! is_file( $path ) ) ) {
+            return false;
+        }
+        $handle = @fopen( $path, 'c+b' );
+        if ( $handle === false ) {
+            return false;
+        }
+        if ( ! @ftruncate( $handle, 0 ) ) {
+            fclose( $handle );
+            return false;
+        }
+        $written = @fwrite( $handle, '1' );
+        $flushed = ! function_exists( 'fflush' ) || @fflush( $handle );
+        fclose( $handle );
+        return $written === 1 && $flushed && @chmod( $path, 0600 );
     }
 
     private static function resolve_ip_hash( $request, $config ) {
@@ -219,19 +248,6 @@ class Throttle {
         }
 
         return '';
-    }
-
-    private static function ensure_dir( $path ) {
-        if ( is_dir( $path ) ) {
-            return @chmod( $path, 0700 );
-        }
-
-        $created = @mkdir( $path, 0700, true );
-        if ( ! $created && ! is_dir( $path ) ) {
-            return false;
-        }
-
-        return @chmod( $path, 0700 );
     }
 
     private static function log_lock_failure( $request ) {

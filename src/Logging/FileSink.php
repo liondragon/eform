@@ -105,6 +105,9 @@ class FileSink {
         $options = is_array( $options ) ? $options : array();
         $dry_run = ! empty( $options['dry_run'] );
         $limit = isset( $options['limit'] ) && is_numeric( $options['limit'] ) ? (int) $options['limit'] : 0;
+        $cursor = isset( $options['cursor'] ) && is_array( $options['cursor'] ) ? $options['cursor'] : array();
+        $after_entry = isset( $cursor['entry'] ) && is_string( $cursor['entry'] ) ? $cursor['entry'] : '';
+        $last_entry = $after_entry;
         if ( $limit < 0 ) {
             $limit = 0;
         }
@@ -122,6 +125,12 @@ class FileSink {
                 continue;
             }
 
+            // A filename cursor remains valid even when the previously scanned
+            // file was deleted, so bounded cleanup can resume without an index.
+            if ( $after_entry !== '' && strcmp( $entry, $after_entry ) <= 0 ) {
+                continue;
+            }
+
             $path = rtrim( $dir, '/\\' ) . '/' . $entry;
             if ( ! is_file( $path ) ) {
                 continue;
@@ -133,6 +142,7 @@ class FileSink {
             }
 
             $summary['scanned']++;
+            $last_entry = $entry;
             if ( ! call_user_func( $match_callback, $entry, $path ) ) {
                 continue;
             }
@@ -160,6 +170,10 @@ class FileSink {
             $summary['reason'] = 'delete_failed';
         }
 
+        $summary['cursor'] = $summary['reached_limit'] && $last_entry !== ''
+            ? array( 'entry' => $last_entry )
+            : array();
+
         return $summary;
     }
 
@@ -174,6 +188,7 @@ class FileSink {
             'deleted_bytes' => 0,
             'failed' => 0,
             'reached_limit' => false,
+            'cursor' => array(),
         );
     }
 

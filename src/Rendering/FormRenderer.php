@@ -40,13 +40,13 @@ class FormRenderer {
 
         $template = TemplateLoader::load( $slug );
         if ( ! is_array( $template ) || empty( $template['ok'] ) ) {
-            $code = self::error_code_from_result( $template );
+            $code = Errors::first_code( is_array( $template ) && isset( $template['errors'] ) ? $template['errors'] : null );
             return self::render_error( $code );
         }
 
         $context_result = TemplateContext::build( $template['template'], $template['version'] );
         if ( ! is_array( $context_result ) || empty( $context_result['ok'] ) ) {
-            $code = self::error_code_from_errors( isset( $context_result['errors'] ) ? $context_result['errors'] : null );
+            $code = Errors::first_code( isset( $context_result['errors'] ) ? $context_result['errors'] : null );
             return self::render_error( $code );
         }
 
@@ -120,6 +120,7 @@ class FormRenderer {
         $values = self::parse_values( $opts );
         $require_challenge = self::parse_require_challenge( $opts );
         $challenge = self::resolve_challenge( $opts, $errors, $config, $require_challenge );
+        $validated_upload_batches = self::parse_validated_upload_batches( $opts );
 
         self::mark_rendered( $form_id );
         self::enqueue_assets( $config, ! empty( $challenge['render'] ) );
@@ -131,7 +132,8 @@ class FormRenderer {
             $config,
             $errors,
             $values,
-            $challenge
+            $challenge,
+            $validated_upload_batches
         );
     }
 
@@ -219,6 +221,14 @@ class FormRenderer {
     private static function parse_values( $opts ) {
         if ( is_array( $opts ) && isset( $opts['values'] ) && is_array( $opts['values'] ) ) {
             return $opts['values'];
+        }
+
+        return array();
+    }
+
+    private static function parse_validated_upload_batches( $opts ) {
+        if ( is_array( $opts ) && isset( $opts['validated_upload_batches'] ) && is_array( $opts['validated_upload_batches'] ) ) {
+            return $opts['validated_upload_batches'];
         }
 
         return array();
@@ -407,12 +417,7 @@ class FormRenderer {
     }
 
     private static function enqueue_assets( $config, $challenge_rendered ) {
-        $css_disabled = false;
-        if ( is_array( $config ) && isset( $config['assets'] ) && is_array( $config['assets'] ) ) {
-            if ( isset( $config['assets']['css_disable'] ) ) {
-                $css_disabled = (bool) $config['assets']['css_disable'];
-            }
-        }
+        $css_disabled = Config::bool( $config, array( 'assets', 'css_disable' ), false );
 
         $css_path = dirname( __DIR__, 2 ) . '/assets/forms.css';
         $js_path = dirname( __DIR__, 2 ) . '/assets/forms.js';
@@ -461,8 +466,9 @@ class FormRenderer {
         }
 
         $endpoint_json = self::json_encode( self::mint_endpoint_url() );
+        $upload_endpoint_json = self::json_encode( self::upload_batch_endpoint_url() );
         $protocol_json = self::json_encode( FormProtocol::browser_settings() );
-        if ( $endpoint_json === '' || $protocol_json === '' ) {
+        if ( $endpoint_json === '' || $upload_endpoint_json === '' || $protocol_json === '' ) {
             return;
         }
 
@@ -470,6 +476,7 @@ class FormRenderer {
             'eforms',
             'window.eformsSettings = window.eformsSettings || {};'
                 . 'window.eformsSettings.mintEndpoint = ' . $endpoint_json . ';'
+                . 'window.eformsSettings.uploadBatchEndpoint = ' . $upload_endpoint_json . ';'
                 . 'window.eformsSettings.protocol = ' . $protocol_json . ';',
             'before'
         );
@@ -487,6 +494,17 @@ class FormRenderer {
         return '/eforms/mint';
     }
 
+    private static function upload_batch_endpoint_url() {
+        if ( function_exists( 'rest_url' ) ) {
+            $url = rest_url( 'eforms/upload-batches' );
+            if ( is_string( $url ) && $url !== '' ) {
+                return $url;
+            }
+        }
+
+        return '';
+    }
+
     private static function json_encode( $value ) {
         if ( function_exists( 'wp_json_encode' ) ) {
             $json = wp_json_encode( $value );
@@ -497,7 +515,7 @@ class FormRenderer {
         return is_string( $json ) ? $json : '';
     }
 
-    private static function render_form( $context, $mode, $security, $config, $errors, $values, $challenge ) {
+    private static function render_form( $context, $mode, $security, $config, $errors, $values, $challenge, $validated_upload_batches ) {
         $form_id = isset( $context['id'] ) ? $context['id'] : '';
         // Educational note: expose TTL max so forms.js can cap sessionStorage reuse.
         $token_ttl_max = class_exists( 'Anchors' ) ? Anchors::get( 'TOKEN_TTL_MAX' ) : null;
@@ -513,7 +531,7 @@ class FormRenderer {
             $attrs[ FormProtocol::DATA_TOKEN_TTL_MAX ] = (string) $token_ttl_max;
         }
 
-        if ( ! empty( $context['has_uploads'] ) ) {
+        if ( ! empty( $context['has_synchronous_uploads'] ) ) {
             $attrs['enctype'] = 'multipart/form-data';
         }
 
@@ -536,6 +554,7 @@ class FormRenderer {
         $parts[] = self::render_hidden_input( FormProtocol::FIELD_TIMESTAMP, $security['timestamp'] );
         $parts[] = self::render_hidden_input( FormProtocol::FIELD_JS_OK, '' );
         $parts[] = self::render_honeypot( $form_id );
+        $parts[] = self::render_upload_batch_credentials( $context, $validated_upload_batches );
 
         $summary = self::render_error_summary( $context, $errors );
         if ( $summary !== '' ) {
@@ -560,6 +579,33 @@ class FormRenderer {
         $parts[] = '</form>';
 
         return implode( '', $parts );
+    }
+
+    private static function render_upload_batch_credentials( $context, $batches ) {
+        if ( ! is_array( $context ) || ! is_array( $batches ) ) {
+            return '';
+        }
+
+        $field = isset( $context['staged_field'] ) && is_array( $context['staged_field'] ) ? $context['staged_field'] : null;
+        $field_key = is_array( $field ) && isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
+        if ( $field_key === '' || ! isset( $batches[ $field_key ] ) || ! is_array( $batches[ $field_key ] ) ) {
+            return '';
+        }
+
+        $batch = $batches[ $field_key ];
+        $batch_id = isset( $batch[ FormProtocol::UPLOAD_BATCH_ID ] ) && is_string( $batch[ FormProtocol::UPLOAD_BATCH_ID ] )
+            ? $batch[ FormProtocol::UPLOAD_BATCH_ID ]
+            : '';
+        $batch_secret = isset( $batch[ FormProtocol::UPLOAD_BATCH_SECRET ] ) && is_string( $batch[ FormProtocol::UPLOAD_BATCH_SECRET ] )
+            ? $batch[ FormProtocol::UPLOAD_BATCH_SECRET ]
+            : '';
+        if ( $batch_id === '' || $batch_secret === '' ) {
+            return '';
+        }
+
+        $prefix = FormProtocol::FIELD_UPLOAD_BATCHES . '[' . $field_key . ']';
+        return self::render_hidden_input( $prefix . '[' . FormProtocol::UPLOAD_BATCH_ID . ']', $batch_id )
+            . self::render_hidden_input( $prefix . '[' . FormProtocol::UPLOAD_BATCH_SECRET . ']', $batch_secret );
     }
 
     private static function render_fields( $context, $errors, $values ) {
@@ -1165,29 +1211,6 @@ class FormRenderer {
         }
 
         return implode( ' ', $parts );
-    }
-
-    private static function error_code_from_result( $result ) {
-        if ( is_array( $result ) && isset( $result['errors'] ) ) {
-            return self::error_code_from_errors( $result['errors'] );
-        }
-
-        return 'EFORMS_ERR_SCHEMA_OBJECT';
-    }
-
-    private static function error_code_from_errors( $errors ) {
-        if ( $errors instanceof Errors ) {
-            $data = $errors->to_array();
-            if ( isset( $data['_global'] ) && is_array( $data['_global'] ) ) {
-                foreach ( $data['_global'] as $entry ) {
-                    if ( is_array( $entry ) && isset( $entry['code'] ) && is_string( $entry['code'] ) ) {
-                        return $entry['code'];
-                    }
-                }
-            }
-        }
-
-        return 'EFORMS_ERR_SCHEMA_OBJECT';
     }
 
     private static function render_error( $code ) {

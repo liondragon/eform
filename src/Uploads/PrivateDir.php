@@ -5,8 +5,42 @@
  * Contract: Shared lifecycle and storage contract
  */
 
+class PrivateDirLease {
+    private $handle;
+    private $private_dir;
+    private $exclusive;
+
+    public function __construct( $handle, $private_dir, $exclusive ) {
+        $this->handle = $handle;
+        $this->private_dir = $private_dir;
+        $this->exclusive = (bool) $exclusive;
+    }
+
+    public function private_dir() {
+        return $this->private_dir;
+    }
+
+    public function exclusive() {
+        return $this->exclusive;
+    }
+
+    public function release() {
+        if ( is_resource( $this->handle ) ) {
+            @flock( $this->handle, LOCK_UN );
+            fclose( $this->handle );
+        }
+        $this->handle = null;
+    }
+
+    public function __destruct() {
+        $this->release();
+    }
+}
+
 class PrivateDir {
     const DIR_NAME = 'eforms-private';
+    const LIFECYCLE_LOCK_FILENAME = 'upload-lifecycle.lock';
+    const PURGE_MARKER_FILENAME = 'managed-purged';
 
     const INDEX_FILENAME = 'index.html';
     const HTACCESS_FILENAME = '.htaccess';
@@ -50,25 +84,112 @@ class PrivateDir {
             return self::result( false, $path, 'private_dir_unavailable' );
         }
 
-        $index_path = $path . '/' . self::INDEX_FILENAME;
-        if ( ! self::ensure_file( $index_path, self::INDEX_CONTENT ) ) {
-            return self::result( false, $path, 'private_dir_index_failed' );
-        }
-
-        $htaccess_path = $path . '/' . self::HTACCESS_FILENAME;
-        if ( ! self::ensure_file( $htaccess_path, self::HTACCESS_CONTENT ) ) {
-            return self::result( false, $path, 'private_dir_htaccess_failed' );
-        }
-
-        $webconfig_path = $path . '/' . self::WEBCONFIG_FILENAME;
-        if ( ! self::ensure_file( $webconfig_path, self::WEBCONFIG_CONTENT ) ) {
-            return self::result( false, $path, 'private_dir_webconfig_failed' );
+        foreach ( self::deny_file_specs() as $spec ) {
+            if ( ! self::ensure_file( $path . '/' . $spec['filename'], $spec['content'] ) ) {
+                return self::result( false, $path, $spec['error'] );
+            }
         }
 
         return self::result( true, $path, '' );
     }
 
     public static function subdir( $uploads_dir, $name, $create = true ) {
+        return self::subdir_path( $uploads_dir, $name, $create, false );
+    }
+
+    public static function protected_subdir( $uploads_dir, $name, $create = true ) {
+        return self::subdir_path( $uploads_dir, $name, $create, true );
+    }
+
+    public static function existing_protected_subdir( $uploads_dir, $name ) {
+        if ( ! is_string( $name ) || $name === '' || preg_match( '/[\\\\\\/]/', $name ) === 1 ) {
+            return '';
+        }
+
+        $private_path = self::path( $uploads_dir );
+        if ( $private_path === '' || is_link( $private_path ) || ! is_dir( $private_path ) ) {
+            return '';
+        }
+
+        $path = rtrim( $private_path, '/\\' ) . '/' . $name;
+        return ! is_link( $path ) && is_dir( $path ) && self::has_deny_files( $path ) ? $path : '';
+    }
+
+    public static function leased_subdir( $lease, $name, $create = true, $with_protection = false ) {
+        if ( ! $lease instanceof PrivateDirLease ) {
+            return '';
+        }
+
+        return self::subdir_at_private_path( $lease->private_dir(), $name, $create, $with_protection );
+    }
+
+    public static function leased_relative_dir( $lease, $relative, $create = true ) {
+        if ( ! $lease instanceof PrivateDirLease || ! is_string( $relative ) || $relative === '' || strpos( $relative, '\\' ) !== false || $relative[0] === '/' ) {
+            return '';
+        }
+
+        $path = $lease->private_dir();
+        if ( ! is_string( $path ) || $path === '' || is_link( $path ) || ! is_dir( $path ) ) {
+            return '';
+        }
+
+        foreach ( explode( '/', $relative ) as $part ) {
+            if ( $part === '' || $part === '.' || $part === '..' ) {
+                return '';
+            }
+            $path = rtrim( $path, '/\\' ) . '/' . $part;
+            if ( is_link( $path ) ) {
+                return '';
+            }
+            if ( is_dir( $path ) ) {
+                if ( ! self::ensure_permissions( $path, 0700 ) ) {
+                    return '';
+                }
+                continue;
+            }
+            if ( ! $create || file_exists( $path ) || ! @mkdir( $path, 0700 ) || is_link( $path ) || ! is_dir( $path ) || ! self::ensure_permissions( $path, 0700 ) ) {
+                return '';
+            }
+        }
+
+        return $path;
+    }
+
+    /**
+     * Resolve an existing relative directory without creating missing path
+     * components. Missing paths are safe no-ops; links and non-directories are
+     * reported separately so callers can fail closed.
+     */
+    public static function leased_existing_relative_dir_result( $lease, $relative ) {
+        if ( ! $lease instanceof PrivateDirLease || ! is_string( $relative ) || $relative === '' || strpos( $relative, '\\' ) !== false || $relative[0] === '/' ) {
+            return array( 'ok' => false, 'exists' => false, 'path' => '' );
+        }
+
+        $path = $lease->private_dir();
+        if ( ! is_string( $path ) || $path === '' || is_link( $path ) || ! is_dir( $path ) ) {
+            return array( 'ok' => false, 'exists' => false, 'path' => '' );
+        }
+
+        foreach ( explode( '/', $relative ) as $part ) {
+            if ( $part === '' || $part === '.' || $part === '..' ) {
+                return array( 'ok' => false, 'exists' => false, 'path' => '' );
+            }
+            $path = rtrim( $path, '/\\' ) . '/' . $part;
+            if ( is_link( $path ) || ( file_exists( $path ) && ! is_dir( $path ) ) ) {
+                return array( 'ok' => false, 'exists' => false, 'path' => '' );
+            }
+            if ( ! file_exists( $path ) ) {
+                return array( 'ok' => true, 'exists' => false, 'path' => '' );
+            }
+            if ( ! self::ensure_permissions( $path, 0700 ) ) {
+                return array( 'ok' => false, 'exists' => false, 'path' => '' );
+            }
+        }
+
+        return array( 'ok' => true, 'exists' => true, 'path' => $path );
+    }
+
+    private static function subdir_path( $uploads_dir, $name, $create, $with_protection ) {
         if ( ! is_string( $name ) || $name === '' || preg_match( '/[\\\\\\/]/', $name ) === 1 ) {
             return '';
         }
@@ -91,19 +212,178 @@ class PrivateDir {
             }
         }
 
+        return self::subdir_at_private_path( $private_path, $name, $create, $with_protection );
+    }
+
+    private static function subdir_at_private_path( $private_path, $name, $create, $with_protection ) {
+        if ( ! is_string( $name ) || $name === '' || preg_match( '/[\\\\\\/]/', $name ) === 1 ) {
+            return '';
+        }
+        if ( ! is_string( $private_path ) || $private_path === '' || ! is_dir( $private_path ) || is_link( $private_path ) ) {
+            return '';
+        }
+
         $path = rtrim( $private_path, '/\\' ) . '/' . $name;
+        if ( is_link( $path ) ) {
+            return '';
+        }
+
         if ( is_dir( $path ) ) {
-            return self::ensure_permissions( $path, 0700 ) ? $path : '';
+            if ( ! self::ensure_permissions( $path, 0700 ) ) {
+                return '';
+            }
+            if ( $with_protection && ! self::ensure_deny_files( $path ) ) {
+                return '';
+            }
+            return $path;
         }
 
         if ( ! $create ) {
             return '';
         }
 
-        return self::ensure_dir( $path ) ? $path : '';
+        if ( ! self::ensure_dir( $path ) ) {
+            return '';
+        }
+
+        if ( $with_protection && ! self::ensure_deny_files( $path ) ) {
+            return '';
+        }
+
+        return $path;
+    }
+
+    public static function bounded_entries_result( $dir, $after, $limit, $directories_only = false, $name_pattern = '' ) {
+        $limit = max( 0, (int) $limit );
+        if ( $limit < 1 ) {
+            return array( 'ok' => true, 'entries' => array(), 'reason' => '' );
+        }
+        if ( is_link( $dir ) ) {
+            return array( 'ok' => false, 'entries' => array(), 'reason' => 'directory_invalid' );
+        }
+        if ( ! file_exists( $dir ) ) {
+            return array( 'ok' => true, 'entries' => array(), 'reason' => '' );
+        }
+        if ( ! is_dir( $dir ) ) {
+            return array( 'ok' => false, 'entries' => array(), 'reason' => 'directory_invalid' );
+        }
+
+        $entries = array();
+        try {
+            $iterator = new FilesystemIterator( $dir, FilesystemIterator::SKIP_DOTS );
+            foreach ( $iterator as $entry ) {
+                $name = $entry->getFilename();
+                if ( strcmp( $name, $after ) <= 0
+                    || $entry->isLink()
+                    || ( $directories_only && ! $entry->isDir() )
+                    || ( $name_pattern !== '' && preg_match( $name_pattern, $name ) !== 1 )
+                ) {
+                    continue;
+                }
+                $entries[] = $name;
+                sort( $entries, SORT_STRING );
+                if ( count( $entries ) > $limit ) {
+                    array_pop( $entries );
+                }
+            }
+        } catch ( Throwable $error ) {
+            return array( 'ok' => false, 'entries' => array(), 'reason' => 'directory_enumeration_failed' );
+        }
+        return array( 'ok' => true, 'entries' => $entries, 'reason' => '' );
+    }
+
+    public static function acquire_write_lease( $uploads_dir ) {
+        return self::acquire_lifecycle_lease( $uploads_dir, false, false, false );
+    }
+
+    public static function acquire_purge_lease( $uploads_dir ) {
+        return self::acquire_lifecycle_lease( $uploads_dir, true, true, true );
+    }
+
+    public static function mark_purged( $lease ) {
+        if ( ! $lease instanceof PrivateDirLease || ! $lease->exclusive() ) {
+            return false;
+        }
+        $path = rtrim( $lease->private_dir(), '/\\' ) . '/' . self::PURGE_MARKER_FILENAME;
+        if ( is_link( $path ) || ( file_exists( $path ) && ! is_file( $path ) ) ) {
+            return false;
+        }
+        $handle = @fopen( $path, 'c+b' );
+        if ( $handle === false || ! @chmod( $path, 0600 ) || ! @ftruncate( $handle, 0 ) ) {
+            if ( is_resource( $handle ) ) {
+                fclose( $handle );
+            }
+            return false;
+        }
+        $written = @fwrite( $handle, "purged\n" );
+        $flushed = ! function_exists( 'fflush' ) || @fflush( $handle );
+        fclose( $handle );
+        return $written === 7 && $flushed;
+    }
+
+    public static function is_purged( $uploads_dir ) {
+        $private_dir = self::path( $uploads_dir );
+        if ( $private_dir === '' ) {
+            return false;
+        }
+        $path = $private_dir . '/' . self::PURGE_MARKER_FILENAME;
+        return file_exists( $path ) || is_link( $path );
+    }
+
+    public static function resume_after_install( $uploads_dir ) {
+        $private_dir = self::path( $uploads_dir );
+        if ( $private_dir === '' || ! is_dir( $private_dir ) ) {
+            return true;
+        }
+        $lease = self::acquire_lifecycle_lease( $uploads_dir, true, false, true );
+        if ( ! $lease instanceof PrivateDirLease ) {
+            return false;
+        }
+        $marker = $private_dir . '/' . self::PURGE_MARKER_FILENAME;
+        if ( ! file_exists( $marker ) && ! is_link( $marker ) ) {
+            return true;
+        }
+        return is_file( $marker ) && ! is_link( $marker ) && @unlink( $marker );
+    }
+
+    private static function acquire_lifecycle_lease( $uploads_dir, $exclusive, $nonblocking, $allow_purged ) {
+        $private = self::ensure( $uploads_dir );
+        if ( ! is_array( $private ) || empty( $private['ok'] ) || empty( $private['path'] ) ) {
+            return false;
+        }
+        $lock_path = rtrim( $private['path'], '/\\' ) . '/' . self::LIFECYCLE_LOCK_FILENAME;
+        if ( is_link( $lock_path ) || ( file_exists( $lock_path ) && ! is_file( $lock_path ) ) ) {
+            return false;
+        }
+        $handle = @fopen( $lock_path, 'c+b' );
+        if ( $handle === false || ! @chmod( $lock_path, 0600 ) ) {
+            if ( is_resource( $handle ) ) {
+                fclose( $handle );
+            }
+            return false;
+        }
+        $operation = $exclusive ? LOCK_EX : LOCK_SH;
+        if ( $nonblocking ) {
+            $operation |= LOCK_NB;
+        }
+        if ( ! @flock( $handle, $operation ) ) {
+            fclose( $handle );
+            return false;
+        }
+        $marker = rtrim( $private['path'], '/\\' ) . '/' . self::PURGE_MARKER_FILENAME;
+        if ( ! $allow_purged && ( file_exists( $marker ) || is_link( $marker ) ) ) {
+            @flock( $handle, LOCK_UN );
+            fclose( $handle );
+            return false;
+        }
+        return new PrivateDirLease( $handle, $private['path'], $exclusive );
     }
 
     private static function ensure_dir( $path ) {
+        if ( is_link( $path ) ) {
+            return false;
+        }
+
         if ( is_dir( $path ) ) {
             return self::ensure_permissions( $path, 0700 );
         }
@@ -117,6 +397,10 @@ class PrivateDir {
     }
 
     private static function ensure_file( $path, $content ) {
+        if ( is_link( $path ) ) {
+            return false;
+        }
+
         if ( file_exists( $path ) ) {
             if ( ! is_file( $path ) ) {
                 return false;
@@ -139,6 +423,57 @@ class PrivateDir {
         }
 
         return self::ensure_permissions( $path, 0600 );
+    }
+
+    private static function ensure_deny_files( $dir ) {
+        if ( ! is_string( $dir ) || $dir === '' || ! is_dir( $dir ) || is_link( $dir ) ) {
+            return false;
+        }
+
+        $base = rtrim( $dir, '/\\' );
+        foreach ( self::deny_file_specs() as $spec ) {
+            if ( ! self::ensure_file( $base . '/' . $spec['filename'], $spec['content'] ) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function has_deny_files( $dir ) {
+        if ( ! is_string( $dir ) || $dir === '' || ! is_dir( $dir ) || is_link( $dir ) ) {
+            return false;
+        }
+
+        $base = rtrim( $dir, '/\\' );
+        foreach ( self::deny_file_specs() as $spec ) {
+            $path = $base . '/' . $spec['filename'];
+            if ( is_link( $path ) || ! is_file( $path ) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function deny_file_specs() {
+        return array(
+            array(
+                'filename' => self::INDEX_FILENAME,
+                'content' => self::INDEX_CONTENT,
+                'error' => 'private_dir_index_failed',
+            ),
+            array(
+                'filename' => self::HTACCESS_FILENAME,
+                'content' => self::HTACCESS_CONTENT,
+                'error' => 'private_dir_htaccess_failed',
+            ),
+            array(
+                'filename' => self::WEBCONFIG_FILENAME,
+                'content' => self::WEBCONFIG_CONTENT,
+                'error' => 'private_dir_webconfig_failed',
+            ),
+        );
     }
 
     private static function ensure_permissions( $path, $mode ) {

@@ -42,6 +42,40 @@ $empty_name = $minimal;
 $empty_name['original_name'] = '';
 eforms_test_assert( UploadValue::is_no_file( $empty_name ) === true, 'Empty original name should be treated as no file.' );
 
+$ordinal_map = UploadValue::file_map_from_payload(
+    array(
+        'name' => array( 'photos' => array( '', 'second.pdf' ) ),
+        'tmp_name' => array( 'photos' => array( '', '/tmp/second.pdf' ) ),
+        'error' => array( 'photos' => array( UPLOAD_ERR_NO_FILE, UPLOAD_ERR_OK ) ),
+        'size' => array( 'photos' => array( 0, 42 ) ),
+    )
+);
+eforms_test_assert( $ordinal_map['photos'][0]['input_ordinal'] === 0 && $ordinal_map['photos'][1]['input_ordinal'] === 1, 'Upload payload mapping should retain original item positions before no-file filtering.' );
+eforms_test_assert( UploadValue::input_ordinal( $ordinal_map['photos'][1], 0 ) === 1, 'The upload shape owner should expose a retained input ordinal.' );
+eforms_test_assert( UploadValue::input_ordinal( $minimal, 4 ) === 4, 'Upload values without transport metadata should use their deterministic list-position fallback.' );
+
+$single_payload = array(
+    'file' => array(
+        'name' => '../ Camera  Image.jpg',
+        'tmp_name' => '/tmp/camera-image',
+        'error' => UPLOAD_ERR_OK,
+        'size' => 42,
+        'type' => 'image/jpeg',
+    ),
+);
+$single_item = UploadValue::file_item_from_payload( $single_payload, 'file', 128, true );
+eforms_test_assert( UploadValue::is_normalized_item( $single_item ), 'Single-file payload mapping should produce the canonical normalized item shape.' );
+eforms_test_assert( $single_item['original_name_safe'] === 'Camera Image.jpg' && $single_item['type'] === 'image/jpeg', 'Single-file payload mapping should reuse canonical filename and optional type handling.' );
+eforms_test_assert( UploadValue::file_item_from_payload( $single_payload, 'missing' ) === null, 'Missing single-file parameters should fail closed.' );
+$single_payload['file']['name'] = array( 'nested.jpg' );
+eforms_test_assert( UploadValue::file_item_from_payload( $single_payload, 'file' ) === null, 'Nested single-file parameters should fail closed.' );
+$long_name = str_repeat( "\u{754C}", Anchors::get( 'MANAGED_DISPLAY_NAME_MAX_CHARS' ) ) . '.png';
+$safe_long_name = UploadValue::sanitize_display_name( $long_name );
+eforms_test_assert( substr( $safe_long_name, -4 ) === '.png', 'Display-name truncation should preserve the validated extension.' );
+eforms_test_assert( preg_match( '//u', $safe_long_name ) === 1, 'Display-name truncation should retain valid UTF-8.' );
+$safe_long_chars = function_exists( 'mb_strlen' ) ? mb_strlen( $safe_long_name, 'UTF-8' ) : count( preg_split( '//u', $safe_long_name, -1, PREG_SPLIT_NO_EMPTY ) );
+eforms_test_assert( $safe_long_chars === Anchors::get( 'MANAGED_DISPLAY_NAME_MAX_CHARS' ), 'Display-name truncation should honor the code-point bound.' );
+
 eforms_test_assert( UploadValue::name_for_validation( $normalized ) === 'safe.pdf', 'Validation name should prefer non-empty safe name.' );
 $empty_safe = $normalized;
 $empty_safe['original_name_safe'] = '';
@@ -58,3 +92,25 @@ eforms_test_assert( UploadValue::display_name( $no_names, '/tmp/fallback.bin' ) 
 eforms_test_assert( UploadValue::stored_path( $normalized ) === '/tmp/stored-file.pdf', 'Stored path should extract the stored string only.' );
 eforms_test_assert( UploadValue::stored_bytes( $normalized ) === 456, 'Stored bytes should extract numeric stored bytes.' );
 eforms_test_assert( UploadValue::stored_bytes( $minimal ) === null, 'Missing stored bytes should return null.' );
+eforms_test_assert( UploadValue::temporary_path( $minimal ) === '/tmp/php-upload', 'Temporary path should extract only a string upload source.' );
+eforms_test_assert( UploadValue::temporary_path( array( 'tmp_name' => array() ) ) === '', 'Malformed temporary paths should fail closed.' );
+
+$staged = UploadValue::staged_item(
+    array(
+        'upload_id' => 'upload-1',
+        'ordinal' => 2,
+        'display_name' => '../ Camera   Image.jpg',
+        'bytes' => 789,
+        'mime' => 'image/jpeg',
+        'width' => 1200,
+        'height' => 800,
+        'original_path' => '/private/original.jpg',
+        'preview_path' => '/private/preview.jpg',
+    )
+);
+eforms_test_assert( UploadValue::is_staged_item( $staged ) === true, 'A resolved staged upload should use the canonical public value shape.' );
+eforms_test_assert( $staged['original_name_safe'] === 'Camera Image.jpg', 'Staged display names should use the shared sanitizer.' );
+eforms_test_assert( ! isset( $staged['original_path'] ) && ! isset( $staged['preview_path'] ), 'Staged values must not expose private paths.' );
+eforms_test_assert( UploadValue::staged_items( $staged ) === array( $staged ), 'A singular staged value should normalize to one item.' );
+eforms_test_assert( UploadValue::staged_items( array( array( 'invalid' => true ), $staged ) ) === array( $staged ), 'Staged list shaping should retain only canonical staged items.' );
+eforms_test_assert( UploadValue::staged_item( array( 'upload_id' => 'incomplete' ) ) === array(), 'Incomplete staged manifest items should not resolve.' );

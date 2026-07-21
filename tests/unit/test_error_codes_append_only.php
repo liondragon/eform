@@ -122,3 +122,10 @@ eforms_test_assert(
     isset( $as_array['email'][0]['code'] ) && $as_array['email'][0]['code'] === 'EFORMS_ERR_SCHEMA_TYPE',
     'Field error entry should contain the error code.'
 );
+eforms_test_assert( Errors::first_code( $errors ) === 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'First-code selection should prefer global errors.' );
+
+$field_only = new Errors();
+$field_only->add_field( 'email', 'EFORMS_ERR_SCHEMA_TYPE' );
+eforms_test_assert( Errors::first_code( $field_only ) === 'EFORMS_ERR_SCHEMA_TYPE', 'First-code selection should fall back to the first field error.' );
+eforms_test_assert( Errors::first_code( $field_only->to_array() ) === 'EFORMS_ERR_SCHEMA_TYPE', 'First-code selection should accept the canonical exported shape.' );
+eforms_test_assert( Errors::first_code( null ) === 'EFORMS_ERR_SCHEMA_OBJECT', 'First-code selection should use the stable schema fallback for malformed input.' );

@@ -17,12 +17,14 @@ class GcCommand {
         $assoc_args = is_array( $assoc_args ) ? $assoc_args : array();
 
         $dry_run = self::flag( $assoc_args, 'dry-run' ) || self::flag( $assoc_args, 'dry_run' );
+        $reconcile_capacity = self::flag( $assoc_args, 'reconcile-capacity' ) || self::flag( $assoc_args, 'reconcile_capacity' );
         $limit = self::positive_int( $assoc_args, 'limit', GcRunner::DEFAULT_BATCH_LIMIT );
 
         $result = GcRunner::run(
             array(
                 'dry_run' => $dry_run,
                 'limit' => $limit,
+                'reconcile_capacity' => $reconcile_capacity,
             )
         );
 

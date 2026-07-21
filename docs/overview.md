@@ -26,6 +26,8 @@
   - `tokens/` — Minted token records (hidden and JS modes)
   - `ledger/{form_id}/` — One-time-use markers preventing duplicates
   - `uploads/` — Private file storage for submitted attachments
+  - `staged/` — Open photo batches awaiting a valid submission
+  - `submissions/` — Finalized photo galleries retained for review
   - `throttle/` — Rate-limit tracking (when enabled)
   - `logs/` — Structured JSONL logs (when enabled)
   - `declined/` — Declined-review JSONL files (when explicitly enabled)
@@ -37,6 +39,12 @@
 ## Template Structure
 
 Templates are JSON files in `/templates/forms/{form_id}.json`. Operators define form structure, validation, and email delivery here.
+
+Photo-heavy forms may set a `files` field to `upload_mode: "staged"`. The browser uploads JPEG, PNG, and WebP photos as they are selected; forms that explicitly add the `heic` accept token also allow HEIC and HEIF. It shows progress and per-photo retry/removal and submits only a private batch credential with the form. This mode requires JavaScript and enabled throttling; it never falls back to one large multipart form submission.
+
+Staged-mode support is implemented and exercised by the dedicated upload fixture. The production `virtual-estimate` template remains on its synchronous 2 MiB attachment flow until the target host passes staged readiness and release review is complete; activation then moves its photos to the time-limited private gallery flow.
+
+Staged mode also requires 64-bit PHP integers; PHP `fileinfo`; image-editor support for JPEG, PNG, and WebP decode plus JPEG encode; at least 768 MiB effective PHP memory; and at least 60 seconds execution time (or unlimited resource values). A GD-backed JPEG path additionally requires PHP EXIF support so camera orientation can be normalized; Imagick performs orientation itself. HEIC/HEIF opt-in additionally requires Imagick with its HEIC delegate. PHP and web-server request limits must exceed the largest staged item plus multipart overhead. GIF remains rejected. Managed originals/previews share a fixed 50 GiB ceiling while runtime reservations preserve a separate 10 GiB free-space reserve, so the backing filesystem needs at least 60 GiB plus space for unrelated content. Batch creation and upload attempts use the existing per-IP throttle; operators should tune its request rate for multi-photo forms and shared-IP traffic.
 
 ### Template Shape
 
@@ -162,7 +170,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 ### Operational
 
-- **WP-CLI GC:** `wp eforms gc` — Garbage-collects expired tokens, ledger markers, uploads, throttle state, and logs
+- **WP-CLI GC:** `wp eforms gc` — Garbage-collects expired tokens, ledger markers, uploads and galleries, throttle state, and logs
   - Operators MUST schedule via system cron (plugin does not use WP-Cron)
   - Supports `--dry-run` to preview candidates
   - Processes limited batches to prevent timeouts
@@ -172,7 +180,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 - **Health Check:** System runs FS health checks on render/post; failures surface as `EFORMS_ERR_STORAGE_UNAVAILABLE`
 - **Spam Smoke:** Settings -> eForms and `wp eforms spam-smoke` run the same focused local diagnostic for the shipped contact form. It confirms the main spam gates are reachable, including that `challenge.mode=auto` requires verification for a synthetic suspect request, and reports pass/fail without sending real email. It does not prove every real-world spam attempt will be blocked.
-- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, mail-format readiness, GC readiness, CLI bootstrap, config-source visibility, and challenge configuration readiness. It reports observable readiness only; it cannot prove system cron is configured.
+- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, mail-format readiness, GC readiness, CLI bootstrap, config-source visibility, and challenge configuration readiness. Staged templates additionally require enabled throttling and sufficient image-editor, memory, execution-time, managed-capacity, and free-disk readiness. It reports observable readiness only; it cannot prove system cron is configured.
 - **Uninstall:** `uninstall.php` respects `install.uninstall.purge_*` flags in config to optionally wipe data
 
 ### Admin Monitoring
@@ -196,7 +204,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 2. **Mint (Cacheable Only):** JS calls `/eforms/mint` → Origin/throttle check → Token generation → Injection
 3. **Submission (POST):** Security gate → Normalize → Validate → Coerce
 4. **Challenge (Conditional):** Verify Turnstile when required (auto + soft signals, or always_post)
-5. **Commit:** Ledger reservation → Upload moves → Email send → Log
+5. **Commit:** Staged batch freeze (when present) → Ledger reservation → Upload finalization → Email send → Log
 6. **Success:** PRG redirect to virtual result page → Cleanup
 
 ### Detailed Stage Breakdowns
@@ -231,7 +239,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
    - Throttle check: When enabled, enforce per-IP rate limit (429 on exceed)
    - Token generation: Mint `{token, instance_id, timestamp}` and persist record
 3. **Injection:** JS populates hidden fields
-4. **Caching:** Token cached in `sessionStorage` (reused on back/refresh until expiry)
+4. **Caching:** Ordinary JS forms cache the token in `sessionStorage` for back/refresh reuse until expiry. Staged JS forms mint a fresh token on a fresh render because their batch secret is document-scoped.
 5. **Submit unlock:** Submission enabled after successful injection
 
 **Operator sees:**
@@ -275,7 +283,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 1. **Render (POST only):** Challenge widget emitted only on POST rerenders (never initial GET)
 2. **Provider script load:** Turnstile API script enqueued (deferred, crossorigin=anonymous)
 3. **User interaction:** User completes CAPTCHA
-4. **Verification:** POST to Turnstile API with `challenge.secret_key` and response token (timeout clamped 1–5s)
+4. **Verification:** POST to Turnstile API with `challenge.secret_key`, the response token, and the stable submission UUID as the provider idempotency key (timeout clamped 1–5s)
 5. **Decision:** Success removes relevant labels from `soft_reasons`; failure rerenders with `EFORMS_ERR_CHALLENGE_FAILED`
 
 **Operator sees:**
@@ -290,8 +298,8 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 2. **Ledger reservation:** Mark submission token as used (prevents duplicate submissions)
    - If already marked: treat as duplicate submission
    - On storage errors: hard fail with system error message
-3. **Upload moves:** Move uploaded files to private storage with unique names
-4. **Email send:** Render email template, attach files (respecting size limits), send via WordPress
+3. **Upload finalization:** Move synchronous files or atomically claim and finalize a staged photo aggregate
+4. **Email send:** Render email template, attach eligible synchronous files, and replace staged photos with one time-limited private review link
 5. **Log:** Record event (when logging enabled)
 
 **Operator sees:**
@@ -378,16 +386,19 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 ### Client-Side Behavior (`forms.js`)
 
-The plugin includes `forms.js` for client-side enhancements. It is required for cacheable pages (JS-minted mode) and optional otherwise.
+The plugin includes `forms.js` for client-side enhancements. It is required for cacheable pages (JS-minted mode) and for any staged upload field; it is optional only for hidden-token forms without staged fields.
 
 **What it does:**
 - Sets `js_ok="1"` marker on DOMContentLoaded (used for `js_missing` soft signal)
 - For JS-minted forms: calls `/eforms/mint` to fetch token, injects into hidden fields, enables submit
-- Caches tokens in `sessionStorage` by `form_id` (reused on back/refresh until expiry)
+- Caches tokens in `sessionStorage` by `form_id` for ordinary JS forms (reused on back/refresh until expiry); staged JS forms clear that cache and remint on a fresh render
 - Disables submit button + shows spinner during submission
 - Focuses error summary, then first invalid field after server rerenders with errors
+- Runs staged photo queues with additive selection, upload progress, server-processing status, retry/removal, and authenticated restoration after validation errors; restoration blocks picker interaction and submission until a complete status snapshot is applied, while transient failures retain credentials for an explicit retry
 
-**Mixed-mode pages:** Each form handled independently. Hidden-mode forms work without JS; JS-minted forms require it.
+**Managed photo experience:** Desktop shows three compact photo cards per row and ordinary mobile shows two. Uploading shows determinate progress; 100% changes to Processing until the server confirms the item. Failed photos retain Retry and Remove. After the form token expires, upload and submission stop with a reload instruction. A signed email link opens a private read-only gallery for 30 days; forwarded links grant the same temporary bearer access.
+
+**Mixed-mode pages:** Each form is handled independently. Hidden-mode forms without staged fields work without JS; JS-minted forms and every staged field require it.
 
 **Mint failure:** Submission stays blocked; generic error appears in form's error summary area.
 
@@ -420,20 +431,22 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 ### Maintenance
 
 **Garbage Collection (manual; via WP-CLI `wp eforms gc`):**
-- **What:** Expired token records, ledger `.used` markers (conservative TTL + grace window), stale throttle files, old uploads (per retention), rotated logs
+- **What:** Expired token records, ledger `.used` markers (conservative TTL + grace window), stale throttle files, old synchronous uploads, expired staged batches and finalized galleries, rotated logs
 - **When:** Operators schedule via system cron (plugin does not use WP-Cron)
-- **How:** Batch processing (time-boxed or count-boxed) to prevent timeouts; locked via `gc.lock` to prevent overlaps
-- **Operator sees:** Dry-run lists candidates; normal mode emits counts/bytes at `info` level
+- **How:** Batch processing (time-boxed or count-boxed) to prevent timeouts; `gc.lock` prevents overlaps and persists the next family plus bounded per-family scan cursors between applying runs
+- **Operator sees:** Dry-run lists candidates and original/preview bytes by aggregate family without releasing capacity; normal mode emits deletion and released-capacity counts at `info` level
+- **Capacity repair:** `wp eforms gc --reconcile-capacity` performs the explicit full managed-file reconciliation scan; ordinary scheduled GC stays batch-bounded
+- **Scheduling boundary:** `wp eforms doctor` proves that a GC dry-run can access storage, but PHP cannot prove that external cron is configured or running
 
 **No rotation/cleanup tasks beyond GC scheduling:**
 - JSONL logs rotate automatically when file exceeds internal size cap
 - Fail2ban logs rotate identically
-- Uploads cleaned after email send (unless `uploads.retention_seconds > 0`)
+- Synchronous uploads clean after email send unless retention applies. Finalized staged galleries remain until their fixed review expiry, then GC removes the aggregate.
 
 ### Setup Behavior
 
 **Installation (observable phases):**
-1. **Activate plugin:** No form builder or template editor; forms remain inactive until templates exist
+1. **Activate plugin:** Reopen the private upload lifecycle after a reinstall. No form builder or template editor is created, and forms remain inactive until templates exist
 2. **Create templates:** Add JSON files to `/templates/forms/*.json`
 3. **Optional config:** Create drop-in at `${WP_CONTENT_DIR}/eforms.config.php` or use filter
 4. **Render forms:** Add shortcode or template tag to pages
@@ -454,11 +467,11 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 **Uninstall behavior:**
 - Controlled by uninstall configuration flags (e.g., `install.uninstall.purge_logs`)
 - Always removes the sparse admin settings option (`eforms_admin_config`)
-- When purge flags enabled, `uninstall.php` deletes runtime artifacts under `${uploads.dir}/eforms-private/`
-- **Operator sees:** Directories removed; no orphaned files
+- When upload purge is enabled, every active upload writer holds a shared lifecycle lease; uninstall proceeds only after taking that lease exclusively, then leaves its lock and barrier in place so queued requests cannot recreate deleted uploads
+- **Operator sees:** Customer files and recoverable runtime state removed; reinstall activation safely reopens managed storage
 
 **What persists after uninstall (when purge disabled):**
-- Token records, ledger markers, uploads, logs remain on disk
+- Token records, ledger markers, synchronous uploads, staged/finalized photo aggregates, and logs remain on disk
 - Templates remain in `/templates/`
 - Drop-in config remains in `wp-content/`
 

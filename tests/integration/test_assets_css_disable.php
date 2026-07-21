@@ -87,3 +87,35 @@ if ( is_file( $js_path ) ) {
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();
 FormRenderer::reset_for_tests();
+
+// Given assets.css_disable is a string...
+// When FormRenderer renders a cacheable form...
+// Then strict config parsing does not treat the string as disabling CSS.
+$GLOBALS['eforms_test_styles'] = array();
+$GLOBALS['eforms_test_scripts'] = array();
+
+eforms_test_set_filter( 'eforms_config', function ( $config ) {
+    if ( ! is_array( $config ) ) {
+        return $config;
+    }
+    if ( ! isset( $config['assets'] ) || ! is_array( $config['assets'] ) ) {
+        $config['assets'] = array();
+    }
+    $config['assets']['css_disable'] = 'yes';
+    return $config;
+} );
+
+$output = FormRenderer::render( 'quote-request', array( 'cacheable' => true ) );
+
+eforms_test_assert( is_string( $output ), 'Renderer should return HTML with string css_disable config.' );
+$css_path = dirname( __DIR__, 2 ) . '/assets/forms.css';
+if ( is_file( $css_path ) ) {
+    eforms_test_assert(
+        ! empty( $GLOBALS['eforms_test_styles'] ),
+        'Renderer should enqueue CSS when assets.css_disable is not a boolean true.'
+    );
+}
+
+eforms_test_set_filter( 'eforms_config', null );
+Config::reset_for_tests();
+FormRenderer::reset_for_tests();

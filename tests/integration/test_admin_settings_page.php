@@ -215,10 +215,10 @@ $reset();
 AdminSettingsStore::replace_overrides( array( 'logging' => array( 'mode' => 'jsonl' ) ) );
 $doctor_html = SettingsAdmin::render_html( $runtime_health_post() );
 eforms_test_assert( strpos( $doctor_html, 'eforms-runtime-health-results' ) !== false, 'Runtime health run should render a compact result table.' );
-foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'templates', 'mail-format', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
+foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'managed-upload-dirs', 'staged-image-processing', 'managed-capacity', 'staged-request-limits', 'staged-throttle', 'templates', 'mail-format', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
     eforms_test_assert( strpos( $doctor_html, '>' . $name . '<' ) !== false, 'Runtime health result table should include check: ' . $name );
 }
-eforms_test_assert( substr_count( $doctor_html, '>FAIL<' ) === 0, 'Default runtime health run should not render failing rows.' );
+eforms_test_assert( strpos( $doctor_html, '>staged-throttle</td><td>FAIL<' ) !== false, 'Default disabled throttle should render a staged production-readiness failure.' );
 eforms_test_assert( strpos( $doctor_html, '>WARN<' ) !== false, 'Admin runtime health run should show the non-CLI bootstrap warning.' );
 eforms_test_assert( strpos( $doctor_html, '>Expected<' ) !== false, 'Runtime health result table should show expected outcomes.' );
 eforms_test_assert( strpos( $doctor_html, $uploads_dir ) === false, 'Runtime health result table should not expose raw upload paths.' );

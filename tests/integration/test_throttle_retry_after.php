@@ -138,6 +138,74 @@ eforms_test_assert( isset( $submit_result['headers']['Retry-After'] ), 'POST thr
 eforms_test_assert( (int) $submit_result['headers']['Retry-After'] >= 1, 'POST Retry-After should be a positive integer.' );
 eforms_test_assert( $trace === array( 'security' ), 'POST throttle hard-fail should stop before normalize/validate/coerce.' );
 
+// Given throttle is enabled with a non-positive effective limit...
+// When checking throttle...
+// Then it returns disabled before touching storage.
+$disabled_uploads = eforms_test_tmp_root( 'eforms-throttle-disabled-no-storage' );
+$disabled_config = Config::get();
+$disabled_config['uploads']['dir'] = $disabled_uploads;
+$disabled_config['throttle']['enable'] = true;
+$disabled_config['throttle']['per_ip']['max_per_minute'] = 0;
+$disabled = Throttle::check( array( 'client_ip' => '203.0.113.40' ), $disabled_config, $disabled_uploads );
+eforms_test_assert( ! empty( $disabled['ok'] ) && $disabled['code'] === 'disabled', 'Effectively disabled throttle should return before storage checks.' );
+eforms_test_assert( ! file_exists( $disabled_uploads ), 'Effectively disabled throttle should not create private storage.' );
+
+// Given a symlinked throttle root...
+// When throttle accounting tries to create an IP shard...
+// Then it fails closed without writing through the symlink.
+if ( function_exists( 'symlink' ) ) {
+    $linked_uploads = eforms_test_setup_uploads( 'eforms-throttle-linked' );
+    $outside_dir = eforms_test_tmp_root( 'eforms-throttle-outside' );
+    mkdir( $outside_dir, 0700, true );
+    $private = PrivateDir::ensure( $linked_uploads );
+    eforms_test_assert( ! empty( $private['ok'] ), 'Linked-throttle fixture should create the private root.' );
+    symlink( $outside_dir, $private['path'] . '/' . Throttle::THROTTLE_DIR );
+    $linked_config = Config::get();
+    $linked_config['uploads']['dir'] = $linked_uploads;
+    $linked_config['throttle']['enable'] = true;
+    $linked_config['throttle']['per_ip']['max_per_minute'] = 1;
+    $linked_config['throttle']['per_ip']['cooldown_seconds'] = 120;
+
+    $linked = Throttle::check( array( 'client_ip' => '203.0.113.44' ), $linked_config, $linked_uploads );
+    eforms_test_assert( empty( $linked['ok'] ) && $linked['reason'] === 'throttle_shard_unavailable', 'Throttle should reject symlinked throttle directories.' );
+    eforms_test_assert( count( scandir( $outside_dir ) ) === 2, 'Throttle should not materialize tallies through a symlink.' );
+
+    eforms_test_remove_tree( $private['path'] );
+    eforms_test_remove_tree( $linked_uploads );
+    eforms_test_remove_tree( $outside_dir );
+}
+
+if ( function_exists( 'symlink' ) ) {
+    $linked_uploads = eforms_test_setup_uploads( 'eforms-throttle-linked-leaf' );
+    $outside_tally = eforms_test_write_file( $linked_uploads, 'outside-tally', 'outside' );
+    $outside_cooldown = eforms_test_write_file( $linked_uploads, 'outside-cooldown', 'outside' );
+    $private = PrivateDir::ensure( $linked_uploads );
+    eforms_test_assert( ! empty( $private['ok'] ), 'Linked-throttle-leaf fixture should create the private root.' );
+    $linked_config = Config::get();
+    $linked_config['uploads']['dir'] = $linked_uploads;
+    $linked_config['throttle']['enable'] = true;
+    $linked_config['throttle']['per_ip']['max_per_minute'] = 1;
+    $linked_config['throttle']['per_ip']['cooldown_seconds'] = 120;
+    $ip_hash = Helpers::throttle_key( array( 'client_ip' => '203.0.113.45' ), $linked_config );
+    $leaf_dir = PrivateDir::leased_relative_dir(
+        PrivateDir::acquire_write_lease( $linked_uploads ),
+        Throttle::THROTTLE_DIR . '/' . Helpers::h2( $ip_hash ),
+        true
+    );
+    eforms_test_assert( $leaf_dir !== '', 'Linked-throttle-leaf fixture should create the IP shard dir.' );
+    symlink( $outside_tally, $leaf_dir . '/' . $ip_hash . Throttle::TALLY_SUFFIX );
+    $linked_tally = Throttle::check( array( 'client_ip' => '203.0.113.45' ), $linked_config, $linked_uploads );
+    eforms_test_assert( empty( $linked_tally['ok'] ) && $linked_tally['reason'] === 'tally_open_failed', 'Throttle should reject symlinked tally files.' );
+    eforms_test_assert( file_get_contents( $outside_tally ) === 'outside', 'Throttle should not open or chmod through a symlinked tally.' );
+    unlink( $leaf_dir . '/' . $ip_hash . Throttle::TALLY_SUFFIX );
+    symlink( $outside_cooldown, $leaf_dir . '/' . $ip_hash . Throttle::COOLDOWN_SUFFIX );
+    $linked_cooldown = Throttle::check( array( 'client_ip' => '203.0.113.45' ), $linked_config, $linked_uploads );
+    eforms_test_assert( empty( $linked_cooldown['ok'] ) && $linked_cooldown['reason'] === 'cooldown_open_failed', 'Throttle should reject symlinked cooldown files.' );
+    eforms_test_assert( file_get_contents( $outside_cooldown ) === 'outside', 'Throttle should not read or chmod through a symlinked cooldown.' );
+
+    eforms_test_remove_tree( $linked_uploads );
+}
+
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();
 StorageHealth::reset_for_tests();

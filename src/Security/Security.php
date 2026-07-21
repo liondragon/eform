@@ -63,6 +63,43 @@ class Security
         return Throttle::check($request, $config, $uploads_dir);
     }
 
+    /**
+     * Validate an existing token binding after an endpoint has enforced its
+     * own required throttle ordering. This read-only path does not throttle.
+     */
+    public static function validate_managed_token($token, $instance_id, $form_id, $uploads_dir = null, $now = null)
+    {
+        if (!self::is_valid_token($token) || !self::is_valid_instance_id($instance_id) || !is_string($form_id) || $form_id === '') {
+            return self::failure('EFORMS_ERR_TOKEN', 'token_binding_invalid');
+        }
+
+        $config = Config::get();
+        $uploads_dir = self::resolve_uploads_dir($uploads_dir, $config);
+        if ($uploads_dir === '') {
+            return self::failure('EFORMS_ERR_STORAGE_UNAVAILABLE', 'uploads_dir_missing');
+        }
+
+        $record = self::read_token_record($uploads_dir, $token);
+        if (empty($record['ok'])) {
+            return self::failure('EFORMS_ERR_TOKEN', 'token_unavailable');
+        }
+        $validated = self::validate_token_record($record['record'], $form_id);
+        if (empty($validated['ok']) || !hash_equals($validated['instance_id'], $instance_id)) {
+            return self::failure('EFORMS_ERR_TOKEN', 'token_binding_invalid');
+        }
+
+        $current = is_numeric($now) ? (int) $now : time();
+        if ($validated['expires'] <= $current) {
+            return self::failure('EFORMS_ERR_TOKEN', 'token_expired');
+        }
+        return array(
+            'ok' => true,
+            'mode' => $validated['mode'],
+            'issued_at' => $validated['issued_at'],
+            'expires' => $validated['expires'],
+        );
+    }
+
     private static function mint_record($form_id, $mode, $uploads_dir, $request)
     {
         $config = Config::get();
@@ -102,10 +139,9 @@ class Security
             return self::failure('EFORMS_ERR_STORAGE_UNAVAILABLE', $reason);
         }
 
-        $private = PrivateDir::ensure($uploads_dir);
-        if (!is_array($private) || empty($private['ok'])) {
-            $reason = is_array($private) && isset($private['error']) ? $private['error'] : 'private_dir_unavailable';
-            return self::failure('EFORMS_ERR_STORAGE_UNAVAILABLE', $reason);
+        $lifecycle = PrivateDir::acquire_write_lease($uploads_dir);
+        if (!$lifecycle instanceof PrivateDirLease) {
+            return self::failure('EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable');
         }
 
         $token = self::generate_uuid_v4();
@@ -133,7 +169,7 @@ class Security
             'expires' => $expires,
         );
 
-        $write = self::write_token_record($private['path'], $token, $record);
+        $write = self::write_token_record($lifecycle, $token, $record);
         if (!$write['ok']) {
             return self::failure('EFORMS_ERR_STORAGE_UNAVAILABLE', $write['reason']);
         }
@@ -154,13 +190,16 @@ class Security
      * @param string $form_id Expected form identifier.
      * @param mixed $request Optional request object/array for header evaluation.
      * @param string|null $uploads_dir Optional override for tests.
-     * @return array { mode, submission_id, token_ok, hard_fail, require_challenge, soft_reasons, error_code }
+     * @param array $options Optional validation flags.
+     * @return array { mode, submission_id, token_ok, hard_fail, require_challenge, soft_reasons, error_code, token_expired? }
      */
-    public static function token_validate($post, $form_id, $request = null, $uploads_dir = null)
+    public static function token_validate($post, $form_id, $request = null, $uploads_dir = null, $options = array())
     {
         $config = Config::get();
         $post = is_array($post) ? $post : array();
         $form_id = is_string($form_id) ? $form_id : '';
+        $options = is_array($options) ? $options : array();
+        $allow_expired = !empty($options['allow_expired']);
 
         if ($form_id === '') {
             return self::hard_fail_result('EFORMS_ERR_TOKEN');
@@ -207,7 +246,8 @@ class Security
         }
 
         $now = time();
-        if ($validated['expires'] <= $now) {
+        $token_expired = $validated['expires'] <= $now;
+        if ($token_expired && !$allow_expired) {
             self::log_token_failure('token_expired', array('form_id' => $form_id));
             return self::hard_fail_result('EFORMS_ERR_TOKEN');
         }
@@ -253,6 +293,7 @@ class Security
             'challenge_response_present' => $challenge_response_present,
             'soft_reasons' => $soft_reasons,
             'error_code' => '',
+            'token_expired' => $token_expired,
         );
     }
 
@@ -290,20 +331,15 @@ class Security
         return $ttl;
     }
 
-    private static function write_token_record($private_dir, $token, $record)
+    private static function write_token_record($lifecycle, $token, $record)
     {
-        if (!is_string($private_dir) || $private_dir === '') {
+        if (!$lifecycle instanceof PrivateDirLease) {
             return self::write_failure('private_dir_missing');
         }
 
-        $tokens_dir = rtrim($private_dir, '/\\') . '/' . self::TOKENS_DIR;
-        if (!self::ensure_dir($tokens_dir, 0700)) {
-            return self::write_failure('tokens_dir_unavailable');
-        }
-
         $shard = Helpers::h2($token);
-        $shard_dir = $tokens_dir . '/' . $shard;
-        if (!self::ensure_dir($shard_dir, 0700)) {
+        $shard_dir = PrivateDir::leased_relative_dir($lifecycle, self::TOKENS_DIR . '/' . $shard, true);
+        if ($shard_dir === '') {
             return self::write_failure('shard_dir_unavailable');
         }
 
@@ -365,20 +401,6 @@ class Security
             'ok' => true,
             'path' => $final,
         );
-    }
-
-    private static function ensure_dir($path, $mode)
-    {
-        if (is_dir($path)) {
-            return self::ensure_permissions($path, $mode);
-        }
-
-        $created = @mkdir($path, $mode, true);
-        if (!$created && !is_dir($path)) {
-            return false;
-        }
-
-        return self::ensure_permissions($path, $mode);
     }
 
     private static function ensure_permissions($path, $mode)

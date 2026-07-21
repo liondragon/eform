@@ -80,6 +80,13 @@ $errors = TemplateValidator::validate_template_envelope( $template );
 $codes  = eforms_test_collect_codes( $errors );
 eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_KEY', $codes, true ), 'Reserved keys should emit EFORMS_ERR_SCHEMA_KEY.' );
 
+foreach ( array( FormProtocol::FIELD_UPLOAD_BATCHES, FormProtocol::UPLOAD_BATCH_ID, FormProtocol::UPLOAD_BATCH_SECRET ) as $reserved_upload_key ) {
+    $template = eforms_test_base_template();
+    $template['fields'][0]['key'] = $reserved_upload_key;
+    $codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $template ) );
+    eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_KEY', $codes, true ), 'Managed-upload protocol keys should remain reserved.' );
+}
+
 // Given an invalid slug...
 // When TemplateValidator runs...
 // Then it emits schema key errors.

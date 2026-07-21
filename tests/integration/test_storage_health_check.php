@@ -37,6 +37,58 @@ eforms_test_assert( is_string( $webconfig ) && strpos( $webconfig, '<deny users=
 
 eforms_test_remove_tree( $uploads_dir );
 
+// Given a retained purge barrier...
+// Then live storage health probes fail closed without mutating private storage.
+$uploads_dir = eforms_test_tmp_root( 'eforms-storage-health-purged' );
+mkdir( $uploads_dir, 0700, true );
+$private = PrivateDir::ensure( $uploads_dir );
+file_put_contents( $private['path'] . '/' . PrivateDir::PURGE_MARKER_FILENAME, "purged\n" );
+
+StorageHealth::reset_for_tests();
+Logging::reset_for_tests();
+
+$result = StorageHealth::check( $uploads_dir );
+eforms_test_assert( $result['ok'] === false && $result['reason'] === 'managed_purged', 'Storage health should respect the retained purge barrier.' );
+eforms_test_assert( count( glob( $private['path'] . '/.eforms-health-*' ) ) === 0, 'Storage health should not create probe directories behind a purge barrier.' );
+eforms_test_remove_tree( $uploads_dir );
+
+// Given symlinked private storage paths...
+// Then PrivateDir fails closed instead of hardening or materializing through them.
+if ( function_exists( 'symlink' ) ) {
+    $uploads_dir = eforms_test_tmp_root( 'eforms-storage-health-symlink' );
+    $target_dir = eforms_test_tmp_root( 'eforms-storage-health-symlink-target' );
+    mkdir( $uploads_dir, 0700, true );
+    mkdir( $target_dir, 0700, true );
+
+    symlink( $target_dir, $uploads_dir . '/eforms-private' );
+    $private = PrivateDir::ensure( $uploads_dir );
+    eforms_test_assert( empty( $private['ok'] ), 'PrivateDir should reject a symlinked private root.' );
+    eforms_test_assert( ! is_file( $target_dir . '/' . PrivateDir::INDEX_FILENAME ), 'PrivateDir should not write protection files through a symlinked private root.' );
+    @unlink( $uploads_dir . '/eforms-private' );
+
+    $private = PrivateDir::ensure( $uploads_dir );
+    eforms_test_assert( ! empty( $private['ok'] ), 'PrivateDir should recover after the symlinked private root is removed.' );
+    $file_target = $target_dir . '/linked-index.html';
+    file_put_contents( $file_target, 'external' );
+    @unlink( $private['path'] . '/' . PrivateDir::INDEX_FILENAME );
+    symlink( $file_target, $private['path'] . '/' . PrivateDir::INDEX_FILENAME );
+    $file_symlink_result = PrivateDir::ensure( $uploads_dir );
+    eforms_test_assert( empty( $file_symlink_result['ok'] ) && $file_symlink_result['error'] === 'private_dir_index_failed', 'PrivateDir should reject symlinked deny-rule files.' );
+    eforms_test_assert( file_get_contents( $file_target ) === 'external', 'PrivateDir should not chmod or rewrite a symlinked deny-rule target.' );
+    @unlink( $private['path'] . '/' . PrivateDir::INDEX_FILENAME );
+    PrivateDir::ensure( $uploads_dir );
+
+    symlink( $target_dir, $private['path'] . '/staged' );
+    eforms_test_assert( PrivateDir::protected_subdir( $uploads_dir, 'staged', true ) === '', 'PrivateDir should reject symlinked protected child dirs.' );
+    $lease = PrivateDir::acquire_write_lease( $uploads_dir );
+    eforms_test_assert( $lease instanceof PrivateDirLease, 'Symlink child-dir fixture should still acquire the private lifecycle lease.' );
+    eforms_test_assert( PrivateDir::leased_subdir( $lease, 'staged', true, true ) === '', 'Lease-scoped child dirs should also reject symlinks.' );
+    $lease->release();
+
+    eforms_test_remove_tree( $uploads_dir );
+    eforms_test_remove_tree( $target_dir );
+}
+
 // Given an uploads dir without write permissions...
 // When the storage health check runs...
 // Then it fails and logs only once per request.

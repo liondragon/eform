@@ -16,6 +16,20 @@ if ( ! function_exists( 'eforms_test_assert' ) ) {
     }
 }
 
+if ( ! function_exists( 'eforms_test_fixture_bytes' ) ) {
+    function eforms_test_fixture_bytes( $name ) {
+        if ( ! is_string( $name ) || $name === '' || basename( $name ) !== $name ) {
+            throw new RuntimeException( 'Invalid binary fixture name.' );
+        }
+        $encoded = file_get_contents( __DIR__ . '/fixtures/' . $name . '.b64' );
+        $bytes = is_string( $encoded ) ? base64_decode( trim( $encoded ), true ) : false;
+        if ( ! is_string( $bytes ) ) {
+            throw new RuntimeException( 'Unable to decode binary fixture: ' . $name );
+        }
+        return $bytes;
+    }
+}
+
 if ( ! function_exists( 'eforms_test_tmp_root' ) ) {
     function eforms_test_tmp_root( $prefix ) {
         $base = rtrim( sys_get_temp_dir(), '/\\' );
@@ -124,7 +138,16 @@ if ( ! function_exists( 'eforms_test_write_file' ) ) {
 }
 
 if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-    function eforms_test_remove_tree( $path ) {
+function eforms_test_managed_capacity_record( $uploads_dir ) {
+    $path = rtrim( $uploads_dir, '/\\' ) . '/eforms-private/managed-capacity.json';
+    if ( ! is_file( $path ) ) {
+        return array( 'total_bytes' => 0, 'reservations' => array() );
+    }
+    $record = json_decode( file_get_contents( $path ), true );
+    return is_array( $record ) ? $record : null;
+}
+
+function eforms_test_remove_tree( $path ) {
         if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
             return;
         }
@@ -427,11 +450,16 @@ if ( ! function_exists( 'submit_button' ) ) {
 if ( ! isset( $GLOBALS['eforms_test_hooks'] ) || ! is_array( $GLOBALS['eforms_test_hooks'] ) ) {
     $GLOBALS['eforms_test_hooks'] = array(
         'action'    => array(),
+        'activation' => array(),
         'shortcode' => array(),
         'filter'    => array(),
         'rewrite'   => array(),
         'rest'      => array(),
     );
+}
+
+if ( ! isset( $GLOBALS['eforms_test_rewrite_flushes'] ) ) {
+    $GLOBALS['eforms_test_rewrite_flushes'] = 0;
 }
 
 if ( ! isset( $GLOBALS['eforms_test_filters'] ) || ! is_array( $GLOBALS['eforms_test_filters'] ) ) {
@@ -519,6 +547,20 @@ if ( ! function_exists( 'add_filter' ) ) {
 if ( ! function_exists( 'add_rewrite_rule' ) ) {
     function add_rewrite_rule( $regex, $query, $after = 'bottom' ) {
         $GLOBALS['eforms_test_hooks']['rewrite'][] = array( $regex, $query, $after );
+        return true;
+    }
+}
+
+if ( ! function_exists( 'register_activation_hook' ) ) {
+    function register_activation_hook( $file, $callback ) {
+        $GLOBALS['eforms_test_hooks']['activation'][ $file ] = $callback;
+        return true;
+    }
+}
+
+if ( ! function_exists( 'flush_rewrite_rules' ) ) {
+    function flush_rewrite_rules( $hard = true ) {
+        $GLOBALS['eforms_test_rewrite_flushes']++;
         return true;
     }
 }

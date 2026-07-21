@@ -59,26 +59,28 @@ class StorageHealth {
             return self::fail_result( $uploads_dir, '', 'uploads_dir_unwritable' );
         }
 
-        $private = PrivateDir::ensure( $uploads_dir );
-        if ( ! $private['ok'] ) {
-            $reason = $private['error'];
-            if ( $reason === '' ) {
-                $reason = 'private_dir_unavailable';
+        $private_dir = PrivateDir::path( $uploads_dir );
+        $lease = PrivateDir::acquire_write_lease( $uploads_dir );
+        if ( ! $lease instanceof PrivateDirLease ) {
+            $reason = PrivateDir::is_purged( $uploads_dir ) ? 'managed_purged' : 'upload_lifecycle_unavailable';
+            return self::fail_result( $uploads_dir, $private_dir, $reason );
+        }
+
+        try {
+            $private_dir = $lease->private_dir();
+            if ( ! is_dir( $private_dir ) || ! is_writable( $private_dir ) ) {
+                return self::fail_result( $uploads_dir, $private_dir, 'private_dir_unwritable' );
             }
-            return self::fail_result( $uploads_dir, $private['path'], $reason );
-        }
 
-        $private_dir = $private['path'];
-        if ( ! is_dir( $private_dir ) || ! is_writable( $private_dir ) ) {
-            return self::fail_result( $uploads_dir, $private_dir, 'private_dir_unwritable' );
-        }
+            $probe_error = self::probe_private_dir( $private_dir );
+            if ( $probe_error !== null ) {
+                return self::fail_result( $uploads_dir, $private_dir, $probe_error );
+            }
 
-        $probe_error = self::probe_private_dir( $private_dir );
-        if ( $probe_error !== null ) {
-            return self::fail_result( $uploads_dir, $private_dir, $probe_error );
+            return self::ok_result( $uploads_dir, $private_dir );
+        } finally {
+            $lease->release();
         }
-
-        return self::ok_result( $uploads_dir, $private_dir );
     }
 
     /**

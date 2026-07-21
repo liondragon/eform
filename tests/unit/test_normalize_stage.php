@@ -71,22 +71,22 @@ $post = array(
 $files = array(
     'name' => array(
         'upload' => "C:\\temp\\my\r\n file..txt",
-        'uploads' => array( 'a.txt', '' ),
+        'uploads' => array( '', 'a.txt' ),
         'upload_empty' => '',
     ),
     'tmp_name' => array(
         'upload' => '/tmp/php123',
-        'uploads' => array( '/tmp/phpa', '' ),
+        'uploads' => array( '', '/tmp/phpa' ),
         'upload_empty' => '',
     ),
     'error' => array(
         'upload' => 0,
-        'uploads' => array( 0, UPLOAD_ERR_NO_FILE ),
+        'uploads' => array( UPLOAD_ERR_NO_FILE, 0 ),
         'upload_empty' => UPLOAD_ERR_NO_FILE,
     ),
     'size' => array(
         'upload' => 12,
-        'uploads' => array( 3, 0 ),
+        'uploads' => array( 0, 3 ),
         'upload_empty' => 0,
     ),
 );
@@ -148,6 +148,7 @@ eforms_test_assert(
             'size' => 3,
             'error' => 0,
             'original_name_safe' => 'a.txt',
+            'input_ordinal' => 1,
         ),
     ),
     'Upload arrays should drop UPLOAD_ERR_NO_FILE entries.'

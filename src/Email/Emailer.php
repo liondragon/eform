@@ -15,6 +15,7 @@ require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Privacy/ClientIp.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Spam/ContentFilter.php';
+require_once __DIR__ . '/../Uploads/ReviewController.php';
 require_once __DIR__ . '/../Uploads/UploadValue.php';
 require_once __DIR__ . '/../Validation/FieldTypes/TextLike.php';
 require_once __DIR__ . '/Templates.php';
@@ -36,9 +37,10 @@ class Emailer {
      * @param array $security Security result with submission_id/mode.
      * @param mixed $request Optional request object/array.
      * @param array $config Frozen config snapshot.
+     * @param callable|null $before_transport Optional final gate invoked after message preparation and immediately before wp_mail().
      * @return array { ok, reason?, transport?, error_class?, error_message?, subject?, body?, headers?, to? }
      */
-    public static function send( $context, $values, $security, $request, $config ) {
+    public static function send( $context, $values, $security, $request, $config, $before_transport = null ) {
         $config = is_array( $config ) ? $config : Config::get();
         $email = is_array( $context ) && isset( $context['email'] ) && is_array( $context['email'] )
             ? $context['email']
@@ -70,6 +72,10 @@ class Emailer {
         $meta = self::build_meta( $form_id, $submission_id, $security, $request, $config );
         $values = is_array( $values ) ? $values : array();
         $canonical = self::build_email_values( $context, $values, $display_format );
+        $galleries = self::build_staged_galleries( $context, $values, $submission_id, $config );
+        if ( empty( $galleries['ok'] ) ) {
+            return self::failure( 'staged_gallery_unavailable' );
+        }
         $include_fields = self::include_fields_list( $email, $config );
 
         $tokens = self::token_map( $canonical['fields'], $meta );
@@ -93,7 +99,7 @@ class Emailer {
         $template_data = array(
             'canonical' => $canonical['fields'],
             'include_fields' => $include_fields,
-            'display_rows' => self::display_rows( $context, $canonical['fields'], $include_fields, $meta ),
+            'display_rows' => self::display_rows( $context, $canonical['fields'], $include_fields, $meta, $galleries['fields'] ),
             'meta' => $meta,
             'uploads' => $canonical['uploads'],
         );
@@ -138,6 +144,19 @@ class Emailer {
             'submission_id' => is_string( $submission_id ) ? $submission_id : '',
             'request' => $request,
         );
+
+        if ( function_exists( 'wp_mail' ) && is_callable( $before_transport ) ) {
+            try {
+                $transport_ready = call_user_func( $before_transport );
+            } catch ( Throwable $exception ) {
+                self::remove_alt_body_hook( $alt_body_hook );
+                throw $exception;
+            }
+            if ( $transport_ready === false ) {
+                self::remove_alt_body_hook( $alt_body_hook );
+                return self::failure( 'before_transport_failed' );
+            }
+        }
 
         $ok = false;
         $error_class = '';
@@ -289,6 +308,13 @@ class Emailer {
             $value = array_key_exists( $key, $values ) ? $values[ $key ] : null;
 
             if ( $type === 'file' || $type === 'files' ) {
+                $staged_items = UploadValue::staged_items( $value );
+                if ( ! empty( $staged_items ) ) {
+                    $count = count( $staged_items );
+                    $fields[ $key ] = $count . ( $count === 1 ? ' photo' : ' photos' );
+                    $uploads[ $key ] = array();
+                    continue;
+                }
                 $names = self::upload_names( $value );
                 $fields[ $key ] = implode( ', ', $names );
                 $uploads[ $key ] = self::upload_entries( $names );
@@ -353,6 +379,41 @@ class Emailer {
         return $entries;
     }
 
+    private static function build_staged_galleries( $context, $values, $submission_id, $config ) {
+        $field = is_array( $context ) && isset( $context['staged_field'] ) && is_array( $context['staged_field'] )
+            ? $context['staged_field']
+            : null;
+        $key = is_array( $field ) && isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
+        $items = $key !== '' && array_key_exists( $key, $values ) ? UploadValue::staged_items( $values[ $key ] ) : array();
+        if ( empty( $items ) ) {
+            return array( 'ok' => true, 'fields' => array() );
+        }
+
+        $expected_ids = array();
+        foreach ( $items as $item ) {
+            $expected_ids[] = $item['upload_id'];
+        }
+        $reference = ReviewController::email_gallery_reference(
+            $submission_id,
+            $expected_ids,
+            self::uploads_dir( $config )
+        );
+        if ( empty( $reference['ok'] ) ) {
+            return array( 'ok' => false, 'fields' => array() );
+        }
+        return array(
+            'ok' => true,
+            'fields' => array(
+                $key => array(
+                    'count' => $reference['count'],
+                    'url' => $reference['url'],
+                    'expires_at' => $reference['expires_at'],
+                    'expires_label' => $reference['expires_label'],
+                ),
+            ),
+        );
+    }
+
     private static function include_fields_list( $email, $config ) {
         if ( ! is_array( $email ) || ! isset( $email['include_fields'] ) || ! is_array( $email['include_fields'] ) ) {
             return array();
@@ -372,7 +433,7 @@ class Emailer {
         return $out;
     }
 
-    private static function display_rows( $context, $canonical, $include_fields, $meta ) {
+    private static function display_rows( $context, $canonical, $include_fields, $meta, $galleries = array() ) {
         $rows = array();
         $labels = self::field_labels( $context );
 
@@ -386,6 +447,21 @@ class Emailer {
                 $value = implode( ', ', $names );
             } else {
                 $value = isset( $canonical[ $key ] ) ? $canonical[ $key ] : ( isset( $meta[ $key ] ) ? $meta[ $key ] : '' );
+            }
+
+            if ( isset( $galleries[ $key ] ) && is_array( $galleries[ $key ] ) ) {
+                $gallery = $galleries[ $key ];
+                $count = isset( $gallery['count'] ) ? (int) $gallery['count'] : 0;
+                $rows[] = array(
+                    'key' => $key,
+                    'label' => self::display_label( $key, $labels ),
+                    'value' => $count . ( $count === 1 ? ' photo' : ' photos' ),
+                    'type' => 'gallery',
+                    'url' => isset( $gallery['url'] ) ? (string) $gallery['url'] : '',
+                    'expires_at' => isset( $gallery['expires_at'] ) ? (int) $gallery['expires_at'] : 0,
+                    'expires_label' => isset( $gallery['expires_label'] ) ? (string) $gallery['expires_label'] : '',
+                );
+                continue;
             }
 
             $rows[] = array(
@@ -523,6 +599,10 @@ class Emailer {
                 continue;
             }
 
+            if ( isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged' ) {
+                continue;
+            }
+
             if ( empty( $field['email_attach'] ) ) {
                 continue;
             }
@@ -570,7 +650,7 @@ class Emailer {
 
     private static function upload_stored_path( $item ) {
         $path = UploadValue::stored_path( $item );
-        if ( $path === '' || ! is_file( $path ) ) {
+        if ( $path === '' || is_link( $path ) || ! is_file( $path ) ) {
             return '';
         }
 
@@ -618,6 +698,11 @@ class Emailer {
         }
 
         return $limit;
+    }
+
+    private static function uploads_dir( $config ) {
+        $value = Config::value( $config, array( 'uploads', 'dir' ), '' );
+        return is_string( $value ) && $value !== '' ? rtrim( $value, '/\\' ) : '';
     }
 
     private static function append_attachment_overflow_summary( $body, $overflow_names, $is_html ) {

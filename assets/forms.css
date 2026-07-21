@@ -18,3 +18,59 @@
 .eforms-row select:focus,
 .eforms-row textarea:focus,
 .eforms-row button:focus { outline:1px solid #b8b8b8 !important; outline-offset:-1px; }
+
+.eforms-review-summary { margin:0 0 1rem; }
+.eforms-review-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; }
+.eforms-review-item { margin:0; min-width:0; border:1px solid #ddd; border-radius:.25rem; overflow:hidden; background:#fff; }
+.eforms-review-preview { display:block; width:100%; height:auto; max-height:28rem; object-fit:contain; background:#f5f5f5; }
+.eforms-review-caption { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem 1rem; padding:.75rem; }
+.eforms-review-name { min-width:0; overflow-wrap:anywhere; }
+.eforms-review-actions { display:flex; flex-wrap:wrap; gap:.75rem; }
+@media (max-width:48rem) { .eforms-review-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:30rem) { .eforms-review-grid { grid-template-columns:1fr; } }
+
+.eforms-upload {
+  --eforms-upload-accent:#1769aa;
+  --eforms-upload-track:#d8dee5;
+  --eforms-upload-border:#c7ced6;
+  --eforms-upload-card-bg:#fff;
+  --eforms-upload-error:#b42318;
+  margin:.75rem 0 1rem;
+  padding:.75rem;
+  border:1px dashed var(--eforms-upload-border);
+  border-radius:.35rem;
+}
+.eforms-upload[data-eforms-upload-dragover="1"] { border-style:solid; border-color:var(--eforms-upload-accent); }
+.eforms-upload-picker-enhanced,
+[data-eforms-upload-picker] { position:absolute !important; width:1px !important; height:1px !important; padding:0 !important; margin:-1px !important; overflow:hidden !important; clip:rect(0,0,0,0) !important; white-space:nowrap !important; border:0 !important; }
+.eforms-upload-controls { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; }
+.eforms-upload-choose,
+.eforms-upload-clear { min-height:44px; }
+.eforms-upload-clear { margin-left:auto; }
+.eforms-upload-count { margin:.5rem 0 0; }
+.eforms-upload-count:empty { display:none; }
+.eforms-upload-field-status { margin:.5rem 0 0; color:var(--eforms-upload-error); }
+.eforms-upload-field-status:empty { display:none; }
+.eforms-upload-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin-top:.75rem; }
+.eforms-upload-item { min-width:0; border:1px solid var(--eforms-upload-border); border-radius:.3rem; overflow:hidden; background:var(--eforms-upload-card-bg); }
+.eforms-upload-item:focus { outline:none; background:#f4f6f8; }
+.eforms-upload-media { position:relative; aspect-ratio:4/3; background:#eef1f4; }
+.eforms-upload-preview { display:block; width:100%; height:100%; object-fit:cover; }
+.eforms-upload-item[data-eforms-upload-state="uploading"] .eforms-upload-media::after,
+.eforms-upload-item[data-eforms-upload-state="processing"] .eforms-upload-media::after { content:""; position:absolute; inset:0; background:rgba(0,0,0,.38); }
+.eforms-upload-progress { position:absolute; z-index:1; inset:50% auto auto 50%; display:grid; place-items:center; width:54px; height:54px; transform:translate(-50%,-50%); border-radius:50%; box-shadow:0 1px 5px rgba(0,0,0,.25); color:#fff; font-size:.82rem; font-weight:700; }
+.eforms-upload-progress::after { content:""; position:absolute; z-index:-1; inset:7px; border-radius:50%; background:rgba(0,0,0,.78); }
+.eforms-upload-details { display:flex; flex-direction:column; gap:.2rem; padding:.6rem .65rem .25rem; }
+.eforms-upload-name { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.eforms-upload-status { min-height:1.4em; font-size:.9em; }
+.eforms-upload-item[data-eforms-upload-state="failed"] .eforms-upload-status { color:var(--eforms-upload-error); }
+.eforms-upload-actions { display:flex; justify-content:flex-end; gap:.4rem; padding:.25rem .4rem .4rem; }
+.eforms-upload-actions button { min-width:44px; min-height:44px; }
+.eforms-upload[data-eforms-upload-expired="1"],
+.eforms-upload[data-eforms-upload-unavailable="1"],
+.eforms-upload[data-eforms-upload-restoring="1"] { border-style:solid; }
+@media (max-width:48rem) {
+  .eforms-upload-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .eforms-upload-drop-hint { display:none; }
+}
+@media (max-width:20rem) { .eforms-upload-grid { grid-template-columns:1fr; } }

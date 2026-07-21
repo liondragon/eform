@@ -235,6 +235,7 @@ class DeclinedReviewLog {
             'deleted_bytes' => 0,
             'failed' => 0,
             'reached_limit' => false,
+            'cursor' => array(),
         );
     }
 

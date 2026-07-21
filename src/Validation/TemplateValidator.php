@@ -75,6 +75,8 @@ class TemplateValidator {
         'accept',
         'max_file_bytes',
         'max_files',
+        'max_total_bytes',
+        'upload_mode',
         'email_attach',
     );
 
@@ -293,6 +295,7 @@ class TemplateValidator {
             return;
         }
 
+        $staged_fields = 0;
         foreach ( $fields as $field ) {
             if ( ! is_array( $field ) ) {
                 $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
@@ -320,6 +323,12 @@ class TemplateValidator {
 
             self::validate_bool( $field, 'required', $errors, false );
             self::validate_bool( $field, 'email_attach', $errors, false );
+            if ( array_key_exists( 'upload_mode', $field ) ) {
+                self::validate_enum( $field, 'upload_mode', array( 'synchronous', 'staged' ), $errors );
+                if ( $field['upload_mode'] === 'staged' ) {
+                    $staged_fields++;
+                }
+            }
 
             self::validate_int( $field, 'size', $errors, false );
             self::validate_int( $field, 'max_length', $errors, false );
@@ -344,7 +353,8 @@ class TemplateValidator {
                 $accept_defined = array_key_exists( 'accept', $field );
                 $accept_value = $accept_defined ? $field['accept'] : null;
 
-                $tokens = UploadPolicy::resolve_tokens( $accept_value, ! $accept_defined );
+                $upload_mode = isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged' ? 'staged' : 'synchronous';
+                $tokens = UploadPolicy::resolve_tokens( $accept_value, ! $accept_defined, $upload_mode );
                 if ( empty( $tokens ) ) {
                     $errors->add_global( 'EFORMS_ERR_ACCEPT_EMPTY' );
                 }
@@ -356,6 +366,74 @@ class TemplateValidator {
 
             self::validate_int( $field, 'max_file_bytes', $errors, false );
             self::validate_int( $field, 'max_files', $errors, false );
+            self::validate_int( $field, 'max_total_bytes', $errors, false );
+            self::validate_upload_field_contract( $field, $errors );
+        }
+
+        if ( $staged_fields > 1 ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+        }
+    }
+
+    private static function validate_upload_field_contract( $field, $errors ) {
+        $type = isset( $field['type'] ) && is_string( $field['type'] ) ? $field['type'] : '';
+        $is_upload = $type === 'file' || $type === 'files';
+        $mode = isset( $field['upload_mode'] ) && is_string( $field['upload_mode'] ) ? $field['upload_mode'] : 'synchronous';
+
+        if ( ! $is_upload ) {
+            if ( array_key_exists( 'upload_mode', $field ) || array_key_exists( 'max_total_bytes', $field ) ) {
+                $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+            }
+            return;
+        }
+
+        if ( $mode !== 'staged' ) {
+            if ( array_key_exists( 'max_total_bytes', $field ) ) {
+                $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+            }
+            return;
+        }
+
+        if ( $type !== 'files' ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+        }
+
+        foreach ( array( 'accept', 'max_file_bytes', 'max_files', 'max_total_bytes' ) as $required ) {
+            if ( ! array_key_exists( $required, $field ) ) {
+                $errors->add_global( 'EFORMS_ERR_SCHEMA_REQUIRED' );
+            }
+        }
+
+        $tokens = isset( $field['accept'] ) && is_array( $field['accept'] )
+            ? UploadPolicy::normalize_accept_tokens( $field['accept'] )
+            : array();
+        if ( ! UploadPolicy::staged_tokens_allowed( $tokens ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_ENUM' );
+        }
+
+        if ( isset( $field['email_attach'] ) && $field['email_attach'] === true ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+        }
+
+        $max_file = isset( $field['max_file_bytes'] ) && is_int( $field['max_file_bytes'] ) ? $field['max_file_bytes'] : 0;
+        $max_files = isset( $field['max_files'] ) && is_int( $field['max_files'] ) ? $field['max_files'] : 0;
+        $max_total = isset( $field['max_total_bytes'] ) && is_int( $field['max_total_bytes'] ) ? $field['max_total_bytes'] : 0;
+        if ( $max_file <= 0 || $max_files <= 0 || $max_total <= 0 ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+            return;
+        }
+
+        if ( $max_total < $max_file ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+        }
+
+        if ( $max_file > intdiv( PHP_INT_MAX, $max_files ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
+            return;
+        }
+
+        if ( $max_total > $max_file * $max_files ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
         }
     }
 
@@ -368,6 +446,7 @@ class TemplateValidator {
         }
 
         $seen = array();
+        $staged_fields = array();
         $reserved = FormProtocol::reserved_field_key_map();
 
         foreach ( $template['fields'] as $field ) {
@@ -398,6 +477,10 @@ class TemplateValidator {
                 $seen[ $key ] = true;
             }
 
+            if ( isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged' ) {
+                $staged_fields[ $key ] = true;
+            }
+
             if ( isset( $field['type'] ) ) {
                 try {
                     $descriptor = FieldTypeRegistry::resolve( $field['type'] );
@@ -410,7 +493,7 @@ class TemplateValidator {
             }
         }
 
-        self::validate_include_fields( $template, $seen, $errors );
+        self::validate_include_fields( $template, $seen, $staged_fields, $errors );
     }
 
     /**
@@ -441,6 +524,9 @@ class TemplateValidator {
             }
 
             if ( isset( $field['type'] ) && ( $field['type'] === 'file' || $field['type'] === 'files' ) ) {
+                $field['upload_mode'] = isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged'
+                    ? 'staged'
+                    : 'synchronous';
                 if ( isset( $field['accept'] ) && is_array( $field['accept'] ) ) {
                     // Educational note: normalize tokens once so validators/renderers share the same list.
                     $field['accept'] = UploadPolicy::normalize_accept_tokens( $field['accept'] );
@@ -589,7 +675,7 @@ class TemplateValidator {
         }
     }
 
-    private static function validate_include_fields( $template, $field_keys, $errors ) {
+    private static function validate_include_fields( $template, $field_keys, $staged_fields, $errors ) {
         if ( ! is_array( $template ) || ! isset( $template['email'] ) || ! is_array( $template['email'] ) ) {
             return;
         }
@@ -607,14 +693,23 @@ class TemplateValidator {
             $allowed[ $meta_key ] = true;
         }
 
+        $included = array();
         foreach ( $template['email']['include_fields'] as $entry ) {
             if ( ! is_string( $entry ) ) {
                 continue;
             }
 
+            $included[ $entry ] = true;
+
             if ( ! isset( $allowed[ $entry ] ) ) {
                 $errors->add_global( 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY' );
                 break;
+            }
+        }
+
+        foreach ( $staged_fields as $key => $unused ) {
+            if ( ! isset( $included[ $key ] ) ) {
+                $errors->add_global( 'EFORMS_ERR_SCHEMA_REQUIRED' );
             }
         }
     }

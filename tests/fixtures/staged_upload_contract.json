@@ -1,0 +1,53 @@
+{
+  "batch_id": {
+    "domain": "eforms-upload-batch-id",
+    "version": "1",
+    "raw_token": "token-fixture-01",
+    "token_digest": "359d975ce972b2ec1bfcd2807364528b00c75b70f966bb8431a62a91d9f06eb4",
+    "form_id": "virtual-quote",
+    "instance_id": "instance-fixture-1",
+    "field_key": "project_photos",
+    "policy_json": "{\"accept\":[\"image\"],\"max_file_bytes\":20971520,\"max_files\":24,\"max_total_bytes\":314572800,\"upload_mode\":\"staged\"}",
+    "policy_fingerprint": "ccbc2b0a90b861608c23efd497b782355ef0bd305cc60427e77039088cf72532",
+    "expected": "5e1cTCrFgHMC_zzjhfT9FgKTLbR6HxAo2oWCvsrYu9U"
+  },
+  "credentials": {
+    "header": "X-EForms-Batch-Secret",
+    "hidden_root": "eforms_upload_batches",
+    "batch_id": "batch_id",
+    "batch_secret": "batch_secret"
+  },
+  "preview_attempts": [
+    { "edge": 1600, "quality": 82 },
+    { "edge": 1440, "quality": 78 },
+    { "edge": 1280, "quality": 74 },
+    { "edge": 1120, "quality": 70 },
+    { "edge": 960, "quality": 66 }
+  ],
+  "production_readiness": {
+    "throttle_enable": true
+  },
+  "anchors": {
+    "MANAGED_UPLOAD_MAX_BYTES": 53687091200,
+    "MANAGED_UPLOAD_MIN_FREE_BYTES": 10737418240,
+    "MANAGED_STAGED_DELETE_GRACE_SECONDS": 86400,
+    "MANAGED_FINALIZED_TTL_SECONDS": 2592000,
+    "MANAGED_BATCH_ID_CHARS": 43,
+    "MANAGED_ID_MAX_CHARS": 128,
+    "MANAGED_BATCH_SECRET_BYTES": 32,
+    "MANAGED_UPLOAD_ID_BYTES": 16,
+    "MANAGED_UPLOAD_CONCURRENCY": 3,
+    "MANAGED_DISPLAY_NAME_MAX_CHARS": 128,
+    "STAGED_IMAGE_MAX_PIXELS": 60000000,
+    "STAGED_IMAGE_MAX_EDGE": 12000,
+    "STAGED_MULTIPART_OVERHEAD_BYTES": 1048576,
+    "STAGED_PREVIEW_MAX_EDGE": 1600,
+    "STAGED_PREVIEW_MAX_BYTES": 2097152,
+    "STAGED_PREVIEW_JPEG_QUALITY_INITIAL": 82,
+    "STAGED_PREVIEW_JPEG_QUALITY_STEP": 4,
+    "STAGED_PREVIEW_EDGE_STEP": 160,
+    "STAGED_PREVIEW_MAX_ATTEMPTS": 5,
+    "STAGED_IMAGE_MIN_MEMORY_BYTES": 805306368,
+    "STAGED_IMAGE_MIN_EXECUTION_SECONDS": 60
+  }
+}

@@ -73,3 +73,28 @@ eforms_test_assert( isset( $result['code'] ) && $result['code'] === 'EFORMS_ERR_
 
 chmod( $uploads_dir, 0700 );
 eforms_test_remove_tree( $uploads_dir );
+
+// Given a symlinked token storage root...
+// When minting a hidden-mode record...
+// Then minting fails closed without writing through the symlink.
+if ( function_exists( 'symlink' ) ) {
+    $uploads_dir = eforms_test_tmp_root( 'eforms-mint-hidden-linked' );
+    $outside_dir = eforms_test_tmp_root( 'eforms-mint-hidden-outside' );
+    mkdir( $uploads_dir, 0700, true );
+    mkdir( $outside_dir, 0700, true );
+    $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
+
+    $private = PrivateDir::ensure( $uploads_dir );
+    eforms_test_assert( ! empty( $private['ok'] ), 'Linked-token fixture should create the private root.' );
+    symlink( $outside_dir, $private['path'] . '/' . Security::TOKENS_DIR );
+
+    Config::reset_for_tests();
+    $result = Security::mint_hidden_record( 'contact' );
+    eforms_test_assert( is_array( $result ) && $result['ok'] === false, 'Mint should fail for symlinked token storage.' );
+    eforms_test_assert( $result['reason'] === 'shard_dir_unavailable', 'Mint should surface token shard storage failure.' );
+    eforms_test_assert( count( scandir( $outside_dir ) ) === 2, 'Mint should not materialize token shards through a symlink.' );
+
+    eforms_test_remove_tree( $private['path'] );
+    eforms_test_remove_tree( $uploads_dir );
+    eforms_test_remove_tree( $outside_dir );
+}

@@ -14,6 +14,7 @@ require_once __DIR__ . '/../../src/Security/StorageHealth.php';
 require_once __DIR__ . '/../../src/Submission/SubmitHandler.php';
 require_once __DIR__ . '/../../src/Uploads/PrivateDir.php';
 require_once __DIR__ . '/../../src/Uploads/UploadPolicy.php';
+require_once __DIR__ . '/../../src/Uploads/UploadStore.php';
 
 if ( ! function_exists( 'eforms_upload_move_test_write_template' ) ) {
     function eforms_upload_move_test_write_template( $dir, $form_id ) {
@@ -87,6 +88,16 @@ $_SERVER['SERVER_PORT'] = 443;
 eforms_test_reset_mail();
 $png_bytes = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2Z6G0AAAAASUVORK5CYII=' );
 $form_id = 'demo';
+
+$no_file_uploads_dir = eforms_test_setup_uploads( 'eforms-upload-move-no-file' );
+$no_file_move = UploadStore::move_after_ledger(
+    array( 'descriptors' => array( array( 'key' => 'name', 'type' => 'text' ) ) ),
+    array( 'name' => 'Ada' ),
+    '12345678-1234-4234-9234-1234567890ac',
+    $no_file_uploads_dir
+);
+eforms_test_assert( ! empty( $no_file_move['ok'] ) && ! is_dir( $no_file_uploads_dir . '/eforms-private/uploads' ), 'A submission without synchronous file items should not create the synchronous upload tree.' );
+eforms_test_remove_tree( $no_file_uploads_dir );
 
 // Scenario 1: retention_seconds=0 removes stored uploads after successful send.
 $uploads_dir = eforms_test_tmp_root( 'eforms-upload-move-retain0-uploads' );
@@ -181,6 +192,46 @@ $result = SubmitHandler::handle( $form_id, $request, array( 'template_base_dir' 
 eforms_test_assert( $result['ok'] === true, 'Submission should succeed when retention keeps uploads.' );
 eforms_test_assert( isset( $result['commit']['stored'][0]['path'] ), 'Commit metadata should include stored path.' );
 eforms_test_assert( file_exists( $result['commit']['stored'][0]['path'] ), 'Stored upload should remain when retention_seconds>0.' );
+$retained_path = $result['commit']['stored'][0]['path'];
+$retention_config = array( 'uploads' => array( 'dir' => $uploads_dir, 'retention_seconds' => 0 ) );
+if ( function_exists( 'pcntl_fork' ) && function_exists( 'pcntl_waitpid' ) ) {
+    $signal_root = eforms_test_tmp_root( 'eforms-retention-lease-signals' );
+    mkdir( $signal_root, 0700, true );
+    $ready_path = $signal_root . '/ready';
+    $go_path = $signal_root . '/go';
+    $result_path = $signal_root . '/result.json';
+    $pid = pcntl_fork();
+    eforms_test_assert( $pid >= 0, 'The retention contention proof should fork one cleanup process.' );
+    if ( $pid === 0 ) {
+        file_put_contents( $ready_path, 'ready' );
+        $deadline = microtime( true ) + 5;
+        while ( ! is_file( $go_path ) && microtime( true ) < $deadline ) {
+            usleep( 10000 );
+        }
+        $completed = UploadStore::apply_retention( $result['commit']['stored'], $retention_config );
+        file_put_contents( $result_path, json_encode( array( 'completed' => $completed ) ) );
+        exit( 0 );
+    }
+
+    $deadline = microtime( true ) + 5;
+    while ( ! is_file( $ready_path ) && microtime( true ) < $deadline ) {
+        usleep( 10000 );
+    }
+    eforms_test_assert( is_file( $ready_path ), 'The retention cleanup process should become ready.' );
+    $purge_lease = PrivateDir::acquire_purge_lease( $uploads_dir );
+    eforms_test_assert( $purge_lease instanceof PrivateDirLease, 'The retention contention fixture should acquire the exclusive purge lease.' );
+    file_put_contents( $go_path, 'go' );
+    usleep( 200000 );
+    eforms_test_assert( is_file( $retained_path ) && ! is_file( $result_path ), 'Retention cleanup should wait without unlinking while an exclusive purge lease is held.' );
+    $purge_lease->release();
+    pcntl_waitpid( $pid, $status );
+    $cleanup_result = is_file( $result_path ) ? json_decode( file_get_contents( $result_path ), true ) : null;
+    eforms_test_assert( is_array( $cleanup_result ) && $cleanup_result['completed'] === true && ! file_exists( $retained_path ), 'Retention cleanup should complete after the exclusive purge lease is released.' );
+    eforms_test_remove_tree( $signal_root );
+} else {
+    $completed_retention = UploadStore::apply_retention( $result['commit']['stored'], $retention_config );
+    eforms_test_assert( $completed_retention === true && ! file_exists( $retained_path ), 'Retention cleanup should run under its shared lifecycle lease.' );
+}
 
 eforms_test_remove_tree( $uploads_dir );
 eforms_test_remove_tree( $template_dir );
@@ -219,7 +270,7 @@ $collision_dir = $uploads_dir . '/eforms-private/uploads/' . $date_dir;
 PrivateDir::ensure( $uploads_dir );
 mkdir( $uploads_dir . '/eforms-private/uploads', 0700, true );
 mkdir( $collision_dir, 0700, true );
-$collision_path = $collision_dir . '/' . $submission_id . '-1-' . $sha16 . '.png';
+$collision_path = $collision_dir . '/' . $submission_id . '-2-0-' . $sha16 . '.png';
 file_put_contents( $collision_path, 'existing-data' );
 
 $request = array(

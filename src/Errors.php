@@ -78,6 +78,37 @@ class Errors
     }
 
     /**
+     * Return the first global or field error code from the canonical shape.
+     */
+    public static function first_code(mixed $errors, string $fallback = 'EFORMS_ERR_SCHEMA_OBJECT'): string
+    {
+        $data = $errors instanceof self ? $errors->to_array() : $errors;
+        if (!is_array($data)) {
+            return $fallback;
+        }
+
+        $groups = [];
+        if (isset($data['_global']) && is_array($data['_global'])) {
+            $groups[] = $data['_global'];
+        }
+        foreach ($data as $field_key => $entries) {
+            if ($field_key !== '_global' && is_array($entries)) {
+                $groups[] = $entries;
+            }
+        }
+
+        foreach ($groups as $entries) {
+            foreach ($entries as $entry) {
+                if (is_array($entry) && isset($entry['code']) && is_string($entry['code'])) {
+                    return $entry['code'];
+                }
+            }
+        }
+
+        return $fallback;
+    }
+
+    /**
      * @return array{code: string, message?: string}
      */
     private static function error_entry(string $code, string $message): array

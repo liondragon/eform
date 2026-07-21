@@ -12,12 +12,14 @@ require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Rendering/FormRenderer.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
+require_once __DIR__ . '/../Uploads/ReviewController.php';
 require_once __DIR__ . '/SubmitHandler.php';
 
 class PublicRequestController {
     private static $captured_response = null;
     private static $local_rerender = null;
     private static $result_page = null;
+    private static $review_page = null;
 
     /**
      * WordPress template_redirect callback.
@@ -39,6 +41,12 @@ class PublicRequestController {
      * @return array Controller response metadata.
      */
     public static function dispatch_current_request() {
+        $review = ReviewController::dispatch_current_request();
+        if ( ! empty( $review['handled'] ) ) {
+            ReviewController::emit_headers( $review );
+            return $review;
+        }
+
         if ( self::request_method() === 'GET' ) {
             return self::result_page_response();
         }
@@ -86,6 +94,13 @@ class PublicRequestController {
             return $result_template !== '' ? $result_template : $template;
         }
 
+        if ( self::$review_page !== null ) {
+            $review_template = isset( self::$review_page['template'] ) && is_string( self::$review_page['template'] )
+                ? self::$review_page['template']
+                : '';
+            return $review_template !== '' ? $review_template : $template;
+        }
+
         $render = isset( self::$captured_response['render'] ) && is_string( self::$captured_response['render'] )
             ? self::$captured_response['render']
             : '';
@@ -97,6 +112,10 @@ class PublicRequestController {
             return __DIR__ . '/public-response-template.php';
         }
 
+        if ( $render === 'review_file' ) {
+            return __DIR__ . '/raw-response-template.php';
+        }
+
         return $template;
     }
 
@@ -105,6 +124,14 @@ class PublicRequestController {
      */
     public static function render_captured_response() {
         if ( self::$captured_response === null ) {
+            return;
+        }
+
+        $stream = isset( self::$captured_response['stream'] ) ? self::$captured_response['stream'] : null;
+        if ( is_resource( $stream ) ) {
+            fpassthru( $stream );
+            fclose( $stream );
+            self::$captured_response['stream'] = null;
             return;
         }
 
@@ -142,13 +169,21 @@ class PublicRequestController {
         return self::$result_page !== null ? self::$result_page : array();
     }
 
+    public static function review_page_context() {
+        return self::$review_page !== null ? self::$review_page : array();
+    }
+
     /**
      * Test helper.
      */
     public static function reset_for_tests() {
+        if ( isset( self::$captured_response['stream'] ) && is_resource( self::$captured_response['stream'] ) ) {
+            fclose( self::$captured_response['stream'] );
+        }
         self::$captured_response = null;
         self::$local_rerender = null;
         self::$result_page = null;
+        self::$review_page = null;
     }
 
     private static function success_response( $result ) {
@@ -198,6 +233,9 @@ class PublicRequestController {
                 'errors' => isset( $result['errors'] ) ? $result['errors'] : null,
                 'values' => isset( $result['values'] ) ? $result['values'] : array(),
                 'require_challenge' => ! empty( $result['require_challenge'] ),
+                'validated_upload_batches' => isset( $result['validated_upload_batches'] ) && is_array( $result['validated_upload_batches'] )
+                    ? $result['validated_upload_batches']
+                    : array(),
             );
 
             return array(
@@ -303,9 +341,13 @@ class PublicRequestController {
     }
 
     private static function capture_response( $response ) {
+        if ( isset( self::$captured_response['stream'] ) && is_resource( self::$captured_response['stream'] ) ) {
+            fclose( self::$captured_response['stream'] );
+        }
         self::$captured_response = $response;
         self::$local_rerender = null;
         self::$result_page = null;
+        self::$review_page = null;
 
         $render = isset( $response['render'] ) && is_string( $response['render'] ) ? $response['render'] : '';
         if ( $render === 'local' ) {
@@ -322,7 +364,14 @@ class PublicRequestController {
                 : array();
         }
 
-        if ( ( $render === 'redirect' || $render === 'template' || $render === 'result_page' ) && function_exists( 'add_filter' ) ) {
+
+        if ( $render === 'review_gallery' ) {
+            self::$review_page = isset( $response['review_page'] ) && is_array( $response['review_page'] )
+                ? $response['review_page']
+                : array();
+        }
+
+        if ( in_array( $render, array( 'redirect', 'template', 'result_page', 'review_gallery', 'review_file' ), true ) && function_exists( 'add_filter' ) ) {
             add_filter( 'template_include', array( 'PublicRequestController', 'template_include' ), 0 );
         }
     }

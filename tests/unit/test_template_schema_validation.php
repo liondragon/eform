@@ -325,3 +325,76 @@ $errors = TemplateValidator::validate_template_envelope( $row_group_template );
 $codes  = eforms_test_collect_codes( $errors );
 eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'row_group pseudo-fields should remain valid.' );
 eforms_test_assert( FieldTypeRegistry::is_supported( 'row_group' ) === false, 'row_group should not be a registry field type.' );
+
+// Given the complete staged files contract...
+// Then schema validation accepts its bounded, non-attachment policy.
+$staged_template = $template;
+$staged_template['fields'][] = array(
+    'key' => 'project_photos',
+    'type' => 'files',
+    'label' => 'Project photos',
+    'required' => true,
+    'accept' => array( 'image' ),
+    'upload_mode' => 'staged',
+    'max_file_bytes' => 20971520,
+    'max_files' => 24,
+    'max_total_bytes' => 314572800,
+    'email_attach' => false,
+);
+$staged_template['email']['include_fields'][] = 'project_photos';
+$errors = TemplateValidator::validate_template_envelope( $staged_template );
+eforms_test_assert( ! $errors->any(), 'A complete staged files policy should pass schema validation.' );
+
+$heic_staged = $staged_template;
+$heic_staged['fields'][1]['accept'] = array( 'image', 'heic' );
+$errors = TemplateValidator::validate_template_envelope( $heic_staged );
+eforms_test_assert( ! $errors->any(), 'A staged files policy should accept explicit HEIC opt-in beside the base image token.' );
+
+$staged_without_gallery = $staged_template;
+$staged_without_gallery['email']['include_fields'] = array( 'name' );
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $staged_without_gallery ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_REQUIRED', $codes, true ), 'A staged field must be included in email so recipients receive its review gallery.' );
+
+$multiple_staged = $staged_template;
+$second_staged = $multiple_staged['fields'][1];
+$second_staged['key'] = 'more_photos';
+$multiple_staged['fields'][] = $second_staged;
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $multiple_staged ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'V1 should reject multiple staged fields because one aggregate owns the submission rename.' );
+
+$invalid_staged = $staged_template;
+$invalid_staged['fields'][1]['type'] = 'file';
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'Staged mode should require the files type.' );
+
+$invalid_staged = $staged_template;
+$invalid_staged['fields'][1]['accept'] = array( 'image', 'pdf' );
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'Staged mode should reject tokens other than image and optional HEIC.' );
+
+$invalid_staged = $staged_template;
+$invalid_staged['fields'][1]['accept'] = array( 'heic' );
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'HEIC should extend rather than replace the staged image token.' );
+
+$invalid_staged = $staged_template;
+$invalid_staged['fields'][1]['email_attach'] = true;
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'Staged mode should reject email attachments.' );
+
+$invalid_staged = $staged_template;
+unset( $invalid_staged['fields'][1]['max_total_bytes'] );
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_REQUIRED', $codes, true ), 'Staged mode should require a total-original-byte bound.' );
+
+$invalid_staged = $staged_template;
+$invalid_staged['fields'][1]['max_total_bytes'] = 1;
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'Staged total bytes should cover at least one allowed file.' );
+
+$invalid_staged = $staged_template;
+$invalid_staged['fields'][1]['max_file_bytes'] = PHP_INT_MAX;
+$invalid_staged['fields'][1]['max_files'] = 2;
+$invalid_staged['fields'][1]['max_total_bytes'] = PHP_INT_MAX;
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'Staged policy products must fit in a PHP integer.' );

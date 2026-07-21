@@ -254,6 +254,12 @@ if ( ! function_exists( 'home_url' ) ) {
     }
 }
 
+if ( ! function_exists( 'wp_salt' ) ) {
+    function wp_salt( $scheme = 'auth' ) {
+        return 'eforms-wp-runtime-' . (string) $scheme . '-salt';
+    }
+}
+
 if ( ! function_exists( 'wp_safe_redirect' ) ) {
     function wp_safe_redirect( $location, $status = 302 ) {
         $GLOBALS['eforms_wp_runtime_redirects'][] = array(
@@ -274,6 +280,13 @@ if ( ! function_exists( 'status_header' ) ) {
 if ( ! function_exists( 'is_email' ) ) {
     function is_email( $email ) {
         return is_string( $email ) && filter_var( $email, FILTER_VALIDATE_EMAIL ) !== false;
+    }
+}
+
+if ( ! function_exists( 'wp_image_editor_supports' ) ) {
+    function wp_image_editor_supports( $args = array() ) {
+        return isset( $args['mime_type'] )
+            && in_array( $args['mime_type'], array( 'image/jpeg', 'image/png', 'image/webp' ), true );
     }
 }
 
@@ -424,6 +437,29 @@ if ( ! function_exists( 'eforms_wp_runtime_ledger_count' ) ) {
     }
 }
 
+if ( ! function_exists( 'eforms_wp_runtime_staged_secret' ) ) {
+    function eforms_wp_runtime_staged_secret( $byte ) {
+        return rtrim( strtr( base64_encode( str_repeat( $byte, Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
+    }
+}
+
+if ( ! function_exists( 'eforms_wp_runtime_staged_field' ) ) {
+    function eforms_wp_runtime_staged_field( $form_id, $field_key ) {
+        $loaded = TemplateLoader::load( $form_id );
+        if ( empty( $loaded['ok'] ) || ! isset( $loaded['template']['fields'] ) || ! is_array( $loaded['template']['fields'] ) ) {
+            return array();
+        }
+
+        foreach ( $loaded['template']['fields'] as $field ) {
+            if ( is_array( $field ) && isset( $field['key'] ) && $field['key'] === $field_key ) {
+                return $field;
+            }
+        }
+
+        return array();
+    }
+}
+
 if ( ! function_exists( 'eforms_wp_runtime_render_controller_response' ) ) {
     function eforms_wp_runtime_render_controller_response() {
         $template = apply_filters( 'template_include', '' );
@@ -482,6 +518,28 @@ if ( ! function_exists( 'eforms_wp_runtime_result_get' ) ) {
             'location' => isset( $response['location'] ) ? $response['location'] : '',
             'result' => isset( $response['result'] ) ? $response['result'] : null,
             'body' => $body,
+            'template' => isset( $GLOBALS['eforms_wp_runtime_last_template'] ) ? $GLOBALS['eforms_wp_runtime_last_template'] : '',
+        );
+    }
+}
+
+if ( ! function_exists( 'eforms_wp_runtime_review_get' ) ) {
+    function eforms_wp_runtime_review_get( $url ) {
+        $query = array();
+        parse_str( (string) parse_url( $url, PHP_URL_QUERY ), $query );
+        eforms_wp_runtime_reset_request( $query );
+        $path = parse_url( $url, PHP_URL_PATH );
+        $query_string = parse_url( $url, PHP_URL_QUERY );
+        $_SERVER['REQUEST_URI'] = ( is_string( $path ) ? $path : '/' ) . ( is_string( $query_string ) && $query_string !== '' ? '?' . $query_string : '' );
+        eforms_wp_runtime_do_action( 'template_redirect' );
+        $response = PublicRequestController::last_response();
+        eforms_wp_runtime_assert( is_array( $response ), 'PublicRequestController should capture handled review GET responses.' );
+        $body = eforms_wp_runtime_render_controller_response();
+
+        return array(
+            'status' => isset( $response['status'] ) ? (int) $response['status'] : 0,
+            'body' => $body,
+            'response' => $response,
             'template' => isset( $GLOBALS['eforms_wp_runtime_last_template'] ) ? $GLOBALS['eforms_wp_runtime_last_template'] : '',
         );
     }
@@ -586,6 +644,112 @@ try {
     );
     eforms_wp_runtime_assert( eforms_wp_runtime_ledger_count( 'contact' ) === $ledger_after_success, 'Duplicate replay should not reserve another ledger marker.' );
     eforms_wp_runtime_assert( count( $GLOBALS['eforms_wp_runtime_mail'] ) === $mail_before_duplicate, 'Duplicate replay should not send another email.' );
+
+    // A real staged aggregate survives an ordinary validation rerender, then
+    // freezes, finalizes, and sends exactly once through the public POST path.
+    eforms_wp_runtime_reset_request();
+    $staged_html = eforms_wp_runtime_shortcode( 'upload-test', false );
+    $staged_token = eforms_wp_runtime_hidden_value( $staged_html, 'eforms_token' );
+    $staged_instance = eforms_wp_runtime_hidden_value( $staged_html, 'instance_id' );
+    $staged_timestamp = eforms_wp_runtime_hidden_value( $staged_html, 'timestamp' );
+    $staged_validation = Security::validate_managed_token( $staged_token, $staged_instance, 'upload-test', $uploads_dir );
+    $staged_field = eforms_wp_runtime_staged_field( 'upload-test', 'photos' );
+    eforms_wp_runtime_assert( ! empty( $staged_validation['ok'] ), 'The staged runtime fixture should mint a valid managed token.' );
+    eforms_wp_runtime_assert( ! empty( $staged_field ), 'The staged runtime fixture should load the photos field policy.' );
+
+    $staged_secret = eforms_wp_runtime_staged_secret( "\x51" );
+    $staged_binding = array(
+        'raw_token' => $staged_token,
+        'form_id' => 'upload-test',
+        'instance_id' => $staged_instance,
+        'field_key' => 'photos',
+        'accept_until' => $staged_validation['expires'],
+    );
+    $staged_batch = UploadBatchStore::create_batch( $staged_binding, $staged_secret, $staged_field, $uploads_dir );
+    eforms_wp_runtime_assert( ! empty( $staged_batch['ok'] ), 'The staged runtime fixture should create an authenticated aggregate.' );
+    $staged_source = $tmp_root . '/runtime-photo.png';
+    $staged_png = base64_decode( trim( file_get_contents( $root_dir . '/tests/fixtures/staged-landscape.png.b64' ) ), true );
+    eforms_wp_runtime_assert( file_put_contents( $staged_source, $staged_png ) !== false, 'The staged runtime fixture should write its source image.' );
+    $staged_put = UploadBatchStore::put_item(
+        $staged_batch['batch']['batch_id'],
+        $staged_secret,
+        'runtime_photo',
+        0,
+        array(
+            'tmp_name' => $staged_source,
+            'original_name' => 'Runtime Photo.png',
+            'size' => filesize( $staged_source ),
+            'error' => UPLOAD_ERR_OK,
+        ),
+        $uploads_dir
+    );
+    eforms_wp_runtime_assert( ! empty( $staged_put['ok'] ), 'The staged runtime fixture should commit one processed image.' );
+
+    $staged_post = array(
+        'eforms_mode' => 'hidden',
+        'eforms_token' => $staged_token,
+        'instance_id' => $staged_instance,
+        'timestamp' => $staged_timestamp,
+        'js_ok' => '1',
+        'eforms_hp' => '',
+        'eforms_upload_batches' => array(
+            'photos' => array(
+                'batch_id' => $staged_batch['batch']['batch_id'],
+                'batch_secret' => $staged_secret,
+            ),
+        ),
+        'upload-test' => array( 'name' => array( 'invalid-type' ) ),
+    );
+    eforms_wp_runtime_reset_request();
+    $staged_invalid = eforms_wp_runtime_public_hidden_post( $staged_post );
+    eforms_wp_runtime_assert( $staged_invalid['status'] === 200, 'An ordinary staged-form validation error should rerender locally.' );
+    eforms_wp_runtime_assert(
+        eforms_wp_runtime_hidden_value( $staged_invalid['body'], 'eforms_upload_batches[photos][batch_id]' ) === $staged_batch['batch']['batch_id'],
+        'A local rerender should re-emit only the validated batch id.'
+    );
+    eforms_wp_runtime_assert(
+        eforms_wp_runtime_hidden_value( $staged_invalid['body'], 'eforms_upload_batches[photos][batch_secret]' ) === $staged_secret,
+        'A local rerender should re-emit only the validated batch secret.'
+    );
+    $staged_open = UploadBatchStore::status( $staged_batch['batch']['batch_id'], $staged_secret, $uploads_dir );
+    eforms_wp_runtime_assert( ! empty( $staged_open['ok'] ) && $staged_open['batch']['state'] === 'open', 'Validation failure should leave the staged aggregate open.' );
+
+    $staged_post['upload-test']['name'] = 'Ada Lovelace';
+    eforms_wp_runtime_reset_request();
+    $mail_before_staged = count( $GLOBALS['eforms_wp_runtime_mail'] );
+    $staged_success = eforms_wp_runtime_public_hidden_post( $staged_post );
+    eforms_wp_runtime_assert( $staged_success['status'] === 303, 'A corrected staged-form POST should complete with PRG.' );
+    eforms_wp_runtime_assert( count( $GLOBALS['eforms_wp_runtime_mail'] ) === $mail_before_staged + 1, 'A finalized staged submission should invoke wp_mail exactly once.' );
+    $staged_submission = UploadBatchStore::submission( $staged_token, $uploads_dir );
+    eforms_wp_runtime_assert( ! empty( $staged_submission['ok'] ), 'The staged aggregate should be available under the submission id after finalization.' );
+    eforms_wp_runtime_assert( $staged_submission['submission']['email_attempted_at'] !== null, 'The durable email-attempt marker should precede the staged mail call.' );
+    $staged_mail = $GLOBALS['eforms_wp_runtime_mail'][ $mail_before_staged ];
+    eforms_wp_runtime_assert( substr_count( $staged_mail['message'], 'eforms_review=' . $staged_token ) === 1, 'The staged runtime email should contain exactly one signed gallery URL under plain permalinks.' );
+    eforms_wp_runtime_assert( $staged_mail['attachments'] === array() && strpos( $staged_mail['message'], 'eforms_review_upload=' ) === false, 'The staged runtime email should contain neither managed attachments nor individual file links.' );
+    $staged_former_path = UploadBatchStore::status( $staged_batch['batch']['batch_id'], $staged_secret, $uploads_dir );
+    eforms_wp_runtime_assert( empty( $staged_former_path['ok'] ) && ! empty( $staged_former_path['gone'] ), 'The former batch endpoint path should return its generic terminal state after rename.' );
+
+    $review_url = ReviewController::gallery_url( $staged_token, $staged_submission['submission']['gallery_expires_at'] );
+    eforms_wp_runtime_assert( $review_url !== '', 'The finalized runtime submission should produce one signed gallery URL.' );
+    $review_page = eforms_wp_runtime_review_get( $review_url );
+    eforms_wp_runtime_assert( $review_page['status'] === 200, 'A valid signed gallery GET should render HTTP 200.' );
+    eforms_wp_runtime_assert( basename( $review_page['template'] ) === 'review-gallery.php', 'A valid gallery should use the private review page template.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], 'Theme Header' ) !== false && strpos( $review_page['body'], 'Theme Footer' ) !== false, 'The review gallery should use the canonical theme shell.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], '<h1 class="page-title">Submitted Photos</h1>' ) !== false, 'The review gallery should show its stable title.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], $staged_token ) !== false && strpos( $review_page['body'], '1 photo' ) !== false, 'The review gallery should show the submission id and count.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], 'loading="lazy"' ) !== false && strpos( $review_page['body'], 'eforms_review_variant=preview' ) !== false, 'The review gallery should lazy-load only signed previews.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], 'Open original' ) !== false && strpos( $review_page['body'], 'Download' ) !== false, 'The review gallery should expose controlled original actions.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], $uploads_dir ) === false && strpos( $review_page['body'], $staged_secret ) === false, 'The review gallery must not disclose private paths or batch credentials.' );
+    $review_items = $review_page['response']['review_page']['items'];
+    $review_preview = eforms_wp_runtime_review_get( $review_items[0]['preview_url'] );
+    $review_preview_path = $tmp_root . '/review-preview.jpg';
+    eforms_wp_runtime_assert( file_put_contents( $review_preview_path, $review_preview['body'] ) !== false, 'The runtime review test should capture its preview response.' );
+    eforms_wp_runtime_assert( $review_preview['status'] === 200 && UploadPolicy::detect_mime( $review_preview_path ) === 'image/jpeg', 'The public controller should stream the exact signed JPEG preview (status ' . $review_preview['status'] . ', template ' . basename( $review_preview['template'] ) . ', render ' . $review_preview['response']['render'] . ', mime ' . UploadPolicy::detect_mime( $review_preview_path ) . ', bytes ' . strlen( $review_preview['body'] ) . ', prefix ' . bin2hex( substr( $review_preview['body'], 0, 16 ) ) . ').' );
+
+    $invalid_review_url = preg_replace( '/signature=[A-Za-z0-9_-]{43}/', 'signature=' . str_repeat( 'A', 43 ), $review_url );
+    $invalid_review = eforms_wp_runtime_review_get( $invalid_review_url );
+    eforms_wp_runtime_assert( $invalid_review['status'] === 404 && strpos( $invalid_review['body'], 'Review unavailable.' ) !== false, 'Invalid gallery grants should render the generic private not-found response.' );
+    eforms_wp_runtime_assert( strpos( $invalid_review['body'], $staged_token ) === false && strpos( $invalid_review['body'], $uploads_dir ) === false, 'Invalid gallery output should reveal no submission or path facts.' );
 
     $success_page = eforms_wp_runtime_result_get( array( 'eforms_result' => 'success', 'eforms_form' => 'contact' ) );
     eforms_wp_runtime_assert( $success_page['status'] === 200, 'Follow-up success GET should render HTTP 200.' );

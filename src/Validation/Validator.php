@@ -70,7 +70,7 @@ class Validator {
             $is_multivalue = ! empty( $descriptor['is_multivalue'] );
             $value = array_key_exists( $key, $values ) ? $values[ $key ] : null;
 
-            self::validate_struct( $buckets[ $key ]['struct'], $type, $is_multivalue, $value );
+            self::validate_struct( $buckets[ $key ]['struct'], $type, $is_multivalue, $value, $field );
             if ( ! empty( $buckets[ $key ]['struct'] ) ) {
                 continue;
             }
@@ -181,13 +181,13 @@ class Validator {
         return true;
     }
 
-    private static function validate_struct( &$entries, $type, $is_multivalue, $value ) {
+    private static function validate_struct( &$entries, $type, $is_multivalue, $value, $field ) {
         if ( $value === null ) {
             return;
         }
 
         if ( $type === 'file' || $type === 'files' ) {
-            self::validate_upload_struct( $entries, $type, $value );
+            self::validate_upload_struct( $entries, $type, $value, $field );
             return;
         }
 
@@ -776,8 +776,23 @@ class Validator {
         );
     }
 
-    private static function validate_upload_struct( &$entries, $type, $value ) {
+    private static function validate_upload_struct( &$entries, $type, $value, $field ) {
         if ( $value === null ) {
+            return;
+        }
+
+        $staged = is_array( $field ) && isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged';
+        if ( $staged ) {
+            if ( $type !== 'files' || ! is_array( $value ) ) {
+                $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
+                return;
+            }
+            foreach ( $value as $entry ) {
+                if ( ! UploadValue::is_staged_item( $entry ) ) {
+                    $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
+                    return;
+                }
+            }
             return;
         }
 
@@ -802,6 +817,12 @@ class Validator {
     }
 
     private static function validate_uploads( &$entries, $type, $value, $field, &$upload_state, &$global_entries ) {
+        $staged = is_array( $field ) && isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged';
+        if ( $staged ) {
+            self::validate_staged_uploads( $entries, $value, $field );
+            return;
+        }
+
         $items = array();
         if ( $type === 'file' ) {
             $items = UploadValue::is_item( $value ) ? array( $value ) : array();
@@ -812,29 +833,6 @@ class Validator {
         if ( empty( $items ) ) {
             return;
         }
-
-        $accept_defined = is_array( $field ) && array_key_exists( 'accept', $field );
-        $accept_value = $accept_defined ? $field['accept'] : null;
-        $tokens = UploadPolicy::resolve_tokens( $accept_value, ! $accept_defined );
-
-        if ( empty( $tokens ) ) {
-            $entries[] = array(
-                'code' => 'EFORMS_ERR_ACCEPT_EMPTY',
-                'message' => 'No allowed file types for this upload.',
-            );
-            return;
-        }
-
-        if ( ! UploadPolicy::finfo_available() ) {
-            $global_entries[] = array(
-                'code' => 'EFORMS_FINFO_UNAVAILABLE',
-                'message' => 'File uploads are unsupported on this server.',
-            );
-            return;
-        }
-
-        $policy = UploadPolicy::policy_for_tokens( $tokens );
-        $max_file_bytes = self::field_max_file_bytes( $field );
 
         if ( $type === 'files' ) {
             $max_files = self::field_max_files( $field );
@@ -850,18 +848,19 @@ class Validator {
                 continue;
             }
 
-            $error = isset( $item['error'] ) ? (int) $item['error'] : 0;
-            if ( $error !== UPLOAD_ERR_OK ) {
-                $entries[] = self::upload_error_entry( self::upload_error_message( $error ) );
+            $validation = UploadPolicy::validate_item( $item, $field );
+            if ( empty( $validation['ok'] ) ) {
+                $code = isset( $validation['code'] ) ? $validation['code'] : 'EFORMS_ERR_UPLOAD_TYPE';
+                $message = isset( $validation['message'] ) ? $validation['message'] : 'File upload failed. Please try again.';
+                if ( $code === 'EFORMS_FINFO_UNAVAILABLE' ) {
+                    $global_entries[] = array( 'code' => $code, 'message' => $message );
+                } else {
+                    $entries[] = array( 'code' => $code, 'message' => $message );
+                }
                 continue;
             }
 
-            $size = isset( $item['size'] ) && is_numeric( $item['size'] ) ? (int) $item['size'] : 0;
-            if ( $max_file_bytes > 0 && $size > $max_file_bytes ) {
-                $entries[] = self::upload_error_entry( 'This file exceeds the size limit.' );
-                continue;
-            }
-
+            $size = isset( $validation['bytes'] ) ? (int) $validation['bytes'] : 0;
             if ( ! empty( $upload_state['total_exceeded'] ) ) {
                 $entries[] = self::upload_error_entry( 'This file exceeds the size limit.' );
                 continue;
@@ -877,40 +876,36 @@ class Validator {
                 continue;
             }
 
-            $tmp_name = isset( $item['tmp_name'] ) && is_string( $item['tmp_name'] ) ? $item['tmp_name'] : '';
-            if ( $tmp_name === '' || ! is_file( $tmp_name ) ) {
-                $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
-                continue;
-            }
-
-            $name = UploadValue::name_for_validation( $item );
-
-            $extension = UploadPolicy::extension_from_name( $name );
-            if ( $extension === '' ) {
-                $entries[] = self::upload_error_entry( 'This file type isn\'t allowed.' );
-                continue;
-            }
-
-            $mime = UploadPolicy::detect_mime( $tmp_name );
-            if ( $mime === false ) {
-                $entries[] = self::upload_error_entry( 'This file type isn\'t allowed.' );
-                continue;
-            }
-
-            if ( ! UploadPolicy::mime_allowed( $mime, $extension, $policy ) ) {
-                $entries[] = self::upload_error_entry( 'This file type isn\'t allowed.' );
-                continue;
-            }
         }
     }
 
-    private static function field_max_file_bytes( $field ) {
-        if ( is_array( $field ) && isset( $field['max_file_bytes'] ) && is_numeric( $field['max_file_bytes'] ) ) {
-            $value = (int) $field['max_file_bytes'];
-            return $value > 0 ? $value : 0;
+    private static function validate_staged_uploads( &$entries, $items, $field ) {
+        if ( ! is_array( $items ) ) {
+            return;
+        }
+        $max_files = self::field_max_files( $field );
+        if ( $max_files > 0 && count( $items ) > $max_files ) {
+            $entries[] = self::upload_error_entry( 'Too many files.' );
+            return;
         }
 
-        return 0;
+        $total = 0;
+        $max_total = isset( $field['max_total_bytes'] ) && is_numeric( $field['max_total_bytes'] ) ? (int) $field['max_total_bytes'] : 0;
+        foreach ( $items as $item ) {
+            if ( ! UploadValue::is_staged_item( $item ) ) {
+                $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
+                return;
+            }
+            $size = (int) $item['size'];
+            if ( $size < 0 || $total > PHP_INT_MAX - $size ) {
+                $entries[] = self::upload_error_entry( 'This file exceeds the size limit.' );
+                return;
+            }
+            $total += $size;
+        }
+        if ( $max_total > 0 && $total > $max_total ) {
+            $entries[] = self::upload_error_entry( 'This file exceeds the size limit.' );
+        }
     }
 
     private static function field_max_files( $field ) {
@@ -929,11 +924,4 @@ class Validator {
         );
     }
 
-    private static function upload_error_message( $error ) {
-        if ( $error === UPLOAD_ERR_INI_SIZE || $error === UPLOAD_ERR_FORM_SIZE ) {
-            return 'This file exceeds the size limit.';
-        }
-
-        return 'File upload failed. Please try again.';
-    }
 }

@@ -52,7 +52,8 @@ class TemplateContext {
         $fields = TemplateValidator::sanitize_fields( $fields );
 
         $descriptors = array();
-        $has_uploads = false;
+        $has_synchronous_uploads = false;
+        $staged_field = null;
 
         foreach ( $fields as $field ) {
             if ( ! is_array( $field ) ) {
@@ -65,7 +66,11 @@ class TemplateContext {
 
             $type = isset( $field['type'] ) ? $field['type'] : '';
             if ( $type === 'file' || $type === 'files' ) {
-                $has_uploads = true;
+                if ( isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged' ) {
+                    $staged_field = $field;
+                } else {
+                    $has_synchronous_uploads = true;
+                }
             }
 
             try {
@@ -109,7 +114,8 @@ class TemplateContext {
             'rules' => isset( $template['rules'] ) && is_array( $template['rules'] ) ? $template['rules'] : array(),
             'fields' => $fields,
             'descriptors' => $descriptors,
-            'has_uploads' => $has_uploads,
+            'staged_field' => $staged_field,
+            'has_synchronous_uploads' => $has_synchronous_uploads,
             'max_input_vars_estimate' => self::estimate_input_vars( $fields ),
         );
 
