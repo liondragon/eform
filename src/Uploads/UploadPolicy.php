@@ -526,8 +526,6 @@ class UploadPolicy {
             if ( defined( 'Imagick::ORIENTATION_TOPLEFT' ) ) {
                 $image->setImageOrientation( Imagick::ORIENTATION_TOPLEFT );
             }
-            // Keep layer flattening independent of whether the source coder can encode.
-            $image->setImageFormat( 'jpeg' );
             $image->setImageBackgroundColor( new ImagickPixel( '#ffffff' ) );
             $flattened = $image->mergeImageLayers( Imagick::LAYERMETHOD_FLATTEN );
             $image->clear();
