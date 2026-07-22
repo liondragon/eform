@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Uploads/PrivateDir.php';
 
 require_once __DIR__ . '/../../src/bootstrap.php';
+require_once __DIR__ . '/../../src/Admin/SubmissionsAdmin.php';
 require_once __DIR__ . '/../../src/Admin/DeclinedReviewAdmin.php';
 
 if ( ! function_exists( 'eforms_declined_admin_context' ) ) {
@@ -30,27 +31,31 @@ $GLOBALS['eforms_test_can_manage'] = true;
 $GLOBALS['eforms_test_management_pages'] = array();
 $GLOBALS['eforms_test_options_pages'] = array();
 
-// Bootstrap always registers Settings -> eForms; the Tools page remains gated.
+// Bootstrap always registers Settings -> eForms and retained submissions; declined review remains gated.
 eforms_test_configure_declined_review( $uploads_dir, false );
 $GLOBALS['eforms_test_hooks']['action']['admin_menu'] = array();
 eforms_register_admin();
-eforms_test_assert( isset( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) && count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 1, 'Disabled declined review should register only the Settings hook.' );
+eforms_test_assert( isset( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) && count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 2, 'Disabled declined review should register Settings and retained submissions hooks.' );
 SettingsAdmin::register_menu();
+SubmissionsAdmin::register_menu();
 eforms_test_assert( count( $GLOBALS['eforms_test_options_pages'] ) === 1, 'Disabled declined review should register the Settings page.' );
-eforms_test_assert( $GLOBALS['eforms_test_management_pages'] === array(), 'Disabled declined review should not register the Tools page.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_management_pages'] ) === 1, 'Disabled declined review should still register retained submissions.' );
+eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['menu_slug'] === SubmissionsAdmin::SLUG, 'Retained submissions should use the expected slug.' );
 
 eforms_test_configure_declined_review( $uploads_dir, true );
 $GLOBALS['eforms_test_options_pages'] = array();
 $GLOBALS['eforms_test_management_pages'] = array();
 $GLOBALS['eforms_test_hooks']['action']['admin_menu'] = array();
 eforms_register_admin();
-eforms_test_assert( isset( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) && count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 2, 'Enabled declined review should register Settings and Tools hooks.' );
+eforms_test_assert( isset( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) && count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 3, 'Enabled declined review should register Settings and Tools hooks.' );
 SettingsAdmin::register_menu();
+SubmissionsAdmin::register_menu();
 DeclinedReviewAdmin::register_menu();
 eforms_test_assert( count( $GLOBALS['eforms_test_options_pages'] ) === 1, 'Enabled declined review should register one Settings page.' );
-eforms_test_assert( count( $GLOBALS['eforms_test_management_pages'] ) === 1, 'Admin menu should register one Tools page.' );
-eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['capability'] === 'manage_options', 'Admin page should require manage_options.' );
-eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['menu_slug'] === DeclinedReviewAdmin::SLUG, 'Admin page should use the expected slug.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_management_pages'] ) === 2, 'Admin menu should register both Tools pages.' );
+eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['menu_slug'] === SubmissionsAdmin::SLUG, 'Retained submissions should use the expected slug.' );
+eforms_test_assert( $GLOBALS['eforms_test_management_pages'][1]['capability'] === 'manage_options', 'Declined review page should require manage_options.' );
+eforms_test_assert( $GLOBALS['eforms_test_management_pages'][1]['menu_slug'] === DeclinedReviewAdmin::SLUG, 'Declined review page should use the expected slug.' );
 
 // Capability guard prevents rendering.
 $GLOBALS['eforms_test_can_manage'] = false;
@@ -112,6 +117,70 @@ eforms_test_assert( strpos( $html, '&lt;script&gt;alert(1)&lt;/script&gt;' ) !==
 eforms_test_assert( strpos( $html, $uploads_dir ) === false, 'Admin list must not expose storage paths.' );
 eforms_test_assert( strpos( $html, 'declined-' . gmdate( 'Ymd' ) ) === false, 'Admin list must not expose JSONL filenames.' );
 eforms_test_assert( strpos( $html, 'review_id=' . rawurlencode( $review_id ) ) !== false, 'Detail link should use review_id.' );
+
+$declined_page_size = Anchors::get( 'DECLINED_REVIEW_PAGE_SIZE' );
+$declined_total = $declined_page_size + 1;
+for ( $index = 0; $index < $declined_page_size; $index++ ) {
+    DeclinedReviewLog::capture(
+        array(
+            'config' => $config,
+            'form_id' => 'contact',
+            'context' => eforms_declined_admin_context(),
+            'request' => array(
+                'request_id' => 'req-page-' . $index,
+                'remote_addr' => '203.0.113.30',
+                'uri' => '/submit',
+            ),
+            'security' => array(
+                'submission_id' => 'sub-page-' . $index,
+                'soft_reasons' => array( 'js_missing' ),
+            ),
+            'decision_code' => 'EFORMS_ERR_SPAM',
+            'decision_phase' => 'spam_threshold',
+            'value_stage' => 'raw_declared',
+            'values' => array(
+                'name' => 'Paged ' . $index,
+                'message' => 'Pagination fixture',
+            ),
+        )
+    );
+}
+
+$page_one = DeclinedReviewAdmin::render_html(
+    array(
+        'from' => gmdate( 'Y-m-d' ),
+        'to' => gmdate( 'Y-m-d' ),
+        'form_id' => 'contact',
+        'decision_code' => 'EFORMS_ERR_SPAM',
+    ),
+    $config
+);
+eforms_test_assert( strpos( $page_one, $declined_total . ' items' ) !== false, 'Declined admin should show the WordPress-style item count.' );
+eforms_test_assert( strpos( $page_one, 'Next page' ) !== false, 'Declined admin should render a next-page control when more records exist.' );
+eforms_test_assert( strpos( $page_one, 'Previous page' ) === false, 'Declined admin first page should not render a previous-page control.' );
+eforms_test_assert( strpos( $page_one, 'paged=2' ) !== false, 'Declined admin next-page URL should include the next page.' );
+eforms_test_assert( strpos( $page_one, 'next-page button' ) !== false && strpos( $page_one, 'last-page button' ) !== false, 'Declined admin pagination should use the WordPress admin list-table control shape.' );
+eforms_test_assert( strpos( $page_one, 'page-numbers' ) === false, 'Declined admin pagination should not use front-end page-number markup.' );
+eforms_test_assert( strpos( $page_one, 'form_id=contact' ) !== false && strpos( $page_one, 'decision_code=EFORMS_ERR_SPAM' ) !== false, 'Declined admin pagination should preserve active filters.' );
+
+$page_two = DeclinedReviewAdmin::render_html(
+    array(
+        'from' => gmdate( 'Y-m-d' ),
+        'to' => gmdate( 'Y-m-d' ),
+        'form_id' => 'contact',
+        'decision_code' => 'EFORMS_ERR_SPAM',
+        'paged' => '2',
+    ),
+    $config
+);
+eforms_test_assert( strpos( $page_two, $declined_total . ' items' ) !== false, 'Declined admin should preserve the WordPress-style item count after paging.' );
+eforms_test_assert( strpos( $page_two, 'Previous page' ) !== false, 'Declined admin should render a previous-page control after page one.' );
+eforms_test_assert( strpos( $page_two, 'Next page' ) === false, 'Declined admin last page should not render a next-page control.' );
+preg_match( '/<a class="prev-page button" href="([^"]+)">/', $page_two, $previous_match );
+eforms_test_assert( ! empty( $previous_match[1] ) && strpos( $previous_match[1], 'paged=' ) === false, 'Declined admin previous-page URL should return to the canonical first-page URL.' );
+
+$clamped = DeclinedReviewLog::query( array( 'page' => 999 ), $config );
+eforms_test_assert( $clamped['page'] === 2 && count( $clamped['records'] ) === 1, 'Declined-review query should clamp over-large pages to the last populated page.' );
 
 $detail = DeclinedReviewAdmin::render_html(
     array(

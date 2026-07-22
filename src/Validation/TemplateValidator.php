@@ -13,6 +13,7 @@
 require_once __DIR__ . '/../Errors.php';
 require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/FieldTypeRegistry.php';
+require_once __DIR__ . '/FieldTypes/TextLike.php';
 require_once __DIR__ . '/ValidatorRegistry.php';
 require_once __DIR__ . '/NormalizerRegistry.php';
 require_once __DIR__ . '/../Rendering/RendererRegistry.php';
@@ -49,12 +50,6 @@ class TemplateValidator {
         'display_format_tel',
     );
 
-    const DISPLAY_FORMAT_TEL_TOKENS = array(
-        'xxx-xxx-xxxx',
-        '(xxx) xxx-xxxx',
-        'xxx.xxx.xxxx',
-    );
-
     const FIELD_KEYS = array(
         'key',
         'type',
@@ -63,6 +58,7 @@ class TemplateValidator {
         'required',
         'size',
         'autocomplete',
+        'unit',
         'options',
         'class',
         'max_length',
@@ -100,6 +96,7 @@ class TemplateValidator {
         'fields',
         'equals',
         'equals_any',
+        'message',
     );
 
     const ROW_GROUP_MODES = array(
@@ -285,7 +282,7 @@ class TemplateValidator {
         }
 
         if ( array_key_exists( 'display_format_tel', $email ) ) {
-            self::validate_enum( $email, 'display_format_tel', self::DISPLAY_FORMAT_TEL_TOKENS, $errors );
+            self::validate_enum( $email, 'display_format_tel', FieldTypes_TextLike::DISPLAY_FORMATS, $errors );
         }
     }
 
@@ -315,6 +312,8 @@ class TemplateValidator {
             self::validate_string( $field, 'placeholder', $errors, false );
             self::validate_string( $field, 'class', $errors, false );
             self::validate_string( $field, 'autocomplete', $errors, false );
+            self::validate_string( $field, 'unit', $errors, false );
+            self::validate_unit_metadata( $field, $errors );
             self::validate_string( $field, 'pattern', $errors, false );
             self::validate_string( $field, 'before_html', $errors, false );
             self::validate_string( $field, 'after_html', $errors, false );
@@ -774,6 +773,14 @@ class TemplateValidator {
     private static function validate_rule_shape( $rule, $errors ) {
         $type = $rule['rule'];
 
+        if ( array_key_exists( 'message', $rule ) ) {
+            if ( $type === 'one_of' ) {
+                self::validate_string( $rule, 'message', $errors, false );
+            } else {
+                $errors->add_global( 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY' );
+            }
+        }
+
         if ( $type === 'required_if' || $type === 'required_unless' ) {
             self::require_keys( $rule, array( 'target', 'field', 'equals' ), $errors );
             self::validate_string( $rule, 'target', $errors );
@@ -816,6 +823,22 @@ class TemplateValidator {
 
         if ( ! FieldTypeRegistry::is_supported( $field['type'] ) ) {
             $errors->add_global( 'EFORMS_ERR_SCHEMA_ENUM' );
+        }
+    }
+
+    private static function validate_unit_metadata( $field, $errors ) {
+        if ( ! array_key_exists( 'unit', $field ) || ! is_string( $field['unit'] ) ) {
+            return;
+        }
+
+        try {
+            $descriptor = FieldTypeRegistry::resolve( isset( $field['type'] ) ? $field['type'] : '' );
+        } catch ( RuntimeException $exception ) {
+            return;
+        }
+
+        if ( empty( $descriptor['render']['unit_attr'] ) ) {
+            $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
         }
     }
 

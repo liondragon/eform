@@ -112,6 +112,8 @@ eforms_test_set_filter(
         $config['challenge']['http_timeout_seconds'] = 2;
         $config['declined_review']['enable'] = true;
         $config['declined_review']['retention_days'] = 30;
+        $config['privacy']['client_ip_header'] = 'X-Forwarded-For';
+        $config['privacy']['trusted_proxies'] = array( '10.0.0.0/8' );
         return $config;
     }
 );
@@ -156,8 +158,9 @@ $request = array(
     'headers' => array(
         'Content-Type' => 'application/x-www-form-urlencoded',
         'Origin' => 'https://example.com',
+        'X-Forwarded-For' => '8.8.8.8, 10.2.3.4',
     ),
-    'client_ip' => '203.0.113.50',
+    'remote_addr' => '10.1.2.3',
 );
 
 $trace = array();
@@ -208,6 +211,10 @@ eforms_test_assert(
 eforms_test_assert(
     $GLOBALS['eforms_test_remote_posts'][0]['args']['body']['idempotency_key'] === $mint['token'],
     'Turnstile verification should reuse the submission UUID as its provider idempotency key.'
+);
+eforms_test_assert(
+    $GLOBALS['eforms_test_remote_posts'][0]['args']['body']['remoteip'] === '8.8.8.8',
+    'Turnstile verification should use the trusted-proxy-aware client IP owner.'
 );
 $declined = DeclinedReviewLog::query( array(), Config::get() );
 eforms_test_assert( $declined['total'] === 0, 'Successful challenge verification should not create a declined-review record.' );

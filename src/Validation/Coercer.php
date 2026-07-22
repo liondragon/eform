@@ -92,6 +92,21 @@ class Coercer {
             return $digits !== null ? $digits : $value;
         }
 
+        if ( $type === 'zip_us' ) {
+            $zip = FieldTypes_TextLike::normalize_zip_us( $value );
+            return $zip !== null ? $zip : $value;
+        }
+
+        if ( $type === 'number' || $type === 'range' ) {
+            $number = FieldTypes_TextLike::normalize_number( $value );
+            return $number !== null ? $number : $value;
+        }
+
+        if ( $type === 'url' ) {
+            $url = FieldTypes_TextLike::normalize_url( $value );
+            return $url !== null ? $url : $value;
+        }
+
         if ( self::should_collapse_whitespace( $type, $descriptor ) ) {
             return self::collapse_whitespace( $value );
         }

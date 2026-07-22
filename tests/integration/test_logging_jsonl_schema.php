@@ -152,9 +152,58 @@ eforms_test_assert( $race_ok === true, 'JSONL locked rotation should succeed whe
 eforms_test_assert( file_exists( $race_dir . '/events-' . gmdate( 'Ymd' ) . '-1.jsonl' ), 'JSONL locked rotation should preserve the date prefix for primary-file races.' );
 eforms_test_assert( ! file_exists( $race_dir . '/events-1.jsonl' ), 'JSONL locked rotation must not treat the date suffix as a rotation suffix.' );
 
+$bounded_dir = eforms_test_tmp_root( 'eforms-file-sink-bounded' );
+mkdir( $bounded_dir, 0700, true );
+foreach ( array( 'z-last.jsonl', 'a-first.jsonl', 'm-middle.jsonl', 'b-between.jsonl' ) as $name ) {
+    file_put_contents( $bounded_dir . '/' . $name, "{}\n" );
+    touch( $bounded_dir . '/' . $name, time() - ( 3 * 86400 ) );
+}
+$bounded_first = FileSink::delete_matching_files(
+    $bounded_dir,
+    function ( $entry ) {
+        return substr( $entry, -6 ) === '.jsonl';
+    },
+    null,
+    array( 'dry_run' => true, 'limit' => 1 )
+);
+eforms_test_assert(
+    $bounded_first['scanned'] === 1
+        && $bounded_first['reached_limit'] === true
+        && $bounded_first['cursor'] === array( 'entry' => 'a-first.jsonl' ),
+    'FileSink bounded cleanup should expose the first lexicographic page without consuming later files.'
+);
+$bounded_second = FileSink::delete_matching_files(
+    $bounded_dir,
+    function ( $entry ) {
+        return substr( $entry, -6 ) === '.jsonl';
+    },
+    null,
+    array( 'dry_run' => true, 'limit' => 1, 'cursor' => $bounded_first['cursor'] )
+);
+eforms_test_assert(
+    $bounded_second['scanned'] === 1
+        && $bounded_second['reached_limit'] === true
+        && $bounded_second['cursor'] === array( 'entry' => 'b-between.jsonl' ),
+    'FileSink bounded cleanup should resume after a filename cursor in lexicographic order.'
+);
+$bounded_third = FileSink::delete_matching_files(
+    $bounded_dir,
+    function ( $entry ) {
+        return substr( $entry, -6 ) === '.jsonl';
+    },
+    null,
+    array( 'dry_run' => true, 'limit' => 1, 'cursor' => $bounded_second['cursor'] )
+);
+eforms_test_assert(
+    $bounded_third['scanned'] === 1
+        && $bounded_third['cursor'] === array( 'entry' => 'm-middle.jsonl' ),
+    'FileSink bounded cleanup should keep later lexicographic pages reachable after inserting a middle page.'
+);
+
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();
 Logging::reset_for_tests();
 JsonlLogger::reset_for_tests();
 eforms_test_remove_tree( $race_dir );
+eforms_test_remove_tree( $bounded_dir );
 eforms_test_remove_tree( $uploads_dir );

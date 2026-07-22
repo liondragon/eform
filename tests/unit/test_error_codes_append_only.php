@@ -48,6 +48,10 @@ $baseline = array(
     'EFORMS_FINFO_UNAVAILABLE',
     'EFORMS_LEDGER_IO',
     'EFORMS_RESERVE',
+    'EFORMS_ERR_FIELD_REQUIRED',
+    'EFORMS_ERR_ONE_OF_REQUIRED',
+    'EFORMS_ERR_FIELD_INVALID',
+    'EFORMS_ERR_MUTUALLY_EXCLUSIVE',
 );
 
 eforms_test_assert( is_array( ErrorCodes::ALL ), 'ErrorCodes::ALL should be an array.' );
@@ -58,6 +62,10 @@ eforms_test_assert( count( $unique ) === count( ErrorCodes::ALL ), 'ErrorCodes::
 foreach ( $baseline as $code ) {
     eforms_test_assert( ErrorCodes::is_known( $code ), 'Missing stable code: ' . $code );
 }
+eforms_test_assert(
+    array_slice( ErrorCodes::ALL, 0, count( $baseline ) ) === $baseline,
+    'ErrorCodes::ALL must preserve the existing stable code order as an append-only prefix.'
+);
 
 $email_send_message = ErrorMessages::message( 'EFORMS_ERR_EMAIL_SEND' );
 eforms_test_assert( $email_send_message === ErrorMessages::EMAIL_SEND, 'ErrorMessages should own email failure copy.' );
@@ -129,3 +137,4 @@ $field_only->add_field( 'email', 'EFORMS_ERR_SCHEMA_TYPE' );
 eforms_test_assert( Errors::first_code( $field_only ) === 'EFORMS_ERR_SCHEMA_TYPE', 'First-code selection should fall back to the first field error.' );
 eforms_test_assert( Errors::first_code( $field_only->to_array() ) === 'EFORMS_ERR_SCHEMA_TYPE', 'First-code selection should accept the canonical exported shape.' );
 eforms_test_assert( Errors::first_code( null ) === 'EFORMS_ERR_SCHEMA_OBJECT', 'First-code selection should use the stable schema fallback for malformed input.' );
+eforms_test_assert( eforms_error_message( 'EFORMS_ERR_MUTUALLY_EXCLUSIVE' ) === 'Please provide only one of these fields.', 'Mutual-exclusion global errors should use global public copy.' );

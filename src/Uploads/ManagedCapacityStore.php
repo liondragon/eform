@@ -6,6 +6,7 @@
  * lock ordering. This collaborator owns only the capacity record itself.
  */
 
+require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Security/Entropy.php';
 
 final class ManagedCapacityStore {
@@ -39,6 +40,7 @@ final class ManagedCapacityStore {
                 'version' => (int) $version,
                 'total_bytes' => 0,
                 'reservations' => array(),
+                'releases' => array(),
                 'updated_at' => $now === null ? time() : (int) $now,
             );
         }
@@ -48,11 +50,12 @@ final class ManagedCapacityStore {
         $json = @file_get_contents( $path );
         $record = is_string( $json ) && $json !== '' ? json_decode( $json, true ) : null;
         if ( ! is_array( $record )
-            || ! isset( $record['version'], $record['total_bytes'], $record['reservations'] )
+            || ! isset( $record['version'], $record['total_bytes'], $record['reservations'], $record['releases'] )
             || (int) $record['version'] !== (int) $version
             || ! is_int( $record['total_bytes'] )
             || $record['total_bytes'] < 0
             || ! is_array( $record['reservations'] )
+            || ! is_array( $record['releases'] )
         ) {
             return null;
         }
@@ -64,12 +67,38 @@ final class ManagedCapacityStore {
                 || ! is_string( $reservation['upload_id'] )
                 || ! is_int( $reservation['bytes'] )
                 || $reservation['bytes'] < 0
+                || ! isset( $reservation['transient_bytes'] )
+                || ! is_int( $reservation['transient_bytes'] )
+                || $reservation['transient_bytes'] < 0
+                || ! isset( $reservation['artifact_store'] )
+                || ! in_array( $reservation['artifact_store'], array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, FormProtocol::UPLOAD_TRANSPORT_WORKER ), true )
+                || ! isset( $reservation['artifact_store_identity'] )
+                || ! self::valid_store_identity( $reservation['artifact_store'], $reservation['artifact_store_identity'] )
+                || ! isset( $reservation['cleanup_started'] )
+                || ! is_bool( $reservation['cleanup_started'] )
+                || ! isset( $reservation['object_key'] )
+                || ! is_string( $reservation['object_key'] )
+                || $reservation['object_key'] === ''
                 || ! is_int( $reservation['created_at'] )
                 || $reserved_total > PHP_INT_MAX - $reservation['bytes']
             ) {
                 return null;
             }
             $reserved_total += $reservation['bytes'];
+        }
+        foreach ( $record['releases'] as $batch_id => $release ) {
+            if ( ! is_string( $batch_id )
+                || preg_match( FormProtocol::upload_batch_id_pattern(), $batch_id ) !== 1
+                || ! is_array( $release )
+                || array_keys( $release ) !== array( 'bytes', 'artifact_store', 'artifact_store_identity', 'created_at' )
+                || ! is_int( $release['bytes'] )
+                || $release['bytes'] < 0
+                || $release['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+                || ! self::valid_store_identity( $release['artifact_store'], $release['artifact_store_identity'] )
+                || ! is_int( $release['created_at'] )
+            ) {
+                return null;
+            }
         }
         return $reserved_total <= $record['total_bytes'] ? $record : null;
     }
@@ -103,8 +132,18 @@ final class ManagedCapacityStore {
         return @chmod( $path, 0600 );
     }
 
-    public static function reserve( $record, $reservation_id, $attempt_id, $batch_id, $upload_id, $bytes, $free_bytes, $minimum_free_bytes, $maximum_bytes, $source_bytes, $now ) {
-        if ( ! is_string( $attempt_id ) || $attempt_id === '' ) {
+    public static function reserve( $record, $reservation_id, $intent_id, $object_key, $batch_id, $upload_id, $bytes, $free_bytes, $minimum_free_bytes, $maximum_bytes, $transient_bytes, $now, $artifact_store, $artifact_store_identity, $materialized_transient_bytes = 0 ) {
+        if ( ! is_string( $intent_id )
+            || $intent_id === ''
+            || ! is_string( $object_key )
+            || $object_key === ''
+            || ! is_int( $transient_bytes )
+            || $transient_bytes < 0
+            || ! is_int( $materialized_transient_bytes )
+            || ( $materialized_transient_bytes !== 0 && $materialized_transient_bytes !== $transient_bytes )
+            || ! in_array( $artifact_store, array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, FormProtocol::UPLOAD_TRANSPORT_WORKER ), true )
+            || ! self::valid_store_identity( $artifact_store, $artifact_store_identity )
+        ) {
             return array( 'ok' => false, 'reason' => 'capacity_reservation_conflict' );
         }
         $reusing = false;
@@ -114,27 +153,48 @@ final class ManagedCapacityStore {
                 || $existing['batch_id'] !== $batch_id
                 || $existing['upload_id'] !== $upload_id
                 || (int) $existing['bytes'] !== (int) $bytes
+                || ! isset( $existing['intent_id'] )
+                || ! is_string( $existing['intent_id'] )
+                || ! hash_equals( $existing['intent_id'], $intent_id )
+                || ! isset( $existing['object_key'] )
+                || ! is_string( $existing['object_key'] )
+                || ! hash_equals( $existing['object_key'], $object_key )
+                || ! isset( $existing['transient_bytes'] )
+                || $existing['transient_bytes'] !== $transient_bytes
+                || ! isset( $existing['artifact_store'] )
+                || $existing['artifact_store'] !== $artifact_store
+                || ! isset( $existing['artifact_store_identity'] )
+                || ! hash_equals( $existing['artifact_store_identity'], $artifact_store_identity )
+                || ! empty( $existing['cleanup_started'] )
             ) {
                 return array( 'ok' => false, 'reason' => 'capacity_reservation_conflict' );
             }
             $reusing = true;
+        } elseif ( $materialized_transient_bytes !== 0 ) {
+            return array( 'ok' => false, 'reason' => 'capacity_reservation_conflict' );
         }
         if ( ! $reusing && $record['total_bytes'] > (int) $maximum_bytes - (int) $bytes ) {
             return array( 'ok' => false, 'reason' => 'managed_capacity_exceeded' );
         }
-        $outstanding = 0;
-        foreach ( $record['reservations'] as $reservation ) {
-            if ( $outstanding > PHP_INT_MAX - $reservation['bytes'] ) {
-                return array( 'ok' => false, 'reason' => 'capacity_invalid' );
-            }
-            $outstanding += $reservation['bytes'];
-        }
-        $additional_reservation = $reusing ? 0 : (int) $bytes;
-        if ( $outstanding > PHP_INT_MAX - $additional_reservation || $outstanding + $additional_reservation > PHP_INT_MAX - (int) $source_bytes ) {
+        $outstanding = self::local_outstanding_allocation_bytes( $record );
+        if ( $outstanding === null ) {
             return array( 'ok' => false, 'reason' => 'capacity_invalid' );
         }
-        $projected = $outstanding + $additional_reservation + (int) $source_bytes;
-        if ( $free_bytes === null || $free_bytes < $projected || $free_bytes - $projected < (int) $minimum_free_bytes ) {
+        if ( (int) $bytes > PHP_INT_MAX - $transient_bytes ) {
+            return array( 'ok' => false, 'reason' => 'capacity_invalid' );
+        }
+        $additional_claim = $reusing || $artifact_store !== FormProtocol::UPLOAD_TRANSPORT_LOCAL
+            ? 0
+            : (int) $bytes + $transient_bytes;
+        if ( $outstanding > PHP_INT_MAX - $additional_claim ) {
+            return array( 'ok' => false, 'reason' => 'capacity_invalid' );
+        }
+        $projected = $outstanding
+            - ( $reusing && $artifact_store === FormProtocol::UPLOAD_TRANSPORT_LOCAL ? $materialized_transient_bytes : 0 )
+            + $additional_claim;
+        if ( $artifact_store === FormProtocol::UPLOAD_TRANSPORT_LOCAL
+            && ( $free_bytes === null || $free_bytes < $projected || $free_bytes - $projected < (int) $minimum_free_bytes )
+        ) {
             return array( 'ok' => false, 'reason' => $free_bytes === null ? 'free_space_unavailable' : 'free_space_reserve' );
         }
 
@@ -145,35 +205,80 @@ final class ManagedCapacityStore {
             'batch_id' => $batch_id,
             'upload_id' => $upload_id,
             'bytes' => (int) $bytes,
+            'transient_bytes' => $transient_bytes,
+            'artifact_store' => $artifact_store,
+            'artifact_store_identity' => $artifact_store_identity,
+            'cleanup_started' => false,
             'created_at' => (int) $now,
-            'attempt_id' => $attempt_id,
+            'intent_id' => $intent_id,
+            'object_key' => $object_key,
         );
         $record['updated_at'] = (int) $now;
         return array( 'ok' => true, 'record' => $record );
     }
 
-    public static function finish( $record, $reservation_id, $attempt_id, $actual_bytes, $now ) {
-        if ( ! isset( $record['reservations'][ $reservation_id ] ) ) {
-            return $record;
+    public static function local_outstanding_allocation_bytes( $record ) {
+        if ( ! is_array( $record ) || ! isset( $record['reservations'] ) || ! is_array( $record['reservations'] ) ) {
+            return null;
         }
-        $reservation = $record['reservations'][ $reservation_id ];
-        if ( ! isset( $reservation['attempt_id'] )
-            || ! is_string( $reservation['attempt_id'] )
-            || ! is_string( $attempt_id )
-            || $attempt_id === ''
-            || ! hash_equals( $reservation['attempt_id'], $attempt_id )
-        ) {
-            return $record;
+        $outstanding = 0;
+        foreach ( $record['reservations'] as $reservation ) {
+            if ( ! is_array( $reservation )
+                || ! isset( $reservation['artifact_store'], $reservation['bytes'], $reservation['transient_bytes'] )
+            ) {
+                return null;
+            }
+            if ( $reservation['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_LOCAL ) {
+                continue;
+            }
+            if ( ! is_int( $reservation['bytes'] )
+                || ! is_int( $reservation['transient_bytes'] )
+                || $reservation['bytes'] < 0
+                || $reservation['transient_bytes'] < 0
+                || $reservation['bytes'] > PHP_INT_MAX - $reservation['transient_bytes']
+            ) {
+                return null;
+            }
+            $claim = $reservation['bytes'] + $reservation['transient_bytes'];
+            if ( $outstanding > PHP_INT_MAX - $claim ) {
+                return null;
+            }
+            $outstanding += $claim;
         }
-        return self::settle( $record, $reservation_id, $actual_bytes, $now );
+        return $outstanding;
     }
 
-    public static function finish_committed( $record, $reservation_id, $batch_id, $upload_id, $actual_bytes, $now ) {
+    public static function matches_intent_reservation( $record, $reservation_id, $intent_id, $object_key, $batch_id, $upload_id, $bytes, $created_at, $artifact_store, $artifact_store_identity ) {
+        if ( ! is_array( $record ) || ! isset( $record['reservations'][ $reservation_id ] ) || ! is_array( $record['reservations'][ $reservation_id ] ) ) {
+            return false;
+        }
+        $reservation = $record['reservations'][ $reservation_id ];
+        return isset( $reservation['intent_id'], $reservation['object_key'], $reservation['batch_id'], $reservation['upload_id'], $reservation['bytes'], $reservation['created_at'], $reservation['artifact_store'], $reservation['artifact_store_identity'], $reservation['cleanup_started'] )
+            && is_string( $reservation['intent_id'] )
+            && hash_equals( $reservation['intent_id'], $intent_id )
+            && is_string( $reservation['object_key'] )
+            && hash_equals( $reservation['object_key'], $object_key )
+            && $reservation['batch_id'] === $batch_id
+            && $reservation['upload_id'] === $upload_id
+            && $reservation['bytes'] === $bytes
+            && $reservation['created_at'] === $created_at
+            && $reservation['artifact_store'] === $artifact_store
+            && is_string( $artifact_store_identity )
+            && hash_equals( $reservation['artifact_store_identity'], $artifact_store_identity )
+            && $reservation['cleanup_started'] === false;
+    }
+
+    public static function finish_committed( $record, $reservation_id, $batch_id, $upload_id, $object_key, $actual_bytes, $now ) {
         if ( ! isset( $record['reservations'][ $reservation_id ] ) ) {
             return $record;
         }
         $reservation = $record['reservations'][ $reservation_id ];
-        if ( $reservation['batch_id'] !== $batch_id || $reservation['upload_id'] !== $upload_id ) {
+        if ( $reservation['batch_id'] !== $batch_id
+            || $reservation['upload_id'] !== $upload_id
+            || ! is_string( $object_key )
+            || $object_key === ''
+            || ! hash_equals( $reservation['object_key'], $object_key )
+        ) {
             return null;
         }
         return self::settle( $record, $reservation_id, $actual_bytes, $now );
@@ -194,12 +299,28 @@ final class ManagedCapacityStore {
         return $record;
     }
 
-    public static function prepare_item_release( $record, $batch_id, $upload_id, $bytes, $created_at, $create_if_missing, $now ) {
+    public static function prepare_item_release( $record, $batch_id, $upload_id, $bytes, $object_key, $created_at, $create_if_missing, $now, $artifact_store, $artifact_store_identity ) {
+        if ( ! is_string( $object_key )
+            || ( (int) $bytes > 0 && $object_key === '' )
+            || ! in_array( $artifact_store, array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, FormProtocol::UPLOAD_TRANSPORT_WORKER ), true )
+            || ! self::valid_store_identity( $artifact_store, $artifact_store_identity )
+        ) {
+            return array( 'ok' => false, 'reason' => 'capacity_reservation_conflict' );
+        }
         $matching = 0;
         foreach ( $record['reservations'] as $reservation ) {
             if ( $reservation['batch_id'] === $batch_id && $reservation['upload_id'] === $upload_id ) {
                 $matching++;
+                if ( ! hash_equals( $reservation['object_key'], $object_key )
+                    || $reservation['artifact_store'] !== $artifact_store
+                    || ! hash_equals( $reservation['artifact_store_identity'], $artifact_store_identity )
+                ) {
+                    return array( 'ok' => false, 'reason' => 'capacity_reservation_conflict' );
+                }
             }
+        }
+        if ( $matching > 1 ) {
+            return array( 'ok' => false, 'reason' => 'capacity_reservation_conflict' );
         }
 
         $changed = false;
@@ -212,6 +333,11 @@ final class ManagedCapacityStore {
                 'batch_id' => $batch_id,
                 'upload_id' => $upload_id,
                 'bytes' => (int) $bytes,
+                'transient_bytes' => 0,
+                'artifact_store' => $artifact_store,
+                'artifact_store_identity' => $artifact_store_identity,
+                'cleanup_started' => false,
+                'object_key' => $object_key,
                 'created_at' => (int) $created_at,
             );
             $record['updated_at'] = (int) $now;
@@ -256,7 +382,7 @@ final class ManagedCapacityStore {
         );
     }
 
-    public static function release_aggregate( $record, $batch_id, $manifest_bytes, $attributed_bytes, $missing_tombstone_bytes, $now ) {
+    public static function release_aggregate( $record, $batch_id, $manifest_bytes, $attributed_bytes, $already_released_bytes, $now ) {
         $reservation_bytes = 0;
         $reserved_item_bytes = 0;
         $reserved_items = array();
@@ -282,19 +408,19 @@ final class ManagedCapacityStore {
             $reserved_items[ $upload_id ] = true;
         }
 
-        $ambiguous_tombstone_bytes = 0;
-        foreach ( array_diff_key( $missing_tombstone_bytes, $reserved_items ) as $bytes ) {
-            if ( $ambiguous_tombstone_bytes > PHP_INT_MAX - $bytes ) {
+        $unreserved_released_bytes = 0;
+        foreach ( array_diff_key( $already_released_bytes, $reserved_items ) as $bytes ) {
+            if ( $unreserved_released_bytes > PHP_INT_MAX - $bytes ) {
                 return array( 'ok' => false, 'reason' => 'capacity_invalid' );
             }
-            $ambiguous_tombstone_bytes += $bytes;
+            $unreserved_released_bytes += $bytes;
         }
         if ( $reserved_item_bytes > (int) $manifest_bytes
-            || (int) $manifest_bytes - $reserved_item_bytes < $ambiguous_tombstone_bytes
+            || (int) $manifest_bytes - $reserved_item_bytes < $unreserved_released_bytes
         ) {
             return array( 'ok' => false, 'reason' => 'capacity_invalid' );
         }
-        $base_release = (int) $manifest_bytes - $reserved_item_bytes - $ambiguous_tombstone_bytes;
+        $base_release = (int) $manifest_bytes - $reserved_item_bytes - $unreserved_released_bytes;
         if ( $base_release > PHP_INT_MAX - $reservation_bytes ) {
             return array( 'ok' => false, 'reason' => 'capacity_invalid' );
         }
@@ -313,38 +439,114 @@ final class ManagedCapacityStore {
         );
     }
 
-    public static function source_bytes_on_managed_filesystem( $source_path, $private_dir, $source_bytes ) {
-        $source_stat = is_string( $source_path ) && $source_path !== '' ? @stat( $source_path ) : false;
-        $private_stat = @stat( $private_dir );
-        return is_array( $source_stat )
-            && is_array( $private_stat )
-            && isset( $source_stat['dev'], $private_stat['dev'] )
-            && $source_stat['dev'] === $private_stat['dev']
-            ? max( 0, (int) $source_bytes )
-            : 0;
+    public static function release_remote_aggregate_once( $record, $batch_id, $manifest_bytes, $attributed_bytes, $already_released_bytes, $artifact_store_identity, $now ) {
+        if ( ! self::valid_store_identity( FormProtocol::UPLOAD_TRANSPORT_WORKER, $artifact_store_identity ) ) {
+            return array( 'ok' => false, 'reason' => 'capacity_invalid' );
+        }
+        if ( isset( $record['releases'][ $batch_id ] ) ) {
+            $release = $record['releases'][ $batch_id ];
+            return $release['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER
+                && hash_equals( $release['artifact_store_identity'], $artifact_store_identity )
+                    ? array( 'ok' => true, 'record' => $record, 'released_bytes' => $release['bytes'], 'changed' => false )
+                    : array( 'ok' => false, 'reason' => 'capacity_invalid' );
+        }
+        $released = self::release_aggregate(
+            $record,
+            $batch_id,
+            $manifest_bytes,
+            $attributed_bytes,
+            $already_released_bytes,
+            $now
+        );
+        if ( empty( $released['ok'] ) ) {
+            return $released;
+        }
+        $released['record']['releases'][ $batch_id ] = array(
+            'bytes' => (int) $released['released_bytes'],
+            'artifact_store' => FormProtocol::UPLOAD_TRANSPORT_WORKER,
+            'artifact_store_identity' => $artifact_store_identity,
+            'created_at' => (int) $now,
+        );
+        $released['changed'] = true;
+        return $released;
     }
 
-    public static function health( $record, $file_bytes, $committed, $orphaned ) {
-        $reserved_bytes = 0;
-        foreach ( $record['reservations'] as $reservation ) {
-            if ( $reserved_bytes > PHP_INT_MAX - $reservation['bytes'] ) {
-                return null;
-            }
-            $reserved_bytes += $reservation['bytes'];
+    public static function finish_remote_aggregate_release( $record, $batch_id, $artifact_store_identity, $now ) {
+        if ( ! isset( $record['releases'][ $batch_id ] ) ) {
+            return $record;
         }
-        $committed_bytes = array_sum( $committed );
-        $orphaned_bytes = array_sum( $orphaned );
-        $materialized_bytes = $committed_bytes + $orphaned_bytes;
-        return array(
-            'total_bytes' => $record['total_bytes'],
-            'file_bytes' => $file_bytes,
-            'reserved_bytes' => $reserved_bytes,
-            'committing_bytes' => $materialized_bytes,
-            'orphaned_bytes' => $orphaned_bytes,
-            'consistent' => $materialized_bytes <= $file_bytes
-                && $file_bytes - $materialized_bytes <= PHP_INT_MAX - $reserved_bytes
-                && $record['total_bytes'] === $file_bytes - $materialized_bytes + $reserved_bytes,
-        );
+        $release = $record['releases'][ $batch_id ];
+        if ( $release['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || ! is_string( $artifact_store_identity )
+            || ! hash_equals( $release['artifact_store_identity'], $artifact_store_identity )
+        ) {
+            return null;
+        }
+        unset( $record['releases'][ $batch_id ] );
+        $record['updated_at'] = (int) $now;
+        return $record;
+    }
+
+    public static function begin_remote_reservation_cleanup( $record, $reservation_id, $artifact_store_identity, $now ) {
+        if ( ! isset( $record['reservations'][ $reservation_id ] ) ) {
+            return null;
+        }
+        $reservation = $record['reservations'][ $reservation_id ];
+        if ( $reservation['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || ! is_string( $artifact_store_identity )
+            || ! hash_equals( $reservation['artifact_store_identity'], $artifact_store_identity )
+        ) {
+            return null;
+        }
+        $record['reservations'][ $reservation_id ]['cleanup_started'] = true;
+        $record['updated_at'] = (int) $now;
+        return $record;
+    }
+
+    public static function finish_remote_reservation_cleanup( $record, $reservation_id, $artifact_store_identity, $now ) {
+        if ( ! isset( $record['reservations'][ $reservation_id ] ) ) {
+            return null;
+        }
+        $reservation = $record['reservations'][ $reservation_id ];
+        if ( $reservation['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || empty( $reservation['cleanup_started'] )
+            || ! is_string( $artifact_store_identity )
+            || ! hash_equals( $reservation['artifact_store_identity'], $artifact_store_identity )
+            || $record['total_bytes'] < $reservation['bytes']
+        ) {
+            return null;
+        }
+        unset( $record['reservations'][ $reservation_id ] );
+        $record['total_bytes'] -= $reservation['bytes'];
+        $record['updated_at'] = (int) $now;
+        return $record;
+    }
+
+    public static function remote_reservation_matches( $reservation, $authority ) {
+        if ( ! is_array( $reservation ) || ! is_array( $authority ) ) {
+            return false;
+        }
+        return isset(
+            $reservation['batch_id'],
+            $reservation['upload_id'],
+            $reservation['bytes'],
+            $reservation['transient_bytes'],
+            $reservation['artifact_store'],
+            $reservation['artifact_store_identity'],
+            $reservation['object_key'],
+            $authority['batch_id'],
+            $authority['upload_id'],
+            $authority['bytes'],
+            $authority['artifact_store_identity'],
+            $authority['object_key']
+        )
+            && $reservation['batch_id'] === $authority['batch_id']
+            && $reservation['upload_id'] === $authority['upload_id']
+            && $reservation['bytes'] === $authority['bytes']
+            && $reservation['transient_bytes'] === 0
+            && $reservation['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER
+            && hash_equals( $reservation['artifact_store_identity'], $authority['artifact_store_identity'] )
+            && hash_equals( $reservation['object_key'], $authority['object_key'] );
     }
 
     public static function reconcile( $record, $committed, $orphaned, $file_bytes, $stale_before, $now ) {
@@ -373,5 +575,15 @@ final class ManagedCapacityStore {
         $record['total_bytes'] = $file_bytes - $orphaned_file_bytes + $reserved_bytes;
         $record['updated_at'] = (int) $now;
         return $record;
+    }
+
+    private static function valid_store_identity( $artifact_store, $identity ) {
+        if ( ! is_string( $identity ) ) {
+            return false;
+        }
+        return $artifact_store === FormProtocol::UPLOAD_TRANSPORT_LOCAL
+            ? $identity === 'local'
+            : ( $artifact_store === FormProtocol::UPLOAD_TRANSPORT_WORKER
+                && preg_match( '/^[a-f0-9]{64}$/D', $identity ) === 1 );
     }
 }

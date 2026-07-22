@@ -7,9 +7,9 @@
     "form_id": "virtual-quote",
     "instance_id": "instance-fixture-1",
     "field_key": "project_photos",
-    "policy_json": "{\"accept\":[\"image\"],\"max_file_bytes\":20971520,\"max_files\":24,\"max_total_bytes\":314572800,\"upload_mode\":\"staged\"}",
-    "policy_fingerprint": "ccbc2b0a90b861608c23efd497b782355ef0bd305cc60427e77039088cf72532",
-    "expected": "5e1cTCrFgHMC_zzjhfT9FgKTLbR6HxAo2oWCvsrYu9U"
+    "policy_json": "{\"accept\":[\"image\"],\"max_file_bytes\":18874368,\"max_files\":24,\"max_total_bytes\":314572800,\"upload_mode\":\"staged\"}",
+    "policy_fingerprint": "1a6053061062fdd44b49f3cb1940c99103a9575405790cdbd417d11b2a92e975",
+    "expected": "wwI-Pb508vu7ZfEWAhfoHhjVi5AvZgWnChbtwh-DUWo"
   },
   "credentials": {
     "header": "X-EForms-Batch-Secret",
@@ -18,20 +18,23 @@
     "batch_secret": "batch_secret"
   },
   "managed_manifest": {
-    "version": 2,
-    "aggregate_byte_fields": ["source_bytes", "managed_bytes"],
-    "item_fields": ["upload_id", "ordinal", "source_display_name", "source_bytes", "source_mime", "source_width", "source_height", "source_sha256", "master_relpath", "master_bytes", "master_width", "master_height", "master_sha256", "preview_relpath", "preview_bytes", "preview_width", "preview_height", "preview_sha256", "managed_bytes", "created_at"],
-    "tombstone_artifact_fields": ["master_relpath", "preview_relpath"],
-    "variants": ["preview", "master"],
-    "filenames": { "master": "master.jpg", "preview": "preview.jpg" }
+    "version": 5,
+    "artifact_store_field": "artifact_store",
+    "artifact_store_identity_field": "artifact_store_identity",
+    "aggregate_byte_fields": ["artifact_bytes"],
+    "intent_fields": ["intent_id", "upload_id", "ordinal", "display_name", "declared_bytes", "declared_mime", "object_key", "policy_fingerprint", "created_at", "expires_at", "reserved_bytes"],
+    "item_fields": ["upload_id", "ordinal", "display_name", "bytes", "mime", "width", "height", "object_key", "object_version", "accepted_at"],
+    "tombstone_artifact_fields": ["object_key", "object_version", "bytes"]
   },
   "production_readiness": {
     "throttle_enable": true,
-    "staged_backend": "imagick"
+    "staged_backend": "authoritative-artifact"
   },
   "anchors": {
-    "MANAGED_UPLOAD_MAX_BYTES": 53687091200,
+    "MANAGED_OBJECT_MAX_BYTES": 53687091200,
     "MANAGED_UPLOAD_MIN_FREE_BYTES": 10737418240,
+    "MANAGED_UPLOAD_INTENT_TTL_SECONDS": 3600,
+    "MANAGED_ORPHAN_CLEANUP_GRACE_SECONDS": 3600,
     "MANAGED_STAGED_DELETE_GRACE_SECONDS": 86400,
     "MANAGED_FINALIZED_TTL_SECONDS": 2592000,
     "MANAGED_BATCH_ID_CHARS": 43,
@@ -40,22 +43,13 @@
     "MANAGED_UPLOAD_ID_BYTES": 16,
     "MANAGED_UPLOAD_CONCURRENCY": 3,
     "MANAGED_DISPLAY_NAME_MAX_CHARS": 128,
-    "STAGED_IMAGE_MAX_PIXELS": 60000000,
-    "STAGED_IMAGE_MAX_EDGE": 12000,
-    "STAGED_MULTIPART_OVERHEAD_BYTES": 1048576,
-    "STAGED_MASTER_MAX_EDGE": 4096,
-    "STAGED_MASTER_MAX_BYTES": 8388608,
-    "STAGED_MASTER_JPEG_QUALITY_INITIAL": 88,
-    "STAGED_MASTER_JPEG_QUALITY_STEP": 4,
-    "STAGED_MASTER_EDGE_STEP": 512,
-    "STAGED_MASTER_MAX_ATTEMPTS": 5,
-    "STAGED_PREVIEW_MAX_EDGE": 1600,
-    "STAGED_PREVIEW_MAX_BYTES": 2097152,
-    "STAGED_PREVIEW_JPEG_QUALITY_INITIAL": 82,
-    "STAGED_PREVIEW_JPEG_QUALITY_STEP": 4,
-    "STAGED_PREVIEW_EDGE_STEP": 160,
-    "STAGED_PREVIEW_MAX_ATTEMPTS": 5,
-    "STAGED_IMAGE_MIN_MEMORY_BYTES": 805306368,
-    "STAGED_IMAGE_MIN_EXECUTION_SECONDS": 60
+    "MANAGED_ARTIFACT_MAX_BYTES": 18874368,
+    "MANAGED_ARTIFACT_MAX_PIXELS": 60000000,
+    "MANAGED_ARTIFACT_MAX_EDGE": 12000,
+    "MANAGED_HEIF_MAX_BOXES": 4096,
+    "MANAGED_HEIF_MAX_ASSOCIATION_ENTRIES": 4096,
+    "MANAGED_HEIF_MAX_ASSOCIATIONS": 4096,
+    "WORKER_SECONDARY_KEY_RETENTION_SECONDS": 3600,
+    "STAGED_MULTIPART_OVERHEAD_BYTES": 1048576
   }
 }

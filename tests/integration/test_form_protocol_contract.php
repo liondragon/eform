@@ -115,12 +115,72 @@ $protocol = eforms_protocol_test_extract_protocol_settings( $GLOBALS['eforms_tes
 eforms_test_assert( $protocol === FormProtocol::browser_settings(), 'Browser protocol settings should match FormProtocol.' );
 eforms_test_assert( FormProtocol::UPLOAD_BATCH_PARAM === 'batch_id', 'FormProtocol should own the managed batch route parameter.' );
 eforms_test_assert( FormProtocol::UPLOAD_ITEM_PARAM === 'upload_id', 'FormProtocol should own the managed item route parameter.' );
+eforms_test_assert( FormProtocol::HEADER_ENHANCED_RESPONSE === 'X-EForms-Response' && FormProtocol::ENHANCED_RESPONSE_JSON === 'json', 'FormProtocol should own exact enhanced-response negotiation.' );
+eforms_test_assert(
+    FormProtocol::RESPONSE_OK === 'ok'
+        && FormProtocol::RESPONSE_LOCATION === 'location'
+        && FormProtocol::RESPONSE_ERRORS === 'errors'
+        && FormProtocol::RESPONSE_ERROR === 'error'
+        && FormProtocol::RESPONSE_CAN_RETRY === 'can_retry'
+        && FormProtocol::RESPONSE_UPLOAD_RECOVERY === 'upload_recovery'
+        && FormProtocol::RESPONSE_CHALLENGE === 'challenge'
+        && FormProtocol::RESPONSE_CHALLENGE_PROVIDER === 'provider'
+        && FormProtocol::RESPONSE_CHALLENGE_SITE_KEY === 'site_key',
+    'FormProtocol should own enhanced response envelope names.'
+);
+eforms_test_assert(
+    $protocol['dataAttributes']['field_key'] === FormProtocol::DATA_FIELD_KEY
+        && $protocol['dataAttributes']['field_control'] === FormProtocol::DATA_FIELD_CONTROL
+        && $protocol['dataAttributes']['field_error_mount'] === FormProtocol::DATA_FIELD_ERROR_MOUNT
+        && $protocol['dataAttributes']['phone_format'] === FormProtocol::DATA_PHONE_FORMAT
+        && $protocol['dataAttributes']['zip_format'] === FormProtocol::DATA_ZIP_FORMAT
+        && $protocol['dataAttributes']['integer_format'] === FormProtocol::DATA_INTEGER_FORMAT
+        && $protocol['dataAttributes']['url_normalize'] === FormProtocol::DATA_URL_NORMALIZE
+        && $protocol['dataAttributes']['challenge_mount'] === FormProtocol::DATA_CHALLENGE_MOUNT,
+    'Browser protocol settings should expose renderer-owned recovery mounts.'
+);
+$challenge_metadata = Challenge::public_metadata(
+    array(
+        'challenge' => array(
+            'provider' => 'turnstile',
+            'site_key' => 'site-key-123',
+            'secret_key' => 'secret-key-123',
+        ),
+    )
+);
+eforms_test_assert(
+    $challenge_metadata === array(
+        FormProtocol::RESPONSE_CHALLENGE_PROVIDER => 'turnstile',
+        FormProtocol::RESPONSE_CHALLENGE_SITE_KEY => 'site-key-123',
+        FormProtocol::CHALLENGE_SCRIPT_URL => Challenge::TURNSTILE_SCRIPT_URL,
+    ),
+    'Challenge should own the complete public provider metadata without exposing its secret.'
+);
 eforms_test_assert(
     $protocol['upload']['runtime'] === FormProtocol::upload_runtime()
         && $protocol['upload']['runtime']['batchSecretBytes'] === Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' )
         && $protocol['upload']['runtime']['uploadIdBytes'] === Anchors::get( 'MANAGED_UPLOAD_ID_BYTES' )
         && $protocol['upload']['runtime']['concurrency'] === Anchors::get( 'MANAGED_UPLOAD_CONCURRENCY' ),
     'Browser upload runtime bounds should come from Anchors through FormProtocol.'
+);
+eforms_test_assert(
+    ! isset( $protocol['upload']['clientPreparationModes'] )
+        && ! isset( $protocol['upload']['clientPreparationRecipe'] )
+        && FormProtocol::client_preparation_recipe()['slots'] === Anchors::get( 'CLIENT_PREPARATION_SLOTS' )
+        && FormProtocol::client_preparation_recipe()['exifMaxEntries'] === Anchors::get( 'CLIENT_PREPARATION_EXIF_MAX_ENTRIES' ),
+    'Optional preparation settings should not participate in the mandatory browser upload protocol.'
+);
+eforms_test_assert(
+    UploadPolicy::staged_extension_for_mime( 'image/jpeg' ) === 'jpg'
+        && UploadPolicy::staged_extension_for_mime( 'image/heif' ) === 'heif'
+        && UploadPolicy::staged_extension_for_mime( 'image/gif' ) === '',
+    'PHP review filenames should use the staged policy owner for canonical extensions.'
+);
+eforms_test_assert(
+    $protocol['upload']['mimeByExtension'] === UploadPolicy::staged_browser_mime_by_extension()
+        && $protocol['upload']['mimeByExtension']['heic'] === 'image/heic'
+        && $protocol['upload']['mimeByExtension']['heif'] === 'image/heif',
+    'Browser MIME declarations should be projected from the authoritative staged upload policy.'
 );
 
 // Given the mint endpoint receives the protocol-owned form param...

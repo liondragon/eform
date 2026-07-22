@@ -315,6 +315,7 @@ class SettingsFields {
                                 'Sets how many form requests one IP can make in a 60 second window before throttling starts.',
                                 'Lower values are stricter and can stop bursts sooner.',
                                 'Higher values are more forgiving for busy offices, shared networks, or testing.',
+                                'Staged uploads use one batch request plus two requests per image; wp eforms doctor reports the minimum required by active forms.',
                             ),
                         )
                     ),

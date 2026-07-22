@@ -36,7 +36,7 @@
       "type": "email",
       "label": "Email",
       "required": true,
-      "placeholder": "Your eMail",
+      "placeholder": "Email address",
       "autocomplete": "email"
     },
     {
@@ -58,7 +58,7 @@
       "type": "zip_us",
       "label": "Zip",
       "required": true,
-      "placeholder": "Project Zip Code",
+      "placeholder": "Project ZIP code",
       "autocomplete": "postal-code"
     },
     {
@@ -70,7 +70,7 @@
       "type": "textarea",
       "label": "Message",
       "required": true,
-      "placeholder": "Please describe your project and let us know if there is any urgency"
+      "placeholder": "Briefly describe your project and let us know if there is any urgency"
     }
   ],
   "submit_button_text": "Send Request"

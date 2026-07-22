@@ -8,7 +8,7 @@
 
 **Target Operators:** Solo developers and small ops teams managing a handful of WordPress sites with modest daily form volume. Operators are comfortable with JSON templates and WP-CLI, prefer lightweight tools over broad dashboards, and value cache-friendliness and operational simplicity.
 
-**Environment:** WordPress 5.8+ / PHP 8.0+ with writable uploads directory. Works on single-server setups out of the box; multi-webhead deployments require shared persistent storage for `${uploads.dir}` that all servers can access.
+**Environment:** WordPress 5.8+ / PHP 8.1+ with writable uploads directory. Works on single-server setups out of the box; multi-webhead deployments require shared persistent storage for `${uploads.dir}` that all servers can access.
 
 ## Core Concepts
 
@@ -22,16 +22,16 @@
 - **Ledger:** File-based duplicate prevention ensuring each token can only be used once. On successful submission, token marked as consumed—prevents accidental double-submissions (back button, refresh, retry) and replay attacks.
   - **Operator sees:** "This form was already submitted or has expired - please reload the page"
 
-- **Storage Hierarchy:** All runtime artifacts under `${uploads.dir}/eforms-private/` in protected directories:
+- **Storage Hierarchy:** Runtime artifacts are written under `${uploads.dir}/eforms-private/` in protected directories except explicitly configured Fail2ban emission:
   - `tokens/` — Minted token records (hidden and JS modes)
   - `ledger/{form_id}/` — One-time-use markers preventing duplicates
   - `uploads/` — Private file storage for submitted attachments
   - `staged/` — Open photo batches awaiting a valid submission
-  - `submissions/` — Finalized photo galleries retained for review
+  - `submissions/` — Finalized photo galleries and operator review snapshots retained for review
   - `throttle/` — Rate-limit tracking (when enabled)
   - `logs/` — Structured JSONL logs (when enabled)
   - `declined/` — Declined-review JSONL files (when explicitly enabled)
-  - `f2b/` — Fail2ban emission (when enabled)
+  - Fail2ban emission (when enabled) — configured by `logging.fail2ban.file`; relative paths resolve under `${uploads.dir}` and cannot contain `..`
   - Storage uses sharded subdirectories to handle scale efficiently.
 
 - **Lazy Loading:** Components initialize only when needed: configuration on first use, security during token operations, uploads when file fields present, email after validation, challenge when required, throttling when enabled.
@@ -40,11 +40,13 @@
 
 Templates are JSON files in `/templates/forms/{form_id}.json`. Operators define form structure, validation, and email delivery here.
 
-Photo-heavy forms may set a `files` field to `upload_mode: "staged"`. Its `image` accept token covers JPEG, PNG, WebP, HEIC, and HEIF photos while GIF remains rejected. The browser uploads photos as they are selected, shows progress and per-photo retry/removal, and submits only a private batch credential with the form. The server replaces each accepted source with a private normalized JPEG review master and preview. This mode requires JavaScript and enabled throttling; it never falls back to one large multipart form submission.
+Photo-heavy forms may set a `files` field to `upload_mode: "staged"`. Its `image` accept token covers JPEG, PNG, WebP, HEIC, and HEIF photos while GIF remains rejected. The browser uploads photos as they are selected, shows progress and per-photo retry/removal, and submits only a private batch credential with the form. A local deployment sends each item through WordPress; an explicitly bound Worker deployment sends photo bytes directly without WordPress cookies and returns signed facts for WordPress to commit. The accepted upload remains authoritative. Optional browser JPEG preparation is deployment-only and off by default; when enabled after device rollout checks, one photo at a time may show **Preparing photo...** before upload, while other uploads continue. Preparation failure keeps the original only when it is already within the upload limits. Operator previews are optional: local storage can remain download-only or use bounded lazy Imagick conversion, while Worker/R2 uses one private Cloudflare Images preview recipe. This mode requires JavaScript and enabled throttling; it never falls back between transports or to one large form submission.
 
-The shipped `virtual-estimate` template uses the staged image flow for up to 24 source photos, 20 MiB each and 300 MiB total, with no email attachments. Deploy that template only after every target webhead passes staged readiness and release review; until then, keep the production installation on its prior synchronous template.
+The shipped `virtual-estimate` template uses the staged image flow for up to 24 source photos, the effective server-capped per-photo limit, and 300 MiB total, with no email attachments. A submitted estimate may provide either photos or a listing URL; listing-only submissions remain email-only, while retained photo-backed submissions can show logged-in operators the lead details alongside the private photo gallery. Deploy that template only after every target webhead passes staged readiness and release review; until then, keep the production installation on its prior synchronous template.
 
-Staged mode also requires 64-bit PHP integers, PHP `fileinfo`, and Imagick able to decode every staged `image` format and encode JPEG. Effective PHP memory and execution time must meet the fixed staged-image readiness Anchors or be unlimited. PHP and web-server request limits must exceed the largest staged item plus multipart overhead. Only committed review masters, previews, and active derivative reservations count toward the fixed managed-capacity ceiling; free-space safety also includes a temporary source when it occupies that filesystem. Batch creation and upload attempts use the existing per-IP throttle; operators should tune its request rate for multi-photo forms and shared-IP traffic.
+Staged mode requires 64-bit PHP integers and protected writable aggregate storage. Local composition also requires PHP `fileinfo`, bounded image-header inspection, writable artifact storage, and request limits above one item plus multipart overhead. Worker composition requires explicit HTTPS endpoint, environment, and signing-key deployment constants; incomplete wiring fails before batch mutation and never falls back locally. Committed artifacts, reservations, and delete-pending objects count toward the fixed managed-capacity ceiling. Batch creation and upload attempts use the existing per-IP throttle.
+
+The accepted artifact may retain EXIF, GPS, color profiles, and other source metadata; private signed access does not constitute metadata removal. Operators must reflect that retention in their privacy notice and handling policy. Worker/R2 composition also makes Cloudflare R2 and Cloudflare Images data processors for photo content, so activation requires the applicable vendor agreement, region/transfer and retention posture, incident process, and processing disclosure.
 
 ### Template Shape
 
@@ -118,11 +120,11 @@ Templates may include a `rules` array for validation that depends on multiple fi
 | `required_if_any` | `{"rule":"required_if_any", "target":"discount_code", "fields":["type","membership"], "equals_any":["partner","gold"]}` | Discount code required if any field matches |
 | `required_unless` | `{"rule":"required_unless", "target":"email", "field":"phone", "equals":"provided"}` | Email required unless phone provided |
 | `matches` | `{"rule":"matches", "target":"confirm_email", "field":"email"}` | Confirm must equal email |
-| `one_of` | `{"rule":"one_of", "fields":["email","phone","fax"]}` | At least one contact method required |
+| `one_of` | `{"rule":"one_of", "fields":["email","phone"], "message":"Provide email or phone."}` | At least one listed field is required; `message` optionally replaces the generic global error |
 | `mutually_exclusive` | `{"rule":"mutually_exclusive", "fields":["credit_card","paypal"]}` | Cannot provide both |
 
 - Rules are evaluated in order; multiple violations reported together
-- `target` receives the error message when the rule triggers
+- Targeted rules attach errors to `target`; `one_of` attaches a global error and may provide its own `message`
 
 ### Telephone Display Format
 
@@ -180,13 +182,14 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 
 - **Health Check:** System runs FS health checks on render/post; failures surface as `EFORMS_ERR_STORAGE_UNAVAILABLE`
 - **Spam Smoke:** Settings -> eForms and `wp eforms spam-smoke` run the same focused local diagnostic for the shipped contact form. It confirms the main spam gates are reachable, including that `challenge.mode=auto` requires verification for a synthetic suspect request, and reports pass/fail without sending real email. It does not prove every real-world spam attempt will be blocked.
-- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, mail-format readiness, GC readiness, CLI bootstrap, config-source visibility, and challenge configuration readiness. Staged templates additionally require enabled throttling and sufficient image-editor, memory, execution-time, managed-capacity, and free-disk readiness. It reports observable readiness only; it cannot prove system cron is configured.
-- **Uninstall:** `uninstall.php` respects `install.uninstall.purge_*` flags in config to optionally wipe data
+- **Runtime Doctor:** Settings -> eForms and `wp eforms doctor` run the same active runtime health diagnostic for storage, templates, mail-format readiness, GC readiness, CLI bootstrap, config-source visibility, and challenge configuration readiness. Local staged storage verifies managed accounting and S1 free disk. Worker/R2 mode verifies manifest accounting plus a signed non-customer R2/Images data-plane operation; the separate operator command verifies the bucket lifecycle rule. It reports observable readiness only; it cannot prove system cron is configured.
+- **Uninstall:** `uninstall.php` respects `install.uninstall.purge_*` flags in config to optionally wipe data. Worker/R2 purge intentionally blocks the first deletion attempt, reports a UTC retry time after outstanding upload grants drain, and resumes exact remote cleanup on a later attempt; it never sleeps inside one WordPress request
 
 ### Admin Monitoring
 
 - **Settings → eForms:** Curated admin settings for declined review, email, logging, spam protection, challenge, throttle, and privacy, with routine rows focused on the editable control and config handles kept in setting help. Spam Protection groups blocked-content action and phrases together, then shows a read-only checks table so operators can see which built-in checks are active, soft-signal, hard-block, quiet, or off. Higher-priority drop-in/filter values appear as externally controlled rather than editable, with the controlling source shown inline. Secrets are masked; blank secret saves keep the stored admin value unless explicitly cleared.
 - **Tools → eForms Declined:** Declined-submission review table, shown only when `declined_review.enable=true` and available to administrators. It presents bounded submitted content for selected spam-review outcomes, rejection reasons, and request metadata so operators can spot false positives during rollout. Cleanup is normally retention-driven via `declined_review.retention_days` and `wp eforms gc`; administrators may also clear declined-review files older than a confirmed one-time day cutoff.
+- **Tools → eForms Submissions:** Admin-only list of currently retained photo-backed submissions. It is for finding retained photo galleries, not for all submitted leads, listing-only requests, deleted history, search/export, or CRM status.
 - These admin pages are not a form builder, template editor, raw config editor, quarantine, moderation queue, or resend workflow.
 
 ### Configuration
@@ -269,7 +272,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 - On spam-fail: Stealth success or generic error; logged with `spam_decision=fail` + `soft_reasons`
 - On content-filter suspect: Email is delivered with content-filter metadata; existing soft-signal threshold math does not turn this into rejection
 - On content-filter reject: The token is consumed and the submission is blocked before uploads move or email sends
-- On validation errors: Rerender with per-field messages + error summary (first invalid focused)
+- On validation errors: The HTML fallback rerenders with per-field messages + error summary (first invalid focused). A staged-photo form using the enhanced response keeps the current document, values, uploaded cards, and browser-local previews, then displays the same safe errors through the existing summary and inline-error regions.
 - **Signals collected:** `soft_reasons` array (`min_fill_time`, `age_advisory`, `honeypot_missing`, `js_missing`, `origin_soft`)
 
 #### 4. Challenge Verification (Optional; When Triggered)
@@ -299,7 +302,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
    - If already marked: treat as duplicate submission
    - On storage errors: hard fail with system error message
 3. **Upload finalization:** Move synchronous files or atomically claim and finalize a staged photo aggregate
-4. **Email send:** Render email template, attach eligible synchronous files, and replace staged photos with one time-limited private review link
+4. **Email send:** Render email template, attach eligible synchronous files, and replace staged photos with one private review link governed by the finalized submission availability
 5. **Log:** Record event (when logging enabled)
 
 **Operator sees:**
@@ -394,9 +397,11 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 - Caches tokens in `sessionStorage` by `form_id` for ordinary JS forms (reused on back/refresh until expiry); staged JS forms clear that cache and remint on a fresh render
 - Disables submit button + shows spinner during submission
 - Focuses error summary, then first invalid field after server rerenders with errors
-- Runs staged photo queues with additive selection, upload progress, server-processing status, retry/removal, and authenticated restoration after validation errors; restoration blocks picker interaction and submission until a complete status snapshot is applied, while transient failures retain credentials for an explicit retry
+- Runs one staged photo queue across the bound local or Worker transport with additive selection, upload progress, finishing status, retry/removal, and authenticated restoration after HTML validation rerenders; restoration blocks picker interaction and submission until a complete status snapshot is applied, while transient failures retain credentials for an explicit retry
 
-**Managed photo experience:** Desktop shows three compact photo cards per row and ordinary mobile shows two. Uploading shows determinate progress; 100% changes to Processing until the server confirms the item. Failed photos retain Retry and Remove. After the form token expires, upload and submission stop with a reload instruction. A signed email link opens a private read-only gallery for the fixed review lifetime; each photo offers a **High-resolution** JPEG master. Forwarded links grant the same temporary bearer access.
+**Enhanced staged-photo submission:** When the required browser capabilities and complete renderer protocol settings are available, `forms.js` submits the existing form with the negotiated response header. A correctable response retains the live form and uploaded cards, displays **Please fix the highlighted fields.**, focuses the existing error summary, and restores Send. A network, malformed, or unsafe-location response retains the same DOM, silently reconciles upload state through its authenticated status path, and shows only the next visitor action: **Your request couldn't be sent. Please try again.** when the existing Send button is safe to use, or reload-oriented terminal copy when it is not. Server failures restore Send only when the server-provided `can_retry` value allows it. Terminal token/ledger outcomes retain visible progress but block unsafe resubmission, while accepted and email-failure outcomes navigate once to their existing same-origin result page. This enhancement is limited to staged-photo forms; scalar-only forms and unsupported browsers retain the server-rendered fallback.
+
+**Managed photo experience:** Desktop shows three compact photo cards per row and ordinary mobile shows two. Uploading shows determinate progress; 100% changes to **Finishing upload...** until the server confirms the artifact. Failed photos retain Retry and Remove. After the form token expires, upload and submission stop with a reload instruction. A signed email link opens a private gallery while the finalized submission remains available. Each card requests one bounded preview when its deployment supports that capability and always keeps an authorized download control. A missing, busy, or failed preview shows **Preview unavailable** without changing submission success. Forwarded gallery links grant the same bearer photo access while available and may show only the project description and square footage; they do not show name, ZIP, email, phone, listing URL, or lead-management controls. Logged-in operators with `manage_options` can see the retained photo-backed lead context, update availability, or delete the whole submission and its photos from the signed gallery without granting mutation authority to visitors or forwarded anonymous links.
 
 **Mixed-mode pages:** Each form is handled independently. Hidden-mode forms without staged fields work without JS; JS-minted forms and every staged field require it.
 
@@ -434,14 +439,14 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 - **What:** Expired token records, ledger `.used` markers (conservative TTL + grace window), stale throttle files, old synchronous uploads, expired staged batches and finalized galleries, rotated logs
 - **When:** Operators schedule via system cron (plugin does not use WP-Cron)
 - **How:** Batch processing (time-boxed or count-boxed) to prevent timeouts; `gc.lock` prevents overlaps and persists the next family plus bounded per-family scan cursors between applying runs
-- **Operator sees:** Dry-run lists candidates and master/preview bytes by aggregate family without releasing capacity; normal mode emits deletion and released-capacity counts at `info` level
+- **Operator sees:** Dry-run lists candidates and authoritative artifact bytes by aggregate family without releasing capacity; normal mode emits deletion and released-capacity counts at `info` level
 - **Capacity repair:** `wp eforms gc --reconcile-capacity` performs the explicit full managed-file reconciliation scan; ordinary scheduled GC stays batch-bounded
 - **Scheduling boundary:** `wp eforms doctor` proves that a GC dry-run can access storage, but PHP cannot prove that external cron is configured or running
 
 **No rotation/cleanup tasks beyond GC scheduling:**
 - JSONL logs rotate automatically when file exceeds internal size cap
 - Fail2ban logs rotate identically
-- Synchronous uploads clean after email send unless retention applies. Finalized staged galleries remain until their fixed review expiry, then GC removes the aggregate.
+- Synchronous uploads clean after email send unless retention applies. Finalized staged-photo submissions show as one operator-managed object: photos, the operator review snapshot, and the review gallery remain available until their displayed availability date, or until manually deleted when set to stay available indefinitely. GC removes finalized submissions only after their numeric availability date; authorized operator deletion may remove one earlier.
 
 ### Setup Behavior
 
@@ -468,6 +473,7 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 - Controlled by uninstall configuration flags (e.g., `install.uninstall.purge_logs`)
 - Always removes the sparse admin settings option (`eforms_admin_config`)
 - When upload purge is enabled, every active upload writer holds a shared lifecycle lease; uninstall proceeds only after taking that lease exclusively, then leaves its lock and barrier in place so queued requests cannot recreate deleted uploads
+- In Worker/R2 mode, do not remove plugin files manually after a blocked uninstall. Retry the same WordPress deletion after the reported time so the persisted drain can finish; the provider lifecycle rule is only a late emergency backstop
 - **Operator sees:** Customer files and recoverable runtime state removed; reinstall activation safely reopens managed storage
 
 **What persists after uninstall (when purge disabled):**
@@ -560,4 +566,5 @@ Exhaustive knob coverage organized by domain (for spec generation and advanced c
 | | `uploads.total_request_bytes` | int | Total upload cap per request | - |
 | | `uploads.max_email_bytes` | int | Attachment total cap | Prevents SMTP 552 |
 | | `uploads.retention_seconds` | int | Upload retention after email send | 0 = delete immediately |
+| **Media** | `media.client_preparation` | enum | Optionally reduce eligible JPEGs in the browser before upload | `{off, opportunistic_jpeg}`; deployment-only and default off |
 | **Assets** | `assets.css_disable` | bool | Opt out of plugin CSS | Lets themes override |

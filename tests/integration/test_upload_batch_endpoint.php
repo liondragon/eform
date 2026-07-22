@@ -150,6 +150,8 @@ $created = UploadBatchEndpoint::create( $create_request );
 eforms_test_assert( $created['status'] === 200 && isset( $created['body']['batch_id'] ), 'Create should return the deterministic batch contract.' );
 eforms_test_assert( $created['headers']['Cache-Control'] === 'no-store, max-age=0', 'Every JSON batch response should be no-store.' );
 eforms_test_assert( strpos( json_encode( $created['body'] ), $secret ) === false, 'Create must not echo the batch secret.' );
+eforms_test_assert( $created['body']['limits']['max_file_bytes'] === Anchors::get( 'MANAGED_ARTIFACT_MAX_BYTES' ), 'Create should expose the effective managed-artifact limit before transfer.' );
+eforms_test_assert( $created['body']['limits']['max_files'] === 24 && $created['body']['limits']['max_total_bytes'] === 314572800, 'Create should expose the effective batch count and aggregate limits.' );
 $batch_id = $created['body']['batch_id'];
 
 $retry = UploadBatchEndpoint::create( $create_request );
@@ -232,6 +234,54 @@ $missing_upload = UploadBatchEndpoint::upload( $missing_upload_request );
 eforms_test_assert( $missing_upload['status'] === 400 && $missing_upload['body'] === array( 'error' => 'EFORMS_ERR_UPLOAD_TYPE' ), 'A small malformed multipart request should remain a 400.' );
 
 $png = eforms_test_fixture_bytes( 'staged-landscape.png' );
+$unauthorized_path = eforms_test_write_file( $uploads_dir, 'endpoint-unauthorized.png', $png );
+$unauthorized_request = eforms_test_upload_endpoint_request(
+    'POST',
+    'multipart/form-data; boundary=eforms',
+    array( 'batch_id' => $batch_id, 'upload_id' => 'unauthorized_upload', FormProtocol::UPLOAD_ORDINAL_PARAM => 1 ),
+    $secret,
+    array(
+        FormProtocol::UPLOAD_FILE_PARAM => array(
+            'name' => 'Unauthorized.png',
+            'tmp_name' => $unauthorized_path,
+            'error' => UPLOAD_ERR_OK,
+            'size' => filesize( $unauthorized_path ),
+        ),
+    )
+);
+$unauthorized_upload = UploadBatchEndpoint::upload( $unauthorized_request );
+eforms_test_assert( $unauthorized_upload['status'] === 409 && $unauthorized_upload['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'Multipart transfer must not bypass pre-transfer authorization.' );
+
+$authorize_request = eforms_test_upload_endpoint_request(
+    'POST',
+    'application/x-www-form-urlencoded',
+    array(
+        'batch_id' => $batch_id,
+        'upload_id' => 'client_upload_1',
+        FormProtocol::UPLOAD_ORDINAL_PARAM => 0,
+        FormProtocol::UPLOAD_DISPLAY_NAME_PARAM => 'Customer Photo.png',
+        FormProtocol::UPLOAD_BYTES_PARAM => strlen( $png ),
+        FormProtocol::UPLOAD_MIME_PARAM => '',
+    ),
+    $secret
+);
+$authorized = UploadBatchEndpoint::upload( $authorize_request );
+eforms_test_assert(
+    $authorized['status'] === 200
+        && $authorized['body'] === array(
+            'authorized' => true,
+            'committed' => false,
+            'transport' => array( 'kind' => 'local' ),
+        ),
+    'Authorization should reserve the exact declared local transfer and select the local transport before accepting bytes.'
+);
+$authorized_capacity = eforms_test_managed_capacity_record( $uploads_dir );
+$authorized_reservations = array_values( $authorized_capacity['reservations'] );
+eforms_test_assert( count( $authorized_reservations ) === 1 && $authorized_reservations[0]['transient_bytes'] === strlen( $png ), 'Local authorization should reserve one exact artifact-sized transient copy.' );
+$authorized_status = UploadBatchEndpoint::status( $status_request );
+eforms_test_assert( count( $authorized_status['body']['intents'] ) === 1 && $authorized_status['body']['intents'][0]['upload_id'] === 'client_upload_1', 'Status should expose one safe unresolved intent for rerender recovery.' );
+eforms_test_assert( strpos( json_encode( $authorized_status['body']['intents'] ), 'intent_id' ) === false && strpos( json_encode( $authorized_status['body']['intents'] ), 'object_key' ) === false, 'Status must not expose private intent or object identities.' );
+
 $png_path = eforms_test_write_file( $uploads_dir, 'endpoint.png', $png );
 $upload_request = eforms_test_upload_endpoint_request(
     'POST',
@@ -252,10 +302,12 @@ $cross_origin_bad_upload['headers']['Origin'] = 'https://evil.example';
 $cross_origin_bad_upload['headers']['Content-Type'] = 'application/octet-stream';
 eforms_test_assert( UploadBatchEndpoint::upload( $cross_origin_bad_upload )['status'] === 403, 'Upload must reject cross-origin requests before exposing content-type validation.' );
 $uploaded = UploadBatchEndpoint::upload( $upload_request );
-$backend_ready = UploadPolicy::staged_host_readiness();
-if ( $backend_ready['ok'] ) {
-    eforms_test_assert( $uploaded['status'] === 200 && $uploaded['body']['upload_id'] === 'client_upload_1', 'Multipart upload should return one safe committed item summary.' );
-    eforms_test_assert( strpos( json_encode( $uploaded['body'] ), $uploads_dir ) === false, 'Upload responses should not expose private paths.' );
+eforms_test_assert( $uploaded['status'] === 200 && $uploaded['body']['upload_id'] === 'client_upload_1', 'Multipart upload should return one safe committed item summary.' );
+eforms_test_assert( strpos( json_encode( $uploaded['body'] ), $uploads_dir ) === false, 'Upload responses should not expose private paths.' );
+
+$committed_authorization = UploadBatchEndpoint::upload( $authorize_request );
+eforms_test_assert( $committed_authorization['status'] === 200 && $committed_authorization['body']['authorized'] === true && $committed_authorization['body']['committed'] === true, 'An exact authorization retry should converge without retransferring a committed body.' );
+eforms_test_assert( $committed_authorization['body']['upload_id'] === 'client_upload_1', 'A committed authorization retry should return the safe canonical item.' );
 
 $retry_path = eforms_test_write_file( $uploads_dir, 'endpoint-retry.png', $png );
 $upload_retry_request = $upload_request;
@@ -282,11 +334,8 @@ $content_retry_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['tmp_name'] =
 $content_retry_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['size'] = filesize( $content_bad_path );
 $content_retry = UploadBatchEndpoint::upload( $content_retry_request );
 eforms_test_assert( $content_retry['status'] === 409 && $content_retry['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'A same-ID retry with unsupported different bytes should remain a generic conflict.' );
-$duplicate_ordinal_request = $upload_request;
+$duplicate_ordinal_request = $authorize_request;
 $duplicate_ordinal_request['params']['upload_id'] = 'client_upload_2';
-$duplicate_path = eforms_test_write_file( $uploads_dir, 'endpoint-duplicate.png', $png );
-$duplicate_ordinal_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['tmp_name'] = $duplicate_path;
-$duplicate_ordinal_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['size'] = filesize( $duplicate_path );
 $duplicate_ordinal = UploadBatchEndpoint::upload( $duplicate_ordinal_request );
 eforms_test_assert( $duplicate_ordinal['status'] === 400 && $duplicate_ordinal['body'] === array( 'error' => 'EFORMS_ERR_UPLOAD_TYPE' ), 'A second upload ID must not claim an existing ordinal.' );
 $after_ordinal_conflicts = UploadBatchEndpoint::status( $status_request );
@@ -298,35 +347,7 @@ $oversize_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['name'] = 'Oversiz
 $oversize_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['tmp_name'] = $oversize_path;
 $oversize_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['size'] = filesize( $oversize_path );
 $oversize = UploadBatchEndpoint::upload( $oversize_request );
-eforms_test_assert( $oversize['status'] === 413 && $oversize['body'] === array( 'error' => 'EFORMS_ERR_UPLOAD_TYPE' ), 'An oversized committed-ID retry should return 413 before raw-content comparison.' );
-
-    $preview_request = eforms_test_upload_endpoint_request(
-        'GET',
-        '',
-        array( 'batch_id' => $batch_id, 'upload_id' => 'client_upload_1' ),
-        $secret
-    );
-    $preview = UploadBatchEndpoint::preview( $preview_request );
-    eforms_test_assert( $preview['status'] === 200 && $preview['headers']['Content-Type'] === 'image/jpeg', 'Authenticated preview should return only JPEG bytes.' );
-    $shadowed_preview = UploadBatchEndpoint::preview(
-        new EformsTestUploadEndpointRequest(
-            'GET',
-            array( FormProtocol::HEADER_BATCH_SECRET => $secret ),
-            array( FormProtocol::UPLOAD_BATCH_PARAM => $batch_id, FormProtocol::UPLOAD_ITEM_PARAM => 'client_upload_1' ),
-            array( FormProtocol::UPLOAD_BATCH_PARAM => str_repeat( 'B', Anchors::get( 'MANAGED_BATCH_ID_CHARS' ) ), FormProtocol::UPLOAD_ITEM_PARAM => 'wrong-body-item' ),
-            array( FormProtocol::UPLOAD_BATCH_PARAM => str_repeat( 'C', Anchors::get( 'MANAGED_BATCH_ID_CHARS' ) ), FormProtocol::UPLOAD_ITEM_PARAM => 'wrong-query-item' )
-        )
-    );
-    eforms_test_assert( $shadowed_preview['status'] === 200, 'Body and query values must not override route-owned preview identities.' );
-    $headerless_preview_request = $preview_request;
-    unset( $headerless_preview_request['headers']['Origin'] );
-    $headerless_preview = UploadBatchEndpoint::preview( $headerless_preview_request );
-    eforms_test_assert( $headerless_preview['status'] === 200, 'A credentialed preview GET should accept a missing Origin header.' );
-    $headerless_delete_request = array_merge( $preview_request, array( 'method' => 'DELETE' ) );
-    unset( $headerless_delete_request['headers']['Origin'] );
-    eforms_test_assert( UploadBatchEndpoint::delete( $headerless_delete_request )['status'] === 403, 'A mutating delete must reject a missing Origin header.' );
-    $preview_tmp = eforms_test_write_file( $uploads_dir, 'served-preview.jpg', $preview['body'] );
-    eforms_test_assert( UploadPolicy::detect_mime( $preview_tmp ) === 'image/jpeg', 'Served preview bytes should agree with the response MIME.' );
+eforms_test_assert( $oversize['status'] === 409 && $oversize['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'An oversized changed binding for a committed ID should remain a generic conflict.' );
 
     $template = TemplateLoader::load( 'upload-test' );
     $field = null;
@@ -347,8 +368,7 @@ eforms_test_assert( $oversize['status'] === 413 && $oversize['body'] === array( 
     $finalizing_status = UploadBatchEndpoint::status( $status_request );
     eforms_test_assert( $finalizing_status['status'] === 200 && $finalizing_status['body']['state'] === 'finalizing', 'Status should expose finalizing only while the staged path exists.' );
     eforms_test_assert( UploadBatchEndpoint::upload( $upload_request )['status'] === 409, 'Finalizing should reject upload.' );
-    eforms_test_assert( UploadBatchEndpoint::delete( array_merge( $preview_request, array( 'method' => 'DELETE' ) ) )['status'] === 409, 'Finalizing should reject delete.' );
-    eforms_test_assert( UploadBatchEndpoint::preview( $preview_request )['status'] === 409, 'Finalizing should reject staged preview.' );
+    eforms_test_assert( UploadBatchEndpoint::delete( array_merge( $upload_request, array( 'method' => 'DELETE' ) ) )['status'] === 409, 'Finalizing should reject delete.' );
 
     $ledger = Ledger::reserve( 'upload-test', $mint['token'], $uploads_dir );
     eforms_test_assert( $ledger['ok'] === true, 'The finalized endpoint fixture should durably consume its token.' );
@@ -360,8 +380,6 @@ eforms_test_assert( $oversize['status'] === 413 && $oversize['body'] === array( 
     eforms_test_assert( ! is_dir( $recreated_path ), 'Consumed-token rejection must happen before managed batch creation.' );
     $post_rename = UploadBatchEndpoint::status( $body_secret_only );
     eforms_test_assert( $post_rename['status'] === 410 && $post_rename['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'Post-rename status should return generic 410 before credential validation.' );
-}
-
 $missing_request = eforms_test_upload_endpoint_request( 'GET', '', array( 'batch_id' => str_repeat( 'A', Anchors::get( 'MANAGED_BATCH_ID_CHARS' ) ) ), null );
 $missing = UploadBatchEndpoint::status( $missing_request );
 eforms_test_assert( $missing['status'] === 410 && $missing['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'Never-existing batches should share the post-rename 410 response.' );
@@ -405,14 +423,14 @@ $upload_created = UploadBatchEndpoint::create(
     eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $upload_create_params, $upload_secret, array(), '203.0.113.64' )
 );
 eforms_test_assert( $upload_created['status'] === 200, 'The upload-throttle fixture should create before enabling throttle.' );
-eforms_test_upload_endpoint_config( $throttle_upload_dir, true, 1 );
-$bad_path = eforms_test_write_file( $throttle_upload_dir, 'bad.txt', 'not an image' );
+eforms_test_upload_endpoint_config( $throttle_upload_dir, true, 2 );
+$bad_path = eforms_test_write_file( $throttle_upload_dir, 'bad.png', 'not an image' );
 $bad_upload = eforms_test_upload_endpoint_request(
     'POST',
     'multipart/form-data; boundary=eforms',
     array( 'batch_id' => $upload_created['body']['batch_id'], 'upload_id' => 'bad_image', FormProtocol::UPLOAD_ORDINAL_PARAM => 0 ),
     $upload_secret,
-    array( FormProtocol::UPLOAD_FILE_PARAM => array( 'name' => 'bad.txt', 'tmp_name' => $bad_path, 'error' => 0, 'size' => filesize( $bad_path ) ) ),
+    array( FormProtocol::UPLOAD_FILE_PARAM => array( 'name' => 'bad.png', 'tmp_name' => $bad_path, 'error' => 0, 'size' => filesize( $bad_path ) ) ),
     '203.0.113.62'
 );
 $bad_type_upload = $bad_upload;
@@ -420,10 +438,28 @@ $bad_type_upload['headers']['Content-Type'] = 'application/octet-stream';
 $bad_type_upload['client_ip'] = '203.0.113.63';
 eforms_test_assert( UploadBatchEndpoint::upload( $bad_type_upload )['status'] === 400, 'A failed upload content type should consume an allowed throttle attempt.' );
 $throttled_after_bad_type = $bad_upload;
+$throttled_after_bad_type['headers']['Content-Type'] = 'application/octet-stream';
 $throttled_after_bad_type['client_ip'] = '203.0.113.63';
+eforms_test_assert( UploadBatchEndpoint::upload( $throttled_after_bad_type )['status'] === 400, 'A second failed upload content type should consume the second allowed throttle attempt.' );
 eforms_test_assert( UploadBatchEndpoint::upload( $throttled_after_bad_type )['status'] === 429, 'The next upload from that client should be throttled before body validation.' );
+$bad_authorization = eforms_test_upload_endpoint_request(
+    'POST',
+    'application/x-www-form-urlencoded',
+    array(
+        'batch_id' => $upload_created['body']['batch_id'],
+        'upload_id' => 'bad_image',
+        FormProtocol::UPLOAD_ORDINAL_PARAM => 0,
+        FormProtocol::UPLOAD_DISPLAY_NAME_PARAM => 'bad.png',
+        FormProtocol::UPLOAD_BYTES_PARAM => filesize( $bad_path ),
+        FormProtocol::UPLOAD_MIME_PARAM => 'image/png',
+    ),
+    $upload_secret,
+    array(),
+    '203.0.113.62'
+);
+eforms_test_assert( UploadBatchEndpoint::upload( $bad_authorization )['status'] === 200, 'A plausible image envelope should authorize before bounded content inspection.' );
 $failed_image = UploadBatchEndpoint::upload( $bad_upload );
-eforms_test_assert( $failed_image['status'] === 400, 'A malformed image should fail after consuming the allowed throttle attempt.' );
+eforms_test_assert( $failed_image['status'] === 400, 'A malformed image should fail bounded inspection after authorization.' );
 $valid_path = eforms_test_write_file( $throttle_upload_dir, 'valid.png', $png );
 $bad_upload['params']['upload_id'] = 'valid_image';
 $bad_upload['files'][ FormProtocol::UPLOAD_FILE_PARAM ] = array( 'name' => 'valid.png', 'tmp_name' => $valid_path, 'error' => 0, 'size' => filesize( $valid_path ) );
@@ -433,4 +469,181 @@ $throttle_capacity = eforms_test_managed_capacity_record( $throttle_upload_dir )
 eforms_test_assert( is_array( $throttle_capacity ) && $throttle_capacity['total_bytes'] === 0, 'Failed and throttled uploads should not mutate managed capacity.' );
 
 eforms_test_remove_tree( $throttle_upload_dir );
+
+$rollout_field = array(
+    'type' => 'files',
+    'upload_mode' => 'staged',
+    'accept' => array( 'image' ),
+    'max_file_bytes' => 1048576,
+    'max_files' => 2,
+    'max_total_bytes' => 2097152,
+);
+$worker_key = str_repeat( "\x64", Anchors::get( 'WORKER_INTEGRATION_KEY_BYTES' ) );
+define( 'EFORMS_WORKER_URL', 'https://rollout-media.example.test' );
+define( 'EFORMS_WORKER_ENVIRONMENT_ID', 'rollout-integration' );
+define( 'EFORMS_WORKER_ACTIVE_KEY_ID', 'rollout-key' );
+define( 'EFORMS_WORKER_ACTIVE_KEY_B64', rtrim( strtr( base64_encode( $worker_key ), '+/', '-_' ), '=' ) );
+
+$remote_rollout_dir = eforms_test_setup_uploads( 'eforms-upload-owner-remote-rollout' );
+eforms_test_upload_endpoint_config( $remote_rollout_dir );
+$remote_rollout_secret = eforms_test_upload_endpoint_secret( "\x65" );
+$remote_rollout = UploadBatchStore::create_batch(
+    array(
+        'raw_token' => 'remote-rollout-token',
+        'form_id' => 'upload-test',
+        'instance_id' => 'remote-rollout-instance',
+        'field_key' => 'photos',
+        'accept_until' => time() + 600,
+    ),
+    $remote_rollout_secret,
+    $rollout_field,
+    $remote_rollout_dir,
+    null,
+    FormProtocol::UPLOAD_TRANSPORT_WORKER,
+    WorkerClient::composition_fingerprint()
+);
+eforms_test_assert( ! empty( $remote_rollout['ok'] ) && WorkerClient::composition() === FormProtocol::UPLOAD_TRANSPORT_LOCAL, 'The rollout fixture should retain a Worker-owned batch while the deployment default is local.' );
+$remote_rollout_authorize = eforms_test_upload_endpoint_request(
+    'POST',
+    'application/x-www-form-urlencoded',
+    array(
+        'batch_id' => $remote_rollout['batch']['batch_id'],
+        'upload_id' => 'remote_rollout_photo',
+        FormProtocol::UPLOAD_ORDINAL_PARAM => 0,
+        FormProtocol::UPLOAD_DISPLAY_NAME_PARAM => 'remote-rollout.png',
+        FormProtocol::UPLOAD_BYTES_PARAM => strlen( $png ),
+        FormProtocol::UPLOAD_MIME_PARAM => 'image/png',
+    ),
+    $remote_rollout_secret,
+    array(),
+    '203.0.113.66'
+);
+$remote_rollout_authorized = UploadBatchEndpoint::upload( $remote_rollout_authorize );
+eforms_test_assert(
+    $remote_rollout_authorized['status'] === 200
+        && $remote_rollout_authorized['body']['transport']['kind'] === FormProtocol::UPLOAD_TRANSPORT_WORKER,
+    'Authorization must route a retained Worker batch through its persisted owner after a Worker-to-local composition change.'
+);
+$remote_rollout_source = eforms_test_write_file( $remote_rollout_dir, 'remote-rollout.png', $png );
+$remote_rollout_multipart = eforms_test_upload_endpoint_request(
+    'POST',
+    'multipart/form-data; boundary=eforms',
+    array( 'batch_id' => $remote_rollout['batch']['batch_id'], 'upload_id' => 'remote_rollout_photo', FormProtocol::UPLOAD_ORDINAL_PARAM => 0 ),
+    $remote_rollout_secret,
+    array( FormProtocol::UPLOAD_FILE_PARAM => array( 'name' => 'remote-rollout.png', 'tmp_name' => $remote_rollout_source, 'error' => 0, 'size' => strlen( $png ) ) ),
+    '203.0.113.67'
+);
+eforms_test_assert( UploadBatchEndpoint::upload( $remote_rollout_multipart )['status'] === 503, 'A retained Worker batch must not fall back to local multipart after a composition change.' );
+
+$wrong_worker_dir = eforms_test_setup_uploads( 'eforms-upload-owner-wrong-worker' );
+eforms_test_upload_endpoint_config( $wrong_worker_dir );
+$wrong_worker_secret = eforms_test_upload_endpoint_secret( "\x67" );
+$wrong_worker = UploadBatchStore::create_batch(
+    array(
+        'raw_token' => 'wrong-worker-token',
+        'form_id' => 'upload-test',
+        'instance_id' => 'wrong-worker-instance',
+        'field_key' => 'photos',
+        'accept_until' => time() + 600,
+    ),
+    $wrong_worker_secret,
+    $rollout_field,
+    $wrong_worker_dir,
+    null,
+    FormProtocol::UPLOAD_TRANSPORT_WORKER,
+    str_repeat( 'f', 64 )
+);
+$wrong_worker_authorize = eforms_test_upload_endpoint_request(
+    'POST',
+    'application/x-www-form-urlencoded',
+    array(
+        'batch_id' => $wrong_worker['batch']['batch_id'],
+        'upload_id' => 'wrong_worker_photo',
+        FormProtocol::UPLOAD_ORDINAL_PARAM => 0,
+        FormProtocol::UPLOAD_DISPLAY_NAME_PARAM => 'wrong-worker.png',
+        FormProtocol::UPLOAD_BYTES_PARAM => strlen( $png ),
+        FormProtocol::UPLOAD_MIME_PARAM => 'image/png',
+    ),
+    $wrong_worker_secret,
+    array(),
+    '203.0.113.69'
+);
+eforms_test_assert(
+    UploadBatchEndpoint::upload( $wrong_worker_authorize )['status'] === 503,
+    'A retained Worker aggregate must fail closed when its exact origin/environment fingerprint is unavailable.'
+);
+
+$local_rollout_dir = eforms_test_setup_uploads( 'eforms-upload-owner-local-rollout' );
+eforms_test_upload_endpoint_config( $local_rollout_dir );
+$local_rollout_secret = eforms_test_upload_endpoint_secret( "\x66" );
+$local_rollout = UploadBatchStore::create_batch(
+    array(
+        'raw_token' => 'local-rollout-token',
+        'form_id' => 'upload-test',
+        'instance_id' => 'local-rollout-instance',
+        'field_key' => 'photos',
+        'accept_until' => time() + 600,
+    ),
+    $local_rollout_secret,
+    $rollout_field,
+    $local_rollout_dir,
+    null,
+    FormProtocol::UPLOAD_TRANSPORT_LOCAL
+);
+eforms_test_assert( ! empty( $local_rollout['ok'] ), 'The rollout fixture should create one retained local batch before deployment wiring changes.' );
+
+define( 'EFORMS_UPLOAD_COMPOSITION', 'unsupported-composition' );
+$local_rollout_authorize = eforms_test_upload_endpoint_request(
+    'POST',
+    'application/x-www-form-urlencoded',
+    array(
+        'batch_id' => $local_rollout['batch']['batch_id'],
+        'upload_id' => 'local_rollout_photo',
+        FormProtocol::UPLOAD_ORDINAL_PARAM => 0,
+        FormProtocol::UPLOAD_DISPLAY_NAME_PARAM => 'local-rollout.png',
+        FormProtocol::UPLOAD_BYTES_PARAM => strlen( $png ),
+        FormProtocol::UPLOAD_MIME_PARAM => 'image/png',
+    ),
+    $local_rollout_secret,
+    array(),
+    '203.0.113.68'
+);
+eforms_test_assert(
+    UploadBatchEndpoint::upload( $local_rollout_authorize )['body']['transport']['kind'] === FormProtocol::UPLOAD_TRANSPORT_LOCAL,
+    'Authorization must route a retained local batch through its persisted owner even when current deployment wiring is invalid.'
+);
+$local_rollout_source = eforms_test_write_file( $local_rollout_dir, 'local-rollout.png', $png );
+$local_rollout_multipart = eforms_test_upload_endpoint_request(
+    'POST',
+    'multipart/form-data; boundary=eforms',
+    array( 'batch_id' => $local_rollout['batch']['batch_id'], 'upload_id' => 'local_rollout_photo', FormProtocol::UPLOAD_ORDINAL_PARAM => 0 ),
+    $local_rollout_secret,
+    array( FormProtocol::UPLOAD_FILE_PARAM => array( 'name' => 'local-rollout.png', 'tmp_name' => $local_rollout_source, 'error' => 0, 'size' => strlen( $png ) ) ),
+    '203.0.113.69'
+);
+eforms_test_assert( UploadBatchEndpoint::upload( $local_rollout_multipart )['status'] === 200, 'A retained local batch must continue accepting its authorized multipart transport after deployment wiring changes.' );
+$local_rollout_delete = eforms_test_upload_endpoint_request(
+    'DELETE',
+    '',
+    array( 'batch_id' => $local_rollout['batch']['batch_id'], 'upload_id' => 'local_rollout_photo' ),
+    $local_rollout_secret,
+    array(),
+    '203.0.113.70'
+);
+eforms_test_assert( UploadBatchEndpoint::delete( $local_rollout_delete )['status'] === 200, 'Removal must use persisted batch ownership rather than current deployment wiring.' );
+
+$invalid_composition_dir = eforms_test_setup_uploads( 'eforms-upload-invalid-composition' );
+eforms_test_upload_endpoint_config( $invalid_composition_dir );
+$invalid_composition_mint = Security::mint_js_record( 'upload-test', $invalid_composition_dir );
+$invalid_composition_params = $create_params;
+$invalid_composition_params[ FormProtocol::FIELD_INSTANCE_ID ] = $invalid_composition_mint['instance_id'];
+$invalid_composition_params[ FormProtocol::FIELD_TOKEN ] = $invalid_composition_mint['token'];
+$invalid_composition = UploadBatchEndpoint::create(
+    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $invalid_composition_params, eforms_test_upload_endpoint_secret( "\x63" ), array(), '203.0.113.65' )
+);
+eforms_test_assert( $invalid_composition['status'] === 503 && ! is_dir( $invalid_composition_dir . '/eforms-private/staged' ), 'An invalid explicit deployment composition must fail before aggregate mutation instead of falling back locally.' );
+eforms_test_remove_tree( $invalid_composition_dir );
+eforms_test_remove_tree( $remote_rollout_dir );
+eforms_test_remove_tree( $local_rollout_dir );
+
 echo "All upload batch endpoint tests passed.\n";

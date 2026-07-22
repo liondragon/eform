@@ -50,7 +50,7 @@ class DeclinedReviewLog {
     public static function query( $filters = array(), $config = null ) {
         $config = is_array( $config ) ? $config : Config::get();
         $filters = is_array( $filters ) ? $filters : array();
-        $per_page = self::bounded_int( isset( $filters['per_page'] ) ? $filters['per_page'] : null, self::anchor( 'DECLINED_REVIEW_PAGE_SIZE', 50 ), 1, self::anchor( 'DECLINED_REVIEW_PAGE_SIZE', 50 ) );
+        $per_page = self::bounded_int( isset( $filters['per_page'] ) ? $filters['per_page'] : null, self::anchor( 'DECLINED_REVIEW_PAGE_SIZE', 25 ), 1, self::anchor( 'DECLINED_REVIEW_PAGE_SIZE', 25 ) );
         $page = self::bounded_int( isset( $filters['page'] ) ? $filters['page'] : null, 1, 1, PHP_INT_MAX );
         $scan = self::scan_records(
             $filters,
@@ -63,6 +63,9 @@ class DeclinedReviewLog {
         $records = $scan['records'];
         usort( $records, array( __CLASS__, 'compare_newest' ) );
         $total = count( $records );
+        if ( $total > 0 ) {
+            $page = min( $page, (int) ceil( $total / $per_page ) );
+        }
         $offset = ( $page - 1 ) * $per_page;
 
         return array(

@@ -85,6 +85,7 @@ eforms_test_assert( $result['status'] === 500, 'Email failure should return HTTP
 eforms_test_assert( $result['error_code'] === 'EFORMS_ERR_EMAIL_SEND', 'Email failure should return EFORMS_ERR_EMAIL_SEND.' );
 eforms_test_assert( ! isset( $result['success'] ), 'Email failure should not produce success redirect metadata.' );
 eforms_test_assert( ! empty( $result['email_failed'] ), 'Email failure should include an email_failed marker.' );
+eforms_test_assert( $result['retry_allowed'] === false, 'Email failure after ledger reservation must not offer retry.' );
 eforms_test_assert( ! isset( $result['security'] ), 'Email failure result should not expose retry security metadata.' );
 eforms_test_assert( ! isset( $result['email_retry'] ), 'Email failure result should not expose retry markers.' );
 eforms_test_assert( ! isset( $result['values'] ), 'Email failure result should not expose submitted values.' );

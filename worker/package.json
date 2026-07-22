@@ -1,0 +1,11 @@
+{
+  "name": "eforms-media-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync:anchors": "php scripts/sync-anchors.php",
+    "check:anchors": "php scripts/sync-anchors.php --check",
+    "test": "npm run check:anchors && node --test test/*.test.js",
+    "test:integration": "node test/integration.mjs"
+  }
+}

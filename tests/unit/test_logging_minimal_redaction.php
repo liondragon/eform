@@ -48,6 +48,14 @@ Logging::event(
         'ip_raw' => '198.51.100.12',
         'client_ip' => '198.51.100.12',
         'unknown_meta' => 'secret-value',
+        'operation' => 'delete',
+        'outcome_class' => 'dependency_unavailable',
+        'latency_bucket' => 'normal',
+        'retry' => 'required',
+        'cleanup_phase' => 'aggregate_gc',
+        'scanned' => 12,
+        'capacity_before_bytes' => 4096,
+        'capacity_after_bytes' => 2048,
     )
 );
 
@@ -60,6 +68,20 @@ eforms_test_assert( strpos( $line, 'person@example.test' ) === false, 'Minimal l
 eforms_test_assert( strpos( $line, '198.51.100.12' ) === false, 'Minimal logging must not emit raw IP metadata.' );
 eforms_test_assert( strpos( $line, 'secret-value' ) === false, 'Minimal logging must not emit arbitrary unknown metadata.' );
 eforms_test_assert( strpos( $line, 'ip=198.51.100.0' ) !== false, 'Minimal logging should retain privacy-processed IP.' );
+eforms_test_assert(
+    strpos( $line, '"operation":"delete"' ) !== false
+        && strpos( $line, '"outcome_class":"dependency_unavailable"' ) !== false
+        && strpos( $line, '"latency_bucket":"normal"' ) !== false
+        && strpos( $line, '"retry":"required"' ) !== false
+        && strpos( $line, '"cleanup_phase":"aggregate_gc"' ) !== false,
+    'Minimal logging should retain the closed Worker operation fields.'
+);
+eforms_test_assert(
+    strpos( $line, '"scanned":12' ) !== false
+        && strpos( $line, '"capacity_before_bytes":4096' ) !== false
+        && strpos( $line, '"capacity_after_bytes":2048' ) !== false,
+    'Minimal logging should retain safe scalar GC and capacity totals.'
+);
 
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();

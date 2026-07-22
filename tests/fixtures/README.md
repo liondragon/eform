@@ -12,3 +12,8 @@
 The fixture is stored as base64 so the repository can validate its exact bytes
 before writing it to a temporary test path. Release tests require `fileinfo`
 to identify it as `image/heic` and Imagick to decode it.
+
+`worker_protocol.json` contains synthetic, non-secret cross-language claims and
+the expected SHA-256 payload digests and HMAC signatures. PHP and Worker tests
+independently encode those claims, which catches field-order or encoding drift
+without treating a copied serialized token as a second runtime owner.

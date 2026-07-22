@@ -8,6 +8,8 @@
  * Contract: display_format_tel tokens
  */
 
+require_once __DIR__ . '/../../FormProtocol.php';
+
 class FieldTypes_TextLike {
     const SUPPORTED = array(
         'text',
@@ -68,21 +70,34 @@ class FieldTypes_TextLike {
             $descriptor['html']['type'] = 'url';
             $descriptor['constants']['spellcheck'] = 'false';
             $descriptor['constants']['autocapitalize'] = 'off';
+            $descriptor['render']['protocol_attrs'] = array(
+                FormProtocol::DATA_URL_NORMALIZE => '1',
+            );
             return $descriptor;
         }
 
         if ( $type === 'tel' || $type === 'tel_us' ) {
             $descriptor['html']['type'] = 'tel';
             $descriptor['html']['inputmode'] = 'tel';
+            if ( $type === 'tel_us' ) {
+                $descriptor['render']['protocol_attrs'] = array(
+                    FormProtocol::DATA_PHONE_FORMAT => 'tel_us',
+                );
+            }
             return $descriptor;
         }
 
         if ( $type === 'zip_us' ) {
             $descriptor['html']['inputmode'] = 'numeric';
             $descriptor['html']['pattern'] = '\\d{5}';
+            $descriptor['html']['attrs_mirror'] = array( 'maxlength', 'size' );
+            $descriptor['defaults']['maxlength'] = 5;
             $descriptor['handlers']['validator_id'] = 'zip_us';
             $descriptor['handlers']['normalizer_id'] = 'zip_us';
             $descriptor['handlers']['renderer_id'] = 'zip_us';
+            $descriptor['render']['protocol_attrs'] = array(
+                FormProtocol::DATA_ZIP_FORMAT => 'zip_us',
+            );
             return $descriptor;
         }
 
@@ -93,8 +108,20 @@ class FieldTypes_TextLike {
             return $descriptor;
         }
 
-        if ( $type === 'number' || $type === 'range' ) {
-            $descriptor['html']['type'] = $type;
+        if ( $type === 'number' ) {
+            $descriptor['html']['type'] = 'text';
+            $descriptor['html']['inputmode'] = 'decimal';
+            $descriptor['html']['attrs_mirror'] = array( 'min', 'max', 'step' );
+            $descriptor['handlers']['validator_id'] = $type;
+            $descriptor['handlers']['normalizer_id'] = $type;
+            $descriptor['handlers']['renderer_id'] = $type;
+            $descriptor['render']['integer_format_when'] = 'non_negative_step_one';
+            $descriptor['render']['unit_attr'] = true;
+            return $descriptor;
+        }
+
+        if ( $type === 'range' ) {
+            $descriptor['html']['type'] = 'range';
             $descriptor['html']['inputmode'] = 'decimal';
             $descriptor['html']['attrs_mirror'] = array( 'min', 'max', 'step' );
             $descriptor['handlers']['validator_id'] = $type;
@@ -133,12 +160,121 @@ class FieldTypes_TextLike {
         return $descriptor;
     }
 
+    public static function render_protocol_attributes( $descriptor, $field ) {
+        if ( ! is_array( $descriptor ) ) {
+            return array();
+        }
+
+        $attrs = isset( $descriptor['render']['protocol_attrs'] ) && is_array( $descriptor['render']['protocol_attrs'] )
+            ? $descriptor['render']['protocol_attrs']
+            : array();
+
+        if ( isset( $descriptor['render']['integer_format_when'] )
+            && $descriptor['render']['integer_format_when'] === 'non_negative_step_one'
+            && is_array( $field )
+            && isset( $field['step'], $field['min'] )
+            && (string) $field['step'] === '1'
+            && is_numeric( $field['min'] )
+            && (float) $field['min'] >= 0
+            && floor( (float) $field['min'] ) === (float) $field['min']
+        ) {
+            $attrs[ FormProtocol::DATA_INTEGER_FORMAT ] = '1';
+        }
+
+        if ( ! empty( $descriptor['render']['unit_attr'] ) && is_array( $field ) && isset( $field['unit'] ) && is_string( $field['unit'] ) && $field['unit'] !== '' ) {
+            $attrs[ FormProtocol::DATA_INPUT_UNIT ] = $field['unit'];
+        }
+
+        return $attrs;
+    }
+
+    public static function normalize_zip_us( $value ) {
+        if ( ! is_string( $value ) ) {
+            return null;
+        }
+
+        $value = trim( $value );
+        if ( $value === '' ) {
+            return null;
+        }
+
+        if ( preg_match( '/^\d{5}$/', $value ) ) {
+            return $value;
+        }
+
+        if ( preg_match( '/^(\d{5})-\d{4}$/', $value, $matches ) ) {
+            return $matches[1];
+        }
+
+        return null;
+    }
+
+    public static function normalize_number( $value ) {
+        if ( ! is_string( $value ) ) {
+            return null;
+        }
+
+        $value = trim( $value );
+        if ( $value === '' ) {
+            return null;
+        }
+
+        if ( preg_match( '/^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/', $value ) ) {
+            $value = str_replace( ',', '', $value );
+        }
+
+        return is_numeric( $value ) ? $value : null;
+    }
+
+    public static function normalize_url( $value ) {
+        if ( ! is_string( $value ) ) {
+            return null;
+        }
+
+        $value = trim( $value );
+        if ( $value === '' || preg_match( '/\s/', $value ) ) {
+            return null;
+        }
+
+        $candidate = $value;
+        if ( strpos( $candidate, '://' ) === false && preg_match( '/^[^@\/]+\.[^@\/]+(?:\/.*)?$/', $candidate ) ) {
+            $candidate = 'https://' . $candidate;
+        }
+
+        $url = filter_var( $candidate, FILTER_VALIDATE_URL );
+        if ( $url === false ) {
+            return null;
+        }
+
+        $parts = parse_url( $url );
+        if ( ! is_array( $parts ) || ! isset( $parts['scheme'], $parts['host'] ) ) {
+            return null;
+        }
+
+        $scheme = strtolower( $parts['scheme'] );
+        return $scheme === 'http' || $scheme === 'https' ? $url : null;
+    }
+
     public static function normalize_tel_us( $value ) {
         if ( ! is_string( $value ) ) {
             return null;
         }
 
-        $digits = preg_replace( '/\\D+/', '', $value );
+        $value = trim( $value );
+        if ( $value === '' ) {
+            return null;
+        }
+
+        if ( preg_match( '/[^0-9\s().+-]/', $value ) ) {
+            return null;
+        }
+
+        $plus_pos = strpos( $value, '+' );
+        if ( $plus_pos !== false && ( $plus_pos !== 0 || substr_count( $value, '+' ) > 1 ) ) {
+            return null;
+        }
+
+        $digits = preg_replace( '/\D+/', '', $value );
         if ( $digits === '' ) {
             return null;
         }

@@ -7,17 +7,31 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../EformsAssets.php';
 require_once __DIR__ . '/../FormProtocol.php';
+require_once __DIR__ . '/../WordPressRuntime.php';
+require_once __DIR__ . '/LocalPreviewProvider.php';
 require_once __DIR__ . '/UploadBatchStore.php';
+require_once __DIR__ . '/UploadPolicy.php';
+require_once __DIR__ . '/WorkerClient.php';
 
 class ReviewController {
     const DOMAIN = 'eforms-managed-review';
-    const VERSION = '1';
+    const VERSION = '3';
     const QUERY_SUBMISSION = 'eforms_review';
     const QUERY_UPLOAD = 'eforms_review_upload';
-    const QUERY_VARIANT = 'eforms_review_variant';
+    const QUERY_PREVIEW = 'eforms_review_preview';
+    private const ACTION_FIELD = 'eforms_review_action';
+    private const DELETE_ACTION = 'delete_submission';
+    private const DELETE_NONCE_FIELD = '_eforms_review_delete_nonce';
+    private const AVAILABILITY_ACTION = 'update_availability';
+    private const AVAILABILITY_NONCE_FIELD = '_eforms_review_availability_nonce';
+    private const AVAILABILITY_CHOICE_FIELD = 'eforms_review_availability';
+
+    private static $current_gallery_lightbox_enabled = false;
 
     public static function dispatch_current_request( $request = null, $overrides = array() ) {
+        self::$current_gallery_lightbox_enabled = false;
         $request = is_array( $request ) ? $request : array();
         $overrides = is_array( $overrides ) ? $overrides : array();
         $method = isset( $request['method'] ) ? strtoupper( (string) $request['method'] ) : self::server_method();
@@ -25,58 +39,73 @@ class ReviewController {
         if ( empty( $parsed['matched'] ) ) {
             return self::not_handled();
         }
-        if ( $method !== 'GET' ) {
-            return self::unavailable();
-        }
-
         $query = $parsed['query'];
-        $expires = self::query_expiry( $query );
         $signature = isset( $query['signature'] ) && is_string( $query['signature'] ) ? $query['signature'] : '';
         $salt = self::salt( $overrides );
         $now = isset( $overrides['now'] ) && is_numeric( $overrides['now'] ) ? (int) $overrides['now'] : time();
         $uploads_dir = self::uploads_dir( $overrides );
-        if ( $expires <= $now || $salt === '' || $uploads_dir === '' ) {
+        if ( $salt === '' || $uploads_dir === '' ) {
             return self::unavailable();
         }
 
         if ( $parsed['action'] === 'gallery' ) {
-            if ( ! self::verify( 'gallery', $parsed['submission_id'], '', '', $expires, $signature, $salt ) ) {
+            if ( ! self::verify( 'gallery', $parsed['submission_id'], '', $signature, $salt ) ) {
                 return self::unavailable();
             }
-            return self::gallery_response( $parsed['submission_id'], $expires, $uploads_dir, $now, $salt, $overrides );
+            if ( $method === 'POST' ) {
+                return self::operator_post_response( $parsed['submission_id'], $uploads_dir, $now, $salt, $overrides );
+            }
+            if ( $method !== 'GET' ) {
+                return self::unavailable();
+            }
+            return self::gallery_response( $parsed['submission_id'], $uploads_dir, $now, $salt, $overrides );
+        }
+
+        if ( $method !== 'GET' ) {
+            return self::unavailable();
         }
 
         if ( $parsed['action'] === 'file' ) {
-            if ( ! self::verify( 'file', $parsed['submission_id'], $parsed['upload_id'], $parsed['variant'], $expires, $signature, $salt ) ) {
+            if ( ! self::verify( 'file', $parsed['submission_id'], $parsed['upload_id'], $signature, $salt ) ) {
                 return self::unavailable();
             }
             return self::file_response(
                 $parsed['submission_id'],
                 $parsed['upload_id'],
-                $parsed['variant'],
-                $expires,
                 $uploads_dir,
                 $now
+            );
+        }
+
+        if ( $parsed['action'] === 'preview' ) {
+            if ( ! self::verify( 'preview', $parsed['submission_id'], $parsed['upload_id'], $signature, $salt ) ) {
+                return self::unavailable();
+            }
+            return self::preview_response(
+                $parsed['submission_id'],
+                $parsed['upload_id'],
+                $uploads_dir,
+                $now,
+                $overrides
             );
         }
 
         return self::unavailable();
     }
 
-    public static function gallery_url( $submission_id, $expires, $base_url = null, $salt = null ) {
-        if ( ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() ) || ! is_numeric( $expires ) || (int) $expires <= 0 ) {
+    public static function gallery_url( $submission_id, $base_url = null, $salt = null ) {
+        if ( ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() ) ) {
             return '';
         }
         $salt = is_string( $salt ) ? $salt : self::wordpress_salt();
         if ( $salt === '' ) {
             return '';
         }
-        $expires = (int) $expires;
-        $signature = self::signature( 'gallery', $submission_id, '', '', $expires, $salt );
+        $signature = self::signature( 'gallery', $submission_id, '', $salt );
         if ( $signature === '' ) {
             return '';
         }
-        return self::review_url( 'gallery', $submission_id, '', '', $expires, $signature, $base_url );
+        return self::review_url( 'gallery', $submission_id, '', $signature, $base_url );
     }
 
     public static function email_gallery_reference( $submission_id, $expected_upload_ids, $uploads_dir, $base_url = null, $salt = null, $now = null ) {
@@ -90,7 +119,7 @@ class ReviewController {
 
         $now = is_numeric( $now ) ? (int) $now : time();
         $loaded = UploadBatchStore::submission( $submission_id, $uploads_dir, $now );
-        if ( empty( $loaded['ok'] ) || ! isset( $loaded['submission']['items'], $loaded['submission']['gallery_expires_at'] ) ) {
+        if ( empty( $loaded['ok'] ) || ! isset( $loaded['submission']['items'] ) || ! array_key_exists( 'delete_after', $loaded['submission'] ) ) {
             return array( 'ok' => false );
         }
         $items = is_array( $loaded['submission']['items'] ) ? $loaded['submission']['items'] : array();
@@ -106,8 +135,8 @@ class ReviewController {
             return array( 'ok' => false );
         }
 
-        $expires = (int) $loaded['submission']['gallery_expires_at'];
-        $url = self::gallery_url( $submission_id, $expires, $base_url, $salt );
+        $delete_after = $loaded['submission']['delete_after'];
+        $url = self::gallery_url( $submission_id, $base_url, $salt );
         if ( $url === '' ) {
             return array( 'ok' => false );
         }
@@ -115,48 +144,35 @@ class ReviewController {
             'ok' => true,
             'count' => count( $items ),
             'url' => $url,
-            'expires_at' => $expires,
-            'expires_label' => gmdate( 'Y-m-d H:i \U\T\C', $expires ),
+            'available_label' => self::availability_label( $delete_after ),
         );
     }
 
-    public static function file_url( $submission_id, $upload_id, $variant, $expires, $base_url = null, $salt = null ) {
-        if ( ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
-            || ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() )
-            || ! in_array( $variant, array( 'preview', 'master' ), true )
-            || ! is_numeric( $expires )
-            || (int) $expires <= 0
-        ) {
-            return '';
-        }
-        $salt = is_string( $salt ) ? $salt : self::wordpress_salt();
-        if ( $salt === '' ) {
-            return '';
-        }
-        $expires = (int) $expires;
-        $signature = self::signature( 'file', $submission_id, $upload_id, $variant, $expires, $salt );
-        if ( $signature === '' ) {
-            return '';
-        }
-        return self::review_url( 'file', $submission_id, $upload_id, $variant, $expires, $signature, $base_url );
+    public static function file_url( $submission_id, $upload_id, $base_url = null, $salt = null ) {
+        return self::member_url( 'file', $submission_id, $upload_id, $base_url, $salt );
     }
 
-    public static function signature( $action, $submission_id, $upload_id, $variant, $expires, $salt ) {
-        if ( ! in_array( $action, array( 'gallery', 'file' ), true )
+    public static function preview_url( $submission_id, $upload_id, $base_url = null, $salt = null ) {
+        return self::member_url( 'preview', $submission_id, $upload_id, $base_url, $salt );
+    }
+
+    public static function enable_lightbox_for_current_review( $enabled, $id = null ) {
+        return self::$current_gallery_lightbox_enabled ? true : $enabled;
+    }
+
+    public static function signature( $action, $submission_id, $upload_id, $salt ) {
+        if ( ! in_array( $action, array( 'gallery', 'file', 'preview' ), true )
             || ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
             || ! is_string( $upload_id )
-            || ! is_string( $variant )
-            || ! is_numeric( $expires )
-            || (int) $expires <= 0
             || ! is_string( $salt )
             || $salt === ''
         ) {
             return '';
         }
-        if ( $action === 'gallery' && ( $upload_id !== '' || $variant !== '' ) ) {
+        if ( $action === 'gallery' && $upload_id !== '' ) {
             return '';
         }
-        if ( $action === 'file' && ( ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() ) || ! in_array( $variant, array( 'preview', 'master' ), true ) ) ) {
+        if ( in_array( $action, array( 'file', 'preview' ), true ) && ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() ) ) {
             return '';
         }
 
@@ -167,8 +183,6 @@ class ReviewController {
                 $action,
                 $submission_id,
                 $upload_id,
-                $variant,
-                (string) (int) $expires,
             )
         );
         return $message === '' ? '' : self::base64url( hash_hmac( 'sha256', $message, $salt, true ) );
@@ -179,6 +193,17 @@ class ReviewController {
             return;
         }
         $status = isset( $response['status'] ) ? (int) $response['status'] : 404;
+        $location = isset( $response['location'] ) && is_string( $response['location'] ) ? $response['location'] : '';
+        $redirected = false;
+        if ( $location !== '' ) {
+            $allowed_origin = isset( $response['redirect_origin'] ) && is_string( $response['redirect_origin'] )
+                ? $response['redirect_origin']
+                : '';
+            $redirected = WordPressRuntime::external_redirect( $location, $status, $allowed_origin );
+            if ( ! $redirected ) {
+                $status = 404;
+            }
+        }
         if ( function_exists( 'status_header' ) ) {
             status_header( $status );
         } elseif ( function_exists( 'http_response_code' ) ) {
@@ -186,45 +211,310 @@ class ReviewController {
         }
         $headers = isset( $response['headers'] ) && is_array( $response['headers'] ) ? $response['headers'] : array();
         foreach ( $headers as $name => $value ) {
-            if ( is_string( $name ) && $name !== '' && is_string( $value ) && $value !== '' && ! headers_sent() ) {
+            if ( is_string( $name ) && strtolower( $name ) !== 'location' && $name !== '' && is_string( $value ) && $value !== '' && ! headers_sent() ) {
                 header( $name . ': ' . $value, true );
             }
         }
     }
 
-    private static function gallery_response( $submission_id, $expires, $uploads_dir, $now, $salt, $overrides ) {
+    private static function gallery_response( $submission_id, $uploads_dir, $now, $salt, $overrides ) {
         $loaded = UploadBatchStore::submission( $submission_id, $uploads_dir, $now );
         if ( empty( $loaded['ok'] ) || ! isset( $loaded['submission'] ) || ! is_array( $loaded['submission'] ) ) {
+            if ( self::can_delete_review() ) {
+                $management = self::expired_management_response( $submission_id, $uploads_dir, $now, $salt, $overrides );
+                if ( $management !== false ) {
+                    return $management;
+                }
+            }
             return self::unavailable();
         }
         $submission = $loaded['submission'];
-        $manifest_expiry = isset( $submission['gallery_expires_at'] ) ? (int) $submission['gallery_expires_at'] : 0;
-        if ( $manifest_expiry <= $now || $expires > $manifest_expiry ) {
-            return self::unavailable();
-        }
 
         $base_url = isset( $overrides['base_url'] ) && is_string( $overrides['base_url'] ) ? $overrides['base_url'] : null;
+        $artifact_store = isset( $submission['artifact_store'] ) ? $submission['artifact_store'] : '';
+        $artifact_store_identity = isset( $submission['artifact_store_identity'] ) ? $submission['artifact_store_identity'] : '';
+        $provider = self::review_provider( $overrides );
+        if ( $artifact_store === FormProtocol::UPLOAD_TRANSPORT_WORKER
+            && ! WorkerClient::composition_matches( $artifact_store_identity )
+        ) {
+            return self::unavailable();
+        }
         $items = array();
         foreach ( isset( $submission['items'] ) && is_array( $submission['items'] ) ? $submission['items'] : array() as $item ) {
             if ( ! is_array( $item ) || ! isset( $item['upload_id'] ) || ! is_string( $item['upload_id'] ) ) {
                 return self::unavailable();
             }
-            $preview_url = self::file_url( $submission_id, $item['upload_id'], 'preview', $expires, $base_url, $salt );
-            $master_url = self::file_url( $submission_id, $item['upload_id'], 'master', $expires, $base_url, $salt );
-            if ( $preview_url === '' || $master_url === '' ) {
+            $preview_url = '';
+            $download_url = '';
+            $download_url = self::file_url( $submission_id, $item['upload_id'], $base_url, $salt );
+            if ( $artifact_store === FormProtocol::UPLOAD_TRANSPORT_WORKER || $provider === 'local' ) {
+                $preview_url = self::preview_url( $submission_id, $item['upload_id'], $base_url, $salt );
+            }
+            if ( $download_url === '' ) {
                 return self::unavailable();
             }
-            $items[] = array(
-                'upload_id' => $item['upload_id'],
-                'display_name' => isset( $item['display_name'] ) ? (string) $item['display_name'] : 'Photo',
-                'width' => isset( $item['width'] ) ? (int) $item['width'] : 0,
-                'height' => isset( $item['height'] ) ? (int) $item['height'] : 0,
+            $review_item = array(
+                'download_url' => $download_url,
                 'preview_url' => $preview_url,
-                'master_url' => $master_url,
+            );
+            if ( $preview_url !== '' ) {
+                $preview_dimensions = self::preview_dimensions(
+                    isset( $item['width'] ) ? (int) $item['width'] : 0,
+                    isset( $item['height'] ) ? (int) $item['height'] : 0
+                );
+                $review_item['preview_width'] = $preview_dimensions['width'];
+                $review_item['preview_height'] = $preview_dimensions['height'];
+            }
+            $items[] = $review_item;
+        }
+
+        self::enqueue_assets();
+        self::$current_gallery_lightbox_enabled = true;
+
+        $can_manage = self::can_delete_review();
+        $review_page = array(
+            'title' => 'Submitted Photos',
+            'submission_id' => $submission_id,
+            'items' => $items,
+            'submitted_label' => self::submitted_label( isset( $submission['finalized_at'] ) ? $submission['finalized_at'] : null ),
+            'availability_label' => self::availability_label( array_key_exists( 'delete_after', $submission ) ? $submission['delete_after'] : null ),
+            'can_delete' => $can_manage,
+            'template' => dirname( __DIR__, 2 ) . '/templates/pages/review-gallery.php',
+        );
+        if ( $can_manage ) {
+            self::add_operator_lead_review( $review_page, $submission_id, $uploads_dir );
+        } else {
+            self::add_public_project_summary( $review_page, $submission_id, $uploads_dir );
+        }
+        if ( ! empty( $review_page['can_delete'] ) ) {
+            $selected_choice = isset( $overrides['availability_selected_choice'] ) && is_string( $overrides['availability_selected_choice'] )
+                ? $overrides['availability_selected_choice']
+                : '';
+            self::add_operator_actions( $review_page, $submission_id, $base_url, $salt, true, array_key_exists( 'delete_after', $submission ) ? $submission['delete_after'] : null, $selected_choice );
+        }
+
+        return array(
+            'handled' => true,
+            'render' => 'review_gallery',
+            'status' => 200,
+            'location' => '',
+            'body' => '',
+            'headers' => self::private_headers( 'text/html; charset=UTF-8' ),
+            'review_page' => $review_page,
+            'result' => array( 'ok' => true ),
+        );
+    }
+
+    private static function expired_management_response( $submission_id, $uploads_dir, $now, $salt, $overrides ) {
+        $loaded = UploadBatchStore::submission_management_status( $submission_id, $uploads_dir, $now );
+        if ( empty( $loaded['ok'] ) || empty( $loaded['submission']['expired'] ) ) {
+            return false;
+        }
+        $base_url = isset( $overrides['base_url'] ) && is_string( $overrides['base_url'] ) ? $overrides['base_url'] : null;
+        $submission = $loaded['submission'];
+        self::enqueue_assets();
+        $review_page = array(
+            'title' => 'Submitted Photos',
+            'submission_id' => $submission_id,
+            'items' => array(),
+            'expired' => true,
+            'submitted_label' => self::submitted_label( isset( $submission['finalized_at'] ) ? $submission['finalized_at'] : null ),
+            'availability_label' => self::availability_label( $submission['delete_after'] ),
+            'can_delete' => true,
+            'template' => dirname( __DIR__, 2 ) . '/templates/pages/review-gallery.php',
+        );
+        self::add_operator_actions( $review_page, $submission_id, $base_url, $salt, false );
+        return array(
+            'handled' => true,
+            'render' => 'review_gallery',
+            'status' => 200,
+            'location' => '',
+            'body' => '',
+            'headers' => self::private_headers( 'text/html; charset=UTF-8' ),
+            'review_page' => $review_page,
+            'result' => array( 'ok' => true, 'expired' => true ),
+        );
+    }
+
+    private static function add_operator_actions( &$review_page, $submission_id, $base_url, $salt, $include_availability, $delete_after = null, $selected_choice = '' ) {
+        $review_page['operator_action_url'] = self::gallery_url( $submission_id, $base_url, $salt );
+        $review_page['operator_action_field'] = self::ACTION_FIELD;
+        $review_page['delete_action'] = self::DELETE_ACTION;
+        $review_page['delete_nonce_action'] = self::delete_nonce_action( $submission_id );
+        $review_page['delete_nonce_field'] = self::DELETE_NONCE_FIELD;
+        if ( ! $include_availability ) {
+            return;
+        }
+        $review_page['availability_action'] = self::AVAILABILITY_ACTION;
+        $review_page['availability_nonce_action'] = self::availability_nonce_action( $submission_id );
+        $review_page['availability_nonce_field'] = self::AVAILABILITY_NONCE_FIELD;
+        $review_page['availability_choice_field'] = self::AVAILABILITY_CHOICE_FIELD;
+        $review_page['availability_options'] = self::availability_options( $delete_after, $selected_choice );
+    }
+
+    private static function add_public_project_summary( &$review_page, $submission_id, $uploads_dir ) {
+        $loaded = UploadBatchStore::review_snapshot( $submission_id, $uploads_dir );
+        if ( empty( $loaded['ok'] ) || ! isset( $loaded['snapshot'] ) || ! is_array( $loaded['snapshot'] ) ) {
+            return;
+        }
+
+        $summary = SubmissionReviewSnapshot::public_summary( $loaded['snapshot'] );
+        if ( empty( $summary['ok'] ) || ! isset( $summary['summary']['details'] ) || ! is_array( $summary['summary']['details'] ) || empty( $summary['summary']['details'] ) ) {
+            return;
+        }
+
+        $rows = self::review_fact_rows( $summary['summary']['details'] );
+        if ( empty( $rows ) ) {
+            return;
+        }
+        $review_page['review_facts'] = array(
+            'aria_label' => 'Project summary',
+            'groups' => array(
+                array(
+                    'layout' => 'project',
+                    'rows' => $rows,
+                ),
+            ),
+        );
+    }
+
+    private static function add_operator_lead_review( &$review_page, $submission_id, $uploads_dir ) {
+        $loaded = UploadBatchStore::review_snapshot( $submission_id, $uploads_dir );
+        if ( empty( $loaded['ok'] ) || ! isset( $loaded['snapshot'] ) || ! is_array( $loaded['snapshot'] ) ) {
+            return;
+        }
+        $operator = SubmissionReviewSnapshot::operator_review( $loaded['snapshot'] );
+        if ( empty( $operator['ok'] ) || ! isset( $operator['review'] ) || ! is_array( $operator['review'] ) ) {
+            return;
+        }
+        $title = isset( $operator['review']['title'] ) && is_string( $operator['review']['title'] ) ? $operator['review']['title'] : '';
+        if ( $title !== '' ) {
+            $review_page['title'] = $title;
+        }
+
+        $header = isset( $operator['review']['header'] ) && is_array( $operator['review']['header'] ) ? $operator['review']['header'] : array();
+        $details = isset( $operator['review']['details'] ) && is_array( $operator['review']['details'] ) ? $operator['review']['details'] : array();
+        $contact = array();
+        $project = array();
+        foreach ( array_merge( $header, $details ) as $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+            $key = isset( $row['key'] ) && is_string( $row['key'] ) ? $row['key'] : '';
+            $value = isset( $row['value'] ) && is_string( $row['value'] ) ? $row['value'] : '';
+            if ( $key === 'name' ) {
+                if ( $value !== '' ) {
+                    $review_page['attribution_name'] = $value;
+                }
+                continue;
+            }
+            if ( $key === 'zip_us' || $key === 'email' || $key === 'tel_us' ) {
+                $contact[] = $row;
+            } else {
+                $project[] = $row;
+            }
+        }
+
+        $groups = array();
+        $contact = self::review_fact_rows( $contact );
+        $project = self::review_fact_rows( $project );
+        if ( ! empty( $contact ) ) {
+            $groups[] = array( 'layout' => 'equal', 'rows' => $contact );
+        }
+        if ( ! empty( $project ) ) {
+            $groups[] = array( 'layout' => 'equal', 'rows' => $project );
+        }
+        if ( ! empty( $groups ) ) {
+            $review_page['review_facts'] = array(
+                'aria_label' => 'Lead details',
+                'groups' => $groups,
+            );
+        }
+    }
+
+    private static function review_fact_rows( $rows ) {
+        $facts = array();
+        foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+            if ( ! is_array( $row ) ) {
+                continue;
+            }
+            $label = isset( $row['label'] ) && is_string( $row['label'] ) ? $row['label'] : '';
+            $value = isset( $row['value'] ) && is_string( $row['value'] ) ? $row['value'] : '';
+            if ( $label === '' || $value === '' ) {
+                continue;
+            }
+            $key = isset( $row['key'] ) && is_string( $row['key'] ) ? $row['key'] : '';
+            $type = isset( $row['type'] ) && is_string( $row['type'] ) ? $row['type'] : '';
+            $facts[] = array(
+                'label' => $label,
+                'value' => $value,
+                'href' => $type === 'url' ? $value : '',
+                'wide' => $key === 'project_description',
             );
         }
 
-        self::enqueue_styles();
+        return $facts;
+    }
+
+    private static function member_url( $action, $submission_id, $upload_id, $base_url, $salt ) {
+        if ( ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
+            || ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() )
+        ) {
+            return '';
+        }
+        $salt = is_string( $salt ) ? $salt : self::wordpress_salt();
+        if ( $salt === '' ) {
+            return '';
+        }
+        $signature = self::signature( $action, $submission_id, $upload_id, $salt );
+        if ( $signature === '' ) {
+            return '';
+        }
+        return self::review_url( $action, $submission_id, $upload_id, $signature, $base_url );
+    }
+
+    private static function operator_post_response( $submission_id, $uploads_dir, $now, $salt, $overrides ) {
+        if ( ! self::can_delete_review() ) {
+            return self::unavailable();
+        }
+        $post = self::post_payload( $overrides );
+        $action = isset( $post[ self::ACTION_FIELD ] ) && is_string( $post[ self::ACTION_FIELD ] )
+            ? $post[ self::ACTION_FIELD ]
+            : '';
+        if ( $action === self::DELETE_ACTION ) {
+            return self::delete_submission_response( $submission_id, $uploads_dir, $now, $post, $overrides );
+        }
+        if ( $action === self::AVAILABILITY_ACTION ) {
+            return self::update_availability_response( $submission_id, $uploads_dir, $now, $salt, $post, $overrides );
+        }
+        return self::unavailable();
+    }
+
+    private static function delete_submission_response( $submission_id, $uploads_dir, $now, $post, $overrides ) {
+        $nonce = isset( $post[ self::DELETE_NONCE_FIELD ] ) && is_string( $post[ self::DELETE_NONCE_FIELD ] )
+            ? $post[ self::DELETE_NONCE_FIELD ]
+            : '';
+        if ( ! self::verify_nonce( $nonce, self::delete_nonce_action( $submission_id ) ) ) {
+            return self::unavailable();
+        }
+        $remote_delete = isset( $overrides['remote_delete'] ) && is_callable( $overrides['remote_delete'] )
+            ? $overrides['remote_delete']
+            : function ( $object_key, $object_version, $artifact_store_identity ) use ( $now ) {
+                return WorkerClient::delete_object(
+                    $object_key,
+                    $object_version,
+                    $artifact_store_identity,
+                    $now,
+                    null,
+                    'operator_review_delete'
+                );
+            };
+        $deleted = UploadBatchStore::delete_finalized_submission( $submission_id, $uploads_dir, $now, $remote_delete );
+        if ( empty( $deleted['ok'] ) ) {
+            return self::unavailable();
+        }
+
+        self::enqueue_assets();
 
         return array(
             'handled' => true,
@@ -234,33 +524,82 @@ class ReviewController {
             'body' => '',
             'headers' => self::private_headers( 'text/html; charset=UTF-8' ),
             'review_page' => array(
-                'title' => 'Submitted Photos',
+                'title' => 'Review Deleted',
                 'submission_id' => $submission_id,
-                'count' => count( $items ),
-                'items' => $items,
+                'items' => array(),
+                'deleted' => true,
                 'template' => dirname( __DIR__, 2 ) . '/templates/pages/review-gallery.php',
             ),
-            'result' => array( 'ok' => true ),
+            'result' => array( 'ok' => true, 'deleted' => true ),
         );
     }
 
-    private static function file_response( $submission_id, $upload_id, $variant, $expires, $uploads_dir, $now ) {
-        $file = UploadBatchStore::submission_file( $submission_id, $upload_id, $variant, $uploads_dir, $now );
-        if ( empty( $file['ok'] )
-            || ! isset( $file['stream'], $file['mime'], $file['bytes'], $file['gallery_expires_at'] )
-            || ! is_resource( $file['stream'] )
-            || $expires > (int) $file['gallery_expires_at']
+    private static function update_availability_response( $submission_id, $uploads_dir, $now, $salt, $post, $overrides ) {
+        $nonce = isset( $post[ self::AVAILABILITY_NONCE_FIELD ] ) && is_string( $post[ self::AVAILABILITY_NONCE_FIELD ] )
+            ? $post[ self::AVAILABILITY_NONCE_FIELD ]
+            : '';
+        $choice = isset( $post[ self::AVAILABILITY_CHOICE_FIELD ] ) && is_string( $post[ self::AVAILABILITY_CHOICE_FIELD ] )
+            ? $post[ self::AVAILABILITY_CHOICE_FIELD ]
+            : '';
+        if ( ! self::verify_nonce( $nonce, self::availability_nonce_action( $submission_id ) ) ) {
+            return self::unavailable();
+        }
+        $delete_after = self::availability_delete_after( $choice, $now );
+        if ( $delete_after === false ) {
+            return self::unavailable();
+        }
+        $updated = UploadBatchStore::update_finalized_availability( $submission_id, $uploads_dir, $delete_after, $now );
+        if ( empty( $updated['ok'] ) ) {
+            return self::unavailable();
+        }
+        $overrides['availability_selected_choice'] = $choice;
+        return self::gallery_response( $submission_id, $uploads_dir, $now, $salt, $overrides );
+    }
+
+    private static function preview_dimensions( $width, $height ) {
+        $width = is_int( $width ) ? $width : 0;
+        $height = is_int( $height ) ? $height : 0;
+        if ( $width < 1 || $height < 1 ) {
+            return array( 'width' => 0, 'height' => 0 );
+        }
+        $edge = Anchors::get( 'REVIEW_PREVIEW_MAX_EDGE' );
+        if ( ! is_int( $edge ) || $edge < 1 ) {
+            return array( 'width' => $width, 'height' => $height );
+        }
+        $scale = min( 1, $edge / max( $width, $height ) );
+        return array(
+            'width' => max( 1, (int) round( $width * $scale ) ),
+            'height' => max( 1, (int) round( $height * $scale ) ),
+        );
+    }
+
+    private static function file_response( $submission_id, $upload_id, $uploads_dir, $now ) {
+        $loaded = UploadBatchStore::submission_file( $submission_id, $upload_id, $uploads_dir, $now );
+        $artifact = ! empty( $loaded['ok'] ) && isset( $loaded['artifact'] ) && is_array( $loaded['artifact'] )
+            ? $loaded['artifact']
+            : null;
+        if ( ! is_array( $artifact ) ) {
+            return self::unavailable();
+        }
+        if ( $artifact['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+            return self::worker_redirect( $submission_id, $upload_id, $artifact, 'download', $now );
+        }
+        if ( ! isset( $artifact['stream'], $artifact['mime'], $artifact['bytes'] )
+            || ! is_resource( $artifact['stream'] )
         ) {
-            if ( isset( $file['stream'] ) && is_resource( $file['stream'] ) ) {
-                fclose( $file['stream'] );
+            if ( isset( $artifact['stream'] ) && is_resource( $artifact['stream'] ) ) {
+                fclose( $artifact['stream'] );
             }
             return self::unavailable();
         }
-        $stream = $file['stream'];
-        $actual_bytes = (int) $file['bytes'];
-        $headers = self::private_headers( (string) $file['mime'] );
+        $stream = $artifact['stream'];
+        $actual_bytes = (int) $artifact['bytes'];
+        $headers = self::private_headers( (string) $artifact['mime'] );
         $headers['Content-Length'] = (string) $actual_bytes;
-        $headers['Content-Disposition'] = self::content_disposition( $variant, isset( $file['display_name'] ) ? $file['display_name'] : '' );
+        $headers['Content-Disposition'] = self::content_disposition(
+            isset( $artifact['display_name'] ) ? $artifact['display_name'] : '',
+            (string) $artifact['mime']
+        );
         return array(
             'handled' => true,
             'render' => 'review_file',
@@ -268,6 +607,57 @@ class ReviewController {
             'location' => '',
             'body' => '',
             'stream' => $stream,
+            'headers' => $headers,
+            'result' => array( 'ok' => true ),
+        );
+    }
+
+    private static function preview_response( $submission_id, $upload_id, $uploads_dir, $now, $overrides ) {
+        $loaded = UploadBatchStore::submission_preview_source( $submission_id, $upload_id, $uploads_dir, $now );
+        $artifact = ! empty( $loaded['ok'] ) && isset( $loaded['artifact'] ) && is_array( $loaded['artifact'] )
+            ? $loaded['artifact']
+            : null;
+        if ( ! is_array( $artifact ) ) {
+            return self::unavailable();
+        }
+        if ( $artifact['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+            return self::worker_redirect( $submission_id, $upload_id, $artifact, 'preview', $now );
+        }
+        if ( self::review_provider( $overrides ) !== 'local' ) {
+            return self::unavailable();
+        }
+        $concurrency = isset( $overrides['local_preview_concurrency'] ) && is_int( $overrides['local_preview_concurrency'] )
+            ? $overrides['local_preview_concurrency']
+            : WorkerClient::local_preview_concurrency();
+        $preview = LocalPreviewProvider::render(
+            $artifact,
+            $uploads_dir,
+            $concurrency,
+            isset( $overrides['local_preview_encoder'] ) ? $overrides['local_preview_encoder'] : null,
+            isset( $overrides['local_preview_admission'] ) && is_callable( $overrides['local_preview_admission'] )
+                ? $overrides['local_preview_admission']
+                : function ( $lifecycle, $path, $bytes ) use ( $uploads_dir ) {
+                    return UploadBatchStore::reserve_preview_cache_allocation( $uploads_dir, $lifecycle, $path, $bytes );
+                }
+        );
+        if ( empty( $preview['ok'] ) ) {
+            if ( ! empty( $preview['transient'] ) ) {
+                $response = self::unavailable();
+                $response['status'] = 503;
+                $response['headers']['Retry-After'] = (string) ( isset( $preview['retry_after'] ) ? (int) $preview['retry_after'] : 2 );
+                return $response;
+            }
+            return self::unavailable();
+        }
+        $headers = self::private_headers( 'image/jpeg' );
+        $headers['Content-Length'] = (string) $preview['bytes'];
+        return array(
+            'handled' => true,
+            'render' => 'review_file',
+            'status' => 200,
+            'location' => '',
+            'body' => '',
+            'stream' => $preview['stream'],
             'headers' => $headers,
             'result' => array( 'ok' => true ),
         );
@@ -296,22 +686,39 @@ class ReviewController {
             }
             $submission_id = $query[ self::QUERY_SUBMISSION ];
             $has_upload = array_key_exists( self::QUERY_UPLOAD, $query );
-            $has_variant = array_key_exists( self::QUERY_VARIANT, $query );
-            if ( ! $has_upload && ! $has_variant && self::valid_id( $submission_id, FormProtocol::managed_id_pattern() ) ) {
+            $has_preview = array_key_exists( self::QUERY_PREVIEW, $query );
+            $unknown = array_diff(
+                array_keys( $query ),
+                array( self::QUERY_SUBMISSION, self::QUERY_UPLOAD, self::QUERY_PREVIEW, 'signature' )
+            );
+            if ( ! $has_upload && ! $has_preview && empty( $unknown ) && self::valid_id( $submission_id, FormProtocol::managed_id_pattern() ) ) {
                 return array( 'matched' => true, 'action' => 'gallery', 'submission_id' => $submission_id, 'query' => $query );
             }
             if ( $has_upload
-                && $has_variant
+                && ! $has_preview
+                && empty( $unknown )
                 && self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
                 && self::valid_id( $query[ self::QUERY_UPLOAD ], FormProtocol::managed_id_pattern() )
-                && in_array( $query[ self::QUERY_VARIANT ], array( 'preview', 'master' ), true )
             ) {
                 return array(
                     'matched' => true,
                     'action' => 'file',
                     'submission_id' => $submission_id,
                     'upload_id' => $query[ self::QUERY_UPLOAD ],
-                    'variant' => $query[ self::QUERY_VARIANT ],
+                    'query' => $query,
+                );
+            }
+            if ( $has_preview
+                && ! $has_upload
+                && empty( $unknown )
+                && self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
+                && self::valid_id( $query[ self::QUERY_PREVIEW ], FormProtocol::managed_id_pattern() )
+            ) {
+                return array(
+                    'matched' => true,
+                    'action' => 'preview',
+                    'submission_id' => $submission_id,
+                    'upload_id' => $query[ self::QUERY_PREVIEW ],
                     'query' => $query,
                 );
             }
@@ -321,11 +728,11 @@ class ReviewController {
         return array( 'matched' => false );
     }
 
-    private static function verify( $action, $submission_id, $upload_id, $variant, $expires, $provided, $salt ) {
+    private static function verify( $action, $submission_id, $upload_id, $provided, $salt ) {
         if ( ! is_string( $provided ) ) {
             return false;
         }
-        $expected = self::signature( $action, $submission_id, $upload_id, $variant, $expires, $salt );
+        $expected = self::signature( $action, $submission_id, $upload_id, $salt );
         return $expected !== '' && hash_equals( $expected, $provided );
     }
 
@@ -356,13 +763,6 @@ class ReviewController {
         return array( 'handled' => false, 'status' => 0, 'location' => '', 'body' => '', 'result' => null );
     }
 
-    private static function query_expiry( $query ) {
-        if ( ! is_array( $query ) || ! isset( $query['expires'] ) || ! is_string( $query['expires'] ) || preg_match( '/^[1-9][0-9]{0,10}$/', $query['expires'] ) !== 1 ) {
-            return 0;
-        }
-        return (int) $query['expires'];
-    }
-
     private static function uploads_dir( $overrides ) {
         if ( isset( $overrides['uploads_dir'] ) && is_string( $overrides['uploads_dir'] ) && $overrides['uploads_dir'] !== '' ) {
             return rtrim( $overrides['uploads_dir'], '/\\' );
@@ -389,7 +789,7 @@ class ReviewController {
         return function_exists( 'home_url' ) ? rtrim( (string) home_url(), '/' ) : '';
     }
 
-    private static function review_url( $action, $submission_id, $upload_id, $variant, $expires, $signature, $base_url ) {
+    private static function review_url( $action, $submission_id, $upload_id, $signature, $base_url ) {
         $base = self::base_url( $base_url );
         if ( $base === '' ) {
             return '';
@@ -397,11 +797,10 @@ class ReviewController {
         $query = array_merge(
             array( self::QUERY_SUBMISSION => $submission_id ),
             $action === 'file'
-                ? array( self::QUERY_UPLOAD => $upload_id, self::QUERY_VARIANT => $variant )
-                : array(),
+                ? array( self::QUERY_UPLOAD => $upload_id )
+                : ( $action === 'preview' ? array( self::QUERY_PREVIEW => $upload_id ) : array() ),
             array(
-            'expires' => $expires,
-            'signature' => $signature,
+                'signature' => $signature,
             )
         );
         return $base . '/?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 );
@@ -411,6 +810,101 @@ class ReviewController {
         return isset( $_SERVER['REQUEST_METHOD'] ) && is_string( $_SERVER['REQUEST_METHOD'] )
             ? strtoupper( $_SERVER['REQUEST_METHOD'] )
             : 'GET';
+    }
+
+    private static function post_payload( $overrides ) {
+        if ( isset( $overrides['post'] ) && is_array( $overrides['post'] ) ) {
+            return $overrides['post'];
+        }
+        return isset( $_POST ) && is_array( $_POST ) ? $_POST : array();
+    }
+
+    private static function can_delete_review() {
+        return function_exists( 'current_user_can' ) && current_user_can( 'manage_options' );
+    }
+
+    private static function delete_nonce_action( $submission_id ) {
+        return 'eforms_review_delete_' . $submission_id;
+    }
+
+    private static function availability_nonce_action( $submission_id ) {
+        return 'eforms_review_availability_' . $submission_id;
+    }
+
+    private static function availability_options( $delete_after = 0, $selected_choice = '' ) {
+        $choices = self::availability_choices();
+        $selected_choice = is_string( $selected_choice ) && isset( $choices[ $selected_choice ] ) ? $selected_choice : '';
+        $options = array();
+        foreach ( $choices as $key => $choice ) {
+            $options[] = array(
+                'key' => $key,
+                'label' => $choice['label'],
+                'checked' => $selected_choice !== ''
+                    ? $key === $selected_choice
+                    : ( $delete_after === null && $choice['duration_anchor'] === null ),
+            );
+        }
+        return $options;
+    }
+
+    private static function availability_delete_after( $choice, $now ) {
+        $choices = self::availability_choices();
+        if ( ! isset( $choices[ $choice ] ) ) {
+            return false;
+        }
+        $anchor = $choices[ $choice ]['duration_anchor'];
+        if ( $anchor === null ) {
+            return null;
+        }
+        $duration = Anchors::get( $anchor );
+        if ( ! is_int( $duration ) || $duration < 1 ) {
+            return false;
+        }
+        return (int) $now + $duration;
+    }
+
+    private static function availability_choices() {
+        return array(
+            '30_days' => array(
+                'label' => '30 days',
+                'duration_anchor' => 'MANAGED_AVAILABILITY_30_DAYS_SECONDS',
+            ),
+            '90_days' => array(
+                'label' => '90 days',
+                'duration_anchor' => 'MANAGED_AVAILABILITY_90_DAYS_SECONDS',
+            ),
+            '1_year' => array(
+                'label' => '1 year',
+                'duration_anchor' => 'MANAGED_AVAILABILITY_1_YEAR_SECONDS',
+            ),
+            'manual' => array(
+                'label' => 'Until manually deleted',
+                'duration_anchor' => null,
+            ),
+        );
+    }
+
+    private static function availability_label( $delete_after ) {
+        return $delete_after === null ? 'manually deleted' : self::display_timestamp_label( $delete_after );
+    }
+
+    private static function submitted_label( $finalized_at ) {
+        return self::display_timestamp_label( $finalized_at );
+    }
+
+    private static function display_timestamp_label( $timestamp ) {
+        if ( ! is_numeric( $timestamp ) ) {
+            return '';
+        }
+        $format = 'F j, Y \a\t g:i a';
+        if ( function_exists( 'wp_date' ) ) {
+            return wp_date( $format, (int) $timestamp );
+        }
+        return gmdate( $format, (int) $timestamp );
+    }
+
+    private static function verify_nonce( $nonce, $action ) {
+        return is_string( $nonce ) && $nonce !== '' && function_exists( 'wp_verify_nonce' ) && wp_verify_nonce( $nonce, $action );
     }
 
     private static function valid_id( $value, $pattern ) {
@@ -429,24 +923,62 @@ class ReviewController {
         return $ids;
     }
 
-    private static function content_disposition( $variant, $display_name ) {
-        $name = is_string( $display_name ) && $display_name !== '' ? $display_name : 'photo';
-        $stem = pathinfo( $name, PATHINFO_FILENAME );
-        $stem = is_string( $stem ) && $stem !== '' ? $stem : 'photo';
-        $suffix = $variant === 'preview' ? '-preview.jpg' : '-high-resolution.jpg';
-        $fallback = $variant === 'preview' ? 'preview.jpg' : 'high-resolution.jpg';
-        return 'inline; filename="' . $fallback . '"; filename*=UTF-8\'\'' . rawurlencode( $stem . $suffix );
+    private static function content_disposition( $display_name, $mime ) {
+        $extension = UploadPolicy::staged_extension_for_mime( $mime );
+        $extension = $extension !== '' ? $extension : 'image';
+        $name = is_string( $display_name ) ? trim( $display_name ) : '';
+        $stem = $name !== '' ? pathinfo( $name, PATHINFO_FILENAME ) : '';
+        $stem = is_string( $stem ) && $stem !== '' ? $stem : 'submitted-image';
+        $filename = $stem . '.' . $extension;
+        return 'attachment; filename="submitted-image.' . $extension . '"; filename*=UTF-8\'\'' . rawurlencode( $filename );
     }
 
-    private static function enqueue_styles() {
-        $config = Config::get();
-        if ( Config::bool( $config, array( 'assets', 'css_disable' ), false ) ) {
-            return;
+    private static function enqueue_assets() {
+        EformsAssets::enqueue_review( Config::get() );
+    }
+
+    private static function review_provider( $overrides ) {
+        if ( isset( $overrides['review_provider'] ) && in_array( $overrides['review_provider'], array( 'none', 'local', 'worker', 'unavailable' ), true ) ) {
+            return $overrides['review_provider'];
         }
-        $path = dirname( __DIR__, 2 ) . '/assets/forms.css';
-        if ( function_exists( 'wp_enqueue_style' ) && function_exists( 'plugins_url' ) && is_file( $path ) ) {
-            wp_enqueue_style( 'eforms', plugins_url( 'assets/forms.css', dirname( __DIR__, 2 ) . '/eforms.php' ), array(), filemtime( $path ) );
+        return WorkerClient::review_provider();
+    }
+
+    private static function worker_review_claims( $submission_id, $upload_id, $artifact, $action, $expires_at ) {
+        return array(
+            'submission_id' => $submission_id,
+            'upload_id' => $upload_id,
+            'object_key' => $artifact['object_key'],
+            'object_version' => $artifact['object_version'],
+            'action' => $action,
+            'recipe_version' => WorkerProtocol::REVIEW_RECIPE_VERSION,
+            'expires_at' => $expires_at,
+        );
+    }
+
+    private static function worker_redirect( $submission_id, $upload_id, $artifact, $action, $now ) {
+        $grant_expiry = (int) $now + Anchors::get( 'WORKER_REVIEW_GRANT_TTL_SECONDS' );
+        if ( array_key_exists( 'delete_after', $artifact ) && $artifact['delete_after'] !== null ) {
+            $grant_expiry = min( (int) $artifact['delete_after'], $grant_expiry );
         }
+        $url = WorkerClient::review_url(
+            self::worker_review_claims( $submission_id, $upload_id, $artifact, $action, $grant_expiry ),
+            $artifact['artifact_store_identity'],
+            $now
+        );
+        if ( $url === '' ) {
+            return self::unavailable();
+        }
+        return array(
+            'handled' => true,
+            'render' => 'review_file',
+            'status' => 302,
+            'location' => $url,
+            'redirect_origin' => WorkerClient::origin(),
+            'body' => '',
+            'headers' => self::private_headers( 'text/html; charset=UTF-8' ),
+            'result' => array( 'ok' => true ),
+        );
     }
 
     private static function base64url( $bytes ) {

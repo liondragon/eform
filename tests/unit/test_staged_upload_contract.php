@@ -48,27 +48,22 @@ eforms_test_assert( $credentials === array(
 ), 'Credential transport names should remain field-scoped and distinct by entrypoint.' );
 
 eforms_test_assert( $fixture['production_readiness']['throttle_enable'] === true, 'Staged production readiness should require the existing throttle.' );
-eforms_test_assert( $fixture['production_readiness']['staged_backend'] === 'imagick', 'Staged production readiness should require the sole approved image backend.' );
+eforms_test_assert( $fixture['production_readiness']['staged_backend'] === 'authoritative-artifact', 'Staged acceptance should require authoritative artifact inspection rather than an image-processing backend.' );
 
 $managed_manifest = $fixture['managed_manifest'];
-eforms_test_assert( $managed_manifest['version'] === 2, 'The target managed manifest should use only schema version 2.' );
-eforms_test_assert( $managed_manifest['aggregate_byte_fields'] === array( 'source_bytes', 'managed_bytes' ), 'Aggregate totals should not duplicate item-owned derivative breakdowns.' );
-eforms_test_assert( $managed_manifest['variants'] === array( 'preview', 'master' ), 'Signed review variants should expose preview and master only.' );
-eforms_test_assert( $managed_manifest['filenames'] === array( 'master' => 'master.jpg', 'preview' => 'preview.jpg' ), 'Both committed derivatives should use fixed JPEG member names.' );
+eforms_test_assert( $managed_manifest['version'] === UploadBatchStore::MANIFEST_VERSION, 'The authoritative-artifact fixture should track the code-owned schema version.' );
+eforms_test_assert( $managed_manifest['artifact_store_field'] === 'artifact_store', 'Each aggregate should persist the immutable owner used by review and cleanup.' );
+eforms_test_assert( $managed_manifest['artifact_store_identity_field'] === 'artifact_store_identity', 'Worker aggregates should persist the exact deployment identity used by review and cleanup.' );
+eforms_test_assert( $managed_manifest['aggregate_byte_fields'] === array( 'artifact_bytes' ), 'Aggregate accounting should total only committed authoritative artifacts.' );
 eforms_test_assert(
-    array_intersect( array( 'original_bytes', 'original_relpath', 'bytes', 'mime', 'width', 'height', 'sha256' ), $managed_manifest['item_fields'] ) === array(),
-    'The target manifest fixture should not retain ambiguous or original-artifact item fields.'
-);
-eforms_test_assert(
-    in_array( 'source_sha256', $managed_manifest['item_fields'], true )
-        && in_array( 'master_relpath', $managed_manifest['item_fields'], true )
-        && in_array( 'master_sha256', $managed_manifest['item_fields'], true )
-        && in_array( 'preview_relpath', $managed_manifest['item_fields'], true )
-        && in_array( 'preview_sha256', $managed_manifest['item_fields'], true ),
-    'The target manifest fixture should distinguish source facts from committed derivative artifacts.'
+    in_array( 'object_key', $managed_manifest['item_fields'], true )
+        && in_array( 'object_version', $managed_manifest['item_fields'], true )
+        && in_array( 'accepted_at', $managed_manifest['item_fields'], true )
+        && in_array( 'intent_id', $managed_manifest['intent_fields'], true ),
+    'The manifest fixture should distinguish durable intents from committed immutable artifact facts.'
 );
 
-$css = file_get_contents( dirname( __DIR__, 2 ) . '/assets/forms.css' );
+$css = file_get_contents( dirname( __DIR__, 2 ) . '/assets/upload.css' );
 eforms_test_assert( is_string( $css ), 'Managed uploader CSS should be readable.' );
 preg_match_all( '/--eforms-upload-[a-z-]+(?=\s*:)/', $css, $variable_matches );
 $variables = array_values( array_unique( isset( $variable_matches[0] ) ? $variable_matches[0] : array() ) );
@@ -78,7 +73,8 @@ $expected_variables = array(
     '--eforms-upload-border',
     '--eforms-upload-card-bg',
     '--eforms-upload-error',
+    '--eforms-upload-text',
     '--eforms-upload-track',
 );
 sort( $expected_variables, SORT_STRING );
-eforms_test_assert( $variables === $expected_variables, 'Managed uploader CSS should expose exactly the five approved theme variables.' );
+eforms_test_assert( $variables === $expected_variables, 'Managed uploader CSS should expose exactly the six approved theme variables.' );

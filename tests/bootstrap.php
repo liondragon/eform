@@ -141,7 +141,7 @@ if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
 function eforms_test_managed_capacity_record( $uploads_dir ) {
     $path = rtrim( $uploads_dir, '/\\' ) . '/eforms-private/managed-capacity.json';
     if ( ! is_file( $path ) ) {
-        return array( 'total_bytes' => 0, 'reservations' => array() );
+        return array( 'total_bytes' => 0, 'reservations' => array(), 'releases' => array() );
     }
     $record = json_decode( file_get_contents( $path ), true );
     return is_array( $record ) ? $record : null;
@@ -428,6 +428,12 @@ if ( ! function_exists( 'add_options_page' ) ) {
 if ( ! function_exists( 'wp_nonce_field' ) ) {
     function wp_nonce_field( $action = -1, $name = '_wpnonce' ) {
         $nonce = isset( $GLOBALS['eforms_test_nonce'] ) ? (string) $GLOBALS['eforms_test_nonce'] : 'valid-nonce';
+        if ( isset( $GLOBALS['eforms_test_nonce_actions'] )
+            && is_array( $GLOBALS['eforms_test_nonce_actions'] )
+            && isset( $GLOBALS['eforms_test_nonce_actions'][ (string) $action ] )
+        ) {
+            $nonce = (string) $GLOBALS['eforms_test_nonce_actions'][ (string) $action ];
+        }
         echo '<input type="hidden" name="' . esc_attr( $name ) . '" value="' . esc_attr( $nonce ) . '" />';
     }
 }
@@ -435,6 +441,12 @@ if ( ! function_exists( 'wp_nonce_field' ) ) {
 if ( ! function_exists( 'wp_verify_nonce' ) ) {
     function wp_verify_nonce( $nonce, $action = -1 ) {
         $expected = isset( $GLOBALS['eforms_test_nonce'] ) ? (string) $GLOBALS['eforms_test_nonce'] : 'valid-nonce';
+        if ( isset( $GLOBALS['eforms_test_nonce_actions'] )
+            && is_array( $GLOBALS['eforms_test_nonce_actions'] )
+            && isset( $GLOBALS['eforms_test_nonce_actions'][ (string) $action ] )
+        ) {
+            $expected = (string) $GLOBALS['eforms_test_nonce_actions'][ (string) $action ];
+        }
         return (string) $nonce === $expected && (string) $action !== '';
     }
 }

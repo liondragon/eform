@@ -1,0 +1,86 @@
+{
+  "version": "1",
+  "environment": "production-fixture",
+  "active_key_id": "key-2026-07",
+  "active_key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "verification_now": 2000000000,
+  "claims": {
+    "upload_grant": {
+      "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+      "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "upload_id": "upload_fixture_01",
+      "ordinal": 2,
+      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "declared_bytes": 1234,
+      "declared_mime": "image/png",
+      "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "max_bytes": 18874368,
+      "max_edge": 12000,
+      "max_pixels": 60000000,
+      "container_entry_limit": 4096,
+      "intent_expires_at": 2000001800,
+      "grant_expires_at": 2000000900,
+      "upload_max_seconds": 1800,
+      "receipt_ttl_seconds": 900
+    },
+    "upload_receipt": {
+      "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+      "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "upload_id": "upload_fixture_01",
+      "ordinal": 2,
+      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_version": "0123456789abcdef0123456789abcdef",
+      "etag": "abcdefabcdefabcdefabcdefabcdefab",
+      "bytes": 1234,
+      "mime": "image/png",
+      "width": 32,
+      "height": 24,
+      "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "expires_at": 2000000900
+    },
+    "review_grant": {
+      "submission_id": "submission_fixture_01",
+      "upload_id": "upload_fixture_01",
+      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_version": "0123456789abcdef0123456789abcdef",
+      "action": "preview",
+      "recipe_version": "review-jpeg-v1",
+      "expires_at": 2000000300
+    },
+    "object_request": {
+      "request_id": "object_fixture_01",
+      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_version": "0123456789abcdef0123456789abcdef",
+      "action": "delete",
+      "expires_at": 2000000060
+    },
+    "object_result": {
+      "request_id": "object_fixture_01",
+      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_version": "0123456789abcdef0123456789abcdef",
+      "status": "absent",
+      "expires_at": 2000000060
+    },
+    "health_request": {
+      "request_id": "health_fixture_01",
+      "expires_at": 2000000060
+    },
+    "health_result": {
+      "request_id": "health_fixture_01",
+      "storage_ready": 1,
+      "inspection_ready": 1,
+      "checked_at": 2000000000,
+      "expires_at": 2000000060
+    }
+  },
+  "vectors": {
+    "upload_grant": { "payload_sha256": "f820328683e9a5a3cbb1dafed3f9aa92f02dcd382fc464c08e7d6f621cd6da84", "signature_b64": "B3Tlo3nMH5Ko3uULtNLlrHj-VEFNF5dPS7q2Hn0ukzY" },
+    "upload_receipt": { "payload_sha256": "27f690369a3b31359b14c6313e57d0920d535735caaea1d6677496d7f269c20a", "signature_b64": "uvs6Ticz4mABNwC1DHQMgODrbGvFZaOUU1l-waXYvmA" },
+    "review_grant": { "payload_sha256": "636890919779a215de38a93b72613d5126bccae410c809f276f6ab345b55ae87", "signature_b64": "Y3ZMqunHSRgWIYwNE4-dnsnviA7Pj94jpQmhsrgtT9U" },
+    "object_request": { "payload_sha256": "0ca50a6bc477ab8e4f77bcc558cc588969f14ac5b044516383ab4211a2a8bb3f", "signature_b64": "OOyI7yg4xlaIt2N5oOcM4EuVmCbB8V28odmiIz-UFSc" },
+    "object_result": { "payload_sha256": "2a6d3bc33abded19898c7f71b9466065a3bf80f5f712337ff81f1c8b98481c0d", "signature_b64": "KsoWAyiovzQe8C2p4fQjYm-_7Dl18bZQTmO44P53GQo" },
+    "health_request": { "payload_sha256": "8027cc39660edb44844a39d9333061d6835f155069fc2215dd4d3c30f3d8c830", "signature_b64": "-CsGNJn_dKVdT5IELL6-hElFyNhetTDdA_GjB0uCfTc" },
+    "health_result": { "payload_sha256": "3e825e3f72d3168365c9ef27af022408dfed834b5378ad9369fb1aacb556095a", "signature_b64": "-RJ_TJfELA7QmTWmMaFK1aoWl7cBP7Mz2UU2JxqNWBI" },
+    "declared_over_limit_grant": { "payload_sha256": "2ee53e825d64e457d800db5a131ecb455488c266a96d1535301cae1b68daffc5", "signature_b64": "OtJBhT3OuX6DM9dnL2K6hF_AR0v0ORXifJUUCou4Zs4" }
+  }
+}

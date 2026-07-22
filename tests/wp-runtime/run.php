@@ -51,6 +51,8 @@ $GLOBALS['eforms_wp_runtime_assets'] = array();
 $GLOBALS['eforms_wp_runtime_status'] = 200;
 $GLOBALS['eforms_wp_runtime_mail_should_fail'] = false;
 $GLOBALS['eforms_wp_runtime_last_template'] = '';
+$GLOBALS['eforms_wp_runtime_management_pages'] = array();
+$GLOBALS['eforms_wp_runtime_options_pages'] = array();
 
 if ( ! function_exists( 'eforms_wp_runtime_assert' ) ) {
     function eforms_wp_runtime_assert( $condition, $message ) {
@@ -159,6 +161,32 @@ if ( ! function_exists( 'add_shortcode' ) ) {
     function add_shortcode( $tag, $callback ) {
         $GLOBALS['eforms_wp_runtime_hooks']['shortcode'][ $tag ] = $callback;
         return true;
+    }
+}
+
+if ( ! function_exists( 'add_management_page' ) ) {
+    function add_management_page( $page_title, $menu_title, $capability, $menu_slug, $callback ) {
+        $GLOBALS['eforms_wp_runtime_management_pages'][] = array(
+            'page_title' => $page_title,
+            'menu_title' => $menu_title,
+            'capability' => $capability,
+            'menu_slug' => $menu_slug,
+            'callback' => $callback,
+        );
+        return $menu_slug;
+    }
+}
+
+if ( ! function_exists( 'add_options_page' ) ) {
+    function add_options_page( $page_title, $menu_title, $capability, $menu_slug, $callback ) {
+        $GLOBALS['eforms_wp_runtime_options_pages'][] = array(
+            'page_title' => $page_title,
+            'menu_title' => $menu_title,
+            'capability' => $capability,
+            'menu_slug' => $menu_slug,
+            'callback' => $callback,
+        );
+        return $menu_slug;
     }
 }
 
@@ -468,15 +496,15 @@ if ( ! function_exists( 'eforms_wp_runtime_render_controller_response' ) ) {
 }
 
 if ( ! function_exists( 'eforms_wp_runtime_public_hidden_post' ) ) {
-    function eforms_wp_runtime_public_hidden_post( $post ) {
-        $_SERVER = array(
+    function eforms_wp_runtime_public_hidden_post( $post, $headers = array() ) {
+        $_SERVER = array_merge( array(
             'REQUEST_METHOD' => 'POST',
             'HTTP_HOST' => 'example.test',
             'HTTPS' => 'on',
             'REQUEST_URI' => '/contact/',
             'CONTENT_TYPE' => 'application/x-www-form-urlencoded',
             'CONTENT_LENGTH' => strlen( http_build_query( $post ) ),
-        );
+        ), is_array( $headers ) ? $headers : array() );
         $_POST = $post;
         $_FILES = array();
 
@@ -541,6 +569,7 @@ if ( ! function_exists( 'eforms_wp_runtime_review_get' ) ) {
 try {
     eforms_wp_runtime_do_action( 'init' );
     eforms_wp_runtime_do_action( 'rest_api_init' );
+    eforms_wp_runtime_do_action( 'admin_menu' );
 
     eforms_wp_runtime_assert( isset( $GLOBALS['eforms_wp_runtime_hooks']['shortcode']['eform'] ), 'Shortcode [eform] should be registered.' );
     eforms_wp_runtime_assert( ! empty( $GLOBALS['eforms_wp_runtime_hooks']['action']['template_redirect'] ), 'template_redirect hook should be registered.' );
@@ -549,6 +578,17 @@ try {
     eforms_wp_runtime_assert( $template_redirect['callback'] === array( 'PublicRequestController', 'handle_template_redirect' ), 'template_redirect should register PublicRequestController only.' );
     eforms_wp_runtime_assert( ! empty( $GLOBALS['eforms_wp_runtime_hooks']['rewrite'] ), 'Rewrite rules should be registered through init.' );
     eforms_wp_runtime_assert( ! empty( $GLOBALS['eforms_wp_runtime_hooks']['rest'] ), 'REST routes should be registered through rest_api_init.' );
+    $submissions_pages = array_filter(
+        $GLOBALS['eforms_wp_runtime_management_pages'],
+        function ( $page ) {
+            return is_array( $page )
+                && isset( $page['menu_slug'], $page['capability'], $page['callback'] )
+                && $page['menu_slug'] === 'eforms-submissions'
+                && $page['capability'] === 'manage_options'
+                && $page['callback'] === array( 'SubmissionsAdmin', 'render_page' );
+        }
+    );
+    eforms_wp_runtime_assert( count( $submissions_pages ) === 1, 'Tools -> eForms Submissions should register as a manage_options admin page.' );
 
     eforms_wp_runtime_reset_request();
     $html = eforms_wp_runtime_shortcode( 'contact', false );
@@ -584,8 +624,27 @@ try {
     eforms_wp_runtime_assert( $invalid_response['status'] === 200, 'Validation errors should rerender with HTTP 200.' );
     eforms_wp_runtime_assert( strpos( $invalid_response['body'], 'eforms-error-summary' ) !== false, 'Validation rerender should include the error summary.' );
     eforms_wp_runtime_assert( strpos( $invalid_response['body'], 'href="#contact-name"' ) !== false, 'Validation rerender should point at the invalid field.' );
+    eforms_wp_runtime_assert( preg_match( '/<input(?=[^>]*\\bname="contact\\[email\\]")(?=[^>]*\\bvalue="ada@example\\.test")[^>]*>/', $invalid_response['body'] ) === 1, 'Validation rerender should retain safe non-file values through the public controller path.' );
     eforms_wp_runtime_assert( eforms_wp_runtime_hidden_value( $invalid_response['body'], 'eforms_token' ) === $token, 'Validation rerender should reuse the submitted token.' );
     eforms_wp_runtime_assert( eforms_wp_runtime_ledger_count( 'contact' ) === $ledger_before_invalid, 'Validation failure should not reserve the ledger.' );
+
+    eforms_wp_runtime_reset_request();
+    $enhanced_invalid = eforms_wp_runtime_public_hidden_post(
+        $invalid_post,
+        array( 'HTTP_X_EFORMS_RESPONSE' => FormProtocol::ENHANCED_RESPONSE_JSON )
+    );
+    $enhanced_invalid_body = json_decode( $enhanced_invalid['body'], true );
+    eforms_wp_runtime_assert( $enhanced_invalid['status'] === 422, 'An exact enhanced response request should convert a correctable outcome to HTTP 422.' );
+    eforms_wp_runtime_assert(
+        array_keys( $enhanced_invalid_body ) === array( 'ok', 'errors', 'upload_recovery', 'challenge' )
+            && $enhanced_invalid_body['ok'] === false
+            && array_keys( $enhanced_invalid_body['errors'] ) === array( 'global', 'fields' )
+            && array_keys( $enhanced_invalid_body['errors']['fields'] ) === array( 'name' )
+            && $enhanced_invalid_body['upload_recovery'] === null
+            && $enhanced_invalid_body['challenge'] === null,
+        'Enhanced correctable responses should contain only the contracted safe fields in template order.'
+    );
+    eforms_wp_runtime_assert( strpos( $enhanced_invalid['body'], 'ada@example.test' ) === false && strpos( $enhanced_invalid['body'], 'Hello from the wp-runtime harness.' ) === false, 'Enhanced correctable JSON must not expose submitted values.' );
 
     eforms_wp_runtime_reset_request();
     $html = eforms_wp_runtime_shortcode( 'contact', false );
@@ -619,6 +678,27 @@ try {
     eforms_wp_runtime_assert( strpos( $success_response['location'], 'eforms_form=contact' ) !== false, 'PRG location should include the form parameter.' );
     eforms_wp_runtime_assert( count( $GLOBALS['eforms_wp_runtime_mail'] ) === 1, 'Successful POST should send one email through wp_mail().' );
     eforms_wp_runtime_assert( eforms_wp_runtime_ledger_count( 'contact' ) === $ledger_before_success + 1, 'Successful POST should reserve exactly one ledger marker.' );
+
+    eforms_wp_runtime_reset_request();
+    $enhanced_html = eforms_wp_runtime_shortcode( 'contact', false );
+    $enhanced_valid_post = $valid_post;
+    $enhanced_valid_post['eforms_token'] = eforms_wp_runtime_hidden_value( $enhanced_html, 'eforms_token' );
+    $enhanced_valid_post['instance_id'] = eforms_wp_runtime_hidden_value( $enhanced_html, 'instance_id' );
+    $enhanced_valid_post['timestamp'] = eforms_wp_runtime_hidden_value( $enhanced_html, 'timestamp' );
+    $enhanced_success = eforms_wp_runtime_public_hidden_post(
+        $enhanced_valid_post,
+        array( 'HTTP_X_EFORMS_RESPONSE' => FormProtocol::ENHANCED_RESPONSE_JSON )
+    );
+    $enhanced_success_body = json_decode( $enhanced_success['body'], true );
+    eforms_wp_runtime_assert(
+        $enhanced_success['status'] === 200
+            && array_keys( $enhanced_success_body ) === array( 'ok', 'location' )
+            && $enhanced_success_body['ok'] === true
+            && strpos( $enhanced_success_body['location'], 'eforms_result=success' ) !== false
+            && $enhanced_success['location'] === '',
+        'Enhanced accepted submissions should return the Success-owned location without redirecting.'
+    );
+    eforms_wp_runtime_assert( strpos( $enhanced_success['body'], 'Ada Lovelace' ) === false && strpos( $enhanced_success['body'], 'ada@example.test' ) === false, 'Enhanced accepted JSON must not disclose submitted values.' );
 
     eforms_wp_runtime_reset_request();
     $mail_before_duplicate = count( $GLOBALS['eforms_wp_runtime_mail'] );
@@ -717,27 +797,29 @@ try {
     eforms_wp_runtime_assert( ! empty( $staged_submission['ok'] ), 'The staged aggregate should be available under the submission id after finalization.' );
     eforms_wp_runtime_assert( $staged_submission['submission']['email_attempted_at'] !== null, 'The durable email-attempt marker should precede the staged mail call.' );
     $staged_mail = $GLOBALS['eforms_wp_runtime_mail'][ $mail_before_staged ];
-    eforms_wp_runtime_assert( substr_count( $staged_mail['message'], 'eforms_review=' . $staged_token ) === 1, 'The staged runtime email should contain exactly one signed gallery URL under plain permalinks.' );
+    eforms_wp_runtime_assert( substr_count( $staged_mail['message'], 'eforms_review=' . $staged_token ) === 1 && strpos( $staged_mail['message'], 'expires' . '=' ) === false, 'The staged runtime email should contain exactly one expiration-free signed gallery URL under plain permalinks.' );
     eforms_wp_runtime_assert( $staged_mail['attachments'] === array() && strpos( $staged_mail['message'], 'eforms_review_upload=' ) === false, 'The staged runtime email should contain neither managed attachments nor individual file links.' );
     $staged_former_path = UploadBatchStore::status( $staged_batch['batch']['batch_id'], $staged_secret, $uploads_dir );
     eforms_wp_runtime_assert( empty( $staged_former_path['ok'] ) && ! empty( $staged_former_path['gone'] ), 'The former batch endpoint path should return its generic terminal state after rename.' );
 
-    $review_url = ReviewController::gallery_url( $staged_token, $staged_submission['submission']['gallery_expires_at'] );
+    $review_url = ReviewController::gallery_url( $staged_token );
     eforms_wp_runtime_assert( $review_url !== '', 'The finalized runtime submission should produce one signed gallery URL.' );
     $review_page = eforms_wp_runtime_review_get( $review_url );
     eforms_wp_runtime_assert( $review_page['status'] === 200, 'A valid signed gallery GET should render HTTP 200.' );
     eforms_wp_runtime_assert( basename( $review_page['template'] ) === 'review-gallery.php', 'A valid gallery should use the private review page template.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], 'Theme Header' ) !== false && strpos( $review_page['body'], 'Theme Footer' ) !== false, 'The review gallery should use the canonical theme shell.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], '<h1 class="page-title">Submitted Photos</h1>' ) !== false, 'The review gallery should show its stable title.' );
-    eforms_wp_runtime_assert( strpos( $review_page['body'], $staged_token ) !== false && strpos( $review_page['body'], '1 photo' ) !== false, 'The review gallery should show the submission id and count.' );
-    eforms_wp_runtime_assert( strpos( $review_page['body'], 'loading="lazy"' ) !== false && strpos( $review_page['body'], 'eforms_review_variant=preview' ) !== false, 'The review gallery should lazy-load only signed previews.' );
-    eforms_wp_runtime_assert( strpos( $review_page['body'], 'High-resolution' ) !== false && strpos( $review_page['body'], 'Download high-resolution' ) !== false && strpos( $review_page['body'], 'eforms_review_variant=master' ) !== false, 'The review gallery should expose controlled high-resolution JPEG actions.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], 'eforms-review-actions' ) === false && strpos( $review_page['body'], '1 photo' ) === false && strpos( $review_page['body'], 'Available until ' ) === false && strpos( $review_page['body'], 'eforms-review-submitted' ) === false, 'Anonymous review galleries should omit operator management metadata.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], '<img' ) === false && strpos( $review_page['body'], 'Preview unavailable' ) !== false, 'A local no-preview gallery should not embed authoritative artifacts.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], 'eforms-review-download-overlay' ) !== false && substr_count( $review_page['body'], 'eforms_review_upload=' ) === 1, 'The no-preview card should expose exactly one signed authoritative-artifact download control.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], '>Download submitted image</a>' ) === false, 'The review gallery should not duplicate the icon download with a caption text action.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], 'data-eforms-review-delete-open' ) === false, 'Anonymous review galleries should not expose operator deletion controls.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], $uploads_dir ) === false && strpos( $review_page['body'], $staged_secret ) === false, 'The review gallery must not disclose private paths or batch credentials.' );
     $review_items = $review_page['response']['review_page']['items'];
-    $review_preview = eforms_wp_runtime_review_get( $review_items[0]['preview_url'] );
-    $review_preview_path = $tmp_root . '/review-preview.jpg';
-    eforms_wp_runtime_assert( file_put_contents( $review_preview_path, $review_preview['body'] ) !== false, 'The runtime review test should capture its preview response.' );
-    eforms_wp_runtime_assert( $review_preview['status'] === 200 && UploadPolicy::detect_mime( $review_preview_path ) === 'image/jpeg', 'The public controller should stream the exact signed JPEG preview (status ' . $review_preview['status'] . ', template ' . basename( $review_preview['template'] ) . ', render ' . $review_preview['response']['render'] . ', mime ' . UploadPolicy::detect_mime( $review_preview_path ) . ', bytes ' . strlen( $review_preview['body'] ) . ', prefix ' . bin2hex( substr( $review_preview['body'], 0, 16 ) ) . ').' );
+    $review_download = eforms_wp_runtime_review_get( $review_items[0]['download_url'] );
+    $review_download_path = $tmp_root . '/review-submitted-image.png';
+    eforms_wp_runtime_assert( file_put_contents( $review_download_path, $review_download['body'] ) !== false, 'The runtime review test should capture its artifact response.' );
+    eforms_wp_runtime_assert( $review_download['status'] === 200 && UploadPolicy::detect_mime( $review_download_path ) === 'image/png', 'The public controller should stream the exact signed authoritative artifact (status ' . $review_download['status'] . ', template ' . basename( $review_download['template'] ) . ', render ' . $review_download['response']['render'] . ', mime ' . UploadPolicy::detect_mime( $review_download_path ) . ', bytes ' . strlen( $review_download['body'] ) . ', prefix ' . bin2hex( substr( $review_download['body'], 0, 16 ) ) . ').' );
 
     $invalid_review_url = preg_replace( '/signature=[A-Za-z0-9_-]{43}/', 'signature=' . str_repeat( 'A', 43 ), $review_url );
     $invalid_review = eforms_wp_runtime_review_get( $invalid_review_url );
@@ -813,6 +895,29 @@ try {
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], '<form' ) === false, 'Email failure page should not render the form.' );
     eforms_wp_runtime_assert( strpos( $email_failure_page['body'], 'eforms-email-failure-copy' ) === false, 'Email failure page should not include a copy summary.' );
 
+    eforms_wp_runtime_reset_request();
+    $enhanced_email_html = eforms_wp_runtime_shortcode( 'contact', false );
+    $enhanced_email_failure_post = $email_failure_post;
+    $enhanced_email_failure_post['eforms_token'] = eforms_wp_runtime_hidden_value( $enhanced_email_html, 'eforms_token' );
+    $enhanced_email_failure_post['instance_id'] = eforms_wp_runtime_hidden_value( $enhanced_email_html, 'instance_id' );
+    $enhanced_email_failure_post['timestamp'] = eforms_wp_runtime_hidden_value( $enhanced_email_html, 'timestamp' );
+    $GLOBALS['eforms_wp_runtime_mail_should_fail'] = true;
+    $enhanced_email_failure = eforms_wp_runtime_public_hidden_post(
+        $enhanced_email_failure_post,
+        array( 'HTTP_X_EFORMS_RESPONSE' => FormProtocol::ENHANCED_RESPONSE_JSON )
+    );
+    $GLOBALS['eforms_wp_runtime_mail_should_fail'] = false;
+    $enhanced_email_failure_body = json_decode( $enhanced_email_failure['body'], true );
+    eforms_wp_runtime_assert(
+        $enhanced_email_failure['status'] === 200
+            && array_keys( $enhanced_email_failure_body ) === array( 'ok', 'location' )
+            && $enhanced_email_failure_body['ok'] === true
+            && strpos( $enhanced_email_failure_body['location'], 'eforms_result=email_failure' ) !== false
+            && $enhanced_email_failure['location'] === '',
+        'Enhanced email failures should return only the safe Success-owned navigation envelope without redirecting.'
+    );
+    eforms_wp_runtime_assert( strpos( $enhanced_email_failure['body'], 'Ada Lovelace' ) === false && strpos( $enhanced_email_failure['body'], 'ada@example.test' ) === false, 'Enhanced email-failure JSON must not disclose submitted values.' );
+
     eforms_wp_runtime_set_filter(
         'eforms_config',
         function ( $config ) {
@@ -828,6 +933,8 @@ try {
     eforms_wp_runtime_reset_request();
     $html = eforms_wp_runtime_shortcode( 'contact', false );
     eforms_wp_runtime_assert( strpos( $html, 'cf-turnstile' ) === false, 'Initial GET should not render the challenge widget.' );
+    eforms_wp_runtime_assert( strpos( $html, 'challenges.cloudflare.com' ) === false, 'Initial GET should not expose the provider script URL.' );
+    eforms_wp_runtime_assert( strpos( $html, 'data-eforms-challenge-script-url' ) === false, 'Initial GET should not render a challenge script URL data attribute.' );
     $token = eforms_wp_runtime_hidden_value( $html, 'eforms_token' );
     $instance_id = eforms_wp_runtime_hidden_value( $html, 'instance_id' );
     $timestamp = eforms_wp_runtime_hidden_value( $html, 'timestamp' );
@@ -849,14 +956,38 @@ try {
     $mail_before_challenge = count( $GLOBALS['eforms_wp_runtime_mail'] );
     $ledger_before_challenge = eforms_wp_runtime_ledger_count( 'contact' );
     $challenge_response = eforms_wp_runtime_public_hidden_post( $challenge_post );
-    eforms_wp_runtime_set_filter( 'eforms_config', null );
     eforms_wp_runtime_assert( $challenge_response['status'] === 200, 'Missing challenge response should rerender with HTTP 200.' );
     eforms_wp_runtime_assert( is_array( $challenge_response['result'] ), 'Challenge failure should return a structured result.' );
     eforms_wp_runtime_assert( $challenge_response['result']['error_code'] === 'EFORMS_ERR_CHALLENGE_FAILED', 'Missing challenge response should use challenge failure code.' );
     eforms_wp_runtime_assert( ! empty( $challenge_response['result']['require_challenge'] ), 'Challenge failure should require challenge on rerender.' );
-    eforms_wp_runtime_assert( strpos( $challenge_response['body'], 'cf-turnstile' ) !== false, 'Challenge rerender should include the challenge widget.' );
+    eforms_wp_runtime_assert( substr_count( $challenge_response['body'], 'class="cf-turnstile"' ) === 1, 'Challenge rerender should include exactly one challenge widget.' );
+    $turnstile_scripts = array_filter(
+        $GLOBALS['eforms_wp_runtime_assets'],
+        function ( $asset ) {
+            return is_array( $asset ) && isset( $asset[0], $asset[1] ) && $asset[0] === 'script' && $asset[1] === 'eforms-turnstile';
+        }
+    );
+    eforms_wp_runtime_assert( count( $turnstile_scripts ) === 1, 'Challenge rerender should enqueue exactly one provider script.' );
     eforms_wp_runtime_assert( eforms_wp_runtime_ledger_count( 'contact' ) === $ledger_before_challenge, 'Challenge failure should not reserve the ledger.' );
     eforms_wp_runtime_assert( count( $GLOBALS['eforms_wp_runtime_mail'] ) === $mail_before_challenge, 'Challenge failure should not send email.' );
+
+    eforms_wp_runtime_reset_request();
+    $enhanced_challenge_response = eforms_wp_runtime_public_hidden_post(
+        $challenge_post,
+        array( 'HTTP_X_EFORMS_RESPONSE' => FormProtocol::ENHANCED_RESPONSE_JSON )
+    );
+    $enhanced_challenge_body = json_decode( $enhanced_challenge_response['body'], true );
+    eforms_wp_runtime_assert(
+        $enhanced_challenge_response['status'] === 422
+            && $enhanced_challenge_body['challenge'] === array( 'provider' => 'turnstile', 'site_key' => 'site-key-123' ),
+        'Enhanced challenge corrections should expose only Challenge-owned public provider metadata.'
+    );
+    eforms_wp_runtime_assert(
+        strpos( $enhanced_challenge_response['body'], 'secret-key-123' ) === false
+            && strpos( $enhanced_challenge_response['body'], 'challenges.cloudflare.com' ) === false,
+        'Enhanced challenge metadata must not disclose a provider secret or script URL.'
+    );
+    eforms_wp_runtime_set_filter( 'eforms_config', null );
 
     echo "WordPress runtime hidden-mode smoke passed.\n";
 } catch ( Throwable $exception ) {

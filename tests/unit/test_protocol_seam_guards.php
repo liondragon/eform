@@ -32,7 +32,9 @@ function eforms_protocol_guard_assert_no_post_literal( $contents, $field, $path 
 $template_validator = eforms_protocol_guard_read( 'src/Validation/TemplateValidator.php' );
 $submit_handler = eforms_protocol_guard_read( 'src/Submission/SubmitHandler.php' );
 $public_controller = eforms_protocol_guard_read( 'src/Submission/PublicRequestController.php' );
+$form_protocol = eforms_protocol_guard_read( 'src/FormProtocol.php' );
 $form_renderer = eforms_protocol_guard_read( 'src/Rendering/FormRenderer.php' );
+$challenge = eforms_protocol_guard_read( 'src/Security/Challenge.php' );
 $security = eforms_protocol_guard_read( 'src/Security/Security.php' );
 $timing_signals = eforms_protocol_guard_read( 'src/Security/TimingSignals.php' );
 $normalizer = eforms_protocol_guard_read( 'src/Validation/Normalizer.php' );
@@ -68,10 +70,15 @@ eforms_test_assert( strpos( $submit_handler, 'private static function is_suspect
 eforms_test_assert( strpos( $submit_handler, 'private static function is_spam_fail_count' ) === false, 'SubmitHandler must not own spam threshold logic.' );
 eforms_test_assert( strpos( $submit_handler, 'private static function spam_soft_fail_threshold' ) === false, 'SubmitHandler must not own soft-fail threshold normalization.' );
 eforms_test_assert( strpos( $submit_handler, 'Errors::first_code' ) !== false, 'SubmitHandler should use Errors for primary-code selection.' );
+eforms_protocol_guard_assert_protocol_owner( $submit_handler, 'RESPONSE_UPLOAD_RECOVERY', 'SubmitHandler' );
 
 eforms_test_assert( strpos( $public_controller, 'private static function reserved_keys' ) === false, 'PublicRequestController must not own a reserved-key map.' );
 eforms_test_assert( strpos( $public_controller, 'FormProtocol::post_detection_keys' ) !== false, 'PublicRequestController should use FormProtocol detection keys.' );
 eforms_test_assert( strpos( $public_controller, 'FormProtocol::reserved_field_key_map' ) !== false, 'PublicRequestController should use FormProtocol reserved keys.' );
+foreach ( array( 'HEADER_ENHANCED_RESPONSE', 'ENHANCED_RESPONSE_JSON', 'RESPONSE_OK', 'RESPONSE_LOCATION', 'RESPONSE_ERRORS', 'RESPONSE_ERROR', 'RESPONSE_CAN_RETRY', 'RESPONSE_UPLOAD_RECOVERY', 'RESPONSE_CHALLENGE', 'RESPONSE_CHALLENGE_PROVIDER', 'RESPONSE_CHALLENGE_SITE_KEY' ) as $constant ) {
+    eforms_protocol_guard_assert_protocol_owner( $public_controller, $constant, 'PublicRequestController' );
+}
+eforms_test_assert( strpos( $public_controller, 'X-EForms-Response' ) === false, 'PublicRequestController must not keep a local enhanced-response header literal.' );
 
 eforms_protocol_guard_assert_protocol_owner( $security, 'FIELD_TOKEN', 'Security' );
 eforms_protocol_guard_assert_protocol_owner( $security, 'FIELD_INSTANCE_ID', 'Security' );
@@ -86,6 +93,31 @@ eforms_test_assert( strpos( $form_renderer, 'last_textlike_index' ) === false, '
 eforms_test_assert( strpos( $form_renderer, 'is_textlike_descriptor' ) === false, 'FormRenderer must not own text-like descriptor predicates.' );
 eforms_test_assert( strpos( $form_renderer, 'descriptor_accepts_enterkeyhint' ) !== false, 'FormRenderer should consume descriptor enterkeyhint metadata.' );
 eforms_test_assert( strpos( $form_renderer, 'Errors::first_code' ) !== false, 'FormRenderer should use Errors for primary-code selection.' );
+foreach ( array( 'DATA_FIELD_KEY', 'DATA_FIELD_CONTROL', 'DATA_FIELD_ERROR_MOUNT', 'DATA_CHALLENGE_MOUNT' ) as $constant ) {
+    eforms_protocol_guard_assert_protocol_owner( $form_renderer, $constant, 'FormRenderer' );
+}
+eforms_test_assert( strpos( $form_renderer, 'Challenge::public_metadata' ) !== false && strpos( $form_renderer, 'Challenge::widget_attributes' ) !== false, 'FormRenderer should consume Challenge-owned public metadata and widget attributes.' );
+eforms_test_assert( strpos( $challenge, 'FormProtocol::CHALLENGE_SCRIPT_URL' ) !== false, 'Challenge should own the protocol-named public script metadata.' );
+eforms_test_assert( strpos( $form_renderer, 'https://challenges.cloudflare.com/turnstile' ) === false && strpos( $forms_js, 'challenges.cloudflare.com/turnstile' ) === false, 'Turnstile URLs must not be duplicated in the renderer or browser runtime.' );
+eforms_test_assert( strpos( $form_protocol, 'DATA_CHALLENGE_SCRIPT_URL' ) === false && strpos( $form_protocol, 'challenge_script_url' ) === false, 'FormProtocol must not expose retired challenge script URL data attributes.' );
+foreach ( array(
+    'data-eforms-field-key',
+    'data-eforms-field-control',
+    'data-eforms-field-error-mount',
+    'data-eforms-phone-format',
+    'data-eforms-zip-format',
+    'data-eforms-integer-format',
+    'data-eforms-url-normalize',
+    'data-eforms-input-unit',
+    'data-eforms-challenge-mount',
+    'data-eforms-challenge-script-url',
+) as $shared_attr_literal ) {
+    eforms_test_assert(
+        strpos( $forms_js, "'" . $shared_attr_literal . "'" ) === false
+            && strpos( $forms_js, '"' . $shared_attr_literal . '"' ) === false,
+        'forms.js must not keep shared data attribute literal fallback: ' . $shared_attr_literal
+    );
+}
 
 eforms_test_assert( strpos( $normalizer, 'UploadValue::' ) !== false, 'Normalizer should route upload shape checks through UploadValue.' );
 eforms_test_assert( strpos( $validator, 'UploadValue::' ) !== false, 'Validator should route upload shape checks through UploadValue.' );
@@ -99,7 +131,6 @@ eforms_test_assert( strpos( $emailer, 'private static function is_upload_item' )
 eforms_protocol_guard_assert_protocol_owner( $upload_endpoint, 'UPLOAD_BATCH_PARAM', 'UploadBatchEndpoint' );
 eforms_protocol_guard_assert_protocol_owner( $upload_endpoint, 'UPLOAD_ITEM_PARAM', 'UploadBatchEndpoint' );
 eforms_test_assert( strpos( $upload_endpoint, 'UploadValue::file_item_from_payload' ) !== false, 'UploadBatchEndpoint should delegate raw file payload shaping to UploadValue.' );
-eforms_test_assert( strpos( $upload_endpoint, 'UploadBatchStore::preview_bytes' ) !== false, 'UploadBatchEndpoint should stream staged previews through the locked store owner.' );
 eforms_test_assert( strpos( $bootstrap, 'FormProtocol::upload_batch_id_pattern' ) !== false && strpos( $bootstrap, 'FormProtocol::managed_id_pattern' ) !== false, 'REST routes should derive managed path shapes from FormProtocol.' );
 eforms_test_assert( strpos( $emailer, 'ReviewController::email_gallery_reference' ) !== false, 'Emailer should request validated gallery context from ReviewController.' );
 eforms_test_assert( strpos( $emailer, 'UploadValue::staged_items' ) !== false, 'Emailer should use UploadValue for staged list shaping.' );
@@ -110,6 +141,15 @@ eforms_test_assert( strpos( $fail2ban_logger, 'FileSink::append_with_rotation' )
 eforms_test_assert( strpos( $fail2ban_logger, 'FileSink::prune_old_files' ) !== false, 'Fail2banLogger should delegate generic pruning mechanics to FileSink.' );
 eforms_test_assert( strpos( $jsonl_logger, 'FILE_PREFIX' ) !== false && strpos( $jsonl_logger, 'FILE_EXT' ) !== false, 'JsonlLogger should continue owning JSONL file-family naming.' );
 eforms_test_assert( strpos( $fail2ban_logger, 'next_rotated_path' ) !== false, 'Fail2banLogger should continue owning fail2ban sibling naming.' );
+eforms_test_assert( strpos( $fail2ban_logger, 'public static function target_path' ) !== false, 'Fail2banLogger should own Fail2ban path resolution for runtime and uninstall.' );
+eforms_test_assert( strpos( $fail2ban_logger, 'public static function is_family_entry' ) !== false, 'Fail2banLogger should own Fail2ban rotated-sibling matching.' );
+
+$uninstall = eforms_protocol_guard_read( 'uninstall.php' );
+eforms_test_assert( strpos( $uninstall, 'Fail2banLogger::target_path' ) !== false, 'Uninstall should resolve Fail2ban paths through Fail2banLogger.' );
+eforms_test_assert( strpos( $uninstall, 'Fail2banLogger::delete_family' ) !== false, 'Uninstall should delete Fail2ban rotated siblings through Fail2banLogger.' );
+eforms_test_assert( strpos( $uninstall, 'function eforms_uninstall_fail2ban_path' ) === false, 'Uninstall must not own a duplicate Fail2ban path resolver.' );
+eforms_test_assert( strpos( $uninstall, 'function eforms_uninstall_remove_fail2ban_family' ) === false, 'Uninstall must not own duplicate Fail2ban rotated-sibling cleanup.' );
+eforms_test_assert( strpos( $uninstall, 'function eforms_uninstall_relative_path_is_safe' ) === false, 'Uninstall must not own duplicate Fail2ban relative-path policy.' );
 
 foreach ( $config_consumers as $path => $contents ) {
     eforms_test_assert( strpos( $contents, 'foreach ( $path' ) === false, $path . ' must not keep local array-path traversal.' );

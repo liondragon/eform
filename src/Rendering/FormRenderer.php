@@ -11,11 +11,15 @@ require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Anchors.php';
 require_once __DIR__ . '/../ErrorMessages.php';
 require_once __DIR__ . '/../Errors.php';
+require_once __DIR__ . '/../EformsAssets.php';
+require_once __DIR__ . '/../EformsMarkup.php';
 require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Helpers.php';
+require_once __DIR__ . '/../Validation/FieldTypes/TextLike.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Security/Security.php';
+require_once __DIR__ . '/../Security/Challenge.php';
 require_once __DIR__ . '/../Security/StorageHealth.php';
 if ( ! class_exists( 'Logging' ) ) {
     require_once __DIR__ . '/../Logging.php';
@@ -123,7 +127,7 @@ class FormRenderer {
         $validated_upload_batches = self::parse_validated_upload_batches( $opts );
 
         self::mark_rendered( $form_id );
-        self::enqueue_assets( $config, ! empty( $challenge['render'] ) );
+        self::enqueue_assets( $config, $challenge, ! empty( $context['staged_field'] ) );
 
         return self::render_form(
             $context,
@@ -255,25 +259,14 @@ class FormRenderer {
             }
         }
 
-        $provider = 'turnstile';
-        $site_key = '';
-        if ( is_array( $config ) && isset( $config['challenge'] ) && is_array( $config['challenge'] ) ) {
-            if ( isset( $config['challenge']['provider'] ) && is_string( $config['challenge']['provider'] ) && $config['challenge']['provider'] !== '' ) {
-                $provider = $config['challenge']['provider'];
-            }
-            if ( isset( $config['challenge']['site_key'] ) && is_string( $config['challenge']['site_key'] ) ) {
-                $site_key = trim( $config['challenge']['site_key'] );
-            }
-        }
-
-        if ( $provider !== 'turnstile' || $site_key === '' ) {
+        $metadata = Challenge::public_metadata( $config );
+        if ( empty( $metadata ) ) {
             $render = false;
         }
 
         return array(
             'render' => $render,
-            'provider' => $provider,
-            'site_key' => $site_key,
+            'metadata' => $metadata,
         );
     }
 
@@ -416,29 +409,19 @@ class FormRenderer {
         return '';
     }
 
-    private static function enqueue_assets( $config, $challenge_rendered ) {
-        $css_disabled = Config::bool( $config, array( 'assets', 'css_disable' ), false );
-
-        $css_path = dirname( __DIR__, 2 ) . '/assets/forms.css';
-        $js_path = dirname( __DIR__, 2 ) . '/assets/forms.js';
-
-        if ( ! $css_disabled && function_exists( 'wp_enqueue_style' ) && is_file( $css_path ) ) {
-            $url = self::asset_url( 'assets/forms.css' );
-            $ver = filemtime( $css_path );
-            wp_enqueue_style( 'eforms', $url, array(), $ver );
+    private static function enqueue_assets( $config, $challenge, $with_upload ) {
+        EformsAssets::enqueue_form( $config, $with_upload );
+        if ( function_exists( 'wp_enqueue_script' ) ) {
+            self::enqueue_script_settings( $config );
         }
 
-        if ( function_exists( 'wp_enqueue_script' ) && is_file( $js_path ) ) {
-            $url = self::asset_url( 'assets/forms.js' );
-            $ver = filemtime( $js_path );
-            wp_enqueue_script( 'eforms', $url, array(), $ver, true );
-            self::enqueue_script_settings();
-        }
-
-        if ( $challenge_rendered && function_exists( 'wp_enqueue_script' ) ) {
+        $script_url = is_array( $challenge ) && ! empty( $challenge['render'] ) && isset( $challenge['metadata'][ FormProtocol::CHALLENGE_SCRIPT_URL ] ) && is_string( $challenge['metadata'][ FormProtocol::CHALLENGE_SCRIPT_URL ] )
+            ? $challenge['metadata'][ FormProtocol::CHALLENGE_SCRIPT_URL ]
+            : '';
+        if ( $script_url !== '' && function_exists( 'wp_enqueue_script' ) ) {
             wp_enqueue_script(
                 'eforms-turnstile',
-                'https://challenges.cloudflare.com/turnstile/v0/api.js',
+                $script_url,
                 array(),
                 null,
                 true
@@ -451,16 +434,7 @@ class FormRenderer {
         }
     }
 
-    private static function asset_url( $relative ) {
-        $plugin_file = dirname( __DIR__, 2 ) . '/eforms.php';
-        if ( function_exists( 'plugins_url' ) ) {
-            return plugins_url( $relative, $plugin_file );
-        }
-
-        return $relative;
-    }
-
-    private static function enqueue_script_settings() {
+    private static function enqueue_script_settings( $config ) {
         if ( self::$script_settings_enqueued || ! function_exists( 'wp_add_inline_script' ) ) {
             return;
         }
@@ -468,7 +442,17 @@ class FormRenderer {
         $endpoint_json = self::json_encode( self::mint_endpoint_url() );
         $upload_endpoint_json = self::json_encode( self::upload_batch_endpoint_url() );
         $protocol_json = self::json_encode( FormProtocol::browser_settings() );
-        if ( $endpoint_json === '' || $upload_endpoint_json === '' || $protocol_json === '' ) {
+        $preparation_mode = Config::value( $config, array( 'media', 'client_preparation' ), Config::CLIENT_PREPARATION_OFF );
+        $preparation_worker_url = EformsAssets::same_origin_versioned_url( 'assets/client-image-preparer.js' );
+        $preparation = null;
+        if ( $preparation_mode === Config::CLIENT_PREPARATION_OPPORTUNISTIC_JPEG && $preparation_worker_url !== '' ) {
+            $preparation = array(
+                'workerUrl' => $preparation_worker_url,
+                'recipe' => FormProtocol::client_preparation_recipe(),
+            );
+        }
+        $preparation_json = self::json_encode( $preparation );
+        if ( $endpoint_json === '' || $upload_endpoint_json === '' || $protocol_json === '' || $preparation_json === '' ) {
             return;
         }
 
@@ -477,7 +461,8 @@ class FormRenderer {
             'window.eformsSettings = window.eformsSettings || {};'
                 . 'window.eformsSettings.mintEndpoint = ' . $endpoint_json . ';'
                 . 'window.eformsSettings.uploadBatchEndpoint = ' . $upload_endpoint_json . ';'
-                . 'window.eformsSettings.protocol = ' . $protocol_json . ';',
+                . 'window.eformsSettings.protocol = ' . $protocol_json . ';'
+                . 'window.eformsSettings.clientPreparation = ' . $preparation_json . ';',
             'before'
         );
         self::$script_settings_enqueued = true;
@@ -547,7 +532,7 @@ class FormRenderer {
         }
 
         $parts = array();
-        $parts[] = '<form ' . self::attrs_to_string( $attrs ) . '>';
+        $parts[] = '<form ' . EformsMarkup::attributes( $attrs ) . '>';
         $parts[] = self::render_hidden_input( FormProtocol::FIELD_MODE, $mode );
         $parts[] = self::render_hidden_input( FormProtocol::FIELD_TOKEN, $security['token'] );
         $parts[] = self::render_hidden_input( FormProtocol::FIELD_INSTANCE_ID, $security['instance_id'] );
@@ -575,7 +560,7 @@ class FormRenderer {
         $submit = isset( $context['submit_button_text'] ) && is_string( $context['submit_button_text'] )
             ? $context['submit_button_text']
             : 'Submit';
-        $parts[] = '<button type="submit">' . self::escape_html( $submit ) . '</button>';
+        $parts[] = '<button type="submit">' . EformsMarkup::escape_html( $submit ) . '</button>';
         $parts[] = '</form>';
 
         return implode( '', $parts );
@@ -632,7 +617,7 @@ class FormRenderer {
                 $mode = isset( $field['mode'] ) && is_string( $field['mode'] ) ? $field['mode'] : '';
                 if ( $mode === 'start' ) {
                     $tag = self::row_group_tag( $field );
-                    $parts[] = '<' . $tag . ' ' . self::attrs_to_string( array( 'class' => self::row_group_class( $field ) ) ) . '>';
+                    $parts[] = '<' . $tag . ' ' . EformsMarkup::attributes( array( 'class' => self::row_group_class( $field ) ) ) . '>';
                     $stack[] = $tag;
                 } elseif ( $mode === 'end' ) {
                     if ( empty( $stack ) ) {
@@ -658,7 +643,6 @@ class FormRenderer {
             $fieldset_id = self::fieldset_id( $field_id );
             $error_id = self::error_id( $field_id );
             $has_error = self::field_has_errors( $errors, $field_key );
-            $error_message = self::field_error_message( $errors, $field_key );
             $field_value = array_key_exists( $field_key, $values ) ? $values[ $field_key ] : null;
 
             $field_type = isset( $descriptor['type'] ) ? $descriptor['type'] : '';
@@ -666,13 +650,15 @@ class FormRenderer {
                 $field_value = null;
             }
 
-            $label_text = self::field_label_text( $field, $field_key );
+            $label_text = ErrorMessages::field_label_text( $field, $field_key );
+            $error_label_text = ErrorMessages::field_error_label_text( $field, $field_key );
+            $error_message = self::field_error_message( $errors, $field_key, $error_label_text, $field_type );
             $label_class = self::field_label_class( $field );
-            $label = '<label for="' . self::escape_attr( $field_id ) . '"';
+            $label = '<label for="' . EformsMarkup::escape_attr( $field_id ) . '"';
             if ( $label_class !== '' ) {
-                $label .= ' class="' . self::escape_attr( $label_class ) . '"';
+                $label .= ' class="' . EformsMarkup::escape_attr( $label_class ) . '"';
             }
-            $label .= '>' . self::escape_html( $label_text );
+            $label .= '>' . EformsMarkup::escape_html( $label_text );
             $label .= self::render_required_marker( isset( $field['required'] ) && $field['required'] === true );
             $label .= '</label>';
 
@@ -699,27 +685,31 @@ class FormRenderer {
             } else {
                 $parts[] = $label;
 
-                $control = self::render_control( $descriptor, $field, $form_id, $descriptor_index === $last_enterkeyhint, $field_value );
+                $control_attrs = array_merge(
+                    array(
+                        FormProtocol::DATA_FIELD_KEY => $field_key,
+                        FormProtocol::DATA_FIELD_CONTROL => '1',
+                    ),
+                    FieldTypes_TextLike::render_protocol_attributes( $descriptor, $field )
+                );
+                if ( $has_error ) {
+                    $control_attrs['aria-invalid'] = 'true';
+                    $control_attrs['aria-describedby'] = $error_id;
+                }
+                $control = self::render_control(
+                    $descriptor,
+                    $field,
+                    $form_id,
+                    $field_id,
+                    $descriptor_index === $last_enterkeyhint,
+                    $field_value,
+                    $control_attrs
+                );
                 if ( $control === null ) {
                     return null;
                 }
-
-                if ( $has_error ) {
-                    $control = self::inject_attributes(
-                        $control,
-                        array(
-                            'aria-invalid' => 'true',
-                            'aria-describedby' => $error_id,
-                        )
-                    );
-                }
-
                 $parts[] = $control;
-
-                if ( $has_error && $error_message !== '' ) {
-                    $parts[] = '<span id="' . self::escape_attr( $error_id ) . '" class="eforms-error">'
-                        . self::escape_html( $error_message ) . '</span>';
-                }
+                $parts[] = self::render_field_error_mount( $field_key, $error_id, $has_error, $error_message );
             }
 
             $after = isset( $field['after_html'] ) && is_string( $field['after_html'] ) ? $field['after_html'] : '';
@@ -758,18 +748,18 @@ class FormRenderer {
             return null;
         }
 
-        $label_text = self::field_label_text( $field, isset( $field['key'] ) ? $field['key'] : '' );
+        $label_text = ErrorMessages::field_label_text( $field, isset( $field['key'] ) ? $field['key'] : '' );
         $label_class = self::field_label_class( $field );
         $legend = '<legend';
         if ( $label_class !== '' ) {
-            $legend .= ' class="' . self::escape_attr( $label_class ) . '"';
+            $legend .= ' class="' . EformsMarkup::escape_attr( $label_class ) . '"';
         }
-        $legend .= '>' . self::escape_html( $label_text );
+        $legend .= '>' . EformsMarkup::escape_html( $label_text );
         $legend .= self::render_required_marker( isset( $field['required'] ) && $field['required'] === true );
         $legend .= '</legend>';
 
         $parts = array();
-        $parts[] = '<fieldset id="' . self::escape_attr( $fieldset_id ) . '">';
+        $parts[] = '<fieldset id="' . EformsMarkup::escape_attr( $fieldset_id ) . '">';
         $parts[] = $legend;
 
         $options = isset( $field['options'] ) && is_array( $field['options'] ) ? $field['options'] : array();
@@ -785,7 +775,10 @@ class FormRenderer {
                 array( 'id_prefix' => $form_id ),
                 $value
             );
-            $attrs['name'] = self::build_field_name( $form_id, isset( $field['key'] ) ? $field['key'] : '', $descriptor );
+            $field_key = isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
+            $attrs['name'] = self::build_field_name( $form_id, $field_key, $descriptor );
+            $attrs[ FormProtocol::DATA_FIELD_KEY ] = $field_key;
+            $attrs[ FormProtocol::DATA_FIELD_CONTROL ] = '1';
             if ( isset( $attrs['id'] ) && is_string( $attrs['id'] ) ) {
                 $attrs['id'] = Helpers::cap_id( $attrs['id'] );
             }
@@ -800,18 +793,39 @@ class FormRenderer {
                 $label = $option['key'];
             }
 
-            $input = '<input ' . self::attrs_to_string( $attrs ) . ' />';
-            $parts[] = '<label>' . $input . ' ' . self::escape_html( $label ) . '</label>';
+            $input = '<input ' . EformsMarkup::attributes( $attrs ) . ' />';
+            $parts[] = '<label>' . $input . ' ' . EformsMarkup::escape_html( $label ) . '</label>';
         }
 
-        if ( $has_error && $error_message !== '' ) {
-            $parts[] = '<span id="' . self::escape_attr( $error_id ) . '" class="eforms-error">'
-                . self::escape_html( $error_message ) . '</span>';
-        }
+        $parts[] = self::render_field_error_mount(
+            isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '',
+            $error_id,
+            $has_error,
+            $error_message
+        );
 
         $parts[] = '</fieldset>';
 
         return implode( '', $parts );
+    }
+
+    private static function render_field_error_mount( $field_key, $error_id, $has_error, $error_message ) {
+        $attrs = array(
+            'id' => $error_id,
+            'class' => 'eforms-error eforms-field-error',
+            FormProtocol::DATA_FIELD_KEY => $field_key,
+            FormProtocol::DATA_FIELD_ERROR_MOUNT => '1',
+        );
+        if ( ! $has_error || $error_message === '' ) {
+            $attrs['hidden'] = 'hidden';
+        }
+
+        $content = '';
+        if ( $has_error && $error_message !== '' ) {
+            $content = EformsMarkup::escape_html( $error_message );
+        }
+
+        return '<span ' . EformsMarkup::attributes( $attrs ) . '>' . $content . '</span>';
     }
 
     private static function render_error_summary( $context, $errors ) {
@@ -827,7 +841,7 @@ class FormRenderer {
             if ( $message === '' ) {
                 $message = 'Error';
             }
-            $items[] = '<li>' . self::escape_html( $message ) . '</li>';
+            $items[] = '<li>' . EformsMarkup::escape_html( $message ) . '</li>';
         }
 
         $fields = isset( $context['fields'] ) && is_array( $context['fields'] ) ? $context['fields'] : array();
@@ -843,12 +857,14 @@ class FormRenderer {
                 continue;
             }
 
-            $label_text = self::field_label_text( $field, $field_key );
+            $label_text = ErrorMessages::field_error_label_text( $field, $field_key );
+            $field_type = isset( $field['type'] ) && is_string( $field['type'] ) ? $field['type'] : '';
             $target_id = self::field_id( $form_id, $field_key );
             if ( self::is_choice_group( array( 'type' => isset( $field['type'] ) ? $field['type'] : '' ), $field ) ) {
                 $target_id = self::fieldset_id( $target_id );
             }
-            $items[] = '<li><a href="#' . self::escape_attr( $target_id ) . '">' . self::escape_html( $label_text ) . '</a></li>';
+            $summary_text = self::field_error_message( $errors, $field_key, $label_text, $field_type );
+            $items[] = '<li><a href="#' . EformsMarkup::escape_attr( $target_id ) . '">' . EformsMarkup::escape_html( $summary_text !== '' ? $summary_text : $label_text ) . '</a></li>';
         }
 
         if ( empty( $items ) ) {
@@ -929,7 +945,7 @@ class FormRenderer {
         return isset( $errors[ $field_key ] ) && is_array( $errors[ $field_key ] ) && ! empty( $errors[ $field_key ] );
     }
 
-    private static function field_error_message( $errors, $field_key ) {
+    private static function field_error_message( $errors, $field_key, $label_text = '', $field_type = '' ) {
         if ( ! self::field_has_errors( $errors, $field_key ) ) {
             return '';
         }
@@ -937,7 +953,7 @@ class FormRenderer {
         $entries = $errors[ $field_key ];
         $messages = array();
         foreach ( $entries as $entry ) {
-            $message = self::error_message_from_entry( $entry );
+            $message = self::field_message_from_entry( $entry, $label_text, $field_type );
             if ( $message !== '' ) {
                 $messages[] = $message;
             }
@@ -946,33 +962,28 @@ class FormRenderer {
         return implode( ' ', $messages );
     }
 
+    private static function field_message_from_entry( $entry, $label_text, $field_type = '' ) {
+        $code = is_array( $entry ) && isset( $entry['code'] ) && is_string( $entry['code'] ) ? $entry['code'] : '';
+        if ( $code === 'EFORMS_ERR_FIELD_REQUIRED' || $code === 'EFORMS_ERR_FIELD_INVALID' ) {
+            return ErrorMessages::field_message( $code, $label_text, $field_type );
+        }
+
+        return self::error_message_from_entry( $entry );
+    }
+
     private static function error_message_from_entry( $entry ) {
         if ( is_array( $entry ) && isset( $entry['message'] ) && is_string( $entry['message'] ) && $entry['message'] !== '' ) {
             return $entry['message'];
         }
 
         if ( is_array( $entry ) && isset( $entry['code'] ) && is_string( $entry['code'] ) && $entry['code'] !== '' ) {
-            return $entry['code'];
+            return ErrorMessages::message( $entry['code'] );
         }
 
         return '';
     }
 
-    private static function field_label_text( $field, $field_key ) {
-        if ( is_array( $field ) && isset( $field['label'] ) && is_string( $field['label'] ) && $field['label'] !== '' ) {
-            return $field['label'];
-        }
 
-        if ( ! is_string( $field_key ) || $field_key === '' ) {
-            return 'Field';
-        }
-
-        $label = str_replace( array( '_', '-' ), ' ', $field_key );
-        $label = preg_replace( '/\\s+/', ' ', $label );
-        $label = trim( $label );
-
-        return ucwords( $label );
-    }
 
     private static function field_label_class( $field ) {
         if ( is_array( $field ) && isset( $field['label'] ) && is_string( $field['label'] ) && $field['label'] !== '' ) {
@@ -1009,28 +1020,6 @@ class FormRenderer {
         return '<span class="eforms-required" aria-hidden="true">*</span>';
     }
 
-    private static function inject_attributes( $html, $attrs ) {
-        if ( ! is_string( $html ) || $html === '' || ! is_array( $attrs ) ) {
-            return $html;
-        }
-
-        $parts = array();
-        foreach ( $attrs as $key => $value ) {
-            if ( $value === null || $value === '' ) {
-                continue;
-            }
-            $parts[] = $key . '="' . self::escape_attr( $value ) . '"';
-        }
-
-        if ( empty( $parts ) ) {
-            return $html;
-        }
-
-        $extra = ' ' . implode( ' ', $parts );
-
-        return preg_replace( '/<([a-z]+)([^>]*?)(\\s*\\/?)>/', '<$1$2' . $extra . '$3>', $html, 1 );
-    }
-
     private static function row_group_tag( $field ) {
         $tag = 'div';
         if ( is_array( $field ) && isset( $field['tag'] ) && is_string( $field['tag'] ) && $field['tag'] !== '' ) {
@@ -1052,7 +1041,7 @@ class FormRenderer {
         return $class;
     }
 
-    private static function render_control( $descriptor, $field, $form_id, $is_last_textlike, $value ) {
+    private static function render_control( $descriptor, $field, $form_id, $field_id, $is_last_textlike, $value, $attributes ) {
         if ( ! is_array( $descriptor ) || ! is_array( $field ) ) {
             return null;
         }
@@ -1063,7 +1052,18 @@ class FormRenderer {
 
         $render_context = array(
             'id_prefix' => isset( $descriptor['id_prefix'] ) ? $descriptor['id_prefix'] : '',
+            'id' => $field_id,
+            'enterkeyhint' => $is_last_textlike,
+            'attributes' => $attributes,
         );
+        $field_key = isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
+        $field_type = isset( $descriptor['type'] ) && is_string( $descriptor['type'] ) ? $descriptor['type'] : '';
+        $is_staged_upload = in_array( $field_type, array( 'file', 'files' ), true )
+            && isset( $field['upload_mode'] )
+            && $field['upload_mode'] === 'staged';
+        if ( $field_key !== '' && ! $is_staged_upload ) {
+            $render_context['name'] = self::build_field_name( $form_id, $field_key, $descriptor );
+        }
 
         try {
             $html = call_user_func( $descriptor['handlers']['r'], $descriptor, $field, $value, $render_context );
@@ -1071,17 +1071,7 @@ class FormRenderer {
             return null;
         }
 
-        $field_key = isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
-        if ( $field_key !== '' ) {
-            $name = self::build_field_name( $form_id, $field_key, $descriptor );
-            $html = self::replace_name_attribute( $html, $field_key, $name );
-        }
-
-        if ( $is_last_textlike ) {
-            $html = self::inject_enterkeyhint( $html );
-        }
-
-        return self::cap_id_attribute( $html );
+        return $html;
     }
 
     private static function last_enterkeyhint_index( $descriptors ) {
@@ -1116,50 +1106,8 @@ class FormRenderer {
         return $name;
     }
 
-    private static function replace_name_attribute( $html, $field_key, $name ) {
-        if ( ! is_string( $html ) || $html === '' ) {
-            return $html;
-        }
-
-        $search = 'name="' . self::escape_attr( $field_key ) . '"';
-        $replace = 'name="' . self::escape_attr( $name ) . '"';
-
-        return str_replace( $search, $replace, $html );
-    }
-
-    private static function inject_enterkeyhint( $html ) {
-        if ( ! is_string( $html ) || $html === '' ) {
-            return $html;
-        }
-
-        if ( strpos( $html, 'enterkeyhint=' ) !== false ) {
-            return $html;
-        }
-
-        return preg_replace( '/<([a-z]+)\\s+/', '<$1 enterkeyhint="send" ', $html, 1 );
-    }
-
-    private static function cap_id_attribute( $html ) {
-        if ( ! is_string( $html ) || $html === '' ) {
-            return $html;
-        }
-
-        return preg_replace_callback(
-            '/\\bid="([^"]+)"/',
-            function ( $matches ) {
-                if ( ! isset( $matches[1] ) ) {
-                    return $matches[0];
-                }
-
-                $capped = Helpers::cap_id( $matches[1] );
-                return 'id="' . self::escape_attr( $capped ) . '"';
-            },
-            $html
-        );
-    }
-
     private static function render_hidden_input( $name, $value ) {
-        return '<input type="hidden" name="' . self::escape_attr( $name ) . '" value="' . self::escape_attr( $value ) . '" />';
+        return '<input type="hidden" name="' . EformsMarkup::escape_attr( $name ) . '" value="' . EformsMarkup::escape_attr( $value ) . '" />';
     }
 
     private static function render_honeypot( $form_id ) {
@@ -1175,42 +1123,34 @@ class FormRenderer {
             'aria-hidden' => 'true',
         );
 
-        return '<input ' . self::attrs_to_string( $attrs ) . ' />';
+        return '<input ' . EformsMarkup::attributes( $attrs ) . ' />';
     }
 
     private static function render_challenge_widget( $challenge ) {
-        if ( ! is_array( $challenge ) || empty( $challenge['render'] ) ) {
-            return '';
-        }
-
-        $provider = isset( $challenge['provider'] ) && is_string( $challenge['provider'] ) ? $challenge['provider'] : '';
-        $site_key = isset( $challenge['site_key'] ) && is_string( $challenge['site_key'] ) ? $challenge['site_key'] : '';
-        if ( $provider !== 'turnstile' || $site_key === '' ) {
-            return '';
-        }
-
-        $attrs = array(
-            'class' => 'cf-turnstile',
-            'data-sitekey' => $site_key,
+        $metadata = is_array( $challenge ) && isset( $challenge['metadata'] ) && is_array( $challenge['metadata'] )
+            ? $challenge['metadata']
+            : array();
+        $provider = isset( $metadata[ FormProtocol::RESPONSE_CHALLENGE_PROVIDER ] ) && is_string( $metadata[ FormProtocol::RESPONSE_CHALLENGE_PROVIDER ] )
+            ? $metadata[ FormProtocol::RESPONSE_CHALLENGE_PROVIDER ]
+            : '';
+        $mount_attrs = array(
+            FormProtocol::DATA_CHALLENGE_MOUNT => $provider !== '' ? $provider : '1',
         );
-
-        return '<div class="eforms-challenge" data-eforms-challenge="turnstile"><div '
-            . self::attrs_to_string( $attrs )
-            . '></div></div>';
-    }
-
-    private static function attrs_to_string( $attrs ) {
-        $parts = array();
-        foreach ( $attrs as $key => $value ) {
-            if ( $value === null || $value === '' ) {
-                $parts[] = $key;
-                continue;
-            }
-
-            $parts[] = $key . '="' . self::escape_attr( $value ) . '"';
+        if ( ! is_array( $challenge ) || empty( $challenge['render'] ) ) {
+            $mount_attrs['hidden'] = 'hidden';
+            return '<div ' . EformsMarkup::attributes( $mount_attrs ) . '></div>';
         }
 
-        return implode( ' ', $parts );
+        $widget_attrs = Challenge::widget_attributes( $metadata );
+        if ( empty( $widget_attrs ) ) {
+            $mount_attrs['hidden'] = 'hidden';
+            return '<div ' . EformsMarkup::attributes( $mount_attrs ) . '></div>';
+        }
+
+        $mount_attrs['class'] = 'eforms-challenge';
+        return '<div ' . EformsMarkup::attributes( $mount_attrs ) . '><div '
+            . EformsMarkup::attributes( $widget_attrs )
+            . '></div></div>';
     }
 
     private static function render_error( $code ) {
@@ -1219,34 +1159,11 @@ class FormRenderer {
         }
 
         $message = self::error_message( $code );
-        return '<div class="eforms-error" data-eforms-error="' . self::escape_attr( $code ) . '">' . self::escape_html( $message ) . '</div>';
+        return '<div class="eforms-error" data-eforms-error="' . EformsMarkup::escape_attr( $code ) . '">' . EformsMarkup::escape_html( $message ) . '</div>';
     }
 
     private static function error_message( $code ) {
         return ErrorMessages::message( $code );
     }
 
-    private static function escape_attr( $value ) {
-        if ( function_exists( 'esc_attr' ) ) {
-            return esc_attr( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
-    }
-
-    private static function escape_html( $value ) {
-        if ( function_exists( 'esc_html' ) ) {
-            return esc_html( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
-    }
-
-    private static function escape_textarea( $value ) {
-        if ( function_exists( 'esc_textarea' ) ) {
-            return esc_textarea( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
-    }
 }

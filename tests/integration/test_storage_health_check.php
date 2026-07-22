@@ -37,12 +37,28 @@ eforms_test_assert( is_string( $webconfig ) && strpos( $webconfig, '<deny users=
 
 eforms_test_remove_tree( $uploads_dir );
 
+// Given stale or incorrect deny-rule files...
+// Then PrivateDir repairs them before reporting healthy storage.
+$uploads_dir = eforms_test_tmp_root( 'eforms-storage-health-stale-deny' );
+mkdir( $uploads_dir . '/eforms-private', 0700, true );
+file_put_contents( $uploads_dir . '/eforms-private/.htaccess', "Allow from all\n" );
+file_put_contents( $uploads_dir . '/eforms-private/web.config', "<configuration></configuration>\n" );
+StorageHealth::reset_for_tests();
+Logging::reset_for_tests();
+
+$result = StorageHealth::check( $uploads_dir );
+eforms_test_assert( $result['ok'] === true, 'Storage health should repair stale deny-rule files.' );
+eforms_test_assert( file_get_contents( $uploads_dir . '/eforms-private/.htaccess' ) === PrivateDir::HTACCESS_CONTENT, 'PrivateDir should restore canonical .htaccess content.' );
+eforms_test_assert( file_get_contents( $uploads_dir . '/eforms-private/web.config' ) === PrivateDir::WEBCONFIG_CONTENT, 'PrivateDir should restore canonical web.config content.' );
+eforms_test_remove_tree( $uploads_dir );
+
 // Given a retained purge barrier...
 // Then live storage health probes fail closed without mutating private storage.
 $uploads_dir = eforms_test_tmp_root( 'eforms-storage-health-purged' );
 mkdir( $uploads_dir, 0700, true );
 $private = PrivateDir::ensure( $uploads_dir );
 file_put_contents( $private['path'] . '/' . PrivateDir::PURGE_MARKER_FILENAME, "purged\n" );
+file_put_contents( $private['path'] . '/' . PrivateDir::HTACCESS_FILENAME, "Allow from all\n" );
 
 StorageHealth::reset_for_tests();
 Logging::reset_for_tests();
@@ -50,6 +66,20 @@ Logging::reset_for_tests();
 $result = StorageHealth::check( $uploads_dir );
 eforms_test_assert( $result['ok'] === false && $result['reason'] === 'managed_purged', 'Storage health should respect the retained purge barrier.' );
 eforms_test_assert( count( glob( $private['path'] . '/.eforms-health-*' ) ) === 0, 'Storage health should not create probe directories behind a purge barrier.' );
+eforms_test_assert( file_get_contents( $private['path'] . '/' . PrivateDir::HTACCESS_FILENAME ) === "Allow from all\n", 'Storage health should not repair stale deny files behind a purge barrier.' );
+eforms_test_remove_tree( $uploads_dir );
+
+// Given a purge lease behind an existing barrier...
+// Then acquiring the purge lease also avoids repairing stale deny files.
+$uploads_dir = eforms_test_tmp_root( 'eforms-storage-health-purge-lease-stale-deny' );
+mkdir( $uploads_dir, 0700, true );
+$private = PrivateDir::ensure( $uploads_dir );
+file_put_contents( $private['path'] . '/' . PrivateDir::PURGE_MARKER_FILENAME, "purged\n" );
+file_put_contents( $private['path'] . '/' . PrivateDir::HTACCESS_FILENAME, "Allow from all\n" );
+$lease = PrivateDir::acquire_purge_lease( $uploads_dir );
+eforms_test_assert( $lease instanceof PrivateDirLease, 'Purge lease should remain available behind an existing purge marker.' );
+$lease->release();
+eforms_test_assert( file_get_contents( $private['path'] . '/' . PrivateDir::HTACCESS_FILENAME ) === "Allow from all\n", 'Purge leases should not repair stale deny files behind a purge barrier.' );
 eforms_test_remove_tree( $uploads_dir );
 
 // Given symlinked private storage paths...

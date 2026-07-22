@@ -12,12 +12,14 @@ require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../DeclinedReviewLog.php';
 require_once __DIR__ . '/../Submission/Ledger.php';
 require_once __DIR__ . '/../Uploads/UploadBatchStore.php';
+require_once __DIR__ . '/../Uploads/LocalPreviewProvider.php';
+require_once __DIR__ . '/../Uploads/WorkerClient.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
 require_once __DIR__ . '/../Uploads/UploadStore.php';
 
 class GcRunner {
     const LOCK_FILENAME = 'gc.lock';
-    const PROGRESS_VERSION = 2;
+    const PROGRESS_VERSION = 3;
 
     const TOKENS_DIR = 'tokens';
     const LEDGER_DIR = 'ledger';
@@ -73,8 +75,8 @@ class GcRunner {
             if ( ! $summary['dry_run'] && $summary['reconcile_capacity'] ) {
                 self::reconcile_managed_capacity( $uploads_dir, $summary );
             }
-            if ( $summary['reason'] === '' ) {
-                self::run_targets( $private_dir, $config, $summary, $progress );
+            if ( ! self::remote_provider_failed( $summary['reason'] ) ) {
+                self::run_targets( $private_dir, $config, $summary, $progress, $lifecycle );
             }
             if ( ! $summary['dry_run'] && ! self::write_progress( $handle, $progress ) && $summary['reason'] === '' ) {
                 $summary['reason'] = 'gc_progress_write_failed';
@@ -122,6 +124,7 @@ class GcRunner {
                 'uploads' => self::target_template(),
                 'staged_batches' => self::target_template(),
                 'finalized_submissions' => self::target_template(),
+                'preview_fences' => self::target_template(),
                 'throttle' => self::target_template(),
                 'declined' => self::target_template(),
             ),
@@ -135,10 +138,8 @@ class GcRunner {
             'candidate_bytes' => 0,
             'deleted' => 0,
             'deleted_bytes' => 0,
-            'candidate_master_bytes' => 0,
-            'candidate_preview_bytes' => 0,
-            'deleted_master_bytes' => 0,
-            'deleted_preview_bytes' => 0,
+            'candidate_artifact_bytes' => 0,
+            'deleted_artifact_bytes' => 0,
             'released_bytes' => 0,
             'errors' => 0,
             'reason' => '',
@@ -147,10 +148,21 @@ class GcRunner {
 
     private static function reconcile_managed_capacity( $uploads_dir, &$summary ) {
         $now = (int) $summary['now'];
+        $remote_delete = function ( $object_key, $object_version, $artifact_store_identity ) use ( $now ) {
+            return WorkerClient::delete_object(
+                $object_key,
+                $object_version,
+                $artifact_store_identity,
+                $now,
+                null,
+                'capacity_reconciliation'
+            );
+        };
         $result = UploadBatchStore::reconcile_capacity(
             $uploads_dir,
             $now - Anchors::get( 'MANAGED_RESERVATION_STALE_SECONDS' ),
-            $now
+            $now,
+            $remote_delete
         );
         if ( empty( $result['ok'] ) || ! isset( $result['capacity']['total_bytes'] ) ) {
             $summary['reason'] = 'managed_capacity_' . ( isset( $result['reason'] ) ? $result['reason'] : 'reconcile_failed' );
@@ -165,7 +177,7 @@ class GcRunner {
             : 0;
     }
 
-    private static function run_targets( $private_dir, $config, &$summary, &$progress ) {
+    private static function run_targets( $private_dir, $config, &$summary, &$progress, $lifecycle ) {
         $now = (int) $summary['now'];
         $token_ttl_max = Anchors::get( 'TOKEN_TTL_MAX' );
         $ledger_grace = Anchors::get( 'LEDGER_GC_GRACE_SECONDS' );
@@ -186,6 +198,9 @@ class GcRunner {
             },
             'finalized_submissions' => function ( $budget ) use ( $config, $now, &$summary, &$progress ) {
                 self::scan_managed_aggregates( 'finalized', 'finalized_submissions', $config, $now, $summary, $budget, $progress );
+            },
+            'preview_fences' => function ( $budget ) use ( $lifecycle, $now, &$summary, &$progress ) {
+                self::scan_preview_fences( $lifecycle, $now, $summary, $budget, $progress['families']['preview_fences'] );
             },
             'throttle' => function ( $budget ) use ( $private_dir, $now, &$summary, &$progress ) {
                 self::scan_throttle( $private_dir, $now, $summary, $budget, $progress['families']['throttle'] );
@@ -213,29 +228,49 @@ class GcRunner {
             }
 
             $budget = max( 1, (int) floor( $remaining / $remaining_targets ) );
+            $prior_reason = $summary['reason'];
             call_user_func( $targets[ $target_name ], $budget );
-            if ( $summary['reason'] !== '' ) {
-                return;
+            $target_reason = $summary['reason'];
+            if ( $prior_reason !== '' ) {
+                $summary['reason'] = $prior_reason;
             }
             $canonical_index = array_search( $target_name, $canonical_names, true );
             $progress['next_family'] = $canonical_names[ ( $canonical_index + 1 ) % count( $canonical_names ) ];
             $remaining_targets--;
+            if ( self::remote_provider_failed( $target_reason ) ) {
+                return;
+            }
         }
 
         $summary['reached_limit'] = (int) $summary['scanned'] >= (int) $summary['limit'];
+    }
+
+    private static function remote_provider_failed( $reason ) {
+        return is_string( $reason ) && strpos( $reason, 'remote_delete_failed' ) !== false;
     }
 
     private static function scan_managed_aggregates( $family, $target, $config, $now, &$summary, $budget, &$progress ) {
         if ( $budget <= 0 ) {
             return;
         }
+        $remote_delete = function ( $object_key, $object_version, $artifact_store_identity ) use ( $now ) {
+            return WorkerClient::delete_object(
+                $object_key,
+                $object_version,
+                $artifact_store_identity,
+                $now,
+                null,
+                'aggregate_gc'
+            );
+        };
         $result = UploadBatchStore::gc_aggregates(
             $family,
             self::uploads_dir( $config ),
             $now,
             $budget,
             ! empty( $summary['dry_run'] ),
-            $progress['families'][ $target ]
+            $progress['families'][ $target ],
+            $remote_delete
         );
         $result = is_array( $result ) ? $result : array();
         if ( isset( $result['cursor'] ) && is_array( $result['cursor'] ) ) {
@@ -246,7 +281,7 @@ class GcRunner {
             $summary[ $key ] += $value;
             $summary['by_type'][ $target ][ $key ] += $value;
         }
-        foreach ( array( 'candidate_master_bytes', 'candidate_preview_bytes', 'deleted_master_bytes', 'deleted_preview_bytes', 'released_bytes', 'errors' ) as $key ) {
+        foreach ( array( 'candidate_artifact_bytes', 'deleted_artifact_bytes', 'released_bytes', 'errors' ) as $key ) {
             $summary['by_type'][ $target ][ $key ] = isset( $result[ $key ] ) && is_numeric( $result[ $key ] )
                 ? max( 0, (int) $result[ $key ] )
                 : 0;
@@ -254,6 +289,37 @@ class GcRunner {
         $summary['by_type'][ $target ]['reason'] = isset( $result['reason'] ) && is_string( $result['reason'] ) ? $result['reason'] : '';
         if ( empty( $result['ok'] ) || $summary['by_type'][ $target ]['errors'] > 0 ) {
             $summary['reason'] = 'managed_' . $family . '_' . ( $summary['by_type'][ $target ]['reason'] !== '' ? $summary['by_type'][ $target ]['reason'] : 'gc_failed' );
+        }
+    }
+
+    private static function scan_preview_fences( $lifecycle, $now, &$summary, $budget, &$cursor ) {
+        if ( $budget <= 0 ) {
+            return;
+        }
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            $summary['by_type']['preview_fences']['errors']++;
+            $summary['by_type']['preview_fences']['reason'] = 'preview_fence_lifecycle_unavailable';
+            $summary['reason'] = 'preview_fences_lifecycle_unavailable';
+            return;
+        }
+        $result = LocalPreviewProvider::gc_deleted_fences(
+            $lifecycle,
+            $now,
+            $budget,
+            ! empty( $summary['dry_run'] ),
+            $cursor
+        );
+        $result = is_array( $result ) ? $result : array();
+        $cursor = isset( $result['cursor'] ) && is_array( $result['cursor'] ) ? $result['cursor'] : array();
+        foreach ( array( 'scanned', 'candidates', 'candidate_bytes', 'deleted', 'deleted_bytes' ) as $key ) {
+            $value = isset( $result[ $key ] ) && is_numeric( $result[ $key ] ) ? max( 0, (int) $result[ $key ] ) : 0;
+            $summary[ $key ] += $value;
+            $summary['by_type']['preview_fences'][ $key ] += $value;
+        }
+        if ( empty( $result['ok'] ) ) {
+            $summary['by_type']['preview_fences']['errors']++;
+            $summary['by_type']['preview_fences']['reason'] = isset( $result['reason'] ) ? (string) $result['reason'] : 'preview_fence_gc_failed';
+            $summary['reason'] = 'preview_fences_' . $summary['by_type']['preview_fences']['reason'];
         }
     }
 
@@ -677,6 +743,7 @@ class GcRunner {
             'uploads' => array(),
             'staged_batches' => array(),
             'finalized_submissions' => array(),
+            'preview_fences' => array(),
             'throttle' => array(),
             'declined' => array(),
         );

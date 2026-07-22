@@ -178,7 +178,7 @@ function eforms_test_expire_staged_claim_manifest( $uploads_dir, $batch_id ) {
     $manifest['accept_until'] = $now - 60;
     $manifest['delete_after'] = $now + 600;
     foreach ( $manifest['items'] as &$item ) {
-        $item['created_at'] = $now - 150;
+        $item['accepted_at'] = $now - 150;
     }
     unset( $item );
     foreach ( $manifest['tombstones'] as &$tombstone ) {
@@ -197,10 +197,58 @@ $_SERVER['SERVER_PORT'] = 443;
 $png = eforms_test_fixture_bytes( 'staged-landscape.png' );
 $field = eforms_test_staged_field();
 
-if ( ! UploadPolicy::staged_host_readiness()['ok'] ) {
-    echo "Skipped staged submission integration: no supported local image backend.\n";
-    return;
-}
+// The shipped virtual estimate accepts a listing URL without creating a staged batch.
+$uploads_dir = eforms_test_setup_uploads( 'eforms-virtual-listing-only' );
+eforms_test_staged_config( $uploads_dir );
+eforms_test_reset_mail();
+$listing_mint = Security::mint_hidden_record( 'virtual-estimate', $uploads_dir );
+$listing_only_request = array(
+    'post' => array(
+        FormProtocol::FIELD_TOKEN => $listing_mint['token'],
+        FormProtocol::FIELD_INSTANCE_ID => $listing_mint['instance_id'],
+        FormProtocol::FIELD_TIMESTAMP => (string) $listing_mint['issued_at'],
+        FormProtocol::FIELD_JS_OK => '1',
+        FormProtocol::FIELD_HONEYPOT => '',
+        'virtual-estimate' => array(
+            'name' => 'Ada Lovelace',
+            'email' => 'ada@example.test',
+            'tel_us' => '7209005278',
+            'zip_us' => '80231',
+            'square_footage' => '1145',
+            'listing_url' => 'https://example.com/listing',
+            'project_description' => 'Refinish the main floor.',
+        ),
+    ),
+    'files' => array(),
+    'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
+);
+$missing_evidence_request = $listing_only_request;
+$missing_evidence_request['post']['virtual-estimate']['listing_url'] = '';
+$missing_evidence_result = SubmitHandler::handle(
+    'virtual-estimate',
+    $missing_evidence_request,
+    array( 'template_base_dir' => dirname( __DIR__, 2 ) . '/templates/forms' )
+);
+$missing_evidence_errors = $missing_evidence_result['errors']->to_array();
+eforms_test_assert(
+    empty( $missing_evidence_result['ok'] )
+        && isset( $missing_evidence_errors['_global'][0] )
+        && $missing_evidence_errors['_global'][0]['code'] === 'EFORMS_ERR_ONE_OF_REQUIRED'
+        && $missing_evidence_errors['_global'][0]['message'] === 'Please provide a listing URL or upload at least one photo.',
+    'The shipped virtual estimate should explain the listing-or-photo requirement when both are missing.'
+);
+eforms_test_assert( count( $GLOBALS['eforms_test_mail_calls'] ) === 0, 'A missing-evidence virtual estimate should not invoke mail.' );
+$listing_only_result = SubmitHandler::handle(
+    'virtual-estimate',
+    $listing_only_request,
+    array( 'template_base_dir' => dirname( __DIR__, 2 ) . '/templates/forms' )
+);
+eforms_test_assert( ! empty( $listing_only_result['ok'] ), 'A listing URL should submit the shipped virtual estimate without photos.' );
+eforms_test_assert( ! isset( $listing_only_result['values']['project_photos'] ), 'A listing-only submission should not synthesize an upload value.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_mail_calls'] ) === 1, 'A listing-only virtual estimate should invoke mail once.' );
+$listing_only_snapshots = glob( $uploads_dir . '/eforms-private/' . UploadBatchStore::SUBMISSIONS_DIR . '/*/*/' . UploadBatchStore::REVIEW_SNAPSHOT_FILENAME );
+eforms_test_assert( $listing_only_snapshots === array() || $listing_only_snapshots === false, 'A listing-only virtual estimate should remain email-only with no review snapshot sidecar.' );
+eforms_test_remove_tree( $uploads_dir );
 
 // Happy path: validate the open aggregate, freeze before ledger, rename after
 // ledger, persist the attempt marker, and send once without credential leakage.
@@ -209,11 +257,72 @@ $template_dir = eforms_test_tmp_root( 'eforms-staged-submit-template' );
 mkdir( $template_dir, 0700, true );
 eforms_test_staged_template( $template_dir, 'staged-demo' );
 eforms_test_staged_config( $uploads_dir );
+
+$required_photo_mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
+$required_photo_secret = eforms_test_staged_secret( "\x70" );
+$required_photo_batch = UploadBatchStore::create_batch(
+    array(
+        'raw_token' => $required_photo_mint['token'],
+        'form_id' => 'staged-demo',
+        'instance_id' => $required_photo_mint['instance_id'],
+        'field_key' => 'photos',
+        'accept_until' => $required_photo_mint['expires'],
+    ),
+    $required_photo_secret,
+    $field,
+    $uploads_dir
+);
+eforms_test_assert( ! empty( $required_photo_batch['ok'] ), 'Required-photo setup should create an empty staged batch.' );
+$required_photo_request = eforms_test_staged_request(
+    'staged-demo',
+    $required_photo_mint,
+    $required_photo_batch['batch']['batch_id'],
+    $required_photo_secret
+);
+$required_photo_result = SubmitHandler::handle(
+    'staged-demo',
+    $required_photo_request,
+    array( 'template_base_dir' => $template_dir )
+);
+$failure_response = new ReflectionMethod( 'PublicRequestController', 'failure_response' );
+$required_photo_response = $failure_response->invoke( null, 'staged-demo', $required_photo_result, true );
+$required_photo_body = json_decode( $required_photo_response['body'], true );
+$required_photo_fields = is_array( $required_photo_body )
+    && isset( $required_photo_body['errors']['fields'] )
+    && is_array( $required_photo_body['errors']['fields'] )
+    ? $required_photo_body['errors']['fields']
+    : array();
+$required_photo_errors = isset( $required_photo_fields['photos'] ) && is_array( $required_photo_fields['photos'] )
+    ? $required_photo_fields['photos']
+    : array();
+$required_photo_error = isset( $required_photo_errors[0] ) && is_array( $required_photo_errors[0] )
+    ? $required_photo_errors[0]
+    : array();
+eforms_test_assert(
+    empty( $required_photo_result['ok'] )
+        && $required_photo_response['status'] === 422
+        && is_array( $required_photo_body )
+        && $required_photo_body['errors']['global'] === array()
+        && array_keys( $required_photo_fields ) === array( 'photos' )
+        && count( $required_photo_errors ) === 1
+        && isset( $required_photo_error['code'] )
+        && $required_photo_error['code'] === 'EFORMS_ERR_FIELD_REQUIRED'
+        && isset( $required_photo_error['message'] )
+        && is_string( $required_photo_error['message'] )
+        && $required_photo_error['message'] !== ''
+        && strpos( $required_photo_error['message'], 'configuration' ) === false,
+    'An enhanced missing-photo response should contain one clear field-required error and no configuration copy.'
+);
+
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
 $secret = eforms_test_staged_secret( "\x71" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_one' );
+$changed_items = $batch['items'];
+$changed_items[0]['size']++;
+$changed_claim = UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $changed_items, $mint['token'], $uploads_dir );
+eforms_test_assert( empty( $changed_claim['ok'] ) && $changed_claim['reason'] === 'batch_items_changed', 'Finalization should reject any artifact fact changed after resolution.' );
 $request = eforms_test_staged_request( 'staged-demo', $mint, $batch['batch_id'], $secret );
 $ledger_saw_finalizing = false;
 $result = SubmitHandler::handle(
@@ -232,20 +341,49 @@ eforms_test_assert( $result['ok'] === true, 'A complete authenticated staged bat
 eforms_test_assert( $ledger_saw_finalizing === true, 'The aggregate should be durably finalizing before ledger reservation.' );
 eforms_test_assert( count( $GLOBALS['eforms_test_mail_calls'] ) === 1, 'The staged happy path should invoke mail once.' );
 eforms_test_assert( UploadValue::is_staged_item( $result['values']['photos'][0] ), 'Submission values should contain only the resolved staged value shape.' );
+eforms_test_assert(
+    array_keys( $result['values']['photos'][0] ) === array( 'staged', 'upload_id', 'ordinal', 'original_name_safe', 'size', 'mime', 'width', 'height' ),
+    'Submission values should contain the exact public authoritative-artifact snapshot and no storage facts.'
+);
 $serialized_result = json_encode( $result['values'] );
 eforms_test_assert( strpos( $serialized_result, $secret ) === false && strpos( $serialized_result, $uploads_dir ) === false, 'Customer values should contain neither staged credentials nor private paths.' );
 $submission = UploadBatchStore::submission( $mint['token'], $uploads_dir );
 eforms_test_assert( $submission['ok'] === true && $submission['submission']['email_attempted_at'] !== null, 'Finalized state should durably precede the email attempt.' );
+$snapshot = UploadBatchStore::review_snapshot( $mint['token'], $uploads_dir );
+eforms_test_assert(
+    ! empty( $snapshot['ok'] )
+        && $snapshot['snapshot']['schema_version'] === SubmissionReviewSnapshot::SCHEMA_VERSION
+        && $snapshot['snapshot']['form_id'] === 'staged-demo'
+        && $snapshot['snapshot']['submission_id'] === $mint['token']
+        && $snapshot['snapshot']['submitted_at'] === gmdate( 'c', $submission['submission']['finalized_at'] )
+        && $snapshot['snapshot']['header'][0]['key'] === 'name'
+        && $snapshot['snapshot']['header'][0]['value'] === 'Ada'
+        && $snapshot['snapshot']['operator_rows'] === array(),
+    'A finalized staged submission should persist the validated operator review snapshot sidecar.'
+);
+$snapshot_json = json_encode( $snapshot['snapshot'] );
+eforms_test_assert( strpos( $snapshot_json, $secret ) === false && strpos( $snapshot_json, $uploads_dir ) === false && strpos( $snapshot_json, 'Customer Photo.png' ) === false, 'The review snapshot should not expose staged credentials, private paths, or upload metadata.' );
+$snapshot_path = $uploads_dir . '/eforms-private/' . UploadBatchStore::SUBMISSIONS_DIR . '/' . Helpers::h2( $mint['token'] ) . '/' . $mint['token'] . '/' . UploadBatchStore::REVIEW_SNAPSHOT_FILENAME;
+file_put_contents( $snapshot_path, '{"schema_version":999}' );
+chmod( $snapshot_path, 0600 );
+$corrupt_snapshot = UploadBatchStore::review_snapshot( $mint['token'], $uploads_dir );
+$photo_submission_after_corrupt_snapshot = UploadBatchStore::submission( $mint['token'], $uploads_dir );
+eforms_test_assert( empty( $corrupt_snapshot['ok'] ) && ! empty( $photo_submission_after_corrupt_snapshot['ok'] ), 'A corrupt review snapshot should fail closed for details while preserving valid photo submission reads.' );
 $former = UploadBatchStore::status( $batch['batch_id'], $secret, $uploads_dir );
 eforms_test_assert( $former['ok'] === false && ! empty( $former['gone'] ), 'The renamed aggregate should be unavailable through its former batch path.' );
+$former_path = $uploads_dir . '/eforms-private/staged/' . Helpers::h2( $batch['batch_id'] ) . '/' . $batch['batch_id'];
+eforms_test_assert(
+    ! file_exists( UploadBatchStore::aggregate_lock_path( UploadBatchStore::STAGED_DIR, $former_path ) ),
+    'Finalization should remove the staged sibling lock after the aggregate moves.'
+);
 
 $mail_json = json_encode( $GLOBALS['eforms_test_mail_calls'][0] );
 eforms_test_assert( strpos( $mail_json, $secret ) === false && strpos( $mail_json, 'eforms_upload_batches' ) === false, 'Email payloads should not contain staged credentials.' );
 eforms_test_assert( strpos( json_encode( Logging::$events ), $secret ) === false, 'Normal logs should not contain staged credentials.' );
 $mail = $GLOBALS['eforms_test_mail_calls'][0];
-$gallery_path = 'eforms_review=' . $mint['token'] . '&expires=' . $submission['submission']['gallery_expires_at'] . '&signature=';
-eforms_test_assert( substr_count( $mail['message'], $gallery_path ) === 1, 'A staged field should contribute exactly one signed gallery URL to text email.' );
-eforms_test_assert( strpos( $mail['message'], gmdate( 'Y-m-d H:i \U\T\C', $submission['submission']['gallery_expires_at'] ) ) !== false, 'The staged email row should display the manifest gallery expiry.' );
+$gallery_path = 'eforms_review=' . $mint['token'] . '&signature=';
+eforms_test_assert( substr_count( $mail['message'], $gallery_path ) === 1 && strpos( $mail['message'], 'expires' . '=' ) === false, 'A staged field should contribute exactly one expiration-free signed gallery URL to text email.' );
+eforms_test_assert( strpos( $mail['message'], gmdate( 'F j, Y \a\t g:i a', $submission['submission']['delete_after'] ) ) !== false, 'The staged email row should display the manifest availability date.' );
 eforms_test_assert( strpos( $mail['message'], 'eforms_review_upload=' ) === false && $mail['attachments'] === array(), 'Staged photos should produce neither individual email links nor attachments.' );
 $replay = SubmitHandler::handle( 'staged-demo', $request, array( 'template_base_dir' => $template_dir ) );
 eforms_test_assert( $replay['ok'] === false && $replay['error_code'] === 'EFORMS_ERR_TOKEN', 'Replay after the durable email-attempt marker should fail closed.' );
@@ -285,7 +423,7 @@ $failed_submission = UploadBatchStore::submission( $mint['token'], $uploads_dir 
 eforms_test_assert( ! empty( $failed_submission['ok'] ) && $failed_submission['submission']['email_attempted_at'] !== null, 'The finalized gallery and attempt marker should survive transport failure.' );
 $failed_mail = $GLOBALS['eforms_test_mail_calls'][0];
 eforms_test_assert( substr_count( $failed_mail['message'], 'Review photos' ) === 1 && substr_count( $failed_mail['alt_body'], 'eforms_review=' ) === 1, 'HTML and text alternatives should each contain one gallery summary.' );
-eforms_test_assert( $failed_mail['attachments'] === array(), 'Staged HTML email should not attach managed masters or previews.' );
+eforms_test_assert( $failed_mail['attachments'] === array(), 'Staged HTML email should not attach managed artifacts.' );
 $post_failure_replay = SubmitHandler::handle( 'staged-demo', $mail_failure_request, array( 'template_base_dir' => $template_dir ) );
 eforms_test_assert( $post_failure_replay['ok'] === false && count( $GLOBALS['eforms_test_mail_calls'] ) === 2, 'A replay after failed transport should not attempt a submission resend or another admin notice.' );
 
@@ -336,6 +474,7 @@ $body_request['files'] = array(
 );
 $body_result = SubmitHandler::handle( 'staged-demo', $body_request, array( 'template_base_dir' => $template_dir ) );
 eforms_test_assert( $body_result['ok'] === false && $body_result['error_code'] === 'EFORMS_ERR_UPLOAD_TYPE', 'A staged file body on final POST should be rejected.' );
+eforms_test_assert( $body_result['values']['name'] === 'Ada', 'Staged prevalidation should retain safe scalar values for the local rerender.' );
 
 $race_result = SubmitHandler::handle(
     'staged-demo',
@@ -603,15 +742,18 @@ eforms_test_assert( UploadBatchStore::claim_finalization( $batch['batch_id'], $s
 eforms_test_assert( Ledger::reserve( 'staged-demo', $mint['token'], $uploads_dir )['ok'] === true, 'Rename recovery fixture should persist the ledger.' );
 $private_dir = $uploads_dir . '/eforms-private';
 $staged_path = $private_dir . '/staged/' . Helpers::h2( $batch['batch_id'] ) . '/' . $batch['batch_id'];
+$staged_lock_path = UploadBatchStore::aggregate_lock_path( UploadBatchStore::STAGED_DIR, $staged_path );
 $submission_shard = $private_dir . '/submissions/' . Helpers::h2( $mint['token'] );
 $submission_path = $submission_shard . '/' . $mint['token'];
 eforms_test_assert( is_dir( $submission_shard ) || mkdir( $submission_shard, 0700, true ), 'Rename recovery fixture should create the destination shard.' );
 eforms_test_assert( rename( $staged_path, $submission_path ), 'Rename recovery fixture should simulate the atomic move before the finalized manifest write.' );
+eforms_test_assert( file_exists( $staged_lock_path ), 'Rename recovery fixture should leave the staged sibling lock behind before recovery.' );
 $interrupted_manifest = json_decode( file_get_contents( $submission_path . '/' . UploadBatchStore::MANIFEST_FILENAME ), true );
 eforms_test_assert( $interrupted_manifest['state'] === 'finalizing', 'The crash fixture should retain the pre-finalized manifest state after rename.' );
 $renamed_request = eforms_test_staged_request( 'staged-demo', $mint, $batch['batch_id'], $secret );
 $renamed_recovery = SubmitHandler::handle( 'staged-demo', $renamed_request, array( 'template_base_dir' => $template_dir ) );
 eforms_test_assert( $renamed_recovery['ok'] === true && count( $GLOBALS['eforms_test_mail_calls'] ) === 1, 'Matching post-rename recovery should finish the manifest and resume only before the attempt marker.' );
+eforms_test_assert( ! file_exists( $staged_lock_path ), 'Post-rename recovery should remove the former staged sibling lock.' );
 
 eforms_test_remove_tree( $uploads_dir );
 eforms_test_remove_tree( $template_dir );

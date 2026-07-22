@@ -8,6 +8,8 @@
  * Contract: Field types
  */
 
+require_once __DIR__ . '/../../EformsMarkup.php';
+
 class FieldRenderers_TextLike {
     public static function render( $descriptor, $field, $value = '', $context = array() ) {
         $attrs = self::build_attributes( $descriptor, $field, $context );
@@ -51,6 +53,14 @@ class FieldRenderers_TextLike {
             $attrs['autocomplete'] = $autocomplete;
         }
 
+        if ( isset( $descriptor['defaults'] ) && is_array( $descriptor['defaults'] ) ) {
+            foreach ( $descriptor['defaults'] as $key => $value ) {
+                if ( ! array_key_exists( $key, $attrs ) ) {
+                    $attrs[ $key ] = $value;
+                }
+            }
+        }
+
         if ( is_array( $field ) ) {
             if ( isset( $field['placeholder'] ) && is_string( $field['placeholder'] ) ) {
                 $attrs['placeholder'] = $field['placeholder'];
@@ -80,28 +90,10 @@ class FieldRenderers_TextLike {
             $attrs['id'] = $prefix !== '' ? $prefix . '-' . $field['key'] : $field['key'];
         }
 
-        return $attrs;
+        return EformsMarkup::apply_control_context( $attrs, $context );
     }
 
     private static function render_input( $attrs ) {
-        $parts = array();
-
-        foreach ( $attrs as $key => $value ) {
-            if ( $value === null ) {
-                continue;
-            }
-
-            $parts[] = $key . '="' . self::escape_attr( $value ) . '"';
-        }
-
-        return '<input ' . implode( ' ', $parts ) . ' />';
-    }
-
-    private static function escape_attr( $value ) {
-        if ( function_exists( 'esc_attr' ) ) {
-            return esc_attr( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
+        return '<input ' . EformsMarkup::attributes( $attrs ) . ' />';
     }
 }

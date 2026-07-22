@@ -13,6 +13,7 @@ require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Errors.php';
 require_once __DIR__ . '/../Uploads/UploadPolicy.php';
 require_once __DIR__ . '/../Uploads/UploadValue.php';
+require_once __DIR__ . '/FieldTypes/TextLike.php';
 
 class Validator {
     /**
@@ -77,7 +78,7 @@ class Validator {
 
             if ( is_array( $field ) && ! empty( $field['required'] ) && ! $presence[ $key ] ) {
                 $buckets[ $key ]['required'][] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_REQUIRED',
+                    'code' => 'EFORMS_ERR_FIELD_REQUIRED',
                     'message' => '',
                 );
             }
@@ -194,7 +195,7 @@ class Validator {
         if ( $is_multivalue ) {
             if ( ! is_array( $value ) ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
                 return;
@@ -203,7 +204,7 @@ class Validator {
             foreach ( $value as $entry ) {
                 if ( is_array( $entry ) ) {
                     $entries[] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                        'code' => 'EFORMS_ERR_FIELD_INVALID',
                         'message' => '',
                     );
                     return;
@@ -215,7 +216,7 @@ class Validator {
 
         if ( is_array( $value ) ) {
             $entries[] = array(
-                'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                'code' => 'EFORMS_ERR_FIELD_INVALID',
                 'message' => '',
             );
         }
@@ -234,7 +235,7 @@ class Validator {
         if ( $is_multivalue ) {
             if ( is_array( $value ) && $max_items > 0 && count( $value ) > $max_items ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
@@ -288,7 +289,7 @@ class Validator {
         if ( $is_multivalue ) {
             if ( ! is_array( $value ) ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
                 return;
@@ -297,7 +298,7 @@ class Validator {
             foreach ( $value as $entry ) {
                 if ( ! is_string( $entry ) ) {
                     $entries[] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                        'code' => 'EFORMS_ERR_FIELD_INVALID',
                         'message' => '',
                     );
                     continue;
@@ -309,7 +310,7 @@ class Validator {
 
                 if ( ! isset( $allowed[ $entry ] ) ) {
                     $entries[] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_ENUM',
+                        'code' => 'EFORMS_ERR_FIELD_INVALID',
                         'message' => '',
                     );
                     continue;
@@ -317,7 +318,7 @@ class Validator {
 
                 if ( isset( $disabled[ $entry ] ) ) {
                     $entries[] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_ENUM',
+                        'code' => 'EFORMS_ERR_FIELD_INVALID',
                         'message' => '',
                     );
                 }
@@ -328,7 +329,7 @@ class Validator {
 
         if ( is_array( $value ) ) {
             $entries[] = array(
-                'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                'code' => 'EFORMS_ERR_FIELD_INVALID',
                 'message' => '',
             );
             return;
@@ -336,7 +337,7 @@ class Validator {
 
         if ( ! is_string( $value ) ) {
             $entries[] = array(
-                'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                'code' => 'EFORMS_ERR_FIELD_INVALID',
                 'message' => '',
             );
             return;
@@ -348,7 +349,7 @@ class Validator {
 
         if ( ! isset( $allowed[ $value ] ) ) {
             $entries[] = array(
-                'code' => 'EFORMS_ERR_SCHEMA_ENUM',
+                'code' => 'EFORMS_ERR_FIELD_INVALID',
                 'message' => '',
             );
             return;
@@ -356,7 +357,7 @@ class Validator {
 
         if ( isset( $disabled[ $value ] ) ) {
             $entries[] = array(
-                'code' => 'EFORMS_ERR_SCHEMA_ENUM',
+                'code' => 'EFORMS_ERR_FIELD_INVALID',
                 'message' => '',
             );
         }
@@ -369,7 +370,7 @@ class Validator {
 
         if ( is_array( $value ) ) {
             $entries[] = array(
-                'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                'code' => 'EFORMS_ERR_FIELD_INVALID',
                 'message' => '',
             );
             return;
@@ -377,7 +378,7 @@ class Validator {
 
         if ( ! is_string( $value ) ) {
             $entries[] = array(
-                'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                'code' => 'EFORMS_ERR_FIELD_INVALID',
                 'message' => '',
             );
             return;
@@ -390,7 +391,7 @@ class Validator {
         if ( is_array( $field ) && isset( $field['max_length'] ) && is_int( $field['max_length'] ) ) {
             if ( self::string_length( $value ) > $field['max_length'] ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
@@ -400,7 +401,7 @@ class Validator {
             $ok = self::pattern_match( $field['pattern'], $value );
             if ( ! $ok ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
@@ -410,13 +411,13 @@ class Validator {
             if ( function_exists( 'is_email' ) ) {
                 if ( ! is_email( $value ) ) {
                     $entries[] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                        'code' => 'EFORMS_ERR_FIELD_INVALID',
                         'message' => '',
                     );
                 }
             } elseif ( filter_var( $value, FILTER_VALIDATE_EMAIL ) === false ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
@@ -425,16 +426,16 @@ class Validator {
         if ( $type === 'url' ) {
             if ( ! self::is_valid_url( $value ) ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
         }
 
         if ( $type === 'zip_us' ) {
-            if ( ! preg_match( '/^\\d{5}$/', $value ) ) {
+            if ( FieldTypes_TextLike::normalize_zip_us( $value ) === null ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
@@ -443,27 +444,28 @@ class Validator {
         if ( $type === 'tel_us' ) {
             if ( ! self::is_valid_tel_us( $value ) ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
         }
 
         if ( $type === 'number' || $type === 'range' ) {
-            if ( ! self::is_numeric_string( $value ) ) {
+            $number = FieldTypes_TextLike::normalize_number( $value );
+            if ( $number === null ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             } else {
-                self::validate_numeric_range( $entries, $value, $field );
+                self::validate_numeric_range( $entries, $number, $field );
             }
         }
 
         if ( $type === 'date' ) {
             if ( ! preg_match( '/^\\d{4}-\\d{2}-\\d{2}$/', $value ) ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
@@ -473,23 +475,38 @@ class Validator {
     private static function validate_numeric_range( &$entries, $value, $field ) {
         $number = (float) $value;
 
-        if ( is_array( $field ) && isset( $field['min'] ) && is_int( $field['min'] ) ) {
+        if ( is_array( $field ) && isset( $field['min'] ) && is_numeric( $field['min'] ) ) {
             if ( $number < (float) $field['min'] ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
         }
 
-        if ( is_array( $field ) && isset( $field['max'] ) && is_int( $field['max'] ) ) {
+        if ( is_array( $field ) && isset( $field['max'] ) && is_numeric( $field['max'] ) ) {
             if ( $number > (float) $field['max'] ) {
                 $entries[] = array(
-                    'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
                     'message' => '',
                 );
             }
         }
+
+        if ( is_array( $field ) && isset( $field['step'] ) && is_numeric( $field['step'] ) && (float) $field['step'] > 0 ) {
+            $base = isset( $field['min'] ) && is_numeric( $field['min'] ) ? (float) $field['min'] : 0.0;
+            if ( ! self::numeric_step_matches( $number, $base, (float) $field['step'] ) ) {
+                $entries[] = array(
+                    'code' => 'EFORMS_ERR_FIELD_INVALID',
+                    'message' => '',
+                );
+            }
+        }
+    }
+
+    private static function numeric_step_matches( $number, $base, $step ) {
+        $quotient = ( $number - $base ) / $step;
+        return abs( $quotient - round( $quotient ) ) < 0.0000001;
     }
 
     private static function validate_rules( $rules, $values, $presence, &$buckets, &$global_entries ) {
@@ -587,7 +604,7 @@ class Validator {
 
                 if ( is_array( $lhs ) || is_array( $rhs ) ) {
                     $buckets[ $target ]['cross'][] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                        'code' => 'EFORMS_ERR_FIELD_INVALID',
                         'message' => '',
                     );
                     continue;
@@ -595,7 +612,7 @@ class Validator {
 
                 if ( (string) $lhs !== (string) $rhs ) {
                     $buckets[ $target ]['cross'][] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                        'code' => 'EFORMS_ERR_FIELD_INVALID',
                         'message' => '',
                     );
                 }
@@ -619,8 +636,8 @@ class Validator {
 
                 if ( ! $any ) {
                     $global_entries[] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_REQUIRED',
-                        'message' => '',
+                        'code' => 'EFORMS_ERR_ONE_OF_REQUIRED',
+                        'message' => isset( $rule['message'] ) && is_string( $rule['message'] ) ? $rule['message'] : '',
                     );
                 }
 
@@ -642,7 +659,7 @@ class Validator {
 
                 if ( $count > 1 ) {
                     $global_entries[] = array(
-                        'code' => 'EFORMS_ERR_SCHEMA_TYPE',
+                        'code' => 'EFORMS_ERR_MUTUALLY_EXCLUSIVE',
                         'message' => '',
                     );
                 }
@@ -660,7 +677,7 @@ class Validator {
         }
 
         $buckets[ $target ]['cross'][] = array(
-            'code' => 'EFORMS_ERR_SCHEMA_REQUIRED',
+            'code' => 'EFORMS_ERR_FIELD_REQUIRED',
             'message' => '',
         );
     }
@@ -699,31 +716,11 @@ class Validator {
     }
 
     private static function is_valid_url( $value ) {
-        $url = filter_var( $value, FILTER_VALIDATE_URL );
-        if ( $url === false ) {
-            return false;
-        }
-
-        $parts = parse_url( $url );
-        if ( ! is_array( $parts ) || ! isset( $parts['scheme'] ) ) {
-            return false;
-        }
-
-        $scheme = strtolower( $parts['scheme'] );
-        return $scheme === 'http' || $scheme === 'https';
+        return FieldTypes_TextLike::normalize_url( $value ) !== null;
     }
 
     private static function is_numeric_string( $value ) {
-        if ( ! is_string( $value ) ) {
-            return false;
-        }
-
-        $value = trim( $value );
-        if ( $value === '' ) {
-            return false;
-        }
-
-        return is_numeric( $value );
+        return FieldTypes_TextLike::normalize_number( $value ) !== null;
     }
 
     private static function is_valid_tel_us( $value ) {
@@ -731,16 +728,7 @@ class Validator {
             return false;
         }
 
-        $digits = preg_replace( '/\\D+/', '', $value );
-        if ( $digits === '' ) {
-            return false;
-        }
-
-        if ( strlen( $digits ) === 11 && $digits[0] === '1' ) {
-            $digits = substr( $digits, 1 );
-        }
-
-        return strlen( $digits ) === 10;
+        return FieldTypes_TextLike::normalize_tel_us( $value ) !== null;
     }
 
     private static function max_items_per_multivalue( $config ) {

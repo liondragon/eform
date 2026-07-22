@@ -49,7 +49,15 @@ class Success {
         return self::redirect_result( self::RESULT_EMAIL_FAILURE, $form_id, $options );
     }
 
-    public static function redirect_result( $result_type, $form_id, $options = array() ) {
+    /**
+     * Resolve a plugin-owned result location without emitting headers or redirecting.
+     *
+     * @param string $result_type
+     * @param string $form_id
+     * @param array $options Optional overrides for testing.
+     * @return array Result with ok, location.
+     */
+    public static function result_location( $result_type, $form_id, $options = array() ) {
         if ( ! self::is_result_type( $result_type ) ) {
             return self::fail( 'invalid_result' );
         }
@@ -63,8 +71,19 @@ class Success {
             return self::fail( 'no_current_url' );
         }
 
-        $result_url = self::build_result_url( $current_url, $form_id, $result_type );
-        return self::perform_redirect( $result_url, 303, $options );
+        return array(
+            'ok' => true,
+            'location' => self::build_result_url( $current_url, $form_id, $result_type ),
+        );
+    }
+
+    public static function redirect_result( $result_type, $form_id, $options = array() ) {
+        $location = self::result_location( $result_type, $form_id, $options );
+        if ( ! is_array( $location ) || empty( $location['ok'] ) ) {
+            return $location;
+        }
+
+        return self::perform_redirect( $location['location'], 303, $options );
     }
 
     public static function parse_result_request( $query = null ) {

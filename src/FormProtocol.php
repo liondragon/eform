@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . '/Anchors.php';
+require_once __DIR__ . '/Uploads/UploadPolicy.php';
 
 class FormProtocol {
     const FIELD_FORM_ID = 'form_id';
@@ -25,16 +26,40 @@ class FormProtocol {
     const UPLOAD_BATCH_SECRET = 'batch_secret';
 
     const HEADER_BATCH_SECRET = 'X-EForms-Batch-Secret';
+    const HEADER_ENHANCED_RESPONSE = 'X-EForms-Response';
+    const ENHANCED_RESPONSE_JSON = 'json';
+    const RESPONSE_OK = 'ok';
+    const RESPONSE_LOCATION = 'location';
+    const RESPONSE_ERRORS = 'errors';
+    const RESPONSE_ERRORS_GLOBAL = 'global';
+    const RESPONSE_ERRORS_FIELDS = 'fields';
+    const RESPONSE_ERROR = 'error';
+    const RESPONSE_CODE = 'code';
+    const RESPONSE_MESSAGE = 'message';
+    const RESPONSE_CAN_RETRY = 'can_retry';
+    const RESPONSE_UPLOAD_RECOVERY = 'upload_recovery';
+    const RESPONSE_STATE = 'state';
+    const RESPONSE_CHALLENGE = 'challenge';
+    const RESPONSE_CHALLENGE_PROVIDER = 'provider';
+    const RESPONSE_CHALLENGE_SITE_KEY = 'site_key';
+    const CHALLENGE_SCRIPT_URL = 'script_url';
+    const UPLOAD_RECOVERY_OPEN = 'open';
+    const UPLOAD_RECOVERY_FINALIZING = 'finalizing_recovery';
     const UPLOAD_BATCH_PARAM = 'batch_id';
     const UPLOAD_ITEM_PARAM = 'upload_id';
     const UPLOAD_FIELD_PARAM = 'field_key';
     const UPLOAD_FILE_PARAM = 'file';
     const UPLOAD_ORDINAL_PARAM = 'ordinal';
+    const UPLOAD_DISPLAY_NAME_PARAM = 'display_name';
+    const UPLOAD_BYTES_PARAM = 'bytes';
+    const UPLOAD_MIME_PARAM = 'mime';
+    const UPLOAD_RECEIPT_PARAM = 'receipt';
     const UPLOAD_RESPONSE_BATCH_ID = 'batch_id';
     const UPLOAD_RESPONSE_STATE = 'state';
     const UPLOAD_RESPONSE_ACCEPT_UNTIL = 'accept_until';
     const UPLOAD_RESPONSE_DELETE_AFTER = 'delete_after';
     const UPLOAD_RESPONSE_ITEMS = 'items';
+    const UPLOAD_RESPONSE_INTENTS = 'intents';
     const UPLOAD_RESPONSE_LIMITS = 'limits';
     const UPLOAD_RESPONSE_MAX_FILE_BYTES = 'max_file_bytes';
     const UPLOAD_RESPONSE_MAX_FILES = 'max_files';
@@ -47,6 +72,16 @@ class FormProtocol {
     const UPLOAD_RESPONSE_WIDTH = 'width';
     const UPLOAD_RESPONSE_HEIGHT = 'height';
     const UPLOAD_RESPONSE_DELETED = 'deleted';
+    const UPLOAD_RESPONSE_AUTHORIZED = 'authorized';
+    const UPLOAD_RESPONSE_COMMITTED = 'committed';
+    const UPLOAD_RESPONSE_TRANSPORT = 'transport';
+    const UPLOAD_RESPONSE_TRANSPORT_KIND = 'kind';
+    const UPLOAD_RESPONSE_TRANSPORT_URL = 'url';
+    const UPLOAD_RESPONSE_TRANSPORT_GRANT = 'grant';
+    const UPLOAD_RESPONSE_TRANSPORT_MIME = 'mime';
+    const UPLOAD_TRANSPORT_LOCAL = 'local';
+    const UPLOAD_TRANSPORT_WORKER = 'worker';
+    const HEADER_WORKER_GRANT = 'X-EForms-Worker-Grant';
 
     const MINT_FORM_PARAM = 'f';
     const MINT_RESPONSE_TOKEN = 'token';
@@ -64,6 +99,15 @@ class FormProtocol {
     const DATA_UPLOAD_MAX_FILES = 'data-eforms-upload-max-files';
     const DATA_UPLOAD_MAX_FILE_BYTES = 'data-eforms-upload-max-file-bytes';
     const DATA_UPLOAD_MAX_TOTAL_BYTES = 'data-eforms-upload-max-total-bytes';
+    const DATA_FIELD_KEY = 'data-eforms-field-key';
+    const DATA_FIELD_CONTROL = 'data-eforms-field-control';
+    const DATA_FIELD_ERROR_MOUNT = 'data-eforms-field-error-mount';
+    const DATA_PHONE_FORMAT = 'data-eforms-phone-format';
+    const DATA_ZIP_FORMAT = 'data-eforms-zip-format';
+    const DATA_INTEGER_FORMAT = 'data-eforms-integer-format';
+    const DATA_URL_NORMALIZE = 'data-eforms-url-normalize';
+    const DATA_INPUT_UNIT = 'data-eforms-input-unit';
+    const DATA_CHALLENGE_MOUNT = 'data-eforms-challenge-mount';
 
     const STORAGE_TOKEN_PREFIX = 'eforms:token:';
 
@@ -117,6 +161,15 @@ class FormProtocol {
         return array(
             'mode' => self::DATA_MODE,
             'token_ttl_max' => self::DATA_TOKEN_TTL_MAX,
+            'field_key' => self::DATA_FIELD_KEY,
+            'field_control' => self::DATA_FIELD_CONTROL,
+            'field_error_mount' => self::DATA_FIELD_ERROR_MOUNT,
+            'phone_format' => self::DATA_PHONE_FORMAT,
+            'zip_format' => self::DATA_ZIP_FORMAT,
+            'integer_format' => self::DATA_INTEGER_FORMAT,
+            'url_normalize' => self::DATA_URL_NORMALIZE,
+            'input_unit' => self::DATA_INPUT_UNIT,
+            'challenge_mount' => self::DATA_CHALLENGE_MOUNT,
         );
     }
 
@@ -148,10 +201,25 @@ class FormProtocol {
             'acceptUntil' => self::UPLOAD_RESPONSE_ACCEPT_UNTIL,
             'deleteAfter' => self::UPLOAD_RESPONSE_DELETE_AFTER,
             'items' => self::UPLOAD_RESPONSE_ITEMS,
+            'intents' => self::UPLOAD_RESPONSE_INTENTS,
+            'limits' => self::UPLOAD_RESPONSE_LIMITS,
+            'maxFileBytes' => self::UPLOAD_RESPONSE_MAX_FILE_BYTES,
+            'maxFiles' => self::UPLOAD_RESPONSE_MAX_FILES,
+            'maxTotalBytes' => self::UPLOAD_RESPONSE_MAX_TOTAL_BYTES,
             'uploadId' => self::UPLOAD_RESPONSE_UPLOAD_ID,
             'ordinal' => self::UPLOAD_RESPONSE_ORDINAL,
             'displayName' => self::UPLOAD_RESPONSE_DISPLAY_NAME,
             'bytes' => self::UPLOAD_RESPONSE_BYTES,
+            'mime' => self::UPLOAD_RESPONSE_MIME,
+            'width' => self::UPLOAD_RESPONSE_WIDTH,
+            'height' => self::UPLOAD_RESPONSE_HEIGHT,
+            'authorized' => self::UPLOAD_RESPONSE_AUTHORIZED,
+            'committed' => self::UPLOAD_RESPONSE_COMMITTED,
+            'transport' => self::UPLOAD_RESPONSE_TRANSPORT,
+            'transportKind' => self::UPLOAD_RESPONSE_TRANSPORT_KIND,
+            'transportUrl' => self::UPLOAD_RESPONSE_TRANSPORT_URL,
+            'transportGrant' => self::UPLOAD_RESPONSE_TRANSPORT_GRANT,
+            'transportMime' => self::UPLOAD_RESPONSE_TRANSPORT_MIME,
         );
     }
 
@@ -180,6 +248,24 @@ class FormProtocol {
         );
     }
 
+    public static function client_preparation_recipe() {
+        return array(
+            'version' => Anchors::get( 'CLIENT_PREPARATION_RECIPE_VERSION' ),
+            'slots' => Anchors::get( 'CLIENT_PREPARATION_SLOTS' ),
+            'jpegTriggerBytes' => Anchors::get( 'CLIENT_PREPARATION_JPEG_TRIGGER_BYTES' ),
+            'jpegTriggerEdge' => Anchors::get( 'CLIENT_PREPARATION_JPEG_TRIGGER_EDGE' ),
+            'inputMaxBytes' => Anchors::get( 'CLIENT_PREPARATION_INPUT_MAX_BYTES' ),
+            'inputMaxPixels' => Anchors::get( 'CLIENT_PREPARATION_INPUT_MAX_PIXELS' ),
+            'inputMaxEdge' => Anchors::get( 'CLIENT_PREPARATION_INPUT_MAX_EDGE' ),
+            'outputMaxEdge' => Anchors::get( 'CLIENT_PREPARATION_OUTPUT_MAX_EDGE' ),
+            'jpegQuality' => Anchors::get( 'CLIENT_PREPARATION_JPEG_QUALITY' ),
+            'minimumSavingsPercent' => Anchors::get( 'CLIENT_PREPARATION_MIN_SAVINGS_PERCENT' ),
+            'timeoutMs' => Anchors::get( 'CLIENT_PREPARATION_TIMEOUT_MS' ),
+            'headerScanBytes' => Anchors::get( 'CLIENT_PREPARATION_HEADER_SCAN_BYTES' ),
+            'exifMaxEntries' => Anchors::get( 'CLIENT_PREPARATION_EXIF_MAX_ENTRIES' ),
+        );
+    }
+
     public static function mint_response_keys() {
         return array(
             'token' => self::MINT_RESPONSE_TOKEN,
@@ -197,16 +283,46 @@ class FormProtocol {
                 'formParam' => self::MINT_FORM_PARAM,
                 'response' => self::mint_response_keys(),
             ),
+            'enhancedResponse' => array(
+                'header' => self::HEADER_ENHANCED_RESPONSE,
+                'value' => self::ENHANCED_RESPONSE_JSON,
+                'response' => array(
+                    'ok' => self::RESPONSE_OK,
+                    'location' => self::RESPONSE_LOCATION,
+                    'errors' => self::RESPONSE_ERRORS,
+                    'global' => self::RESPONSE_ERRORS_GLOBAL,
+                    'fields' => self::RESPONSE_ERRORS_FIELDS,
+                    'error' => self::RESPONSE_ERROR,
+                    'code' => self::RESPONSE_CODE,
+                    'message' => self::RESPONSE_MESSAGE,
+                    'canRetry' => self::RESPONSE_CAN_RETRY,
+                    'uploadRecovery' => self::RESPONSE_UPLOAD_RECOVERY,
+                    'state' => self::RESPONSE_STATE,
+                    'open' => self::UPLOAD_RECOVERY_OPEN,
+                    'finalizingRecovery' => self::UPLOAD_RECOVERY_FINALIZING,
+                    'challenge' => self::RESPONSE_CHALLENGE,
+                    'provider' => self::RESPONSE_CHALLENGE_PROVIDER,
+                    'siteKey' => self::RESPONSE_CHALLENGE_SITE_KEY,
+                ),
+            ),
             'upload' => array(
                 'batchSecretHeader' => self::HEADER_BATCH_SECRET,
                 'formParam' => self::FIELD_FORM_ID,
                 'fieldParam' => self::UPLOAD_FIELD_PARAM,
                 'fileParam' => self::UPLOAD_FILE_PARAM,
                 'ordinalParam' => self::UPLOAD_ORDINAL_PARAM,
+                'displayNameParam' => self::UPLOAD_DISPLAY_NAME_PARAM,
+                'bytesParam' => self::UPLOAD_BYTES_PARAM,
+                'mimeParam' => self::UPLOAD_MIME_PARAM,
+                'receiptParam' => self::UPLOAD_RECEIPT_PARAM,
+                'workerGrantHeader' => self::HEADER_WORKER_GRANT,
+                'localTransport' => self::UPLOAD_TRANSPORT_LOCAL,
+                'workerTransport' => self::UPLOAD_TRANSPORT_WORKER,
                 'batchFields' => self::upload_batch_fields(),
                 'dataAttributes' => self::upload_data_attributes(),
                 'response' => self::upload_response_names(),
                 'runtime' => self::upload_runtime(),
+                'mimeByExtension' => UploadPolicy::staged_browser_mime_by_extension(),
             ),
             'storageTokenPrefix' => self::STORAGE_TOKEN_PREFIX,
         );

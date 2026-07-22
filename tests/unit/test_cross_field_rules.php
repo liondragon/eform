@@ -75,32 +75,79 @@ $errors = $result['errors']->to_array();
 // Then errors are emitted in rules[] order (deterministic).
 eforms_test_assert( isset( $errors['state'] ) && is_array( $errors['state'] ), 'State should have errors.' );
 eforms_test_assert( count( $errors['state'] ) === 2, 'State should have two required_if errors.' );
-eforms_test_assert( $errors['state'][0]['code'] === 'EFORMS_ERR_SCHEMA_REQUIRED', 'First required_if should emit required.' );
-eforms_test_assert( $errors['state'][1]['code'] === 'EFORMS_ERR_SCHEMA_REQUIRED', 'Second required_if should emit required.' );
+eforms_test_assert( $errors['state'][0]['code'] === 'EFORMS_ERR_FIELD_REQUIRED', 'First required_if should emit required.' );
+eforms_test_assert( $errors['state'][1]['code'] === 'EFORMS_ERR_FIELD_REQUIRED', 'Second required_if should emit required.' );
 
 // Given required_unless and phone not equal to sentinel value...
 // When email is missing...
 // Then the target field is required.
-eforms_test_assert( isset( $errors['email'] ) && $errors['email'][0]['code'] === 'EFORMS_ERR_SCHEMA_REQUIRED', 'Email should be required unless phone equals sentinel.' );
+eforms_test_assert( isset( $errors['email'] ) && $errors['email'][0]['code'] === 'EFORMS_ERR_FIELD_REQUIRED', 'Email should be required unless phone equals sentinel.' );
 
 // Given required_if_any...
 // When one of the inspected fields matches equals_any...
 // Then the target becomes required.
-eforms_test_assert( isset( $errors['discount_code'] ) && $errors['discount_code'][0]['code'] === 'EFORMS_ERR_SCHEMA_REQUIRED', 'Discount code should be required when a trigger field matches.' );
+eforms_test_assert( isset( $errors['discount_code'] ) && $errors['discount_code'][0]['code'] === 'EFORMS_ERR_FIELD_REQUIRED', 'Discount code should be required when a trigger field matches.' );
 
 // Given matches...
 // When the values differ...
 // Then the target receives a deterministic type error.
-eforms_test_assert( isset( $errors['confirm_password'] ) && $errors['confirm_password'][0]['code'] === 'EFORMS_ERR_SCHEMA_TYPE', 'Matches rule should emit type error on mismatch.' );
+eforms_test_assert( isset( $errors['confirm_password'] ) && $errors['confirm_password'][0]['code'] === 'EFORMS_ERR_FIELD_INVALID', 'Matches rule should emit an invalid-field error on mismatch.' );
 
 // Given one_of...
 // When all listed fields are empty...
 // Then a global required error is emitted.
-eforms_test_assert( isset( $errors['_global'] ) && $errors['_global'][0]['code'] === 'EFORMS_ERR_SCHEMA_REQUIRED', 'one_of should emit a global required error.' );
+eforms_test_assert( isset( $errors['_global'] ) && $errors['_global'][0]['code'] === 'EFORMS_ERR_ONE_OF_REQUIRED', 'one_of should emit a global required error.' );
 
 // Given mutually_exclusive...
 // When more than one listed field is present...
-// Then a global type error is emitted (after the one_of error).
+// Then a global mutual-exclusion error is emitted (after the one_of error).
 eforms_test_assert( isset( $errors['_global'] ) && count( $errors['_global'] ) === 2, 'Should have two global errors.' );
-eforms_test_assert( $errors['_global'][1]['code'] === 'EFORMS_ERR_SCHEMA_TYPE', 'mutually_exclusive should emit a global type error.' );
+eforms_test_assert( $errors['_global'][1]['code'] === 'EFORMS_ERR_MUTUALLY_EXCLUSIVE', 'mutually_exclusive should emit a global mutual-exclusion error.' );
 
+$alternative_message = 'Please provide a listing URL or upload at least one photo.';
+$alternative_context = array(
+    'fields' => array(
+        array( 'key' => 'listing_url', 'type' => 'url' ),
+        array( 'key' => 'project_photos', 'type' => 'files', 'upload_mode' => 'staged', 'max_files' => 24, 'max_total_bytes' => 314572800 ),
+    ),
+    'descriptors' => array(
+        array( 'key' => 'listing_url', 'type' => 'url', 'is_multivalue' => false ),
+        array( 'key' => 'project_photos', 'type' => 'files', 'is_multivalue' => true ),
+    ),
+    'rules' => array(
+        array( 'rule' => 'one_of', 'fields' => array( 'listing_url', 'project_photos' ), 'message' => $alternative_message ),
+    ),
+);
+
+$missing_alternatives = Validator::validate(
+    $alternative_context,
+    array( 'values' => array( 'listing_url' => '', 'project_photos' => null ) )
+);
+$missing_errors = $missing_alternatives['errors']->to_array();
+eforms_test_assert(
+    isset( $missing_errors['_global'][0] )
+        && $missing_errors['_global'][0]['code'] === 'EFORMS_ERR_ONE_OF_REQUIRED'
+        && $missing_errors['_global'][0]['message'] === $alternative_message,
+    'one_of should emit its configured global message when every alternative is missing.'
+);
+
+$listing_only = Validator::validate(
+    $alternative_context,
+    array( 'values' => array( 'listing_url' => 'https://example.com/listing', 'project_photos' => null ) )
+);
+eforms_test_assert( $listing_only['ok'] === true, 'A listing URL should satisfy the alternative evidence rule without photos.' );
+
+$photo = UploadValue::staged_item( array(
+    'upload_id' => 'photo_one',
+    'ordinal' => 0,
+    'display_name' => 'room.png',
+    'bytes' => 1024,
+    'mime' => 'image/png',
+    'width' => 800,
+    'height' => 600,
+) );
+$photo_only = Validator::validate(
+    $alternative_context,
+    array( 'values' => array( 'listing_url' => '', 'project_photos' => array( $photo ) ) )
+);
+eforms_test_assert( $photo_only['ok'] === true, 'A staged photo should satisfy the alternative evidence rule without a listing URL.' );

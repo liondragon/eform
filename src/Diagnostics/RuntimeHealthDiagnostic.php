@@ -11,13 +11,16 @@ require_once __DIR__ . '/../Logging/JsonlLogger.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Security/Challenge.php';
+require_once __DIR__ . '/../Security/Entropy.php';
 require_once __DIR__ . '/../Security/PostSize.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Security/Throttle.php';
 require_once __DIR__ . '/../Submission/Ledger.php';
 require_once __DIR__ . '/../Uploads/UploadBatchStore.php';
 require_once __DIR__ . '/../Uploads/UploadPolicy.php';
+require_once __DIR__ . '/../Uploads/LocalPreviewProvider.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
+require_once __DIR__ . '/../Uploads/WorkerClient.php';
 
 class RuntimeHealthDiagnostic {
     const PROBE_FILENAME = '.eforms-doctor-probe';
@@ -26,19 +29,26 @@ class RuntimeHealthDiagnostic {
         $observations = is_array( $observations ) ? $observations : array();
         $templates = self::template_inventory();
         $staged_fields = $templates['staged_fields'];
+        $composition = WorkerClient::composition();
         $uploads_base = self::check_uploads_base();
         $private_lease = $uploads_base['result'] === 'PASS'
             ? PrivateDir::acquire_write_lease( self::uploads_dir() )
             : false;
+        $capacity_health = $private_lease instanceof PrivateDirLease
+            ? UploadBatchStore::capacity_health( self::uploads_dir(), $private_lease )
+            : array( 'ok' => false, 'reason' => 'upload_lifecycle_unavailable' );
+        $artifact_stores = self::required_artifact_stores( $composition, $capacity_health );
+        $artifact_store_identities = self::retained_artifact_store_identities( $capacity_health );
         $checks = array(
             $uploads_base,
             self::check_private_storage( $private_lease ),
             self::check_runtime_dirs( $private_lease ),
-            self::check_staged_image_processing( $observations ),
-            self::check_managed_capacity( $observations, $private_lease ),
-            self::check_managed_upload_dirs( $private_lease ),
-            self::check_staged_request_limits( $observations, $staged_fields ),
-            self::check_staged_throttle(),
+            self::check_staged_artifact_readiness( $observations, $composition, $artifact_stores, $artifact_store_identities ),
+            self::check_review_preview_readiness( $observations ),
+            self::check_managed_capacity( $observations, $capacity_health, $artifact_stores ),
+            self::check_managed_upload_dirs( $private_lease, $artifact_stores ),
+            self::check_staged_request_limits( $observations, $staged_fields, $artifact_stores ),
+            self::check_staged_throttle( $staged_fields ),
             self::check_templates( $templates ),
             self::check_mail_format(),
             self::check_gc_readiness(),
@@ -133,98 +143,145 @@ class RuntimeHealthDiagnostic {
         return self::check( 'runtime-dirs', 'PASS', 'usable', 'token/ledger/log/throttle usable', 'temporary probes cleaned' );
     }
 
-    private static function check_managed_upload_dirs( $private_lease ) {
+    private static function check_managed_upload_dirs( $private_lease, $artifact_stores ) {
+        $requires_local = is_array( $artifact_stores ) && in_array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, $artifact_stores, true );
+        $expected = $requires_local
+            ? 'aggregate/artifact storage protected and writable'
+            : 'aggregate storage protected and writable';
         if ( ! $private_lease instanceof PrivateDirLease ) {
-            return self::check( 'managed-upload-dirs', 'FAIL', self::private_storage_unavailable_reason(), 'staged/finalized storage protected and writable', 'private lifecycle lease unavailable' );
+            return self::check( 'managed-upload-dirs', 'FAIL', self::private_storage_unavailable_reason(), $expected, 'private lifecycle lease unavailable' );
         }
 
         $failed = array();
-        foreach ( array( UploadBatchStore::STAGED_DIR, UploadBatchStore::SUBMISSIONS_DIR ) as $name ) {
+        $names = array( UploadBatchStore::STAGED_DIR, UploadBatchStore::SUBMISSIONS_DIR );
+        if ( $requires_local ) {
+            $names[] = UploadBatchStore::ARTIFACTS_DIR;
+        }
+        foreach ( $names as $name ) {
             if ( ! self::dir_usable( $private_lease, $name, true ) ) {
                 $failed[] = $name;
             }
         }
         if ( ! empty( $failed ) ) {
-            return self::check( 'managed-upload-dirs', 'FAIL', implode( ',', $failed ), 'staged/finalized storage protected and writable', 'one or more managed dirs failed write/delete probe' );
+            return self::check( 'managed-upload-dirs', 'FAIL', implode( ',', $failed ), $expected, 'one or more managed dirs failed write/delete probe' );
         }
-        return self::check( 'managed-upload-dirs', 'PASS', 'protected and writable', 'staged/finalized storage protected and writable', 'private deny rules active; temporary probes cleaned' );
+        return self::check( 'managed-upload-dirs', 'PASS', 'protected and writable', $expected, 'private deny rules active; temporary probes cleaned' );
     }
 
-    private static function check_staged_image_processing( $observations ) {
-        $mimes = UploadPolicy::staged_mimes();
-        $formats = array_map(
-            function ( $mime ) {
-                return strtoupper( substr( $mime, 6 ) );
-            },
-            $mimes
-        );
-        $expected = 'fileinfo + ' . implode( '/', $formats ) . ' decode + JPEG encode + resource allowance';
-        $fileinfo = array_key_exists( 'fileinfo', $observations )
-            ? (bool) $observations['fileinfo']
-            : extension_loaded( 'fileinfo' ) && function_exists( 'finfo_open' );
-        if ( ! $fileinfo ) {
-            return self::check( 'staged-image-processing', 'FAIL', 'fileinfo unavailable', $expected, 'enable the PHP fileinfo extension' );
+    private static function check_staged_artifact_readiness( $observations, $composition, $artifact_stores, $artifact_store_identities ) {
+        if ( $composition === null ) {
+            return self::check( 'staged-artifact-readiness', 'FAIL', 'composition unavailable', 'one valid upload composition', 'invalid explicit deployment wiring fails closed' );
         }
-
-        $options = array();
-        foreach ( array( 'memory_limit', 'execution_limit', 'imagick_support', 'imagick_jpeg_encode' ) as $key ) {
-            if ( array_key_exists( $key, $observations ) ) {
-                $options[ $key ] = $observations[ $key ];
-            }
+        if ( ! is_array( $artifact_stores ) ) {
+            return self::check( 'staged-artifact-readiness', 'FAIL', 'retained ownership unavailable', 'new and retained artifact stores ready', 'repair managed-capacity or aggregate state before rollout' );
         }
-        $failures = array();
-        $ready = UploadPolicy::staged_host_readiness( $options );
-        if ( empty( $ready['ok'] ) ) {
-            $reason = isset( $ready['reason'] ) ? $ready['reason'] : 'unavailable';
-            $missing_mimes = isset( $ready['missing_mimes'] ) && is_array( $ready['missing_mimes'] )
-                ? $ready['missing_mimes']
-                : array();
-            $missing_operations = isset( $ready['missing_operations'] ) && is_array( $ready['missing_operations'] )
-                ? $ready['missing_operations']
-                : array();
-            if ( $reason === 'backend' && ! empty( $missing_mimes ) ) {
-                foreach ( $missing_mimes as $mime ) {
-                    $failures[] = substr( $mime, 6 ) . ':backend';
+        if ( ! is_array( $artifact_store_identities ) ) {
+            return self::check( 'staged-artifact-readiness', 'FAIL', 'retained identity unavailable', 'new and retained artifact stores ready', 'repair managed-capacity or aggregate state before rollout' );
+        }
+        $requires_worker = in_array( FormProtocol::UPLOAD_TRANSPORT_WORKER, $artifact_stores, true );
+        $requires_local = in_array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, $artifact_stores, true );
+        if ( $requires_worker ) {
+            $current_identity = WorkerClient::composition_fingerprint();
+            foreach ( $artifact_store_identities as $identity ) {
+                if ( $identity === UploadBatchStore::LOCAL_ARTIFACT_STORE_IDENTITY ) {
+                    continue;
+                }
+                if ( $current_identity === '' || ! hash_equals( $identity, $current_identity ) ) {
+                    return self::check( 'staged-artifact-readiness', 'FAIL', 'retained Worker identity mismatch', 'all new and retained artifact stores ready', 'restore the retained Worker origin/environment or drain it before rollout' );
                 }
             }
-            if ( $reason === 'backend' && in_array( 'jpeg_encode', $missing_operations, true ) ) {
-                $failures[] = 'jpeg-encode:backend';
-            }
-            if ( empty( $failures ) ) {
-                $failures[] = $reason;
+            $worker = isset( $observations['worker_health'] ) && is_array( $observations['worker_health'] )
+                ? $observations['worker_health']
+                : WorkerClient::health(
+                    isset( $observations['worker_now'] ) ? $observations['worker_now'] : null,
+                    isset( $observations['worker_requester'] ) ? $observations['worker_requester'] : null,
+                    'runtime_readiness'
+                );
+            if ( empty( $worker['ok'] ) ) {
+                $outcome = isset( $worker['outcome'] ) && is_string( $worker['outcome'] ) ? $worker['outcome'] : 'unavailable';
+                return self::check( 'staged-artifact-readiness', 'FAIL', $outcome, 'all new and retained artifact stores ready', 'repair deployment wiring or Worker dependencies; no local fallback' );
             }
         }
-        if ( ! empty( $failures ) ) {
-            $requirements = 'requires at least ' . self::format_bytes( Anchors::get( 'STAGED_IMAGE_MIN_MEMORY_BYTES' ) )
-                . ' memory and ' . Anchors::get( 'STAGED_IMAGE_MIN_EXECUTION_SECONDS' ) . ' seconds execution time, or unlimited values';
-            return self::check( 'staged-image-processing', 'FAIL', implode( ',', $failures ), $expected, $requirements );
+        if ( $requires_local ) {
+            $fileinfo = array_key_exists( 'fileinfo', $observations )
+                ? (bool) $observations['fileinfo']
+                : extension_loaded( 'fileinfo' ) && function_exists( 'finfo_open' );
+            if ( ! $fileinfo ) {
+                return self::check( 'staged-artifact-readiness', 'FAIL', 'fileinfo unavailable', 'all new and retained artifact stores ready', 'enable the PHP fileinfo extension' );
+            }
+            $inspection = array_key_exists( 'image_inspection', $observations )
+                ? (bool) $observations['image_inspection']
+                : function_exists( 'getimagesize' );
+            if ( ! $inspection ) {
+                return self::check( 'staged-artifact-readiness', 'FAIL', 'image inspection unavailable', 'all new and retained artifact stores ready', 'enable PHP image-header inspection support' );
+            }
         }
-        return self::check( 'staged-image-processing', 'PASS', 'fileinfo and Imagick ready', $expected, 'JPEG masters and previews normalize orientation and color, strip metadata, and flatten alpha' );
+        $observed = $requires_worker && $requires_local
+            ? 'local and remote data planes ready'
+            : ( $requires_worker ? 'remote data plane ready' : 'fileinfo and bounded inspection ready' );
+        $notes = $requires_worker
+            ? 'non-customer fixture; lifecycle configuration is operator-verified separately'
+            : 'Optional preview encoding is not an upload prerequisite';
+        return self::check( 'staged-artifact-readiness', 'PASS', $observed, 'all new and retained artifact stores ready', $notes );
     }
 
-    private static function check_managed_capacity( $observations, $private_lease ) {
+    private static function check_review_preview_readiness( $observations ) {
+        $provider = WorkerClient::review_provider();
+        if ( $provider === 'none' ) {
+            return self::check( 'review-preview-readiness', 'PASS', 'disabled', 'optional provider disabled or ready', 'submitted-image download remains available' );
+        }
+        if ( $provider === 'worker' ) {
+            return self::check( 'review-preview-readiness', 'PASS', 'Cloudflare provider bound', 'optional provider disabled or ready', 'signed Worker health and genuine-provider preview tests carry dependency proof' );
+        }
+        if ( $provider !== 'local' ) {
+            return self::check( 'review-preview-readiness', 'WARN', 'provider configuration invalid', 'optional provider disabled or ready', 'artifact upload remains available; repair the optional preview composition' );
+        }
+        $concurrency = WorkerClient::local_preview_concurrency();
+        $readiness = LocalPreviewProvider::readiness(
+            $concurrency,
+            array_key_exists( 'local_preview_imagick', $observations )
+                ? array( 'imagick' => (bool) $observations['local_preview_imagick'] )
+                : array()
+        );
+        if ( ! empty( $readiness['ok'] ) ) {
+            return self::check( 'review-preview-readiness', 'PASS', 'local provider ready at concurrency ' . $concurrency, 'optional provider disabled or ready', 'preview work is presentation-only and globally bounded' );
+        }
+        return self::check( 'review-preview-readiness', 'WARN', isset( $readiness['reason'] ) ? $readiness['reason'] : 'provider unavailable', 'optional provider disabled or ready', 'artifact upload remains available; submitted-image download is the fallback' );
+    }
+
+    private static function check_managed_capacity( $observations, $health, $artifact_stores ) {
         $integer_bytes = array_key_exists( 'php_int_size', $observations ) ? $observations['php_int_size'] : PHP_INT_SIZE;
         if ( ! UploadBatchStore::capacity_platform_supported( $integer_bytes ) ) {
             return self::check( 'managed-capacity', 'FAIL', '32-bit PHP integers', '64-bit PHP integers with consistent accounting and provisioned storage', 'managed upload capacity cannot represent its fixed 50 GiB ceiling on this runtime' );
         }
-        $health = UploadBatchStore::capacity_health( self::uploads_dir(), $private_lease );
+        $remote = is_array( $artifact_stores ) && in_array( FormProtocol::UPLOAD_TRANSPORT_WORKER, $artifact_stores, true );
+        $local = is_array( $artifact_stores ) && in_array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, $artifact_stores, true );
         if ( empty( $health['ok'] ) ) {
             $reason = isset( $health['reason'] ) ? (string) $health['reason'] : 'capacity_unavailable';
             return self::check( 'managed-capacity', 'FAIL', $reason, 'accounting consistent and filesystem provisioned', 'capacity record could not be read safely' );
         }
         $capacity = $health['capacity'];
         if ( empty( $capacity['consistent'] ) ) {
-            return self::check( 'managed-capacity', 'FAIL', 'accounting inconsistent', 'accounting consistent and filesystem provisioned', 'investigate interrupted writes, then run wp eforms gc --reconcile-capacity' );
+            $notes = $remote
+                ? 'restore or repair manifest/capacity authority before accepting more remote uploads'
+                : 'investigate interrupted writes, then run wp eforms gc --reconcile-capacity';
+            return self::check( 'managed-capacity', 'FAIL', 'accounting inconsistent', 'accounting consistent and storage provisioned', $notes );
+        }
+        if ( $remote && ! $local ) {
+            if ( (int) $capacity['committing_bytes'] > 0 ) {
+                return self::check( 'managed-capacity', 'WARN', 'unsettled remote reservation detected', 'manifest and capacity authority settled', 'retry exact completion before activation or restore sign-off' );
+            }
+            return self::check( 'managed-capacity', 'PASS', self::format_bytes( $capacity['total_bytes'] ) . ' manifest-accounted', 'manifest and capacity authority consistent', 'physical R2 readiness is verified by the signed Worker health operation' );
         }
         $uploads_dir = self::uploads_dir();
         $total = array_key_exists( 'disk_total_bytes', $observations ) ? $observations['disk_total_bytes'] : @disk_total_space( $uploads_dir );
         $free = array_key_exists( 'disk_free_bytes', $observations ) ? $observations['disk_free_bytes'] : @disk_free_space( $uploads_dir );
-        $required_total = Anchors::get( 'MANAGED_UPLOAD_MAX_BYTES' ) + Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' );
+        $required_total = Anchors::get( 'MANAGED_OBJECT_MAX_BYTES' ) + Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' );
         if ( ! is_numeric( $total ) || ! is_numeric( $free ) ) {
             return self::check( 'managed-capacity', 'FAIL', 'filesystem capacity unavailable', 'accounting consistent and filesystem provisioned', 'disk total/free-space observations are required' );
         }
         if ( (int) $total < $required_total || (int) $free < Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) ) {
-            $provision = 'provision ' . self::format_bytes( Anchors::get( 'MANAGED_UPLOAD_MAX_BYTES' ) )
+            $provision = 'provision ' . self::format_bytes( Anchors::get( 'MANAGED_OBJECT_MAX_BYTES' ) )
                 . ' managed capacity plus ' . self::format_bytes( Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) ) . ' operational free-space reserve';
             return self::check( 'managed-capacity', 'FAIL', 'filesystem below ceiling + reserve', 'accounting consistent and filesystem provisioned', $provision );
         }
@@ -234,7 +291,10 @@ class RuntimeHealthDiagnostic {
         return self::check( 'managed-capacity', 'PASS', self::format_bytes( $capacity['total_bytes'] ) . ' accounted; filesystem ready', 'accounting consistent and filesystem provisioned', 'runtime reservations also preserve the ' . self::format_bytes( Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) ) . ' free-space reserve' );
     }
 
-    private static function check_staged_request_limits( $observations, $staged_fields ) {
+    private static function check_staged_request_limits( $observations, $staged_fields, $artifact_stores ) {
+        if ( is_array( $artifact_stores ) && ! in_array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, $artifact_stores, true ) ) {
+            return self::check( 'staged-request-limits', 'PASS', 'artifact body bypasses PHP', 'WordPress receives bounded intent and receipt payloads only', 'verify edge and CDN request limits in the genuine-provider lane' );
+        }
         $required_file = self::largest_staged_file_bytes( $staged_fields );
         if ( $required_file <= 0 ) {
             return self::check( 'staged-request-limits', 'PASS', 'no active staged fields', 'PHP limits cover largest staged item', 'recheck after enabling a staged field' );
@@ -254,14 +314,24 @@ class RuntimeHealthDiagnostic {
         return self::check( 'staged-request-limits', 'PASS', 'effective request limit covers ' . self::format_bytes( $required_request ), 'PHP limits cover largest staged item plus multipart overhead', 'web-server request limits must be checked separately' );
     }
 
-    private static function check_staged_throttle() {
+    private static function check_staged_throttle( $staged_fields ) {
         $config = Config::get();
         $enabled = Config::bool( $config, array( 'throttle', 'enable' ), false );
         $limit = Config::value( $config, array( 'throttle', 'per_ip', 'max_per_minute' ), 0 );
         if ( ! $enabled || ! is_numeric( $limit ) || (int) $limit < 1 ) {
             return self::check( 'staged-throttle', 'FAIL', 'disabled', 'per-IP throttle enabled for staged endpoints', 'image decoding is intentionally unavailable for production until throttling is enabled' );
         }
-        return self::check( 'staged-throttle', 'PASS', 'enabled at ' . (int) $limit . '/minute', 'per-IP throttle enabled for staged endpoints', 'tune for multi-file uploads and shared-IP traffic' );
+        $required = self::required_staged_throttle_requests( $staged_fields );
+        if ( $required > 0 && (int) $limit < $required ) {
+            return self::check(
+                'staged-throttle',
+                'FAIL',
+                'enabled at ' . (int) $limit . '/minute; largest staged field needs ' . $required,
+                'per-IP throttle covers one complete staged batch',
+                'raise max_per_minute to at least ' . $required . ' and add headroom for retries or shared-IP traffic'
+            );
+        }
+        return self::check( 'staged-throttle', 'PASS', 'enabled at ' . (int) $limit . '/minute', 'per-IP throttle covers one complete staged batch', 'add headroom for retries and shared-IP traffic' );
     }
 
     private static function check_templates( $templates ) {
@@ -327,7 +397,16 @@ class RuntimeHealthDiagnostic {
 
         $uploads = isset( $report['uploads.dir'] ) && is_array( $report['uploads.dir'] ) ? $report['uploads.dir'] : array();
         $source = isset( $uploads['source'] ) ? (string) $uploads['source'] : 'unknown';
-        return self::check( 'config-sources', 'PASS', 'provenance available', 'effective config provenance available', 'uploads.dir source=' . $source );
+        $config = Config::get();
+        $preparation_mode = Config::value( $config, array( 'media', 'client_preparation' ), Config::CLIENT_PREPARATION_OFF );
+        $recipe_version = Anchors::get( 'CLIENT_PREPARATION_RECIPE_VERSION' );
+        return self::check(
+            'config-sources',
+            'PASS',
+            'provenance available; client preparation ' . $preparation_mode . ' recipe v' . $recipe_version,
+            'effective config provenance and browser preparation recipe available',
+            'uploads.dir source=' . $source
+        );
     }
 
     private static function check_challenge_config() {
@@ -352,7 +431,11 @@ class RuntimeHealthDiagnostic {
             return false;
         }
 
-        $probe = rtrim( $dir, '/\\' ) . '/' . self::PROBE_FILENAME;
+        $suffix = Entropy::hex( Anchors::get( 'RUNTIME_HEALTH_PROBE_ENTROPY_BYTES' ) );
+        if ( $suffix === '' ) {
+            return false;
+        }
+        $probe = rtrim( $dir, '/\\' ) . '/' . self::PROBE_FILENAME . '-' . $suffix;
         if ( is_link( $probe ) || file_exists( $probe ) ) {
             return false;
         }
@@ -386,11 +469,66 @@ class RuntimeHealthDiagnostic {
     private static function largest_staged_file_bytes( $staged_fields ) {
         $largest = 0;
         foreach ( $staged_fields as $field ) {
-            if ( isset( $field['max_file_bytes'] ) && is_int( $field['max_file_bytes'] ) ) {
-                $largest = max( $largest, $field['max_file_bytes'] );
+            $limits = UploadPolicy::effective_staged_limits( $field );
+            if ( isset( $limits['max_file_bytes'] ) && is_int( $limits['max_file_bytes'] ) ) {
+                $largest = max( $largest, $limits['max_file_bytes'] );
             }
         }
         return $largest;
+    }
+
+    private static function required_staged_throttle_requests( $staged_fields ) {
+        $largest = 0;
+        foreach ( $staged_fields as $field ) {
+            $limits = UploadPolicy::effective_staged_limits( $field );
+            if ( isset( $limits['max_files'] ) && is_int( $limits['max_files'] ) ) {
+                $largest = max( $largest, $limits['max_files'] );
+            }
+        }
+        if ( $largest < 1 ) {
+            return 0;
+        }
+        $per_batch = Anchors::get( 'STAGED_THROTTLED_REQUESTS_PER_BATCH' );
+        $per_item = Anchors::get( 'STAGED_THROTTLED_REQUESTS_PER_ITEM' );
+        return $per_batch + ( $per_item * $largest );
+    }
+
+    private static function required_artifact_stores( $composition, $capacity_health ) {
+        if ( ! in_array( $composition, array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, FormProtocol::UPLOAD_TRANSPORT_WORKER ), true )
+            || empty( $capacity_health['ok'] )
+            || ! isset( $capacity_health['capacity']['artifact_stores'] )
+            || ! is_array( $capacity_health['capacity']['artifact_stores'] )
+        ) {
+            return null;
+        }
+        $stores = array( $composition => true );
+        foreach ( $capacity_health['capacity']['artifact_stores'] as $store ) {
+            if ( ! in_array( $store, array( FormProtocol::UPLOAD_TRANSPORT_LOCAL, FormProtocol::UPLOAD_TRANSPORT_WORKER ), true ) ) {
+                return null;
+            }
+            $stores[ $store ] = true;
+        }
+        return array_keys( $stores );
+    }
+
+    private static function retained_artifact_store_identities( $capacity_health ) {
+        if ( empty( $capacity_health['ok'] )
+            || ! isset( $capacity_health['capacity']['artifact_store_identities'] )
+            || ! is_array( $capacity_health['capacity']['artifact_store_identities'] )
+        ) {
+            return null;
+        }
+        $identities = array();
+        foreach ( $capacity_health['capacity']['artifact_store_identities'] as $identity ) {
+            if ( ! is_string( $identity )
+                || ( $identity !== UploadBatchStore::LOCAL_ARTIFACT_STORE_IDENTITY
+                    && preg_match( '/^[a-f0-9]{64}$/D', $identity ) !== 1 )
+            ) {
+                return null;
+            }
+            $identities[ $identity ] = true;
+        }
+        return array_keys( $identities );
     }
 
     private static function template_inventory() {

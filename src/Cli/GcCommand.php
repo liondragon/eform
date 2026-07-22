@@ -29,6 +29,10 @@ class GcCommand {
         );
 
         self::emit_cli_output( $result );
+        if ( empty( $result['ok'] ) && empty( $result['locked'] ) && class_exists( 'WP_CLI' ) && method_exists( 'WP_CLI', 'halt' ) ) {
+            WP_CLI::halt( 1 );
+        }
+
         return $result;
     }
 

@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../EformsAssets.php';
 require_once __DIR__ . '/../Diagnostics/RuntimeHealthDiagnostic.php';
 require_once __DIR__ . '/../Diagnostics/SpamSmokeDiagnostic.php';
 require_once __DIR__ . '/AdminSettingsStore.php';
@@ -26,6 +27,13 @@ class SettingsAdmin {
 
     public static function register() {
         add_action( 'admin_menu', array( __CLASS__, 'register_menu' ) );
+        add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
+    }
+
+    public static function enqueue_assets( $hook_suffix ) {
+        if ( $hook_suffix === 'settings_page_' . self::SLUG ) {
+            EformsAssets::enqueue_admin_settings();
+        }
     }
 
     public static function register_menu() {
@@ -75,9 +83,6 @@ class SettingsAdmin {
         ob_start();
         echo '<div class="wrap eforms-settings-admin">';
         echo '<h1>' . esc_html( 'eForms' ) . '</h1>';
-        self::render_admin_styles();
-        self::render_help_script();
-        self::render_term_editor_script();
         if ( is_array( $notice ) ) {
             self::render_notice( $notice );
         }
@@ -544,175 +549,6 @@ class SettingsAdmin {
         }
         echo '</div>';
         echo '</details>';
-    }
-
-    private static function render_admin_styles() {
-        echo '<style>';
-        echo '.eforms-settings-admin{max-width:1120px;}';
-        echo '.eforms-settings-form{max-width:1040px;}';
-        echo '.eforms-settings-nav{position:sticky;z-index:10;top:32px;display:flex;flex-wrap:wrap;gap:6px;max-width:1040px;margin:0 0 24px;padding:10px 0;border-top:1px solid #dcdcde;border-bottom:1px solid #dcdcde;background:#f0f0f1;}';
-        echo '.eforms-settings-nav__link{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border:1px solid #c3c4c7;border-radius:4px;background:#fff;text-decoration:none;}';
-        echo '.eforms-settings-nav__save{margin-left:auto;}';
-        echo '.eforms-settings-section{max-width:1040px;margin:0 0 32px;scroll-margin-top:108px;}';
-        echo '.eforms-settings-panel{overflow:visible;border:1px solid #dcdcde;border-radius:6px;background:#fff;}';
-        echo '.eforms-settings-panel__header{padding:16px 18px;border-bottom:1px solid #f0f0f1;}';
-        echo '.eforms-settings-panel__header h2,.eforms-settings-section-title{margin:0;font-size:18px;line-height:1.3;}';
-        echo '.eforms-settings-panel__body{display:grid;gap:12px;padding:16px;}';
-        echo '.eforms-protection-checks{display:grid;gap:12px;}';
-        echo '.eforms-settings-subtitle{margin:0;font-size:14px;line-height:1.4;}';
-        echo '.eforms-protection-checks-table__row{color:#50575e;}';
-        echo '.eforms-protection-checks-table__status{display:inline-block;padding:2px 6px;border:1px solid #dcdcde;border-radius:4px;background:#f6f7f7;color:#3c434a;}';
-        echo '.eforms-settings-admin .eforms-setting-help{display:inline-block;position:relative;margin-left:6px;vertical-align:middle;}';
-        echo '.eforms-settings-admin .eforms-setting-help summary{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid #8c8f94;border-radius:50%;background:#fff;color:#1d2327;cursor:pointer;font-weight:600;line-height:1;list-style:none;}';
-        echo '.eforms-settings-admin .eforms-setting-help summary::-webkit-details-marker{display:none;}';
-        echo '.eforms-settings-admin .eforms-setting-help summary:focus{box-shadow:0 0 0 2px #2271b1;outline:2px solid transparent;}';
-        echo '.eforms-settings-admin .eforms-setting-help-panel{position:absolute;z-index:20;top:26px;left:0;width:min(360px,70vw);padding:10px 12px;border:1px solid #c3c4c7;background:#fff;box-shadow:0 8px 18px rgba(0,0,0,.16);font-weight:400;}';
-        echo '.eforms-settings-admin .eforms-setting-help-dismiss{float:right;margin-left:12px;}';
-        echo '.eforms-settings-admin .eforms-setting-help-panel p{margin:.35em 0;}';
-        echo '.eforms-settings-row-label{font-weight:600;}';
-        echo '.eforms-settings-compound-control{display:grid;gap:14px;max-width:700px;}';
-        echo '.eforms-settings-compound-control__item{display:grid;gap:6px;}';
-        echo '.eforms-settings-compound-control__label{font-weight:600;}';
-        echo '.eforms-content-terms-editor{display:grid;gap:8px;max-width:560px;}';
-        echo '.eforms-content-terms-editor[hidden]{display:none;}';
-        echo '.eforms-content-terms-editor__list{display:flex;flex-wrap:wrap;gap:6px;margin:0;}';
-        echo '.eforms-content-terms-editor__item{display:inline-flex;align-items:center;gap:6px;max-width:100%;margin:0;padding:3px 6px;border:1px solid #c3c4c7;border-radius:4px;background:#f6f7f7;}';
-        echo '.eforms-content-terms-editor__term{overflow-wrap:anywhere;}';
-        echo '.eforms-content-terms-editor__remove{min-height:22px;padding:0 6px;line-height:1;}';
-        echo '.eforms-content-terms-editor__empty{margin:0;color:#646970;}';
-        echo '.eforms-content-terms-editor__entry{display:grid;gap:6px;}';
-        echo '.eforms-content-terms-editor__entry textarea{min-height:42px;}';
-        echo '.eforms-content-terms-editor__message{min-height:18px;margin:0;color:#b32d2e;}';
-        echo '</style>';
-    }
-
-    private static function render_help_script() {
-        echo '<script>';
-        echo '(function(){';
-        echo 'if(window.eformsSettingsHelpReady){return;}';
-        echo 'window.eformsSettingsHelpReady=true;';
-        echo 'function closeHelp(except){document.querySelectorAll(".eforms-setting-help[open]").forEach(function(node){if(node!==except){node.removeAttribute("open");}});}';
-        echo 'document.addEventListener("click",function(event){';
-        echo 'var target=event.target;';
-        echo 'var help=target.closest?target.closest(".eforms-setting-help"):null;';
-        echo 'var dismiss=target.closest?target.closest(".eforms-setting-help-dismiss"):null;';
-        echo 'closeHelp(help);';
-        echo 'if(dismiss&&help){help.removeAttribute("open");var summary=help.querySelector("summary");if(summary){summary.focus();}}';
-        echo '});';
-        echo 'document.addEventListener("keydown",function(event){if(event.key==="Escape"){closeHelp(null);}});';
-        echo '}());';
-        echo '</script>';
-    }
-
-    private static function render_term_editor_script() {
-        echo <<<'HTML'
-<script>
-(function(){
-if(window.eformsContentTermsReady){return;}
-window.eformsContentTermsReady=true;
-var edgePattern=null;
-try{edgePattern=new RegExp("^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$","gu");}catch(error){}
-function normalizeTerm(value){
-    value=String(value||"").toLowerCase().replace(/\s+/g," ").trim();
-    value=edgePattern?value.replace(edgePattern,""):value.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g,"");
-    return value.replace(/\s+/g," ").trim();
-}
-function sourceTerms(value){
-    var out=[];
-    String(value||"").split(/\r\n|\r|\n/).forEach(function(part){
-        var term=normalizeTerm(part);
-        if(term){out.push(term);}
-    });
-    return out;
-}
-function initEditor(editor){
-    var source=document.getElementById(editor.getAttribute("data-source"));
-    if(!source){return;}
-    var list=editor.querySelector("[data-eforms-content-list]");
-    var input=editor.querySelector("[data-eforms-content-entry]");
-    var add=editor.querySelector("[data-eforms-content-add]");
-    var message=editor.querySelector("[data-eforms-content-message]");
-    var form=source.form;
-    var terms=[];
-    function setMessage(text){if(message){message.textContent=text;}}
-    function sync(){source.value=terms.join("\n");}
-    function render(){
-        list.innerHTML="";
-        if(!terms.length){
-            var emptyItem=document.createElement("li");
-            emptyItem.className="eforms-content-terms-editor__empty";
-            emptyItem.textContent="No blocked phrases yet.";
-            list.appendChild(emptyItem);
-            return;
-        }
-        terms.forEach(function(term,index){
-            var item=document.createElement("li");
-            item.className="eforms-content-terms-editor__item";
-            var text=document.createElement("span");
-            text.className="eforms-content-terms-editor__term";
-            text.textContent=term;
-            var remove=document.createElement("button");
-            remove.type="button";
-            remove.className="button-link eforms-content-terms-editor__remove";
-            remove.setAttribute("aria-label","Remove blocked phrase: "+term);
-            remove.textContent="x";
-            remove.addEventListener("click",function(){
-                terms.splice(index,1);
-                sync();
-                render();
-                setMessage("");
-            });
-            item.appendChild(text);
-            item.appendChild(remove);
-            list.appendChild(item);
-        });
-    }
-    function addTerm(value){
-        var term=normalizeTerm(value);
-        if(!term){return false;}
-        if(terms.indexOf(term)!==-1){
-            setMessage("Already added.");
-            return false;
-        }
-        terms.push(term);
-        return true;
-    }
-    function commitEntry(){
-        var added=false;
-        sourceTerms(input&&input.value).forEach(function(term){if(addTerm(term)){added=true;}});
-        if(added){
-            sync();
-            render();
-            input.value="";
-            setMessage("");
-        }
-        return added;
-    }
-    terms=sourceTerms(source.value);
-    sync();
-    render();
-    editor.hidden=false;
-    source.hidden=true;
-    source.setAttribute("aria-hidden","true");
-    if(add&&input){
-        add.addEventListener("click",function(){commitEntry();input.focus();});
-        input.addEventListener("keydown",function(event){
-            if(event.key==="Enter"&&!event.shiftKey){
-                event.preventDefault();
-                commitEntry();
-            }
-        });
-        if(form){
-            form.addEventListener("submit",function(){commitEntry();});
-        }
-    }
-}
-document.addEventListener("DOMContentLoaded",function(){
-    document.querySelectorAll("[data-eforms-content-terms-editor]").forEach(initEditor);
-});
-}());
-</script>
-HTML;
     }
 
     private static function render_content_terms_editor( $id, $name, $value ) {

@@ -70,20 +70,12 @@ class PrivateDir {
      * Ensure the private storage directory and deny-rule files exist.
      */
     public static function ensure( $uploads_dir ) {
-        $path = self::path( $uploads_dir );
-        if ( $path === '' ) {
-            return self::result( false, '', 'uploads_dir_missing' );
+        $private = self::ensure_root( $uploads_dir );
+        if ( empty( $private['ok'] ) ) {
+            return $private;
         }
 
-        $base = rtrim( (string) $uploads_dir, '/\\' );
-        if ( $base === '' || ! is_dir( $base ) || ! is_writable( $base ) ) {
-            return self::result( false, $path, 'uploads_dir_unwritable' );
-        }
-
-        if ( ! self::ensure_dir( $path ) ) {
-            return self::result( false, $path, 'private_dir_unavailable' );
-        }
-
+        $path = $private['path'];
         foreach ( self::deny_file_specs() as $spec ) {
             if ( ! self::ensure_file( $path . '/' . $spec['filename'], $spec['content'] ) ) {
                 return self::result( false, $path, $spec['error'] );
@@ -347,7 +339,7 @@ class PrivateDir {
     }
 
     private static function acquire_lifecycle_lease( $uploads_dir, $exclusive, $nonblocking, $allow_purged ) {
-        $private = self::ensure( $uploads_dir );
+        $private = self::ensure_root( $uploads_dir );
         if ( ! is_array( $private ) || empty( $private['ok'] ) || empty( $private['path'] ) ) {
             return false;
         }
@@ -371,12 +363,36 @@ class PrivateDir {
             return false;
         }
         $marker = rtrim( $private['path'], '/\\' ) . '/' . self::PURGE_MARKER_FILENAME;
-        if ( ! $allow_purged && ( file_exists( $marker ) || is_link( $marker ) ) ) {
+        $purged = file_exists( $marker ) || is_link( $marker );
+        if ( ! $allow_purged && $purged ) {
+            @flock( $handle, LOCK_UN );
+            fclose( $handle );
+            return false;
+        }
+        if ( ! $purged && ! self::ensure_deny_files( $private['path'] ) ) {
             @flock( $handle, LOCK_UN );
             fclose( $handle );
             return false;
         }
         return new PrivateDirLease( $handle, $private['path'], $exclusive );
+    }
+
+    private static function ensure_root( $uploads_dir ) {
+        $path = self::path( $uploads_dir );
+        if ( $path === '' ) {
+            return self::result( false, '', 'uploads_dir_missing' );
+        }
+
+        $base = rtrim( (string) $uploads_dir, '/\\' );
+        if ( $base === '' || ! is_dir( $base ) || ! is_writable( $base ) ) {
+            return self::result( false, $path, 'uploads_dir_unwritable' );
+        }
+
+        if ( ! self::ensure_dir( $path ) ) {
+            return self::result( false, $path, 'private_dir_unavailable' );
+        }
+
+        return self::result( true, $path, '' );
     }
 
     private static function ensure_dir( $path ) {
@@ -406,6 +422,10 @@ class PrivateDir {
                 return false;
             }
 
+            if ( (string) @file_get_contents( $path ) !== (string) $content && ! self::rewrite_file( $path, $content ) ) {
+                return false;
+            }
+
             return self::ensure_permissions( $path, 0600 );
         }
 
@@ -423,6 +443,16 @@ class PrivateDir {
         }
 
         return self::ensure_permissions( $path, 0600 );
+    }
+
+    private static function rewrite_file( $path, $content ) {
+        if ( is_link( $path ) || ! is_file( $path ) ) {
+            return false;
+        }
+
+        $content = (string) $content;
+        $written = @file_put_contents( $path, $content, LOCK_EX );
+        return is_int( $written ) && $written === strlen( $content );
     }
 
     private static function ensure_deny_files( $dir ) {
@@ -449,6 +479,9 @@ class PrivateDir {
         foreach ( self::deny_file_specs() as $spec ) {
             $path = $base . '/' . $spec['filename'];
             if ( is_link( $path ) || ! is_file( $path ) ) {
+                return false;
+            }
+            if ( (string) @file_get_contents( $path ) !== (string) $spec['content'] ) {
                 return false;
             }
         }

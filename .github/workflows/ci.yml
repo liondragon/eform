@@ -99,19 +99,15 @@ jobs:
           set -euo pipefail
           wp --path="${WP_ROOT}" eforms gc --dry-run --limit=1
 
-      - name: Smoke staged-preview REST adapter
-        env:
-          WP_ROOT: ${{ runner.temp }}/wordpress
-        run: |
-          set -euo pipefail
-          wp --path="${WP_ROOT}" eval-file "${WP_ROOT}/wp-content/plugins/eforms/tests/wp-runtime/rest-preview.php"
-
       - name: Setup Node.js for E2E
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: tests/e2e/package-lock.json
+
+      - name: Run Worker trust-boundary tests
+        run: npm test --prefix worker
 
       - name: Install E2E dependencies
         run: |

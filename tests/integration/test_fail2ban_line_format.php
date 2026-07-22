@@ -36,6 +36,9 @@ mkdir( $f2b_dir, 0700, true );
 $stale_rotated = $f2b_dir . '/eforms.log.999';
 file_put_contents( $stale_rotated, "old\n" );
 touch( $stale_rotated, time() - ( 3 * 86400 ) );
+$stale_nonowned = $f2b_dir . '/eforms.log.bak';
+file_put_contents( $stale_nonowned, "operator backup\n" );
+touch( $stale_nonowned, time() - ( 3 * 86400 ) );
 
 $request = array(
     'remote_addr' => '203.0.113.77',
@@ -51,6 +54,7 @@ Logging::event(
 $f2b_path = $f2b_dir . '/eforms.log';
 eforms_test_assert( file_exists( $f2b_path ), 'Fail2ban logger should create the configured log file.' );
 eforms_test_assert( ! file_exists( $stale_rotated ), 'Fail2ban retention should prune stale rotated files.' );
+eforms_test_assert( file_exists( $stale_nonowned ), 'Fail2ban retention should preserve non-owned dot-suffix files.' );
 
 $line = trim( (string) file_get_contents( $f2b_path ) );
 eforms_test_assert( strpos( $line, 'eforms[f2b] ts=' ) === 0, 'Fail2ban line should start with the expected prefix.' );
@@ -79,8 +83,57 @@ for ( $i = 0; $i < 8; $i++ ) {
 
 eforms_test_assert( file_exists( $f2b_path . '.1' ), 'Fail2ban logger should rotate when file exceeds the internal max size.' );
 
+$outside_dir = eforms_test_tmp_root( 'eforms-fail2ban-outside' );
+$outside_file = $outside_dir . '/eforms.log';
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config ) use ( $uploads_dir, $outside_dir ) {
+        $config['uploads']['dir'] = $uploads_dir;
+        $config['logging']['mode'] = 'off';
+        $config['logging']['fail2ban']['target'] = 'file';
+        $config['logging']['fail2ban']['file'] = '../' . basename( $outside_dir ) . '/eforms.log';
+        return $config;
+    }
+);
+Config::reset_for_tests();
+Logging::reset_for_tests();
+Logging::event(
+    'warning',
+    'EFORMS_ERR_THROTTLED',
+    array( 'form_id' => 'contact' ),
+    $request
+);
+eforms_test_assert( ! file_exists( $outside_file ), 'Relative Fail2ban paths must not escape uploads.dir.' );
+
+$absolute_dir = eforms_test_tmp_root( 'eforms-fail2ban-absolute' );
+mkdir( $absolute_dir, 0755, true );
+$absolute_file = $absolute_dir . '/eforms.log';
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config ) use ( $uploads_dir, $absolute_file ) {
+        $config['uploads']['dir'] = $uploads_dir;
+        $config['logging']['mode'] = 'off';
+        $config['logging']['fail2ban']['target'] = 'file';
+        $config['logging']['fail2ban']['file'] = $absolute_file;
+        return $config;
+    }
+);
+Config::reset_for_tests();
+Logging::reset_for_tests();
+Logging::event(
+    'warning',
+    'EFORMS_ERR_THROTTLED',
+    array( 'form_id' => 'contact' ),
+    $request
+);
+clearstatcache( true, $absolute_dir );
+eforms_test_assert( file_exists( $absolute_file ), 'Absolute Fail2ban paths should still emit to the configured file.' );
+eforms_test_assert( ( fileperms( $absolute_dir ) & 0777 ) === 0755, 'Absolute Fail2ban parent directories are operator-managed and must not be chmodded.' );
+
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();
 Logging::reset_for_tests();
 Fail2banLogger::reset_for_tests();
+eforms_test_remove_tree( $outside_dir );
+eforms_test_remove_tree( $absolute_dir );
 eforms_test_remove_tree( $uploads_dir );

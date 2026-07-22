@@ -1,0 +1,35 @@
+.eforms-settings-admin{max-width:1120px;}
+.eforms-settings-form{max-width:1040px;}
+.eforms-settings-nav{position:sticky;z-index:10;top:32px;display:flex;flex-wrap:wrap;gap:6px;max-width:1040px;margin:0 0 24px;padding:10px 0;border-top:1px solid #dcdcde;border-bottom:1px solid #dcdcde;background:#f0f0f1;}
+.eforms-settings-nav__link{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border:1px solid #c3c4c7;border-radius:4px;background:#fff;text-decoration:none;}
+.eforms-settings-nav__save{margin-left:auto;}
+.eforms-settings-section{max-width:1040px;margin:0 0 32px;scroll-margin-top:108px;}
+.eforms-settings-panel{overflow:visible;border:1px solid #dcdcde;border-radius:6px;background:#fff;}
+.eforms-settings-panel__header{padding:16px 18px;border-bottom:1px solid #f0f0f1;}
+.eforms-settings-panel__header h2,.eforms-settings-section-title{margin:0;font-size:18px;line-height:1.3;}
+.eforms-settings-panel__body{display:grid;gap:12px;padding:16px;}
+.eforms-protection-checks{display:grid;gap:12px;}
+.eforms-settings-subtitle{margin:0;font-size:14px;line-height:1.4;}
+.eforms-protection-checks-table__row{color:#50575e;}
+.eforms-protection-checks-table__status{display:inline-block;padding:2px 6px;border:1px solid #dcdcde;border-radius:4px;background:#f6f7f7;color:#3c434a;}
+.eforms-settings-admin .eforms-setting-help{display:inline-block;position:relative;margin-left:6px;vertical-align:middle;}
+.eforms-settings-admin .eforms-setting-help summary{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid #8c8f94;border-radius:50%;background:#fff;color:#1d2327;cursor:pointer;font-weight:600;line-height:1;list-style:none;}
+.eforms-settings-admin .eforms-setting-help summary::-webkit-details-marker{display:none;}
+.eforms-settings-admin .eforms-setting-help summary:focus{box-shadow:0 0 0 2px #2271b1;outline:2px solid transparent;}
+.eforms-settings-admin .eforms-setting-help-panel{position:absolute;z-index:20;top:26px;left:0;width:min(360px,70vw);padding:10px 12px;border:1px solid #c3c4c7;background:#fff;box-shadow:0 8px 18px rgba(0,0,0,.16);font-weight:400;}
+.eforms-settings-admin .eforms-setting-help-dismiss{float:right;margin-left:12px;}
+.eforms-settings-admin .eforms-setting-help-panel p{margin:.35em 0;}
+.eforms-settings-row-label{font-weight:600;}
+.eforms-settings-compound-control{display:grid;gap:14px;max-width:700px;}
+.eforms-settings-compound-control__item{display:grid;gap:6px;}
+.eforms-settings-compound-control__label{font-weight:600;}
+.eforms-content-terms-editor{display:grid;gap:8px;max-width:560px;}
+.eforms-content-terms-editor[hidden]{display:none;}
+.eforms-content-terms-editor__list{display:flex;flex-wrap:wrap;gap:6px;margin:0;}
+.eforms-content-terms-editor__item{display:inline-flex;align-items:center;gap:6px;max-width:100%;margin:0;padding:3px 6px;border:1px solid #c3c4c7;border-radius:4px;background:#f6f7f7;}
+.eforms-content-terms-editor__term{overflow-wrap:anywhere;}
+.eforms-content-terms-editor__remove{min-height:22px;padding:0 6px;line-height:1;}
+.eforms-content-terms-editor__empty{margin:0;color:#646970;}
+.eforms-content-terms-editor__entry{display:grid;gap:6px;}
+.eforms-content-terms-editor__entry textarea{min-height:42px;}
+.eforms-content-terms-editor__message{min-height:18px;margin:0;color:#b32d2e;}

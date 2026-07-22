@@ -10,7 +10,26 @@ if (!defined('ABSPATH')) {
     return [];
 }
 
+// Worker/R2 composition only: inject these through the deployment environment.
+// Never commit a real integration key or derive one from WordPress salts.
+// define('EFORMS_UPLOAD_COMPOSITION', 'worker_r2_cloudflare');
+// Must be a dedicated HTTPS origin, not the WordPress home origin.
+// define('EFORMS_WORKER_URL', 'https://media.example.com');
+// define('EFORMS_WORKER_ENVIRONMENT_ID', 'production');
+// define('EFORMS_WORKER_ACTIVE_KEY_ID', 'key-2026-01');
+// define('EFORMS_WORKER_ACTIVE_KEY_B64', (string) getenv('EFORMS_WORKER_ACTIVE_KEY_B64'));
+
+// Optional standalone local lazy-preview composition. Upload acceptance remains
+// local and does not depend on Imagick; preview failures retain the download.
+// define('EFORMS_UPLOAD_COMPOSITION', 'local_imagick_preview');
+// define('EFORMS_LOCAL_PREVIEW_CONCURRENCY', 1); // 1 by default; 2 only after load testing.
+
 return [
+    // Default off. Enable only after the documented Chrome/Android and
+    // Safari/iPhone rollout checks pass for the fixed code-owned JPEG recipe.
+    'media' => [
+        'client_preparation' => 'off', // or 'opportunistic_jpeg'
+    ],
     'security' => [
         'origin_mode' => 'hard',
     ],

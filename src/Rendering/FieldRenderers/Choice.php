@@ -9,6 +9,8 @@
  * Contract: Template options
  */
 
+require_once __DIR__ . '/../../EformsMarkup.php';
+
 class FieldRenderers_Choice {
     public static function render( $descriptor, $field, $value = null, $context = array() ) {
         $type = isset( $descriptor['type'] ) ? $descriptor['type'] : '';
@@ -45,7 +47,7 @@ class FieldRenderers_Choice {
             $attrs['id'] = $prefix !== '' ? $prefix . '-' . $field['key'] : $field['key'];
         }
 
-        return $attrs;
+        return EformsMarkup::apply_control_context( $attrs, $context );
     }
 
     public static function build_choice_input_attributes( $descriptor, $field, $option, $context = array(), $value = null ) {
@@ -84,7 +86,7 @@ class FieldRenderers_Choice {
             $attrs['checked'] = 'checked';
         }
 
-        return $attrs;
+        return EformsMarkup::apply_control_context( $attrs, $context );
     }
 
     public static function build_option_attributes( $option, $selected = false ) {
@@ -173,47 +175,17 @@ class FieldRenderers_Choice {
     }
 
     private static function render_select( $attrs, $options ) {
-        $parts = array();
-        foreach ( $attrs as $key => $value ) {
-            $parts[] = $key . '="' . self::escape_attr( $value ) . '"';
-        }
-
-        $html = '<select ' . implode( ' ', $parts ) . '>';
+        $html = '<select ' . EformsMarkup::attributes( $attrs ) . '>';
 
         foreach ( $options as $option ) {
-            $opt_attrs = array();
-            foreach ( $option['attrs'] as $key => $value ) {
-                $opt_attrs[] = $key . '="' . self::escape_attr( $value ) . '"';
-            }
-            $label = self::escape_text( $option['label'] );
-            $html .= '<option ' . implode( ' ', $opt_attrs ) . '>' . $label . '</option>';
+            $label = EformsMarkup::escape_html( $option['label'] );
+            $html .= '<option ' . EformsMarkup::attributes( $option['attrs'] ) . '>' . $label . '</option>';
         }
 
         return $html . '</select>';
     }
 
     private static function render_input( $attrs ) {
-        $parts = array();
-        foreach ( $attrs as $key => $value ) {
-            $parts[] = $key . '="' . self::escape_attr( $value ) . '"';
-        }
-
-        return '<input ' . implode( ' ', $parts ) . ' />';
-    }
-
-    private static function escape_attr( $value ) {
-        if ( function_exists( 'esc_attr' ) ) {
-            return esc_attr( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
-    }
-
-    private static function escape_text( $value ) {
-        if ( function_exists( 'esc_html' ) ) {
-            return esc_html( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
+        return '<input ' . EformsMarkup::attributes( $attrs ) . ' />';
     }
 }

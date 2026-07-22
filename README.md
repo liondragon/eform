@@ -4,7 +4,7 @@ Lightweight PHP form handler for WordPress.
 
 ## Installation
 
-Requirements: PHP 8.0+ and WordPress 5.8+.
+Requirements: PHP 8.1+ and WordPress 5.8+.
 
 1. Place this repository root inside `wp-content/plugins/eforms/` so `eforms.php` is directly inside the plugin directory.
 2. (Optional for contributors) Run `composer install` from the repository root to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
@@ -104,7 +104,10 @@ eforms[f2b] ts=<unix> code=<EFORMS_ERR_*> ip=<client_ip> form=<form_id>
 1. Enable Fail2ban emission in your config:
    ```php
    'logging' => [
-       'fail2ban' => ['target' => 'file']
+       'fail2ban' => [
+           'target' => 'file',
+           'file' => 'f2b/eforms.log',
+       ]
    ]
    ```
 
@@ -120,7 +123,7 @@ eforms[f2b] ts=<unix> code=<EFORMS_ERR_*> ip=<client_ip> form=<form_id>
    [eforms]
    enabled = true
    filter = eforms
-   logpath = /var/www/html/wp-content/uploads/eforms-private/f2b/eforms-f2b.log
+   logpath = /var/www/html/wp-content/uploads/f2b/eforms.log
    maxretry = 5      ; adjust based on your traffic patterns
    findtime = 300    ; 5-minute window
    bantime = 3600    ; 1-hour ban
@@ -144,9 +147,22 @@ Logging modes: `off`, `minimal`, `jsonl`. See `Config` for options.
 
 Uploads are stored in `wp-content/uploads/eforms-private` with strict perms.
 
-Staged photo fields require PHP `fileinfo`, 64-bit PHP integers, the fixed staged-image memory and execution readiness Anchors (or unlimited values), and Imagick able to decode JPEG, PNG, WebP, HEIC, and HEIF and encode JPEG. The sole staged `image` token covers all five source formats; GIF remains rejected, and synchronous upload behavior is unchanged. Set `upload_max_filesize`, `post_max_size`, and the web-server request limit above the largest staged item plus multipart overhead. Each source is decoded once, orientation- and color-normalized, flattened onto white when transparent, stripped of metadata, and replaced by Anchor-bounded JPEG review master and preview derivatives.
+Staged photo fields require 64-bit PHP integers. The sole staged `image` token covers JPEG, PNG, WebP, HEIC, and HEIF; GIF and animated or multi-image containers remain rejected, and synchronous upload behavior is unchanged. Synchronous uploads and local staged artifacts require PHP `fileinfo` and bounded image-header inspection; local artifact storage also requires protected writable storage plus PHP and web-server request limits above one item and its multipart overhead. Worker/R2 staged artifacts are inspected by the bound Worker/Cloudflare owner and require the explicit Worker endpoint, environment, and signing-key deployment constants. Imagick is optional and is used only when the local preview provider is enabled; preview availability never determines upload success.
 
-Managed staged and finalized review masters, previews, and active derivative reservations share the fixed managed-capacity ceiling. The separate free-disk reserve also accounts for a temporary source when it occupies the managed filesystem. Provision additional space for unrelated WordPress content. Enable the existing per-IP throttle before serving a staged form; because batch creation and every upload attempt consume throttle capacity, tune `throttle.per_ip.max_per_minute` for multi-file forms and users behind shared IPs.
+The accepted artifact is retained as submitted or as the one browser-prepared
+JPEG selected before upload. An unchanged artifact may retain EXIF, GPS, color
+profiles, and other source metadata; eForms does not promise metadata removal.
+Artifact and preview access remains private and signed, but operators must
+reflect that retention in their privacy notice and handling policy.
+
+The Worker/R2 composition sends photo data to Cloudflare R2 and Cloudflare
+Images. Before activation, treat Cloudflare as a data processor: confirm the
+appropriate vendor agreement, region/transfer posture, retention and incident
+process, and disclose the processing where applicable. Do not record customer
+filenames, object identities, grants, receipts, source metadata, or raw provider
+responses in rollout measurements.
+
+Authoritative staged and finalized artifacts plus active reservations share the fixed managed-capacity ceiling. Local reservations also preserve the separate free-disk floor and account for the request-temporary multipart copy; Worker reservations enforce the global object budget without applying the WordPress disk floor. Provision additional space for unrelated WordPress content. Enable the existing per-IP throttle before serving a staged form. The default 60-request budget covers batch creation plus both protocol requests for all 24 advertised items; tune `throttle.per_ip.max_per_minute` when retries or shared-IP traffic require more headroom.
 
 ### Maintenance (Required)
 
@@ -190,7 +206,7 @@ wp eforms doctor
 
 The doctor checks observable host/runtime readiness: uploads writability,
 private storage protection, runtime subdirectory usability, staged image
-processing and PHP request limits, managed-capacity consistency and disk
+inspection, optional preview readiness, PHP request limits, managed-capacity consistency and disk
 provisioning, mandatory staged throttling, shipped templates, GC dry-run
 readiness, CLI bootstrap, and config source visibility. It reports PASS/WARN/FAIL
 rows and does not store diagnostic history. It cannot prove that system cron is

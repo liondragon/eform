@@ -115,12 +115,91 @@ class FileSink {
             return $summary;
         }
 
-        $entries = @scandir( $dir );
-        if ( ! is_array( $entries ) ) {
-            return self::delete_summary( false, 'scan_failed' );
+        if ( $limit > 0 ) {
+            $entries = self::bounded_entries_after_cursor( $dir, $after_entry, $limit, $summary );
+            if ( $entries === null ) {
+                return self::delete_summary( false, 'scan_failed' );
+            }
+
+            foreach ( $entries as $entry ) {
+                $path = rtrim( $dir, '/\\' ) . '/' . $entry;
+                if ( ! is_file( $path ) ) {
+                    continue;
+                }
+                self::delete_matching_entry( $entry, $path, $match_callback, $eligible_callback, $dry_run, $summary, $last_entry );
+            }
+        } else {
+            $handle = @opendir( $dir );
+            if ( $handle === false ) {
+                return self::delete_summary( false, 'scan_failed' );
+            }
+
+            while ( ( $entry = readdir( $handle ) ) !== false ) {
+                if ( $entry === '.' || $entry === '..' ) {
+                    continue;
+                }
+
+                // A filename cursor remains valid even when the previously scanned
+                // file was deleted, so bounded cleanup can resume without an index.
+                if ( $after_entry !== '' && strcmp( $entry, $after_entry ) <= 0 ) {
+                    continue;
+                }
+
+                $path = rtrim( $dir, '/\\' ) . '/' . $entry;
+                if ( ! is_file( $path ) ) {
+                    continue;
+                }
+                self::delete_matching_entry( $entry, $path, $match_callback, $eligible_callback, $dry_run, $summary, $last_entry );
+            }
+            closedir( $handle );
         }
 
-        foreach ( $entries as $entry ) {
+        if ( $summary['failed'] > 0 ) {
+            $summary['ok'] = false;
+            $summary['reason'] = 'delete_failed';
+        }
+
+        $summary['cursor'] = $summary['reached_limit'] && $last_entry !== ''
+            ? array( 'entry' => $last_entry )
+            : array();
+
+        return $summary;
+    }
+
+    private static function delete_matching_entry( $entry, $path, $match_callback, $eligible_callback, $dry_run, &$summary, &$last_entry ) {
+        $summary['scanned']++;
+        $last_entry = $entry;
+        if ( ! call_user_func( $match_callback, $entry, $path ) ) {
+            return;
+        }
+        if ( $eligible_callback !== null && ! call_user_func( $eligible_callback, $entry, $path ) ) {
+            return;
+        }
+
+        $bytes = self::file_bytes( $path );
+        $summary['candidates']++;
+        $summary['candidate_bytes'] += $bytes;
+        if ( $dry_run ) {
+            return;
+        }
+
+        if ( @unlink( $path ) ) {
+            $summary['deleted']++;
+            $summary['deleted_bytes'] += $bytes;
+        } else {
+            $summary['failed']++;
+        }
+    }
+
+    private static function bounded_entries_after_cursor( $dir, $after_entry, $limit, &$summary ) {
+        $handle = @opendir( $dir );
+        if ( $handle === false ) {
+            return null;
+        }
+
+        $entries = array();
+        $limit = (int) $limit;
+        while ( ( $entry = readdir( $handle ) ) !== false ) {
             if ( $entry === '.' || $entry === '..' ) {
                 continue;
             }
@@ -136,45 +215,24 @@ class FileSink {
                 continue;
             }
 
-            if ( $limit > 0 && $summary['scanned'] >= $limit ) {
+            if ( count( $entries ) < $limit ) {
+                $entries[] = $entry;
+                continue;
+            }
+
+            $largest = self::largest_entry( $entries );
+            if ( $largest !== '' && strcmp( $entry, $largest ) < 0 ) {
+                $entries[ array_search( $largest, $entries, true ) ] = $entry;
                 $summary['reached_limit'] = true;
-                break;
-            }
-
-            $summary['scanned']++;
-            $last_entry = $entry;
-            if ( ! call_user_func( $match_callback, $entry, $path ) ) {
-                continue;
-            }
-            if ( $eligible_callback !== null && ! call_user_func( $eligible_callback, $entry, $path ) ) {
                 continue;
             }
 
-            $bytes = self::file_bytes( $path );
-            $summary['candidates']++;
-            $summary['candidate_bytes'] += $bytes;
-            if ( $dry_run ) {
-                continue;
-            }
-
-            if ( @unlink( $path ) ) {
-                $summary['deleted']++;
-                $summary['deleted_bytes'] += $bytes;
-            } else {
-                $summary['failed']++;
-            }
+            $summary['reached_limit'] = true;
         }
+        closedir( $handle );
 
-        if ( $summary['failed'] > 0 ) {
-            $summary['ok'] = false;
-            $summary['reason'] = 'delete_failed';
-        }
-
-        $summary['cursor'] = $summary['reached_limit'] && $last_entry !== ''
-            ? array( 'entry' => $last_entry )
-            : array();
-
-        return $summary;
+        sort( $entries, SORT_STRING );
+        return $entries;
     }
 
     private static function delete_summary( $ok, $reason ) {
@@ -190,6 +248,17 @@ class FileSink {
             'reached_limit' => false,
             'cursor' => array(),
         );
+    }
+
+    private static function largest_entry( $entries ) {
+        $largest = '';
+        foreach ( $entries as $entry ) {
+            if ( is_string( $entry ) && ( $largest === '' || strcmp( $entry, $largest ) > 0 ) ) {
+                $largest = $entry;
+            }
+        }
+
+        return $largest;
     }
 
     private static function file_bytes( $path ) {

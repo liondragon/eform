@@ -14,14 +14,34 @@ require_once __DIR__ . '/../../src/Diagnostics/SpamSmokeDiagnostic.php';
 require_once __DIR__ . '/../../src/Admin/SettingsAdmin.php';
 require_once __DIR__ . '/../../src/Admin/SettingsFields.php';
 require_once __DIR__ . '/../../src/Admin/AdminSettingsStore.php';
+require_once __DIR__ . '/../../src/Admin/SubmissionsAdmin.php';
 require_once __DIR__ . '/../../src/Admin/DeclinedReviewAdmin.php';
 require_once __DIR__ . '/../../src/Uploads/PrivateDir.php';
+
+if ( ! function_exists( 'wp_enqueue_style' ) ) {
+    function wp_enqueue_style( $handle, $src, $deps = array(), $ver = false ) {
+        $GLOBALS['eforms_test_styles'][] = array( 'handle' => $handle, 'src' => $src, 'deps' => $deps );
+    }
+}
+
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+    function wp_enqueue_script( $handle, $src, $deps = array(), $ver = false, $in_footer = false ) {
+        $GLOBALS['eforms_test_scripts'][] = array( 'handle' => $handle, 'src' => $src, 'in_footer' => $in_footer );
+    }
+}
+
+if ( ! function_exists( 'plugins_url' ) ) {
+    function plugins_url( $path = '', $plugin = null ) {
+        return $path;
+    }
+}
 
 $uploads_dir = eforms_test_tmp_root( 'eforms-admin-settings' );
 mkdir( $uploads_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
 $GLOBALS['eforms_test_nonce'] = 'valid-nonce';
 $dropin_path = WP_CONTENT_DIR . '/' . Config::DROPIN_FILENAME;
+$admin_script = file_get_contents( dirname( __DIR__, 2 ) . '/assets/admin-settings.js' );
 
 $remove_dropin = function () use ( $dropin_path ) {
     if ( file_exists( $dropin_path ) ) {
@@ -40,6 +60,8 @@ $reset = function () use ( $remove_dropin ) {
     $GLOBALS['eforms_test_can_manage'] = true;
     $GLOBALS['eforms_test_options_pages'] = array();
     $GLOBALS['eforms_test_management_pages'] = array();
+    $GLOBALS['eforms_test_styles'] = array();
+    $GLOBALS['eforms_test_scripts'] = array();
     $GLOBALS['eforms_test_hooks']['action']['admin_menu'] = array();
     $_SERVER['HTTP_HOST'] = 'example.com';
     $_SERVER['HTTPS'] = 'on';
@@ -75,15 +97,20 @@ $runtime_health_post = function ( $nonce = 'valid-nonce' ) {
     );
 };
 
-// Settings -> eForms registers independently from the declined-review Tools page.
+// Settings -> eForms and retained submissions register independently from declined review.
 $reset();
 eforms_register_admin();
-eforms_test_assert( count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 1, 'Settings page should register when declined review is disabled.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 2, 'Settings and retained submissions should register when declined review is disabled.' );
 SettingsAdmin::register_menu();
+SubmissionsAdmin::register_menu();
+SettingsAdmin::enqueue_assets( 'settings_page_' . SettingsAdmin::SLUG );
 eforms_test_assert( count( $GLOBALS['eforms_test_options_pages'] ) === 1, 'Settings page should register one Options page.' );
 eforms_test_assert( $GLOBALS['eforms_test_options_pages'][0]['menu_slug'] === SettingsAdmin::SLUG, 'Settings page should use the expected slug.' );
 eforms_test_assert( $GLOBALS['eforms_test_options_pages'][0]['capability'] === 'manage_options', 'Settings page should require manage_options.' );
-eforms_test_assert( $GLOBALS['eforms_test_management_pages'] === array(), 'Disabled declined review should not register the Tools page.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_management_pages'] ) === 1, 'Disabled declined review should still register retained submissions.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_styles'] ) === 1 && $GLOBALS['eforms_test_styles'][0]['handle'] === 'eforms-admin-settings', 'Settings page should enqueue its canonical admin stylesheet.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_scripts'] ) === 1 && $GLOBALS['eforms_test_scripts'][0]['handle'] === 'eforms-admin-settings' && $GLOBALS['eforms_test_scripts'][0]['in_footer'] === true, 'Settings page should enqueue its canonical admin runtime in the footer.' );
+eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['menu_slug'] === SubmissionsAdmin::SLUG, 'Retained submissions should keep its Tools page slug.' );
 
 $reset();
 eforms_test_configure_declined_review( $uploads_dir, true );
@@ -91,12 +118,14 @@ $GLOBALS['eforms_test_options_pages'] = array();
 $GLOBALS['eforms_test_management_pages'] = array();
 $GLOBALS['eforms_test_hooks']['action']['admin_menu'] = array();
 eforms_register_admin();
-eforms_test_assert( count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 2, 'Enabled declined review should register Settings and Tools hooks.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_hooks']['action']['admin_menu'] ) === 3, 'Enabled declined review should register Settings and Tools hooks.' );
 SettingsAdmin::register_menu();
+SubmissionsAdmin::register_menu();
 DeclinedReviewAdmin::register_menu();
 eforms_test_assert( count( $GLOBALS['eforms_test_options_pages'] ) === 1, 'Enabled declined review should still register one Settings page.' );
-eforms_test_assert( count( $GLOBALS['eforms_test_management_pages'] ) === 1, 'Enabled declined review should register one Tools page.' );
-eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['menu_slug'] === DeclinedReviewAdmin::SLUG, 'Declined review should keep its Tools page slug.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_management_pages'] ) === 2, 'Enabled declined review should register both Tools pages.' );
+eforms_test_assert( $GLOBALS['eforms_test_management_pages'][0]['menu_slug'] === SubmissionsAdmin::SLUG, 'Retained submissions should keep its Tools page slug.' );
+eforms_test_assert( $GLOBALS['eforms_test_management_pages'][1]['menu_slug'] === DeclinedReviewAdmin::SLUG, 'Declined review should keep its Tools page slug.' );
 
 // Capability and nonce gates reject render/save without mutating the option.
 $reset();
@@ -141,7 +170,8 @@ eforms_test_assert( strpos( $html, 'class="eforms-setting-help"' ) !== false, 'S
 eforms_test_assert( strpos( $html, 'Config handle: <code>logging.mode</code>' ) !== false, 'Setting help should keep the config handle available without making it a table column.' );
 eforms_test_assert( strpos( $html, 'class="button-link eforms-setting-help-dismiss"' ) !== false, 'Setting help should render a dismiss control.' );
 eforms_test_assert( strpos( $html, 'Dismiss help for Mode setting (challenge.mode)' ) !== false, 'Setting help dismiss buttons should be labelled.' );
-eforms_test_assert( strpos( $html, 'eformsSettingsHelpReady' ) !== false && strpos( $html, 'removeAttribute("open")' ) !== false, 'Setting help should include close behavior.' );
+eforms_test_assert( is_string( $admin_script ) && strpos( $admin_script, 'eformsSettingsHelpReady' ) !== false && strpos( $admin_script, "removeAttribute('open')" ) !== false, 'Setting help should include close behavior in the canonical admin runtime.' );
+eforms_test_assert( strpos( $html, '<style' ) === false && strpos( $html, '<script' ) === false, 'Settings markup should not embed page-local styles or runtimes.' );
 eforms_test_assert( strpos( $html, 'Help for Mode' ) !== false, 'Setting help should be labelled for assistive technology.' );
 eforms_test_assert( strpos( $html, 'Help for Mode setting (challenge.mode)' ) !== false, 'Setting help labels should disambiguate duplicate labels.' );
 eforms_test_assert( strpos( $html, 'Available options: Off, Auto, Always Post.' ) !== false, 'Select help should derive available options from field metadata.' );
@@ -163,12 +193,12 @@ eforms_test_assert( strpos( $html, 'class="eforms-content-terms-editor" data-efo
 eforms_test_assert( strpos( $html, '<textarea id="eforms-setting-spam-content_filter-blocked_terms" name="' . SettingsFields::VALUES_KEY . '[spam.content_filter.blocked_terms]" rows="6" class="large-text code eforms-content-terms-editor__textarea" data-eforms-content-terms-source>' ) !== false, 'Blocked Phrases should keep the canonical submitted textarea as the no-JS fallback.' );
 eforms_test_assert( strpos( $html, 'data-eforms-content-entry' ) !== false && strpos( $html, 'data-eforms-content-add>Add</button>' ) !== false, 'Blocked Phrases should render one universal entry field and one add action.' );
 eforms_test_assert( strpos( $html, 'data-eforms-content-bulk' ) === false && strpos( $html, 'Paste multiple' ) === false, 'Blocked Phrases should not render a second bulk-paste field.' );
-eforms_test_assert( strpos( $html, 'Already added.' ) !== false, 'Blocked Phrases editor should include duplicate feedback.' );
-eforms_test_assert( strpos( $html, 'No blocked phrases yet.' ) !== false, 'Blocked Phrases editor should restore the empty state after the last pill is removed.' );
-eforms_test_assert( strpos( $html, 'event.key==="Enter"&&!event.shiftKey' ) !== false, 'Blocked Phrases entry should use Enter for approval and leave Shift+Enter for new lines.' );
-eforms_test_assert( strpos( $html, 'sourceTerms(input&&input.value)' ) !== false, 'Blocked Phrases entry should parse multi-line input from the single field.' );
-eforms_test_assert( strpos( $html, 'form.addEventListener("submit"' ) !== false, 'Blocked Phrases editor should commit pending entry text before settings save.' );
-eforms_test_assert( strpos( $html, 'source.value=terms.join("\\n")' ) !== false, 'Blocked Phrases editor should submit one normalized term per line.' );
+eforms_test_assert( strpos( $admin_script, 'Already added.' ) !== false, 'Blocked Phrases editor should include duplicate feedback.' );
+eforms_test_assert( strpos( $admin_script, 'No blocked phrases yet.' ) !== false, 'Blocked Phrases editor should restore the empty state after the last pill is removed.' );
+eforms_test_assert( strpos( $admin_script, "event.key === 'Enter' && !event.shiftKey" ) !== false, 'Blocked Phrases entry should use Enter for approval and leave Shift+Enter for new lines.' );
+eforms_test_assert( strpos( $admin_script, 'sourceTerms(input && input.value)' ) !== false, 'Blocked Phrases entry should parse multi-line input from the single field.' );
+eforms_test_assert( strpos( $admin_script, "form.addEventListener('submit'" ) !== false, 'Blocked Phrases editor should commit pending entry text before settings save.' );
+eforms_test_assert( strpos( $admin_script, "source.value = terms.join('\\n')" ) !== false, 'Blocked Phrases editor should submit one normalized term per line.' );
 eforms_test_assert( strpos( $html, 'Type a phrase and press Enter or Add.' ) !== false && strpos( $html, 'Use Shift+Enter or paste to enter multiple lines before adding.' ) !== false, 'Blocked terms help should explain Enter approval and multi-line entry.' );
 eforms_test_assert( strpos( $html, 'Spam rejection response' ) !== false, 'Spam response setting should be labelled by the decision it controls.' );
 eforms_test_assert( strpos( $html, 'Spam rejection response' ) < strpos( $html, 'eforms-settings-blocked-content-row' ), 'Blocked content should be the last editable Spam Protection setting.' );
@@ -215,7 +245,7 @@ $reset();
 AdminSettingsStore::replace_overrides( array( 'logging' => array( 'mode' => 'jsonl' ) ) );
 $doctor_html = SettingsAdmin::render_html( $runtime_health_post() );
 eforms_test_assert( strpos( $doctor_html, 'eforms-runtime-health-results' ) !== false, 'Runtime health run should render a compact result table.' );
-foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'managed-upload-dirs', 'staged-image-processing', 'managed-capacity', 'staged-request-limits', 'staged-throttle', 'templates', 'mail-format', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
+foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'managed-upload-dirs', 'staged-artifact-readiness', 'managed-capacity', 'staged-request-limits', 'staged-throttle', 'templates', 'mail-format', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
     eforms_test_assert( strpos( $doctor_html, '>' . $name . '<' ) !== false, 'Runtime health result table should include check: ' . $name );
 }
 eforms_test_assert( strpos( $doctor_html, '>staged-throttle</td><td>FAIL<' ) !== false, 'Default disabled throttle should render a staged production-readiness failure.' );
@@ -302,8 +332,8 @@ $content_stored = AdminSettingsStore::read_overrides();
 eforms_test_assert( $content_stored['spam']['content_filter']['mode'] === 'reject', 'Content filter mode should persist.' );
 eforms_test_assert( $content_stored['spam']['content_filter']['blocked_terms'] === "casino\nseo services", 'Content filter terms should normalize and remove blank lines on save.' );
 $content_editor_html = SettingsAdmin::render_html();
-eforms_test_assert( strpos( $content_editor_html, 'terms=sourceTerms(source.value)' ) !== false, 'Blocked Phrases editor should hydrate pills from the canonical textarea value.' );
-eforms_test_assert( strpos( $content_editor_html, 'remove.setAttribute("aria-label","Remove blocked phrase: "+term)' ) !== false, 'Hydrated blocked phrase pills should expose accessible remove buttons.' );
+eforms_test_assert( is_string( $admin_script ) && strpos( $admin_script, 'terms = sourceTerms(source.value)' ) !== false, 'Blocked Phrases editor should hydrate pills from the canonical textarea value.' );
+eforms_test_assert( strpos( $admin_script, "remove.setAttribute('aria-label', 'Remove blocked phrase: ' + term)" ) !== false, 'Hydrated blocked phrase pills should expose accessible remove buttons.' );
 eforms_test_assert( strpos( $content_editor_html, 'data-term="casino"' ) === false && strpos( $content_editor_html, 'data-term="seo services"' ) === false, 'Blocked Phrases should not duplicate hidden server-rendered pills.' );
 eforms_test_assert( strpos( $content_editor_html, "casino\nseo services</textarea>" ) !== false, 'Canonical textarea should keep one normalized term per line.' );
 

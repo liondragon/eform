@@ -4,6 +4,7 @@
   "description": "Dev-only browser checks for eForms JS behavior",
   "scripts": {
     "test": "npx playwright test",
+    "test:performance": "EFORMS_PERF_REQUIRED=1 npx playwright test specs/staged_upload_performance.spec.js",
     "test:list": "npx playwright test --list",
     "install:browsers": "npx playwright install chromium"
   },

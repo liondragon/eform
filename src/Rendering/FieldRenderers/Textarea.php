@@ -8,6 +8,8 @@
  * Contract: Field types
  */
 
+require_once __DIR__ . '/../../EformsMarkup.php';
+
 class FieldRenderers_Textarea {
     public static function render( $descriptor, $field, $value = '', $context = array() ) {
         $attrs = self::build_attributes( $descriptor, $field, $context );
@@ -53,36 +55,10 @@ class FieldRenderers_Textarea {
             unset( $attrs['id'] );
         }
 
-        return $attrs;
+        return EformsMarkup::apply_control_context( $attrs, $context );
     }
 
     private static function render_textarea( $attrs, $content ) {
-        $parts = array();
-
-        foreach ( $attrs as $key => $value ) {
-            if ( $value === null ) {
-                continue;
-            }
-
-            $parts[] = $key . '="' . self::escape_attr( $value ) . '"';
-        }
-
-        return '<textarea ' . implode( ' ', $parts ) . '>' . self::escape_textarea( $content ) . '</textarea>';
-    }
-
-    private static function escape_attr( $value ) {
-        if ( function_exists( 'esc_attr' ) ) {
-            return esc_attr( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
-    }
-
-    private static function escape_textarea( $value ) {
-        if ( function_exists( 'esc_textarea' ) ) {
-            return esc_textarea( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
+        return '<textarea ' . EformsMarkup::attributes( $attrs ) . '>' . EformsMarkup::escape_textarea( $content ) . '</textarea>';
     }
 }

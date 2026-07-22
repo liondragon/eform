@@ -30,7 +30,7 @@ Required minimal shape:
 ```
 
 - `result_pages.success` and `result_pages.email_failure` may provide `title` and `message`.
-- `rules[]` is a bounded cross-field rule list owned by the validator.
+- `rules[]` is a bounded cross-field rule list owned by the validator. A `one_of` rule may include a string `message`; the validator uses it for the global error only when every listed field is absent. Other rule types reject `message` rather than ignoring it.
 - `version` should be explicit. If omitted, runtime falls back to `filemtime()` for cache/version consumers.
 
 ## Fields
@@ -38,12 +38,12 @@ Required minimal shape:
 Field entries may declare:
 
 - `key`, `type`, `label`, `placeholder`, `required`, `class`
-- text-like hints: `size`, `autocomplete`, `max_length`, `min`, `max`, `step`, `pattern`
+- text-like and numeric render hints: `size`, `autocomplete`, `max_length`, `min`, `max`, `step`, `pattern`, `unit`; `unit` is descriptor-owned display metadata for eligible `number` fields only, not submitted data or validation policy
 - choice metadata: `options`
 - upload metadata: `accept`, `max_file_bytes`, `max_files`, `max_total_bytes`, `upload_mode`, `email_attach`
 - sanitized fragments: `before_html`, `after_html`
 
-`upload_mode` defaults to `synchronous` and accepts only `synchronous` or `staged`. Staged mode is valid only for `files`, requires JavaScript and the sole `image` accept token, rejects every other token and `email_attach=true`, and counts `max_total_bytes` over accepted source bodies rather than generated derivatives. For staged fields, `image` accepts JPEG, PNG, WebP, HEIC, and HEIF and rejects GIF; synchronous token behavior remains unchanged. At most one staged field may appear per template because its batch becomes the single atomically renamed submission aggregate; the field owner remains reusable across forms. A template may also contain synchronous upload fields: same-submission recovery must reuse an already committed synchronous file only when its deterministic field ordinal and full content hash match, and must fail closed on different bytes. `max_file_bytes`, `max_files`, and `max_total_bytes` are positive integers; `max_file_bytes * max_files` must fit in a PHP integer; and `max_total_bytes` must be at least `max_file_bytes` and no more than that product.
+`upload_mode` defaults to `synchronous` and accepts only `synchronous` or `staged`. Staged mode is valid only for `files`, requires JavaScript and the sole `image` accept token, rejects every other token and `email_attach=true`, and counts `max_total_bytes` over accepted authoritative artifact bodies. For staged fields, `image` accepts JPEG, PNG, WebP, HEIC, and HEIF and rejects GIF; synchronous token behavior remains unchanged. At most one staged field may appear per template because its batch becomes the single atomically renamed submission aggregate; the field owner remains reusable across forms. A template may also contain synchronous upload fields: same-submission recovery must reuse an already committed synchronous file only when its deterministic field ordinal and full content hash match, and must fail closed on different bytes. `max_file_bytes`, `max_files`, and `max_total_bytes` are positive integers; `max_file_bytes * max_files` must fit in a PHP integer; and `max_total_bytes` must be at least `max_file_bytes` and no more than that product.
 
 The staged policy fingerprint is lowercase hexadecimal SHA-256 over whitespace-free UTF-8 JSON with keys in lexical order: `accept`, `max_file_bytes`, `max_files`, `max_total_bytes`, `upload_mode`. `accept` is the validated, deduplicated, lexically sorted token list; numeric values are JSON integers.
 
@@ -79,7 +79,7 @@ Renderer-generated names use `{form_id}[{field_key}]`, appending `[]` only for m
 - `before_html` and `after_html` are sanitized with `wp_kses_post`.
 - Inline styles are forbidden.
 - Fragments must not cross row-group boundaries.
-- Template classes are preserved after token-level sanitization; class tokens should remain simple slug-like values.
+- Template classes are preserved after token-level sanitization and are host-theme extension hooks, not selectors implicitly styled by plugin assets; class tokens should remain simple slug-like values. Plugin-owned structural classes use the `eforms-` prefix and are emitted by renderers rather than template JSON.
 
 ## Registries
 

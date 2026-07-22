@@ -25,6 +25,7 @@ require_once __DIR__ . '/../Email/Emailer.php';
 require_once __DIR__ . '/../Uploads/UploadStore.php';
 require_once __DIR__ . '/../Uploads/UploadBatchStore.php';
 require_once __DIR__ . '/Ledger.php';
+require_once __DIR__ . '/SubmissionReviewSnapshot.php';
 require_once __DIR__ . '/Success.php';
 require_once __DIR__ . '/../Validation/Coercer.php';
 require_once __DIR__ . '/../Validation/Normalizer.php';
@@ -66,7 +67,7 @@ class SubmitHandler {
         $uploads_dir = self::uploads_dir( $config );
         $health = StorageHealth::check( $uploads_dir );
         if ( ! self::health_ok( $health ) ) {
-            return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
+            return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on, array(), true );
         }
 
         $template_base = self::override_value( $overrides, 'template_base_dir' );
@@ -74,14 +75,14 @@ class SubmitHandler {
         if ( ! is_array( $template ) || empty( $template['ok'] ) ) {
             $code = Errors::first_code( is_array( $template ) && isset( $template['errors'] ) ? $template['errors'] : null );
             $status = $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' ? 500 : 400;
-            return self::fail( $code, $status, $trace, $trace_on );
+            return self::fail( $code, $status, $trace, $trace_on, array(), $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
         }
 
         $context_result = TemplateContext::build( $template['template'], $template['version'] );
         if ( ! is_array( $context_result ) || empty( $context_result['ok'] ) ) {
             $code = Errors::first_code( isset( $context_result['errors'] ) ? $context_result['errors'] : null );
             $status = $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' ? 500 : 400;
-            return self::fail( $code, $status, $trace, $trace_on );
+            return self::fail( $code, $status, $trace, $trace_on, array(), $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
         }
 
         $context = $context_result['context'];
@@ -157,7 +158,14 @@ class SubmitHandler {
                 $status = 500;
             }
 
-            return self::fail( $code, $status, $trace, $trace_on, $headers );
+            return self::fail(
+                $code,
+                $status,
+                $trace,
+                $trace_on,
+                $headers,
+                $code === 'EFORMS_ERR_THROTTLED' || $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE'
+            );
         }
 
         $staged = null;
@@ -219,25 +227,27 @@ class SubmitHandler {
                 $uploads_dir
             );
         }
-        if ( ! empty( $staged['errors'] ) && $staged['errors'] instanceof Errors && $staged['errors']->any() ) {
-            if ( ! self::restore_recovered_claims_before_ledger( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request ) ) {
-                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
-            }
-            $result = self::error_result( 200, $staged['errors'], $security, $security_meta, $trace, $trace_on );
-            $result['validated_upload_batches'] = $staged['rerender'];
-            return $result;
-        }
-
         $normalized = self::call_normalize( $overrides, $trace, $trace_on, $context, $form_post, $form_files );
         $normalized = self::inject_staged_values( $normalized, $staged );
         $validated = self::call_validate( $overrides, $trace, $trace_on, $context, $normalized );
 
+        if ( ! empty( $staged['errors'] ) && $staged['errors'] instanceof Errors && $staged['errors']->any() ) {
+            if ( ! self::restore_recovered_claims_before_ledger( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request ) ) {
+                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on, array(), true );
+            }
+            $result = self::correctable_error_result( $context, $staged['errors'], $validated, $security, $security_meta, $trace, $trace_on );
+            $result['validated_upload_batches'] = $staged['rerender'];
+            $result[ FormProtocol::RESPONSE_UPLOAD_RECOVERY ] = self::upload_recovery_state( $staged );
+            return $result;
+        }
+
         if ( ! self::validation_ok( $validated ) ) {
             if ( ! self::restore_recovered_claims_before_ledger( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request ) ) {
-                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
+                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on, array(), true );
             }
-            $result = self::validation_result( $validated, $security, $security_meta, $trace, $trace_on );
+            $result = self::validation_result( $context, $validated, $security, $security_meta, $trace, $trace_on );
             $result['validated_upload_batches'] = $staged['rerender'];
+            $result[ FormProtocol::RESPONSE_UPLOAD_RECOVERY ] = self::upload_recovery_state( $staged );
             return $result;
         }
 
@@ -245,7 +255,7 @@ class SubmitHandler {
         $challenge = self::call_challenge( $overrides, $trace, $trace_on, $post, $request, $config, $security );
         if ( ! self::challenge_ok( $challenge ) ) {
             if ( ! self::restore_recovered_claims_before_ledger( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request ) ) {
-                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
+                return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on, array(), true );
             }
             $code = self::challenge_error_code( $challenge );
             if ( $code === 'EFORMS_CHALLENGE_UNCONFIGURED' ) {
@@ -270,8 +280,9 @@ class SubmitHandler {
                 );
             }
             $errors = self::errors_for_code( 'EFORMS_ERR_CHALLENGE_FAILED' );
-            $result = self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
+            $result = self::correctable_error_result( $context, $errors, $validated, $security, $security_meta, $trace, $trace_on );
             $result['validated_upload_batches'] = $staged['rerender'];
+            $result[ FormProtocol::RESPONSE_UPLOAD_RECOVERY ] = self::upload_recovery_state( $staged );
             return $result;
         }
 
@@ -318,7 +329,14 @@ class SubmitHandler {
         if ( empty( $freeze['ok'] ) ) {
             self::reopen_new_claims_if_unused( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request );
             $code = self::staged_store_error_code( $freeze );
-            return self::fail( $code, self::staged_store_error_status( $code ), $trace, $trace_on );
+            return self::fail(
+                $code,
+                self::staged_store_error_status( $code ),
+                $trace,
+                $trace_on,
+                array(),
+                $code === 'EFORMS_ERR_STORAGE_UNAVAILABLE'
+            );
         }
 
         // Reserve ledger marker before any external side effects.
@@ -336,7 +354,12 @@ class SubmitHandler {
             }
         }
 
-        $finalized = self::finalize_staged_uploads( $staged, $security['submission_id'], $uploads_dir );
+        $review_snapshot = self::build_review_snapshot( $staged, $context, $coerced, $security );
+        if ( $review_snapshot === false ) {
+            return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
+        }
+
+        $finalized = self::finalize_staged_uploads( $staged, $security['submission_id'], $uploads_dir, $review_snapshot );
         if ( empty( $finalized['ok'] ) ) {
             return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on );
         }
@@ -620,12 +643,49 @@ class SubmitHandler {
         return is_array( $state ) && ! empty( $state['preexisting_recovery'] );
     }
 
-    private static function finalize_staged_uploads( $staged, $submission_id, $uploads_dir ) {
+    private static function upload_recovery_state( $staged ) {
         $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
-        if ( ! is_array( $state ) || $state['phase'] === 'finalized' ) {
+        if ( ! is_array( $state ) || ! isset( $state['phase'] ) || ! is_string( $state['phase'] ) ) {
+            return null;
+        }
+
+        if ( $state['phase'] === 'open' ) {
+            return FormProtocol::UPLOAD_RECOVERY_OPEN;
+        }
+
+        if ( $state['phase'] === 'finalizing' ) {
+            return FormProtocol::UPLOAD_RECOVERY_FINALIZING;
+        }
+
+        return null;
+    }
+
+    private static function build_review_snapshot( $staged, $context, $coerced, $security ) {
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        if ( ! is_array( $state ) ) {
+            return null;
+        }
+        $submission_id = is_array( $security ) && isset( $security['submission_id'] ) && is_string( $security['submission_id'] )
+            ? $security['submission_id']
+            : '';
+        $built = SubmissionReviewSnapshot::build( $context, self::extract_values( $coerced ), $submission_id, gmdate( 'c' ) );
+        if ( empty( $built['ok'] ) || ! isset( $built['snapshot'] ) || ! is_array( $built['snapshot'] ) ) {
+            return false;
+        }
+        return $built['snapshot'];
+    }
+
+    private static function finalize_staged_uploads( $staged, $submission_id, $uploads_dir, $review_snapshot = null ) {
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        if ( ! is_array( $state ) ) {
             return array( 'ok' => true );
         }
-        $result = UploadBatchStore::finalize( $state['batch_id'], $submission_id, $uploads_dir );
+        if ( $state['phase'] === 'finalized' ) {
+            return $review_snapshot === null
+                ? array( 'ok' => true )
+                : UploadBatchStore::store_review_snapshot( $submission_id, $uploads_dir, $review_snapshot );
+        }
+        $result = UploadBatchStore::finalize( $state['batch_id'], $submission_id, $uploads_dir, null, $review_snapshot );
         if ( empty( $result['ok'] ) ) {
             return array( 'ok' => false );
         }
@@ -907,6 +967,7 @@ class SubmitHandler {
             'submission_id' => isset( $security['submission_id'] ) ? $security['submission_id'] : '',
             'form_id' => is_string( $form_id ) ? $form_id : '',
             'email_failed' => true,
+            'retry_allowed' => false,
             'soft_reasons' => isset( $security['soft_reasons'] ) && is_array( $security['soft_reasons'] ) ? $security['soft_reasons'] : array(),
         );
 
@@ -1151,7 +1212,7 @@ class SubmitHandler {
         Logging::event( 'error', 'EFORMS_LEDGER_IO', $meta, $request );
     }
 
-    private static function validation_result( $validated, $security, $security_meta, $trace, $trace_on ) {
+    private static function validation_result( $context, $validated, $security, $security_meta, $trace, $trace_on ) {
         $errors = null;
         if ( is_array( $validated ) && isset( $validated['errors'] ) ) {
             $errors = $validated['errors'];
@@ -1161,7 +1222,15 @@ class SubmitHandler {
             $errors = self::errors_for_code( 'EFORMS_ERR_SCHEMA_TYPE' );
         }
 
-        return self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
+        return self::correctable_error_result( $context, $errors, $validated, $security, $security_meta, $trace, $trace_on );
+    }
+
+    private static function correctable_error_result( $context, $errors, $validated, $security, $security_meta, $trace, $trace_on ) {
+        $result = self::error_result( 200, $errors, $security, $security_meta, $trace, $trace_on );
+        $result['correctable'] = true;
+        $result['error_field_context'] = TemplateContext::error_field_context( $context );
+        $result['values'] = TemplateContext::redisplay_values( $context, $validated );
+        return $result;
     }
 
     private static function error_result( $status, $errors, $security, $security_meta, $trace, $trace_on ) {
@@ -1175,6 +1244,7 @@ class SubmitHandler {
             'soft_reasons' => isset( $security['soft_reasons'] ) && is_array( $security['soft_reasons'] ) ? $security['soft_reasons'] : array(),
             'require_challenge' => ! empty( $security['require_challenge'] ),
             'security' => $security_meta,
+            'retry_allowed' => false,
         );
 
         if ( $trace_on ) {
@@ -1212,13 +1282,14 @@ class SubmitHandler {
         return $result;
     }
 
-    private static function fail( $code, $status, $trace, $trace_on, $headers = array() ) {
+    private static function fail( $code, $status, $trace, $trace_on, $headers = array(), $retry_allowed = false ) {
         $errors = self::errors_for_code( $code );
         $result = array(
             'ok' => false,
             'status' => (int) $status,
             'error_code' => $code,
             'errors' => $errors,
+            'retry_allowed' => $retry_allowed === true,
         );
 
         if ( is_array( $headers ) && ! empty( $headers ) ) {

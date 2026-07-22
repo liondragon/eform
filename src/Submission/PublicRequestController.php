@@ -12,6 +12,7 @@ require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Rendering/FormRenderer.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
+require_once __DIR__ . '/../Security/Challenge.php';
 require_once __DIR__ . '/../Uploads/ReviewController.php';
 require_once __DIR__ . '/SubmitHandler.php';
 
@@ -68,12 +69,13 @@ class PublicRequestController {
             'content_length' => self::content_length(),
         );
 
+        $enhanced_response = self::is_enhanced_response_request( $request['headers'] );
         $result = SubmitHandler::handle( $form_id, $request );
         if ( ! empty( $result['ok'] ) ) {
-            return self::success_response( $result );
+            return self::success_response( $result, $enhanced_response );
         }
 
-        return self::failure_response( $form_id, $result );
+        return self::failure_response( $form_id, $result, $enhanced_response );
     }
 
     /**
@@ -112,7 +114,7 @@ class PublicRequestController {
             return __DIR__ . '/public-response-template.php';
         }
 
-        if ( $render === 'review_file' ) {
+        if ( $render === 'json' || $render === 'review_file' ) {
             return __DIR__ . '/raw-response-template.php';
         }
 
@@ -186,7 +188,14 @@ class PublicRequestController {
         self::$review_page = null;
     }
 
-    private static function success_response( $result ) {
+    private static function success_response( $result, $enhanced_response = false ) {
+        if ( $enhanced_response ) {
+            $form_id = is_array( $result ) && isset( $result['form_id'] ) && is_string( $result['form_id'] )
+                ? $result['form_id']
+                : '';
+            return self::enhanced_result_location_response( Success::RESULT_SUCCESS, $form_id, $result );
+        }
+
         $redirect = SubmitHandler::do_success_redirect( $result );
 
         if ( ! is_array( $redirect ) || empty( $redirect['ok'] ) ) {
@@ -203,12 +212,16 @@ class PublicRequestController {
         );
     }
 
-    private static function failure_response( $form_id, $result ) {
+    private static function failure_response( $form_id, $result, $enhanced_response = false ) {
         $status = self::result_status( $result );
         $form_id = is_string( $form_id ) ? $form_id : '';
         self::emit_result_headers( $result );
 
         if ( is_array( $result ) && ! empty( $result['email_failed'] ) ) {
+            if ( $enhanced_response ) {
+                return self::enhanced_result_location_response( Success::RESULT_EMAIL_FAILURE, $form_id, $result );
+            }
+
             $redirect = Success::redirect_email_failure( $form_id );
 
             if ( ! is_array( $redirect ) || empty( $redirect['ok'] ) ) {
@@ -226,6 +239,10 @@ class PublicRequestController {
         }
 
         if ( self::can_rerender( $form_id, $result ) ) {
+            if ( $enhanced_response ) {
+                return self::enhanced_correctable_response( $form_id, $result );
+            }
+
             self::send_status( $status );
             $options = array(
                 'cacheable' => false,
@@ -250,9 +267,11 @@ class PublicRequestController {
             );
         }
 
-        $code = isset( $result['error_code'] ) && is_string( $result['error_code'] ) && $result['error_code'] !== ''
-            ? $result['error_code']
-            : 'EFORMS_ERR_STORAGE_UNAVAILABLE';
+        $code = self::terminal_failure_code( $result );
+
+        if ( $enhanced_response ) {
+            return self::enhanced_failure_response( $code, $status, $result );
+        }
 
         return self::error_response( $code, $status, $result );
     }
@@ -274,6 +293,219 @@ class PublicRequestController {
             'location' => '',
             'body' => $body,
             'result' => $result,
+        );
+    }
+
+    private static function enhanced_result_location_response( $result_type, $form_id, $result ) {
+        $location = Success::result_location( $result_type, $form_id );
+        if ( ! is_array( $location ) || empty( $location['ok'] ) || ! isset( $location['location'] ) || ! is_string( $location['location'] ) ) {
+            return self::enhanced_failure_response( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $result );
+        }
+
+        return self::enhanced_json_response(
+            200,
+            array(
+                FormProtocol::RESPONSE_OK => true,
+                FormProtocol::RESPONSE_LOCATION => $location['location'],
+            ),
+            $result
+        );
+    }
+
+    private static function enhanced_correctable_response( $form_id, $result ) {
+        $challenge = self::enhanced_challenge( $result );
+        if ( is_array( $result ) && ! empty( $result['require_challenge'] ) && $challenge === null ) {
+            return self::enhanced_failure_response( 'EFORMS_ERR_CHALLENGE_FAILED', 500, $result );
+        }
+
+        return self::enhanced_json_response(
+            422,
+            array(
+                FormProtocol::RESPONSE_OK => false,
+                FormProtocol::RESPONSE_ERRORS => self::enhanced_correctable_errors( $form_id, $result ),
+                FormProtocol::RESPONSE_UPLOAD_RECOVERY => self::enhanced_upload_recovery( $result ),
+                FormProtocol::RESPONSE_CHALLENGE => $challenge,
+            ),
+            $result
+        );
+    }
+
+    private static function enhanced_failure_response( $code, $status, $result, $location = null ) {
+        $code = self::safe_public_error_code( $code );
+        return self::enhanced_json_response(
+            $status,
+            array(
+                FormProtocol::RESPONSE_OK => false,
+                FormProtocol::RESPONSE_ERROR => array(
+                    FormProtocol::RESPONSE_CODE => $code,
+                    FormProtocol::RESPONSE_MESSAGE => ErrorMessages::message( $code ),
+                ),
+                FormProtocol::RESPONSE_CAN_RETRY => is_array( $result ) && isset( $result['retry_allowed'] ) && $result['retry_allowed'] === true,
+                FormProtocol::RESPONSE_LOCATION => is_string( $location ) ? $location : null,
+            ),
+            $result
+        );
+    }
+
+    private static function terminal_failure_code( $result ) {
+        if ( is_array( $result ) && isset( $result['error_code'] ) && is_string( $result['error_code'] ) && $result['error_code'] !== '' ) {
+            return $result['error_code'];
+        }
+
+        if ( is_array( $result ) && isset( $result['errors'] ) ) {
+            return Errors::first_code( $result['errors'], 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
+        }
+
+        return 'EFORMS_ERR_STORAGE_UNAVAILABLE';
+    }
+
+    private static function enhanced_json_response( $status, $payload, $result ) {
+        $body = json_encode( $payload );
+        if ( ! is_string( $body ) ) {
+            $status = 500;
+            $body = json_encode( array(
+                FormProtocol::RESPONSE_OK => false,
+                FormProtocol::RESPONSE_ERROR => array(
+                    FormProtocol::RESPONSE_CODE => 'EFORMS_ERR_STORAGE_UNAVAILABLE',
+                    FormProtocol::RESPONSE_MESSAGE => ErrorMessages::message( 'EFORMS_ERR_STORAGE_UNAVAILABLE' ),
+                ),
+                FormProtocol::RESPONSE_CAN_RETRY => false,
+                FormProtocol::RESPONSE_LOCATION => null,
+            ) );
+        }
+
+        self::send_status( $status );
+        self::emit_cache_headers();
+        if ( ! headers_sent() ) {
+            header( 'Content-Type: application/json; charset=UTF-8' );
+        }
+
+        $headers = array(
+            'Content-Type' => 'application/json; charset=UTF-8',
+            'Cache-Control' => 'private, no-store, max-age=0',
+        );
+        if ( is_array( $result ) && isset( $result['headers'] ) && is_array( $result['headers'] ) ) {
+            foreach ( $result['headers'] as $name => $value ) {
+                if ( is_string( $name ) && $name !== '' && is_scalar( $value ) ) {
+                    $headers[ $name ] = (string) $value;
+                }
+            }
+        }
+
+        return array(
+            'handled' => true,
+            'render' => 'json',
+            'status' => (int) $status,
+            'location' => '',
+            'body' => $body,
+            'headers' => $headers,
+            'result' => $result,
+        );
+    }
+
+    private static function enhanced_correctable_errors( $form_id, $result ) {
+        $errors = is_array( $result ) && isset( $result['errors'] ) ? $result['errors'] : null;
+        $errors = $errors instanceof Errors ? $errors->to_array() : $errors;
+        $errors = is_array( $errors ) ? $errors : array();
+
+        $global = self::enhanced_error_entries( isset( $errors['_global'] ) ? $errors['_global'] : array() );
+        $fields = array();
+        $field_context = is_array( $result ) && isset( $result['error_field_context'] ) && is_array( $result['error_field_context'] )
+            ? $result['error_field_context']
+            : array();
+        foreach ( $field_context as $field_key => $context ) {
+            if ( ! is_string( $field_key ) || $field_key === '' || ! is_array( $context ) ) {
+                continue;
+            }
+            $entries = isset( $errors[ $field_key ] ) ? self::enhanced_error_entries( $errors[ $field_key ], $context ) : array();
+            if ( ! empty( $entries ) ) {
+                $fields[ $field_key ] = $entries;
+            }
+        }
+
+        if ( empty( $global ) && empty( $fields ) ) {
+            $global = self::enhanced_error_entries( array( array( 'code' => 'EFORMS_ERR_SCHEMA_OBJECT' ) ) );
+        }
+
+        return array(
+            FormProtocol::RESPONSE_ERRORS_GLOBAL => $global,
+            FormProtocol::RESPONSE_ERRORS_FIELDS => $fields,
+        );
+    }
+
+    private static function enhanced_error_entries( $entries, $field_context = array() ) {
+        $entries = is_array( $entries ) ? $entries : array();
+        $public = array();
+        $label = is_array( $field_context ) && isset( $field_context['label'] ) && is_string( $field_context['label'] ) ? $field_context['label'] : '';
+        $type = is_array( $field_context ) && isset( $field_context['type'] ) && is_string( $field_context['type'] ) ? $field_context['type'] : '';
+        foreach ( $entries as $entry ) {
+            $raw_code = is_array( $entry ) && isset( $entry['code'] ) ? $entry['code'] : '';
+            $code = self::safe_public_error_code( $raw_code );
+            if ( $code === '' ) {
+                continue;
+            }
+            $can_preserve_message = is_string( $raw_code )
+                && $raw_code === $code
+                && ErrorCodes::is_known( $raw_code )
+                && ErrorCodes::is_public_error( $raw_code );
+            $message = '';
+            if ( $code === 'EFORMS_ERR_FIELD_REQUIRED' || $code === 'EFORMS_ERR_FIELD_INVALID' ) {
+                $message = ErrorMessages::field_message( $code, $label, $type );
+            } elseif ( $can_preserve_message && is_array( $entry ) && isset( $entry['message'] ) && is_string( $entry['message'] ) && $entry['message'] !== '' ) {
+                $message = $entry['message'];
+            } else {
+                $message = ErrorMessages::message( $code );
+            }
+            $public[] = array(
+                FormProtocol::RESPONSE_CODE => $code,
+                FormProtocol::RESPONSE_MESSAGE => $message,
+            );
+        }
+        return $public;
+    }
+
+    private static function safe_public_error_code( $code ) {
+        if ( is_string( $code ) && ErrorCodes::is_known( $code ) && ErrorCodes::is_public_error( $code ) ) {
+            return $code;
+        }
+
+        return 'EFORMS_ERR_STORAGE_UNAVAILABLE';
+    }
+
+
+
+    private static function enhanced_upload_recovery( $result ) {
+        $state = is_array( $result ) && isset( $result[ FormProtocol::RESPONSE_UPLOAD_RECOVERY ] ) && is_string( $result[ FormProtocol::RESPONSE_UPLOAD_RECOVERY ] )
+            ? $result[ FormProtocol::RESPONSE_UPLOAD_RECOVERY ]
+            : '';
+        if ( $state !== FormProtocol::UPLOAD_RECOVERY_OPEN && $state !== FormProtocol::UPLOAD_RECOVERY_FINALIZING ) {
+            return null;
+        }
+
+        return array(
+            FormProtocol::RESPONSE_STATE => $state,
+        );
+    }
+
+    private static function enhanced_challenge( $result ) {
+        if ( ! is_array( $result ) || empty( $result['require_challenge'] ) ) {
+            return null;
+        }
+
+        $metadata = Challenge::public_metadata();
+        $provider = isset( $metadata[ FormProtocol::RESPONSE_CHALLENGE_PROVIDER ] ) && is_string( $metadata[ FormProtocol::RESPONSE_CHALLENGE_PROVIDER ] )
+            ? $metadata[ FormProtocol::RESPONSE_CHALLENGE_PROVIDER ]
+            : '';
+        $site_key = isset( $metadata[ FormProtocol::RESPONSE_CHALLENGE_SITE_KEY ] ) && is_string( $metadata[ FormProtocol::RESPONSE_CHALLENGE_SITE_KEY ] )
+            ? $metadata[ FormProtocol::RESPONSE_CHALLENGE_SITE_KEY ]
+            : '';
+        if ( $provider === '' || $site_key === '' ) {
+            return null;
+        }
+
+        return array(
+            FormProtocol::RESPONSE_CHALLENGE_PROVIDER => $provider,
+            FormProtocol::RESPONSE_CHALLENGE_SITE_KEY => $site_key,
         );
     }
 
@@ -337,7 +569,7 @@ class PublicRequestController {
             return false;
         }
 
-        return isset( $result['security'] ) && is_array( $result['security'] );
+        return ! empty( $result['correctable'] );
     }
 
     private static function capture_response( $response ) {
@@ -371,7 +603,7 @@ class PublicRequestController {
                 : array();
         }
 
-        if ( in_array( $render, array( 'redirect', 'template', 'result_page', 'review_gallery', 'review_file' ), true ) && function_exists( 'add_filter' ) ) {
+        if ( in_array( $render, array( 'redirect', 'template', 'json', 'result_page', 'review_gallery', 'review_file' ), true ) && function_exists( 'add_filter' ) ) {
             add_filter( 'template_include', array( 'PublicRequestController', 'template_include' ), 0 );
         }
     }
@@ -449,6 +681,7 @@ class PublicRequestController {
             'HTTP_ORIGIN' => 'Origin',
             'HTTP_REFERER' => 'Referer',
             'HTTP_USER_AGENT' => 'User-Agent',
+            'HTTP_X_EFORMS_RESPONSE' => FormProtocol::HEADER_ENHANCED_RESPONSE,
         );
 
         foreach ( $map as $server_key => $header_name ) {
@@ -458,6 +691,12 @@ class PublicRequestController {
         }
 
         return $headers;
+    }
+
+    private static function is_enhanced_response_request( $headers ) {
+        return is_array( $headers )
+            && isset( $headers[ FormProtocol::HEADER_ENHANCED_RESPONSE ] )
+            && $headers[ FormProtocol::HEADER_ENHANCED_RESPONSE ] === FormProtocol::ENHANCED_RESPONSE_JSON;
     }
 
     private static function content_length() {

@@ -73,8 +73,10 @@ foreach ( $files as $path ) {
             }
         ) );
         $photos = isset( $photo_fields[0] ) ? $photo_fields[0] : array();
+        $rules = isset( $template['rules'] ) && is_array( $template['rules'] ) ? $template['rules'] : array();
         eforms_test_assert(
             count( $photo_fields ) === 1
+                && empty( $photos['required'] )
                 && isset( $photos['upload_mode'] )
                 && $photos['upload_mode'] === 'staged'
                 && isset( $photos['max_file_bytes'] )
@@ -86,6 +88,16 @@ foreach ( $files as $path ) {
                 && isset( $photos['email_attach'] )
                 && $photos['email_attach'] === false,
             'Virtual Estimate should use the approved staged image policy without email attachments.'
+        );
+        eforms_test_assert(
+            $rules === array(
+                array(
+                    'rule' => 'one_of',
+                    'fields' => array( 'listing_url', 'project_photos' ),
+                    'message' => 'Please provide a listing URL or upload at least one photo.',
+                ),
+            ),
+            'Virtual Estimate should require either a listing URL or at least one staged photo.'
         );
     }
 

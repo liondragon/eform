@@ -40,11 +40,18 @@ class Fail2banLogger {
         }
 
         $dir = dirname( $path );
-        if ( ! is_dir( $dir ) && ! @mkdir( $dir, 0700, true ) && ! is_dir( $dir ) ) {
-            return false;
-        }
-        if ( ! @chmod( $dir, 0700 ) ) {
-            return false;
+        $operator_managed_dir = self::is_absolute_path( self::configured_file( $config ) );
+        if ( $operator_managed_dir ) {
+            if ( ! is_dir( $dir ) ) {
+                return false;
+            }
+        } else {
+            if ( ! is_dir( $dir ) && ! @mkdir( $dir, 0700, true ) && ! is_dir( $dir ) ) {
+                return false;
+            }
+            if ( ! @chmod( $dir, 0700 ) ) {
+                return false;
+            }
         }
 
         self::prune_old_files( $path, self::retention_days( $config ) );
@@ -98,7 +105,58 @@ class Fail2banLogger {
         return is_string( $target ) && $target === 'file' && is_string( $file ) && trim( $file ) !== '';
     }
 
-    private static function target_path( $config ) {
+    public static function target_path( $config, $uploads_dir = null ) {
+        $file = self::configured_file( $config );
+        if ( $file === '' ) {
+            return '';
+        }
+
+        if ( self::is_absolute_path( $file ) ) {
+            return $file;
+        }
+
+        if ( ! self::relative_path_is_safe( $file ) ) {
+            return '';
+        }
+
+        if ( $uploads_dir === null ) {
+            $uploads_dir = Config::value( $config, array( 'uploads', 'dir' ), '' );
+        }
+        if ( ! is_string( $uploads_dir ) || trim( $uploads_dir ) === '' ) {
+            return '';
+        }
+
+        return rtrim( $uploads_dir, '/\\' ) . '/' . ltrim( $file, '/\\' );
+    }
+
+    public static function target_uses_uploads_dir( $config ) {
+        $file = self::configured_file( $config );
+        return $file !== '' && ! self::is_absolute_path( $file ) && self::relative_path_is_safe( $file );
+    }
+
+    public static function delete_family( $path ) {
+        if ( ! is_string( $path ) || $path === '' ) {
+            return FileSink::delete_matching_files( '', array( __CLASS__, 'is_family_entry' ) );
+        }
+
+        $dir = dirname( $path );
+        $base = basename( $path );
+        return FileSink::delete_matching_files(
+            $dir,
+            function ( $entry ) use ( $base ) {
+                return Fail2banLogger::is_family_entry( $entry, $base );
+            }
+        );
+    }
+
+    public static function is_family_entry( $entry, $base ) {
+        return is_string( $entry )
+            && is_string( $base )
+            && $base !== ''
+            && ( $entry === $base || preg_match( '/^' . preg_quote( $base, '/' ) . '\.[0-9]+$/', $entry ) === 1 );
+    }
+
+    private static function configured_file( $config ) {
         $file = Config::value( $config, array( 'logging', 'fail2ban', 'file' ), '' );
         if ( ! is_string( $file ) ) {
             return '';
@@ -109,16 +167,7 @@ class Fail2banLogger {
             return '';
         }
 
-        if ( self::is_absolute_path( $file ) ) {
-            return $file;
-        }
-
-        $uploads_dir = Config::value( $config, array( 'uploads', 'dir' ), '' );
-        if ( ! is_string( $uploads_dir ) || trim( $uploads_dir ) === '' ) {
-            return '';
-        }
-
-        return rtrim( $uploads_dir, '/\\' ) . '/' . ltrim( $file, '/\\' );
+        return $file;
     }
 
     private static function retention_days( $config ) {
@@ -160,7 +209,7 @@ class Fail2banLogger {
             $dir,
             $retention_days,
             function ( $entry ) use ( $base ) {
-                return is_string( $entry ) && ( $entry === $base || strpos( $entry, $base . '.' ) === 0 );
+                return Fail2banLogger::is_family_entry( $entry, $base );
             }
         );
     }
@@ -197,6 +246,17 @@ class Fail2banLogger {
         }
 
         return preg_match( '/^[A-Za-z]:[\\\\\\/]/', $path ) === 1;
+    }
+
+    private static function relative_path_is_safe( $path ) {
+        $segments = explode( '/', str_replace( '\\', '/', $path ) );
+        foreach ( $segments as $segment ) {
+            if ( $segment === '..' ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
 }

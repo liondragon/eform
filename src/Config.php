@@ -13,12 +13,14 @@ class Config
     const SOURCE_CONFIG_FILE = 'config file';
     const SOURCE_FILTER = 'filter';
     const SOURCE_CLAMPED = 'clamped';
+    const CLIENT_PREPARATION_OFF = 'off';
+    const CLIENT_PREPARATION_OPPORTUNISTIC_JPEG = 'opportunistic_jpeg';
 
     const DEFAULT_TOKEN_TTL_SECONDS = 3600;
     const DEFAULT_MIN_FILL_SECONDS = 0;
     const DEFAULT_SPAM_SOFT_FAIL_THRESHOLD = 2;
     const DEFAULT_CHALLENGE_TIMEOUT_SECONDS = 3;
-    const DEFAULT_THROTTLE_MAX_PER_MINUTE = 30;
+    const DEFAULT_THROTTLE_MAX_PER_MINUTE = 60;
     const DEFAULT_THROTTLE_COOLDOWN_SECONDS = 0;
     const DEFAULT_LOGGING_LEVEL = 1;
     const DEFAULT_LOGGING_RETENTION_DAYS = 30;
@@ -108,6 +110,9 @@ class Config
             'max_email_bytes' => self::DEFAULT_UPLOAD_MAX_EMAIL_BYTES,
             'retention_seconds' => 0,
             'original_maxlen' => self::DEFAULT_UPLOAD_ORIGINAL_MAXLEN,
+        ),
+        'media' => array(
+            'client_preparation' => self::CLIENT_PREPARATION_OFF,
         ),
         'assets' => array(
             'css_disable' => false,
@@ -234,6 +239,17 @@ class Config
         }
 
         return $cursor;
+    }
+
+    /**
+     * Canonical deployment-only browser preparation modes.
+     */
+    public static function client_preparation_modes()
+    {
+        return array(
+            self::CLIENT_PREPARATION_OFF,
+            self::CLIENT_PREPARATION_OPPORTUNISTIC_JPEG,
+        );
     }
 
     public static function bool($config, $path, $fallback = false)
@@ -1022,6 +1038,7 @@ class Config
             'logging.mode' => array('type' => 'enum', 'values' => array('off', 'minimal', 'jsonl')),
             'logging.fail2ban.target' => array('type' => 'enum', 'values' => array('file')),
             'privacy.ip_mode' => array('type' => 'enum', 'values' => array('none', 'masked', 'hash', 'full')),
+            'media.client_preparation' => array('type' => 'enum', 'values' => self::client_preparation_modes()),
         );
 
         if (isset($rules[$path])) {

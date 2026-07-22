@@ -67,22 +67,26 @@ test('live WordPress upload survives validation rerender and submits without re-
     input.value = 'invalid-type';
     input.form.noValidate = true;
   });
+  await form.evaluate(node => {
+    window.__eformsOriginalLiveForm = node;
+    window.__eformsOriginalLiveCards = Array.from(node.querySelectorAll('[data-eforms-upload-state="uploaded"]'));
+  });
+  const pageBeforeRecovery = page.url();
+  await form.locator('button[type="submit"]').click();
+
+  await expect(form.locator('.eforms-error-summary')).toBeVisible();
+  await expect(form.locator('[data-eforms-upload-state="uploaded"]')).toHaveCount(2);
+  expect(page.url()).toBe(pageBeforeRecovery);
+  expect(await form.evaluate(node => node === window.__eformsOriginalLiveForm)).toBeTruthy();
+  expect(await form.evaluate(node => Array.from(node.querySelectorAll('[data-eforms-upload-state="uploaded"]')).every((card, index) => card === window.__eformsOriginalLiveCards[index]))).toBeTruthy();
+  expect(itemPosts()).toHaveLength(2);
+  expect(requests.some(entry => entry.method === 'GET' && /\/items\/[^/]+\/preview$/.test(uploadRoute(entry.url)))).toBeFalsy();
+
+  await name.evaluate(input => { input.name = 'upload-test[name]'; });
+  await form.locator('input[name="upload-test[name]"]').fill('Ada Lovelace');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
     form.locator('button[type="submit"]').click()
-  ]);
-
-  const rerendered = page.locator('form.eforms-form-upload-test');
-  await expect(rerendered.locator('.eforms-error-summary')).toBeVisible();
-  await expect(rerendered.locator('[data-eforms-upload-state="uploaded"]')).toHaveCount(2);
-  await expect(rerendered.locator('.eforms-upload-preview').first()).toHaveAttribute('src', /^blob:/);
-  expect(itemPosts()).toHaveLength(2);
-  expect(requests.some(entry => entry.method === 'GET' && /\/items\/[^/]+\/preview$/.test(uploadRoute(entry.url)))).toBeTruthy();
-
-  await rerendered.locator('input[name="upload-test[name]"]').fill('Ada Lovelace');
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
-    rerendered.locator('button[type="submit"]').click()
   ]);
   await expect(page.locator('[data-eforms-result="success"]')).toBeVisible();
   expect(itemPosts()).toHaveLength(2);

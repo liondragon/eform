@@ -3,6 +3,11 @@
 
     var DEFAULT_MINT_ENDPOINT = '/eforms/mint';
     var MINT_ERROR_MESSAGE = 'This form is temporarily unavailable. Please reload the page.';
+    var ENHANCED_CORRECTABLE_MESSAGE = 'Please fix the highlighted fields.';
+    var ENHANCED_RETRY_MESSAGE = 'Your request couldn\'t be sent. Please try again.';
+    var ENHANCED_BLOCKED_MESSAGE = 'This request can\'t be finished from this page. Please reload.';
+    var preparationQueue = [];
+    var activePreparation = null;
     var DEFAULT_PROTOCOL = {
         hiddenFields: {
             mode: 'eforms_mode',
@@ -80,8 +85,11 @@
         if (attrs && typeof attrs[key] === 'string' && attrs[key] !== '') {
             return attrs[key];
         }
+        if (Object.prototype.hasOwnProperty.call(DEFAULT_PROTOCOL.dataAttributes, key)) {
+            return DEFAULT_PROTOCOL.dataAttributes[key];
+        }
 
-        return DEFAULT_PROTOCOL.dataAttributes[key];
+        return '';
     }
 
     function mintResponseKey(key) {
@@ -108,10 +116,10 @@
         if (!configured || typeof configured !== 'object') {
             return null;
         }
-        var names = ['batchSecretHeader', 'formParam', 'fieldParam', 'fileParam', 'ordinalParam'];
+        var names = ['batchSecretHeader', 'formParam', 'fieldParam', 'fileParam', 'ordinalParam', 'displayNameParam', 'bytesParam', 'mimeParam', 'receiptParam', 'workerGrantHeader', 'localTransport', 'workerTransport'];
         var batchFields = ['root', 'batch_id', 'batch_secret'];
         var dataAttributes = ['mount', 'picker', 'pickerId', 'field', 'accept', 'maxFiles', 'maxFileBytes', 'maxTotalBytes'];
-        var responseFields = ['batchId', 'state', 'acceptUntil', 'deleteAfter', 'items', 'uploadId', 'ordinal', 'displayName', 'bytes'];
+        var responseFields = ['batchId', 'state', 'acceptUntil', 'deleteAfter', 'items', 'intents', 'limits', 'maxFileBytes', 'maxFiles', 'maxTotalBytes', 'uploadId', 'ordinal', 'displayName', 'bytes', 'authorized', 'committed', 'transport', 'transportKind', 'transportUrl', 'transportGrant', 'transportMime'];
         var runtimeValues = ['batchIdChars', 'batchSecretBytes', 'uploadIdBytes', 'uploadIdMaxChars', 'concurrency', 'displayNameMaxChars'];
         var complete = names.every(function (key) {
             return typeof configured[key] === 'string' && configured[key] !== '';
@@ -123,6 +131,8 @@
             return typeof configured.response[key] === 'string' && configured.response[key] !== '';
         }) && configured.runtime && runtimeValues.every(function (key) {
             return Number.isInteger(configured.runtime[key]) && configured.runtime[key] > 0;
+        }) && configured.mimeByExtension && Object.keys(configured.mimeByExtension).length > 0 && Object.keys(configured.mimeByExtension).every(function (extension) {
+            return /^[a-z0-9]+$/.test(extension) && /^image\/[a-z0-9.+-]+$/.test(configured.mimeByExtension[extension]);
         });
         return complete ? configured : null;
     }
@@ -145,6 +155,280 @@
     function uploadRuntimeValue(key) {
         var managed = uploadProtocol();
         return managed ? managed.runtime[key] : 0;
+    }
+
+    function clientPreparationSettings() {
+        var settings = window.eformsSettings && window.eformsSettings.clientPreparation;
+        var recipe = settings && settings.recipe;
+        var preparationValues = ['version', 'slots', 'jpegTriggerBytes', 'jpegTriggerEdge', 'inputMaxBytes', 'inputMaxPixels', 'inputMaxEdge', 'outputMaxEdge', 'jpegQuality', 'minimumSavingsPercent', 'timeoutMs', 'headerScanBytes', 'exifMaxEntries'];
+        if (!settings || typeof settings !== 'object'
+            || typeof settings.workerUrl !== 'string' || settings.workerUrl === '') {
+            return null;
+        }
+        if (!recipe || !preparationValues.every(function (key) {
+            return Number.isInteger(recipe[key]) && recipe[key] > 0;
+        }) || recipe.slots !== 1 || recipe.jpegQuality >= 100 || recipe.minimumSavingsPercent >= 100) {
+            return null;
+        }
+        return settings;
+    }
+
+    function chosenUsage(runtime, excluded) {
+        return runtime.items.reduce(function (usage, item) {
+            if (item !== excluded && item.artifactChosen) {
+                usage.count += 1;
+                usage.bytes += item.bytes;
+            }
+            return usage;
+        }, { count: 0, bytes: 0 });
+    }
+
+    function artifactWithinLimits(runtime, count, total, bytes) {
+        return Number.isInteger(bytes) && bytes > 0
+            && count < runtime.maxFiles
+            && bytes <= runtime.maxFileBytes
+            && total <= runtime.maxTotalBytes - bytes;
+    }
+
+    function artifactFits(runtime, item, bytes) {
+        var usage = chosenUsage(runtime, item);
+        return artifactWithinLimits(runtime, usage.count, usage.bytes, bytes);
+    }
+
+    function enforceChosenArtifactLimits(runtime) {
+        var accepted = 0;
+        var total = 0;
+        forEachNode(runtime.items, function (item) {
+            if (!item.artifactChosen) {
+                return;
+            }
+            if (!artifactWithinLimits(runtime, accepted, total, item.bytes)) {
+                item.artifactChosen = false;
+                setItemState(runtime, item, 'failed', 'Photo exceeds the current upload limits.');
+                return;
+            }
+            accepted += 1;
+            total += item.bytes;
+        });
+    }
+
+    function bindPreviewError(runtime, item, image, request) {
+        image.addEventListener('error', function () {
+            markPreviewUnavailable(runtime, item, request);
+        });
+    }
+
+    function refreshArtifactPreview(runtime, item, artifact) {
+        if (!item.image || !artifact) {
+            return;
+        }
+        if (item.objectUrl) {
+            URL.revokeObjectURL(item.objectUrl);
+        }
+        item.objectUrl = URL.createObjectURL(artifact);
+        item.previewUnavailable = false;
+        item.previewRequest += 1;
+        var previous = item.image;
+        var image = document.createElement('img');
+        image.className = 'eforms-upload-preview';
+        image.alt = '';
+        bindPreviewError(runtime, item, image, item.previewRequest);
+        previous.parentNode.replaceChild(image, previous);
+        item.image = image;
+        image.src = item.objectUrl;
+    }
+
+    function chooseArtifact(runtime, item, artifact, prepared) {
+        var bytes = artifact && artifact.size;
+        if (!artifactFits(runtime, item, bytes)) {
+            var canFitAfterCapacityRelease = Number.isInteger(bytes) && bytes > 0
+                && runtime.maxFiles > 0
+                && bytes <= runtime.maxFileBytes
+                && bytes <= runtime.maxTotalBytes;
+            item.file = canFitAfterCapacityRelease ? artifact : null;
+            item.bytes = Number.isInteger(bytes) ? bytes : item.bytes;
+            if (!canFitAfterCapacityRelease) {
+                item.sourceFile = null;
+            }
+            item.artifactChosen = false;
+            setItemState(runtime, item, 'failed', 'Photo exceeds the allowed size.');
+            return false;
+        }
+        item.file = artifact;
+        item.bytes = artifact.size;
+        item.artifactChosen = true;
+        if (prepared) {
+            refreshArtifactPreview(runtime, item, artifact);
+        }
+        item.sourceFile = null;
+        setItemState(runtime, item, 'queued');
+        scheduleUploads(runtime);
+        return true;
+    }
+
+    function chooseSourceArtifact(runtime, item) {
+        var source = item.sourceFile || item.file;
+        return source ? chooseArtifact(runtime, item, source, false) : false;
+    }
+
+    function finishPreparation(job) {
+        if (activePreparation !== job) {
+            return false;
+        }
+        window.clearTimeout(job.timer);
+        if (job.worker) {
+            job.worker.terminate();
+        }
+        activePreparation = null;
+        return true;
+    }
+
+    function fallbackPreparation(job) {
+        var runtime = job.runtime;
+        var item = job.item;
+        if (!finishPreparation(job)) {
+            return;
+        }
+        if (runtimeMayPrepare(runtime) && item.state !== 'removed' && item.state !== 'removing') {
+            chooseSourceArtifact(runtime, item);
+        }
+        schedulePreparation();
+    }
+
+    function runPreparation(job) {
+        var runtime = job.runtime;
+        var item = job.item;
+        var settings = clientPreparationSettings();
+        if (!settings || typeof window.Worker !== 'function') {
+            fallbackPreparation(job);
+            return;
+        }
+        try {
+            job.worker = new window.Worker(settings.workerUrl);
+        } catch (error) {
+            fallbackPreparation(job);
+            return;
+        }
+        job.timer = window.setTimeout(function () {
+            fallbackPreparation(job);
+        }, settings.recipe.timeoutMs);
+        job.worker.onerror = function () {
+            fallbackPreparation(job);
+        };
+        job.worker.onmessage = function (event) {
+            if (activePreparation !== job || !event.data || event.data.requestId !== job.requestId) {
+                return;
+            }
+            if (event.data.type === 'ready') {
+                var source = item.sourceFile;
+                var preparationSource = source && source.type === 'image/jpeg'
+                    ? source
+                    : source.slice(0, source.size, 'image/jpeg');
+                job.worker.postMessage({
+                    type: 'prepare',
+                    requestId: job.requestId,
+                    file: preparationSource,
+                    recipe: settings.recipe,
+                    maxOutputBytes: runtime.maxFileBytes
+                });
+                return;
+            }
+            if (event.data.type === 'preparing') {
+                setItemState(runtime, item, 'preparing');
+                return;
+            }
+            if (event.data.type === 'prepared') {
+                var blob = event.data.blob;
+                if (!finishPreparation(job)) {
+                    return;
+                }
+                if (!runtimeMayPrepare(runtime) || item.state === 'removed' || item.state === 'removing') {
+                    schedulePreparation();
+                    return;
+                }
+                if (!(blob instanceof Blob) || blob.type !== 'image/jpeg' || blob.size < 1
+                    || blob.size > Math.floor(item.sourceFile.size * (100 - settings.recipe.minimumSavingsPercent) / 100)) {
+                    chooseSourceArtifact(runtime, item);
+                    schedulePreparation();
+                    return;
+                }
+                chooseArtifact(runtime, item, blob, true);
+                schedulePreparation();
+                return;
+            }
+            if (event.data.type === 'use_source') {
+                fallbackPreparation(job);
+                return;
+            }
+            if (event.data.type === 'reject_source') {
+                if (!finishPreparation(job)) {
+                    return;
+                }
+                if (!runtimeMayPrepare(runtime) || item.state === 'removed' || item.state === 'removing') {
+                    schedulePreparation();
+                    return;
+                }
+                item.file = null;
+                item.sourceFile = null;
+                item.artifactChosen = false;
+                setItemState(runtime, item, 'failed', 'Photo exceeds the allowed image dimensions.');
+                schedulePreparation();
+            }
+        };
+        job.worker.postMessage({ type: 'probe', requestId: job.requestId, recipe: settings.recipe });
+    }
+
+    function runtimeMayPrepare(runtime) {
+        return !runtime.clearing && !runtime.destroyed && !runtime.expired && !runtime.unavailable && !runtime.frozen;
+    }
+
+    function schedulePreparation() {
+        if (activePreparation) {
+            return;
+        }
+        while (preparationQueue.length) {
+            var job = preparationQueue.shift();
+            if (runtimeMayPrepare(job.runtime) && job.item.state !== 'removed' && job.item.state !== 'removing') {
+                activePreparation = job;
+                runPreparation(job);
+                return;
+            }
+        }
+    }
+
+    function queuePreparation(runtime, item) {
+        if (!runtimeMayPrepare(runtime)) {
+            return;
+        }
+        item.preparationAttempt += 1;
+        preparationQueue.push({
+            runtime: runtime,
+            item: item,
+            requestId: item.id + ':' + item.preparationAttempt,
+            worker: null,
+            timer: 0
+        });
+        schedulePreparation();
+    }
+
+    function abortPreparation(item) {
+        preparationQueue = preparationQueue.filter(function (job) {
+            return job.item !== item;
+        });
+        if (activePreparation && activePreparation.item === item) {
+            finishPreparation(activePreparation);
+            schedulePreparation();
+        }
+    }
+
+    function abortRuntimePreparation(runtime) {
+        preparationQueue = preparationQueue.filter(function (job) {
+            return job.runtime !== runtime;
+        });
+        if (activePreparation && activePreparation.runtime === runtime) {
+            finishPreparation(activePreparation);
+            schedulePreparation();
+        }
     }
 
     function getFormId(form) {
@@ -183,16 +467,501 @@
         }
     }
 
-    function focusErrors(form) {
-        // Focus summary once, then first invalid control to guide keyboard users.
+    function phoneFormatAttribute() {
+        return dataAttributeName('phone_format');
+    }
+
+    function phoneControls(form) {
+        var attr = phoneFormatAttribute();
+        return attr === '' ? [] : form.querySelectorAll('[' + attr + '="tel_us"]');
+    }
+
+    function zipControls(form) {
+        var attr = dataAttributeName('zip_format');
+        return attr === '' ? [] : form.querySelectorAll('[' + attr + '="zip_us"]');
+    }
+
+    function integerControls(form) {
+        var attr = dataAttributeName('integer_format');
+        return attr === '' ? [] : form.querySelectorAll('[' + attr + '="1"]');
+    }
+
+    function urlControls(form) {
+        var attr = dataAttributeName('url_normalize');
+        return attr === '' ? [] : form.querySelectorAll('[' + attr + '="1"]');
+    }
+
+    function unitControls(form) {
+        var attr = dataAttributeName('input_unit');
+        return attr === '' ? [] : form.querySelectorAll('[' + attr + ']');
+    }
+
+    function phoneDigits(value) {
+        return typeof value === 'string' ? value.replace(/\D/g, '') : '';
+    }
+
+    function phoneGrammarAllowed(value) {
+        if (typeof value !== 'string') {
+            return false;
+        }
+        if (/[^0-9\s().+-]/.test(value)) {
+            return false;
+        }
+        var plusPos = value.indexOf('+');
+        return plusPos === -1 || (plusPos === 0 && value.indexOf('+', 1) === -1);
+    }
+
+    function displayPhoneDigits(digits) {
+        if (digits.length === 11 && digits.charAt(0) === '1') {
+            digits = digits.slice(1);
+        }
+        if (digits.length === 0) {
+            return '';
+        }
+        if (digits.length > 10) {
+            return digits;
+        }
+        if (digits.length < 4) {
+            return '(' + digits;
+        }
+        if (digits.length < 7) {
+            return '(' + digits.slice(0, 3) + ') ' + digits.slice(3);
+        }
+        return '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
+    }
+
+    function normalizedPhoneDigits(value) {
+        if (!phoneGrammarAllowed(value)) {
+            return null;
+        }
+        var original = typeof value === 'string' ? value.trim() : '';
+        var digits = phoneDigits(value);
+        if (digits.length === 0) {
+            return original === '' ? '' : null;
+        }
+        if (digits.length === 11 && digits.charAt(0) === '1') {
+            digits = digits.slice(1);
+        }
+        return digits.length === 10 ? digits : null;
+    }
+
+    function setPhoneValidity(control, clearServerError) {
+        var normalized = normalizedPhoneDigits(control.value);
+        var message = control.value === '' || normalized !== null ? '' : 'Enter a valid 10-digit phone number.';
+        var clientInvalid = control.getAttribute('data-eforms-phone-client-invalid') === '1';
+        if (typeof control.setCustomValidity === 'function') {
+            control.setCustomValidity(message);
+        }
+        if (message !== '') {
+            control.setAttribute('data-eforms-phone-client-invalid', '1');
+            control.setAttribute('aria-invalid', 'true');
+        } else {
+            control.removeAttribute('data-eforms-phone-client-invalid');
+            if (clearServerError === true || (clientInvalid && !control.getAttribute('aria-describedby'))) {
+                control.removeAttribute('aria-invalid');
+            }
+            if (clearServerError === true) {
+                control.removeAttribute('aria-describedby');
+            }
+        }
+    }
+
+    function formatPhoneControl(control, clearServerError) {
+        var digits = phoneDigits(control.value);
+        if (phoneGrammarAllowed(control.value) && (digits.length > 0 || control.value.trim() === '')) {
+            control.value = displayPhoneDigits(digits);
+        }
+        setPhoneValidity(control, clearServerError === true);
+    }
+
+    function normalizePhoneControl(control, clearServerError) {
+        var normalized = normalizedPhoneDigits(control.value);
+        if (normalized !== null) {
+            control.value = normalized;
+        }
+        setPhoneValidity(control, clearServerError === true);
+    }
+
+    function invalidPhoneInsertion(text) {
+        return typeof text === 'string' && /[^0-9\s().+-]/.test(text);
+    }
+
+    function normalizedZipValue(value) {
+        if (typeof value !== 'string') {
+            return null;
+        }
+        value = value.trim();
+        if (value === '') {
+            return '';
+        }
+        if (/^\d{5}$/.test(value)) {
+            return value;
+        }
+        var match = value.match(/^(\d{5})-\d{4}$/);
+        return match ? match[1] : null;
+    }
+
+    function formatZipControl(control) {
+        var normalized = normalizedZipValue(control.value);
+        if (normalized !== null) {
+            control.value = normalized;
+        }
+    }
+
+    function normalizedIntegerValue(value) {
+        if (typeof value !== 'string') {
+            return null;
+        }
+        value = value.trim();
+        if (value === '') {
+            return '';
+        }
+        if (/^\d{1,3}(,\d{3})+$/.test(value)) {
+            return value.replace(/,/g, '');
+        }
+        return /^\d+$/.test(value) ? value : null;
+    }
+
+    function displayIntegerDigits(digits) {
+        return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    function refreshUnitAdornment(control) {
+        var wrapper = control.parentNode;
+        if (!wrapper || !wrapper.classList || !wrapper.classList.contains('eforms-input-unit-wrap')) {
+            return;
+        }
+        var measure = wrapper.querySelector('.eforms-input-unit-measure');
+        var label = wrapper.querySelector('.eforms-input-unit');
+        if (!measure || !label) {
+            return;
+        }
+        measure.textContent = control.value || '';
+        label.hidden = control.value === '';
+        if (label.hidden) {
+            return;
+        }
+        var styles = window.getComputedStyle ? window.getComputedStyle(control) : null;
+        var paddingLeft = styles ? parseFloat(styles.paddingLeft) || 0 : 0;
+        label.style.left = paddingLeft + measure.offsetWidth + 4 + 'px';
+    }
+
+    function formatIntegerControl(control) {
+        var normalized = normalizedIntegerValue(control.value);
+        if (normalized !== null) {
+            control.value = displayIntegerDigits(normalized);
+        }
+        refreshUnitAdornment(control);
+    }
+
+    function normalizeIntegerControl(control) {
+        var normalized = normalizedIntegerValue(control.value);
+        if (normalized !== null) {
+            control.value = normalized;
+        }
+        refreshUnitAdornment(control);
+    }
+
+    function normalizeUrlValue(value) {
+        if (typeof value !== 'string') {
+            return '';
+        }
+        value = value.trim();
+        if (value === '' || /\s/.test(value)) {
+            return value;
+        }
+        if (value.indexOf('://') === -1 && /^[^@/]+\.[^@/]+(?:\/.*)?$/.test(value)) {
+            return 'https://' + value;
+        }
+        return value;
+    }
+
+    function normalizeUrlControl(control) {
+        control.value = normalizeUrlValue(control.value);
+    }
+
+    function syncFriendlyInputDisplay(form) {
+        forEachNode(phoneControls(form), formatPhoneControl);
+        forEachNode(zipControls(form), formatZipControl);
+        forEachNode(integerControls(form), formatIntegerControl);
+        forEachNode(urlControls(form), normalizeUrlControl);
+    }
+
+    function scheduleFriendlyInputSync(form) {
+        [0, 250, 1000, 2000].forEach(function (delay) {
+            window.setTimeout(function () {
+                syncFriendlyInputDisplay(form);
+            }, delay);
+        });
+    }
+
+    function normalizeFriendlyInputSubmitValues(form) {
+        forEachNode(phoneControls(form), function (control) {
+            normalizePhoneControl(control, true);
+        });
+        forEachNode(zipControls(form), formatZipControl);
+        forEachNode(integerControls(form), normalizeIntegerControl);
+        forEachNode(urlControls(form), normalizeUrlControl);
+    }
+
+    function submitControlTarget(node) {
+        while (node && node.nodeType === 1) {
+            var tag = node.tagName ? node.tagName.toLowerCase() : '';
+            var type = typeof node.type === 'string' ? node.type.toLowerCase() : '';
+            if ((tag === 'button' && (type === '' || type === 'submit')) || (tag === 'input' && (type === 'submit' || type === 'image'))) {
+                return true;
+            }
+            node = node.parentNode;
+        }
+        return false;
+    }
+
+    function normalizeUrlsBeforeNativeSubmit(form) {
+        forEachNode(urlControls(form), normalizeUrlControl);
+    }
+
+    function addUnitAdornments(form) {
+        forEachNode(unitControls(form), function (control) {
+            if (control.getAttribute('data-eforms-input-unit-bound') === '1') {
+                return;
+            }
+            var unit = control.getAttribute(dataAttributeName('input_unit'));
+            if (typeof unit !== 'string' || unit === '') {
+                return;
+            }
+            control.setAttribute('data-eforms-input-unit-bound', '1');
+            var wrapper = document.createElement('span');
+            wrapper.className = 'eforms-input-unit-wrap';
+            var measure = document.createElement('span');
+            measure.className = 'eforms-input-unit-measure';
+            measure.setAttribute('aria-hidden', 'true');
+            var label = document.createElement('span');
+            label.className = 'eforms-input-unit';
+            label.setAttribute('aria-hidden', 'true');
+            label.textContent = unit;
+            control.parentNode.insertBefore(wrapper, control);
+            wrapper.appendChild(control);
+            wrapper.appendChild(measure);
+            wrapper.appendChild(label);
+            refreshUnitAdornment(control);
+        });
+    }
+
+    function bindFriendlyInputs(form) {
+        forEachNode(phoneControls(form), function (control) {
+            if (control.getAttribute('data-eforms-phone-format-bound') === '1') {
+                return;
+            }
+            control.setAttribute('data-eforms-phone-format-bound', '1');
+            formatPhoneControl(control);
+            control.addEventListener('beforeinput', function (event) {
+                if (invalidPhoneInsertion(event.data)) {
+                    event.preventDefault();
+                }
+            });
+            control.addEventListener('paste', function (event) {
+                var text = event.clipboardData && typeof event.clipboardData.getData === 'function'
+                    ? event.clipboardData.getData('text')
+                    : '';
+                if (invalidPhoneInsertion(text)) {
+                    event.preventDefault();
+                }
+            });
+            control.addEventListener('input', function () {
+                formatPhoneControl(control, true);
+            });
+            control.addEventListener('change', function () {
+                formatPhoneControl(control, true);
+            });
+            control.addEventListener('blur', function () {
+                formatPhoneControl(control, true);
+            });
+        });
+        forEachNode(zipControls(form), function (control) {
+            if (control.getAttribute('data-eforms-zip-format-bound') === '1') {
+                return;
+            }
+            control.setAttribute('data-eforms-zip-format-bound', '1');
+            formatZipControl(control);
+            control.addEventListener('beforeinput', function (event) {
+                if (typeof event.data === 'string' && /\D/.test(event.data)) {
+                    event.preventDefault();
+                }
+            });
+            control.addEventListener('paste', function (event) {
+                var text = event.clipboardData && typeof event.clipboardData.getData === 'function'
+                    ? event.clipboardData.getData('text')
+                    : '';
+                if (typeof text === 'string' && /[^0-9\s-]/.test(text)) {
+                    event.preventDefault();
+                }
+            });
+            control.addEventListener('input', function () {
+                formatZipControl(control);
+            });
+            control.addEventListener('change', function () {
+                formatZipControl(control);
+            });
+            control.addEventListener('blur', function () {
+                formatZipControl(control);
+            });
+        });
+        forEachNode(integerControls(form), function (control) {
+            if (control.getAttribute('data-eforms-integer-format-bound') === '1') {
+                return;
+            }
+            control.setAttribute('data-eforms-integer-format-bound', '1');
+            formatIntegerControl(control);
+            control.addEventListener('beforeinput', function (event) {
+                if (typeof event.data === 'string' && /[^0-9,]/.test(event.data)) {
+                    event.preventDefault();
+                }
+            });
+            control.addEventListener('paste', function (event) {
+                var text = event.clipboardData && typeof event.clipboardData.getData === 'function'
+                    ? event.clipboardData.getData('text')
+                    : '';
+                if (typeof text === 'string' && /[^0-9,]/.test(text)) {
+                    event.preventDefault();
+                }
+            });
+            control.addEventListener('input', function () {
+                formatIntegerControl(control);
+            });
+            control.addEventListener('blur', function () {
+                formatIntegerControl(control);
+            });
+            control.addEventListener('change', function () {
+                formatIntegerControl(control);
+            });
+        });
+        forEachNode(urlControls(form), function (control) {
+            if (control.getAttribute('data-eforms-url-normalize-bound') === '1') {
+                return;
+            }
+            control.setAttribute('data-eforms-url-normalize-bound', '1');
+            normalizeUrlControl(control);
+            control.addEventListener('blur', function () {
+                normalizeUrlControl(control);
+            });
+            control.addEventListener('change', function () {
+                normalizeUrlControl(control);
+            });
+        });
+        syncFriendlyInputDisplay(form);
+        scheduleFriendlyInputSync(form);
+        addUnitAdornments(form);
+        if (form.getAttribute('data-eforms-friendly-inputs-submit-bound') === '1') {
+            return;
+        }
+        form.setAttribute('data-eforms-friendly-inputs-submit-bound', '1');
+        form.addEventListener('click', function (event) {
+            if (submitControlTarget(event.target)) {
+                normalizeUrlsBeforeNativeSubmit(form);
+            }
+        }, true);
+        form.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter') {
+                normalizeUrlsBeforeNativeSubmit(form);
+            }
+        }, true);
+        form.addEventListener('invalid', function () {
+            syncFriendlyInputDisplay(form);
+        }, true);
+        form.addEventListener('submit', function () {
+            normalizeFriendlyInputSubmitValues(form);
+            window.setTimeout(function () {
+                syncFriendlyInputDisplay(form);
+            }, 0);
+        });
+    }
+
+    function focusErrors(form, focusFirstInvalid) {
+        // Focus summary once, then optionally first invalid control to guide keyboard users.
         var summary = form.querySelector('.eforms-error-summary');
         if (summary) {
             summary.focus();
         }
 
+        if (focusFirstInvalid === false) {
+            return;
+        }
         var firstInvalid = form.querySelector('[aria-invalid="true"]');
         if (firstInvalid && typeof firstInvalid.focus === 'function') {
             firstInvalid.focus();
+        }
+    }
+
+    function buttonSpinnerLayout(button) {
+        if (!window.getComputedStyle) {
+            return 'inline';
+        }
+        var display = window.getComputedStyle(button).display;
+        if (display === 'block' || display === 'flex' || display === 'grid' || display === 'inline-block' || display === 'inline-flex' || display === 'inline-grid') {
+            return display;
+        }
+        return 'inline';
+    }
+
+    function ensureSubmitLabel(button) {
+        if (button.querySelector('.eforms-submit-label')) {
+            return;
+        }
+        var label = document.createElement('span');
+        label.className = 'eforms-submit-label';
+        while (button.firstChild) {
+            label.appendChild(button.firstChild);
+        }
+        button.appendChild(label);
+    }
+
+    function updateSubmitSpinnerOffset(button) {
+        var label = button.querySelector('.eforms-submit-label');
+        if (!label || typeof label.getBoundingClientRect !== 'function') {
+            return;
+        }
+        button.style.setProperty('--eforms-submit-label-half', (label.getBoundingClientRect().width / 2) + 'px');
+    }
+
+    function restoreSubmitLabel(button) {
+        var label = button.querySelector('.eforms-submit-label');
+        if (!label || button.querySelector('.eforms-spinner')) {
+            return;
+        }
+        while (label.firstChild) {
+            button.insertBefore(label.firstChild, label);
+        }
+        if (label.parentNode) {
+            label.parentNode.removeChild(label);
+        }
+        button.style.removeProperty('--eforms-submit-label-half');
+    }
+
+    function addButtonSpinner(button, markerAttribute) {
+        if (button.tagName.toLowerCase() !== 'button' || button.querySelector('.eforms-spinner')) {
+            return;
+        }
+        button.setAttribute('data-eforms-spinner-button', buttonSpinnerLayout(button));
+        ensureSubmitLabel(button);
+        updateSubmitSpinnerOffset(button);
+        var spinner = document.createElement('span');
+        spinner.className = 'eforms-spinner';
+        spinner.setAttribute('aria-hidden', 'true');
+        if (markerAttribute) {
+            spinner.setAttribute(markerAttribute, '1');
+        }
+        button.appendChild(spinner);
+    }
+
+    function removeButtonSpinners(button, selector) {
+        forEachNode(button.querySelectorAll(selector), function (spinner) {
+            if (spinner.parentNode) {
+                spinner.parentNode.removeChild(spinner);
+            }
+        });
+        if (!button.querySelector('.eforms-spinner')) {
+            button.removeAttribute('data-eforms-spinner-button');
+            restoreSubmitLabel(button);
         }
     }
 
@@ -207,16 +976,567 @@
                     return;
                 }
                 button.disabled = true;
-                if (button.tagName.toLowerCase() !== 'button') {
-                    return;
+                addButtonSpinner(button, null);
+            });
+        });
+    }
+
+    function focusErrorSummary(form) {
+        focusErrors(form, false);
+    }
+
+    function enhancedSettings() {
+        var configured = protocol().enhancedResponse;
+        var response = configured && configured.response;
+        var names = ['ok', 'location', 'errors', 'global', 'fields', 'error', 'code', 'message', 'canRetry', 'uploadRecovery', 'state', 'open', 'finalizingRecovery', 'challenge', 'provider', 'siteKey'];
+        if (!configured || typeof configured.header !== 'string' || configured.header === ''
+            || typeof configured.value !== 'string' || configured.value === ''
+            || !response || !names.every(function (key) {
+                return typeof response[key] === 'string' && response[key] !== '';
+            })) {
+            return null;
+        }
+        return configured;
+    }
+
+    function enhancedCapabilityAvailable(form) {
+        var state = form.__eformsUploadState;
+        return Boolean(window.fetch && window.FormData && window.URL && enhancedSettings()
+            && state && Array.isArray(state.runtimes) && state.runtimes.length > 0);
+    }
+
+    function setEnhancedPending(form, pending, enableSubmit) {
+        var buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+        forEachNode(buttons, function (button) {
+            if (pending) {
+                if (!button.disabled) {
+                    button.disabled = true;
+                    button.setAttribute('data-eforms-enhanced-disabled', '1');
                 }
-                if (button.querySelector('.eforms-spinner')) {
-                    return;
+                addButtonSpinner(button, 'data-eforms-enhanced-spinner');
+                return;
+            }
+            if (button.getAttribute('data-eforms-enhanced-disabled') === '1' && enableSubmit !== false) {
+                button.disabled = false;
+                button.removeAttribute('data-eforms-enhanced-disabled');
+            }
+            removeButtonSpinners(button, '[data-eforms-enhanced-spinner="1"]');
+        });
+    }
+
+    function fieldNodes(form, attribute, value) {
+        var nodes = [];
+        forEachNode(form.querySelectorAll('[' + attribute + ']'), function (node) {
+            if (node.getAttribute(attribute) === value) {
+                nodes.push(node);
+            }
+        });
+        return nodes;
+    }
+
+    function fieldEntryMessage(entry, response) {
+        return entry[response.message];
+    }
+
+    function clearEnhancedErrors(form) {
+        var attrs = protocol().dataAttributes || {};
+        if (!attrs.field_control || !attrs.field_error_mount) {
+            return;
+        }
+        forEachNode(form.querySelectorAll('[' + attrs.field_control + '="1"]'), function (control) {
+            control.removeAttribute('aria-invalid');
+            control.removeAttribute('aria-describedby');
+        });
+        forEachNode(form.querySelectorAll('[' + attrs.field_error_mount + '="1"]'), function (mount) {
+            mount.textContent = '';
+            mount.hidden = true;
+        });
+        var summary = form.querySelector('.eforms-error-summary');
+        if (summary && summary.parentNode) {
+            summary.parentNode.removeChild(summary);
+        }
+    }
+
+    function nativeFormValid(form) {
+        if (form.noValidate) {
+            return true;
+        }
+        return typeof form.checkValidity !== 'function' || form.checkValidity();
+    }
+
+    function addClientValidation(form) {
+        if (form.getAttribute('data-eforms-client-validation') === '1') {
+            return;
+        }
+        form.setAttribute('data-eforms-client-validation', '1');
+        if (!form.hasAttribute('novalidate')) {
+            form.noValidate = false;
+        }
+        form.addEventListener('invalid', function () {
+            syncFriendlyInputDisplay(form);
+        }, true);
+    }
+
+    function validErrorEntries(entries, response) {
+        return Array.isArray(entries) && entries.every(function (entry) {
+            return entry && typeof entry === 'object'
+                && typeof entry[response.code] === 'string'
+                && typeof entry[response.message] === 'string';
+        });
+    }
+
+    function applyCorrectableErrors(form, payload, settings) {
+        var response = settings.response;
+        var errors = payload[response.errors];
+        if (!errors || typeof errors !== 'object'
+            || !validErrorEntries(errors[response.global], response)
+            || !errors[response.fields] || typeof errors[response.fields] !== 'object'
+            || Array.isArray(errors[response.fields])) {
+            return false;
+        }
+        var attrs = protocol().dataAttributes || {};
+        if (typeof attrs.field_key !== 'string' || typeof attrs.field_control !== 'string' || typeof attrs.field_error_mount !== 'string') {
+            return false;
+        }
+        clearEnhancedErrors(form);
+        var summary = ensureErrorSummary(form);
+        var messages = [ENHANCED_CORRECTABLE_MESSAGE].concat(errors[response.global].map(function (entry) { return entry[response.message]; }));
+        Object.keys(errors[response.fields]).forEach(function (key) {
+            var entries = errors[response.fields][key];
+            if (!validErrorEntries(entries, response)) {
+                messages = null;
+                return;
+            }
+            var controls = fieldNodes(form, attrs.field_key, key).filter(function (node) {
+                return node.getAttribute(attrs.field_control) === '1';
+            });
+            var mounts = fieldNodes(form, attrs.field_key, key).filter(function (node) {
+                return node.getAttribute(attrs.field_error_mount) === '1';
+            });
+            if (!controls.length || !mounts.length) {
+                messages = null;
+                return;
+            }
+            var text = entries.map(function (entry) { return fieldEntryMessage(entry, response); }).join(' ');
+            forEachNode(mounts, function (mount) {
+                mount.classList.add('eforms-field-error');
+                mount.textContent = text;
+                mount.hidden = false;
+            });
+            forEachNode(controls, function (control) {
+                control.setAttribute('aria-invalid', 'true');
+                control.setAttribute('aria-describedby', mounts[0].id);
+            });
+            messages.push({ text: text, control: controls[0] });
+        });
+        if (!messages) {
+            clearEnhancedErrors(form);
+            return false;
+        }
+        var list = summary;
+        forEachNode(messages, function (entry) {
+            var item = document.createElement('li');
+            if (typeof entry === 'string') {
+                item.textContent = entry;
+            } else {
+                var link = document.createElement('a');
+                link.textContent = entry.text;
+                if (entry.control.id) {
+                    link.href = '#' + entry.control.id;
                 }
-                var spinner = document.createElement('span');
-                spinner.className = 'eforms-spinner';
-                spinner.setAttribute('aria-hidden', 'true');
-                button.appendChild(spinner);
+                item.appendChild(link);
+            }
+            list.appendChild(item);
+        });
+        return true;
+    }
+
+    function thawRuntime(runtime) {
+        if (runtime.destroyed || runtime.expired || runtime.unavailable) {
+            return;
+        }
+        runtime.frozen = false;
+        runtime.mount.removeAttribute('data-eforms-upload-frozen');
+        runtime.picker.disabled = false;
+        runtime.chooseButton.disabled = false;
+        runtime.clearButton.disabled = false;
+        forEachNode(runtime.items, function (item) {
+            renderItem(runtime, item);
+        });
+        updateFormUploadState(runtime.form);
+    }
+
+    function normalizedEnhancedRecoveryState(state, settings) {
+        if (state === settings.response.open) {
+            return 'open';
+        }
+        if (state === settings.response.finalizingRecovery) {
+            return 'finalizing';
+        }
+        return '';
+    }
+
+    function normalizedUploadStatusState(state) {
+        if (state === 'open') {
+            return 'open';
+        }
+        if (state === 'finalizing') {
+            return 'finalizing';
+        }
+        return '';
+    }
+
+    function applyKnownRecoveryStates(statuses) {
+        forEachNode(statuses, function (status) {
+            if (status.state === 'open' || status.state === 'not_created') {
+                thawRuntime(status.runtime);
+                return;
+            }
+            freezeForSubmit(status.runtime);
+        });
+    }
+
+    function freezeEnhancedRuntimes(form) {
+        var formState = form.__eformsUploadState;
+        var runtimes = formState ? formState.runtimes : [];
+        forEachNode(runtimes, freezeForSubmit);
+    }
+
+    function applyRecoveryState(form, state, settings) {
+        var formState = form.__eformsUploadState;
+        var runtimes = formState ? formState.runtimes : [];
+        var normalized = normalizedEnhancedRecoveryState(state, settings);
+        if (!runtimes.length || !normalized) {
+            return false;
+        }
+        applyKnownRecoveryStates(runtimes.map(function (runtime) {
+            return { runtime: runtime, state: normalized };
+        }));
+        return true;
+    }
+
+    function clearEnhancedPendingForNavigation(form, clearNavigating) {
+        form.removeAttribute('data-eforms-enhanced-pending');
+        if (clearNavigating === true) {
+            form.removeAttribute('data-eforms-enhanced-navigating');
+        }
+        setEnhancedPending(form, false, true);
+    }
+
+    function safeNavigate(form, location) {
+        if (typeof location !== 'string' || form.getAttribute('data-eforms-enhanced-navigating') === '1') {
+            return false;
+        }
+        try {
+            var target = new URL(location, window.location.href);
+            if (target.origin !== window.location.origin) {
+                return false;
+            }
+            var result = target.searchParams.get('eforms_result');
+            var formId = target.searchParams.get('eforms_form');
+            if ((result !== 'success' && result !== 'email_failure') || typeof formId !== 'string' || formId === '') {
+                return false;
+            }
+            form.setAttribute('data-eforms-enhanced-navigating', '1');
+            window.location.assign(target.href);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function activateChallenge(form, challenge, settings) {
+        var response = settings.response;
+        if (challenge === null) {
+            clearChallenge(form);
+            return true;
+        }
+        if (!challenge || challenge[response.provider] !== 'turnstile' || typeof challenge[response.siteKey] !== 'string' || challenge[response.siteKey] === '') {
+            return false;
+        }
+        var attrs = protocol().dataAttributes || {};
+        if (typeof attrs.challenge_mount !== 'string') {
+            return false;
+        }
+        var mount = null;
+        forEachNode(form.querySelectorAll('[' + attrs.challenge_mount + ']'), function (candidate) {
+            if (!mount && (candidate.getAttribute(attrs.challenge_mount) === 'turnstile' || candidate.getAttribute(attrs.challenge_mount) === '1')) {
+                mount = candidate;
+            }
+        });
+        if (!mount) {
+            return false;
+        }
+        mount.hidden = false;
+        if (mount.getAttribute('data-eforms-challenge-rendered') === '1') {
+            clearChallengeResponse(form);
+            if (window.turnstile && typeof window.turnstile.reset === 'function') {
+                window.turnstile.reset(mount.getAttribute('data-eforms-challenge-widget-id') || undefined);
+                return true;
+            }
+            mount.removeAttribute('data-eforms-challenge-rendered');
+            mount.removeAttribute('data-eforms-challenge-widget-id');
+            mount.textContent = '';
+        }
+        if (!window.turnstile || typeof window.turnstile.render !== 'function') {
+            return false;
+        }
+        var widget = document.createElement('div');
+        widget.className = 'cf-turnstile';
+        widget.setAttribute('data-sitekey', challenge[response.siteKey]);
+        mount.textContent = '';
+        mount.appendChild(widget);
+        mount.setAttribute('data-eforms-challenge-rendered', '1');
+        var widgetId = window.turnstile.render(widget, { sitekey: challenge[response.siteKey] });
+        if (typeof widgetId === 'string' && widgetId !== '') {
+            mount.setAttribute('data-eforms-challenge-widget-id', widgetId);
+        }
+        return true;
+    }
+
+    function validTurnstileChallenge(challenge, settings) {
+        var response = settings.response;
+        return Boolean(challenge
+            && challenge[response.provider] === 'turnstile'
+            && typeof challenge[response.siteKey] === 'string'
+            && challenge[response.siteKey] !== '');
+    }
+
+    function needsServerRenderedChallenge(challenge, settings) {
+        return validTurnstileChallenge(challenge, settings)
+            && (!window.turnstile || typeof window.turnstile.render !== 'function');
+    }
+
+    function submitServerRenderedChallenge(form) {
+        form.setAttribute('data-eforms-enhanced-navigating', '1');
+        try {
+            if (window.HTMLFormElement
+                && window.HTMLFormElement.prototype
+                && typeof window.HTMLFormElement.prototype.submit === 'function') {
+                window.HTMLFormElement.prototype.submit.call(form);
+                return true;
+            }
+        } catch (error) {
+            return false;
+        }
+        return false;
+    }
+
+    function clearChallenge(form) {
+        clearChallengeResponse(form, true);
+        var attrs = protocol().dataAttributes || {};
+        if (typeof attrs.challenge_mount !== 'string') {
+            return;
+        }
+        forEachNode(form.querySelectorAll('[' + attrs.challenge_mount + ']'), function (mount) {
+            mount.hidden = true;
+            mount.removeAttribute('data-eforms-challenge-rendered');
+            mount.removeAttribute('data-eforms-challenge-widget-id');
+            mount.textContent = '';
+        });
+    }
+
+    function clearChallengeResponse(form, removeControl) {
+        forEachNode(form.querySelectorAll('input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]'), function (control) {
+            control.value = '';
+            if (removeControl === true && control.parentNode) {
+                control.parentNode.removeChild(control);
+            }
+        });
+    }
+
+    function enhancedRecoveryOutcome(sendEnabled, blocked) {
+        return { sendEnabled: sendEnabled === true, blocked: blocked === true };
+    }
+
+    function statusCheckResult(runtime, settings) {
+        if (!runtime.batchId || !runtime.secret) {
+            return Promise.resolve({ runtime: runtime, state: 'not_created' });
+        }
+        return fetch(managedUrl('/' + encodeURIComponent(runtime.batchId)), {
+            method: 'GET',
+            headers: uploadHeaders(runtime),
+            credentials: 'same-origin'
+        }).then(function (response) {
+            if (response.status === 410) {
+                unavailableRuntime(runtime);
+                return { runtime: runtime, state: 'blocked' };
+            }
+            return response.json().catch(function () { return null; }).then(function (payload) {
+                var state = payload && normalizedUploadStatusState(payload[uploadResponseName('state')]);
+                if (response.status === 200 && state) {
+                    return { runtime: runtime, state: state };
+                }
+                if (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+                    unavailableRuntime(runtime);
+                    return { runtime: runtime, state: 'blocked' };
+                }
+                return { runtime: runtime, state: 'check_failed' };
+            });
+        }).catch(function () {
+            return { runtime: runtime, state: 'check_failed' };
+        });
+    }
+
+    function reconcileEnhancedSubmission(form, settings) {
+        var formState = form.__eformsUploadState;
+        var runtimes = formState ? formState.runtimes : [];
+        if (!runtimes.length) {
+            return Promise.resolve(enhancedRecoveryOutcome(false, true));
+        }
+        return Promise.all(runtimes.map(function (runtime) {
+            return statusCheckResult(runtime, settings);
+        })).then(function (statuses) {
+            if (statuses.some(function (status) { return status.state === 'check_failed'; })) {
+                freezeEnhancedRuntimes(form);
+                return enhancedRecoveryOutcome(true, false);
+            }
+            if (statuses.some(function (status) { return status.state === 'blocked'; })) {
+                freezeEnhancedRuntimes(form);
+                return enhancedRecoveryOutcome(false, true);
+            }
+            applyKnownRecoveryStates(statuses);
+            return enhancedRecoveryOutcome(true, false);
+        });
+    }
+
+    function appendSummaryText(list, text) {
+        if (typeof text !== 'string' || text === '') {
+            return null;
+        }
+        var item = document.createElement('li');
+        item.textContent = text;
+        list.appendChild(item);
+        return item;
+    }
+
+    function showEnhancedMessage(form, text) {
+        clearEnhancedErrors(form);
+        appendSummaryText(ensureErrorSummary(form), text);
+    }
+
+
+
+    function thawEnhancedRuntimes(form) {
+        var formState = form.__eformsUploadState;
+        var runtimes = formState ? formState.runtimes : [];
+        forEachNode(runtimes, thawRuntime);
+    }
+
+    function restoreEnhancedSubmission(form, enableSubmit, enableUploads) {
+        form.removeAttribute('data-eforms-enhanced-pending');
+        if (enableUploads === true) {
+            thawEnhancedRuntimes(form);
+        }
+        setEnhancedPending(form, false, enableSubmit === true);
+        focusErrorSummary(form);
+    }
+
+    function restoreAmbiguousSubmission(form, settings) {
+        return reconcileEnhancedSubmission(form, settings).then(function (outcome) {
+            showEnhancedMessage(form, outcome.blocked ? ENHANCED_BLOCKED_MESSAGE : ENHANCED_RETRY_MESSAGE);
+            restoreEnhancedSubmission(form, outcome.sendEnabled);
+        });
+    }
+
+    function handleEnhancedResponse(form, result, settings) {
+        var response = settings.response;
+        var payload = result.payload;
+        if (result.status >= 300 && result.status < 400 && typeof result.location === 'string' && safeNavigate(form, result.location)) {
+            return Promise.resolve();
+        }
+        if (!payload || typeof payload !== 'object') {
+            return restoreAmbiguousSubmission(form, settings);
+        }
+        if (payload[response.ok] === true && typeof payload[response.location] === 'string') {
+            if (!safeNavigate(form, payload[response.location])) {
+                return restoreAmbiguousSubmission(form, settings);
+            }
+            return Promise.resolve();
+        }
+        if (result.status === 422 && payload[response.ok] === false) {
+            var recovery = payload[response.uploadRecovery];
+            var state = recovery && typeof recovery === 'object' ? recovery[response.state] : null;
+            if (!applyCorrectableErrors(form, payload, settings)) {
+                return restoreAmbiguousSubmission(form, settings);
+            }
+            if (needsServerRenderedChallenge(payload[response.challenge], settings)) {
+                if (submitServerRenderedChallenge(form)) {
+                    return Promise.resolve();
+                }
+                return restoreAmbiguousSubmission(form, settings);
+            }
+            if (!activateChallenge(form, payload[response.challenge], settings)) {
+                return restoreAmbiguousSubmission(form, settings);
+            }
+            if (state !== null && applyRecoveryState(form, state, settings)) {
+                restoreEnhancedSubmission(form, true);
+                return Promise.resolve();
+            }
+            return reconcileEnhancedSubmission(form, settings).then(function (outcome) {
+                restoreEnhancedSubmission(form, outcome.sendEnabled);
+            });
+        }
+        var failure = payload[response.error];
+        var structured = payload[response.ok] === false && failure && typeof failure === 'object'
+            && typeof failure[response.code] === 'string' && typeof failure[response.message] === 'string'
+            && typeof payload[response.canRetry] === 'boolean'
+            && (payload[response.location] === null || typeof payload[response.location] === 'string');
+        if (structured) {
+            if (typeof payload[response.location] === 'string' && safeNavigate(form, payload[response.location])) {
+                return Promise.resolve();
+            }
+            showEnhancedMessage(form, failure[response.message]);
+            restoreEnhancedSubmission(form, payload[response.canRetry] === true, payload[response.canRetry] === true);
+            return Promise.resolve();
+        }
+        return restoreAmbiguousSubmission(form, settings);
+    }
+
+    function addEnhancedSubmitHandler(form) {
+        if (!enhancedCapabilityAvailable(form) || form.getAttribute('data-eforms-enhanced-handler') === '1') {
+            return;
+        }
+        form.setAttribute('data-eforms-enhanced-handler', '1');
+        form.addEventListener('submit', function (event) {
+            if (event.defaultPrevented || !event.cancelable) {
+                return;
+            }
+            if (form.getAttribute('data-eforms-enhanced-pending') === '1' || form.getAttribute('data-eforms-enhanced-navigating') === '1') {
+                event.preventDefault();
+                return;
+            }
+            if (!enhancedCapabilityAvailable(form)) {
+                return;
+            }
+            event.preventDefault();
+            if (!nativeFormValid(form)) {
+                return;
+            }
+            form.setAttribute('data-eforms-enhanced-pending', '1');
+            setEnhancedPending(form, true);
+            var settings = enhancedSettings();
+            var headers = {};
+            headers[settings.header] = settings.value;
+            fetch(form.action || window.location.href, {
+                method: (form.method || 'post').toUpperCase(),
+                headers: headers,
+                body: new FormData(form),
+                credentials: 'same-origin',
+                redirect: 'manual'
+            }).then(function (response) {
+                return response.json().catch(function () { return null; }).then(function (payload) {
+                    return {
+                        status: response.status,
+                        payload: payload,
+                        location: response.headers && typeof response.headers.get === 'function' ? response.headers.get('Location') : null,
+                        type: response.type
+                    };
+                });
+            }).then(function (result) {
+                return handleEnhancedResponse(form, result, settings);
+            }).catch(function () {
+                return restoreAmbiguousSubmission(form, settings);
             });
         });
     }
@@ -318,38 +1638,24 @@
         }
 
         try {
-            var payload = JSON.parse(raw);
-            if (!payload || typeof payload !== 'object') {
-                removeCachedToken(formId);
-                return null;
-            }
-
-            var token = typeof payload[mintResponseKey('token')] === 'string' ? payload[mintResponseKey('token')] : '';
-            var instanceId = typeof payload[mintResponseKey('instance_id')] === 'string' ? payload[mintResponseKey('instance_id')] : '';
-            var timestamp = parseInt(payload[mintResponseKey('timestamp')], 10);
-            var expires = parseInt(payload[mintResponseKey('expires')], 10);
-            if (!token || !instanceId || isNaN(timestamp) || isNaN(expires)) {
+            var parsed = parseMintPayload(JSON.parse(raw));
+            if (!parsed) {
                 removeCachedToken(formId);
                 return null;
             }
 
             var now = nowSeconds();
-            if (expires <= now) {
+            if (parsed.expires <= now) {
                 removeCachedToken(formId);
                 return null;
             }
 
-            if (ttlMax > 0 && expires - timestamp > ttlMax) {
+            if (ttlMax > 0 && parsed.expires - parseInt(parsed.timestamp, 10) > ttlMax) {
                 removeCachedToken(formId);
                 return null;
             }
 
-            return {
-                token: token,
-                instance_id: instanceId,
-                timestamp: String(timestamp),
-                expires: expires
-            };
+            return parsed;
         } catch (error) {
             removeCachedToken(formId);
             return null;
@@ -628,6 +1934,14 @@
         return match ? match[1] : '';
     }
 
+    function uploadMime(item) {
+        var extension = fileExtension(item && item.name);
+        var managed = uploadProtocol();
+        return managed && typeof managed.mimeByExtension[extension] === 'string'
+            ? managed.mimeByExtension[extension]
+            : '';
+    }
+
     function base64Url(bytes) {
         var binary = '';
         for (var i = 0; i < bytes.length; i += 1) {
@@ -699,14 +2013,17 @@
     }
 
     function stateLabel(item) {
+        if (item.state === 'preparing') {
+            return 'Preparing photo...';
+        }
         if (item.state === 'uploading') {
             return 'Uploading';
         }
-        if (item.state === 'processing') {
-            return 'Processing';
+        if (item.state === 'verifying') {
+            return 'Finishing upload...';
         }
         if (item.state === 'uploaded') {
-            return item.previewUnavailable ? '\u2713 Uploaded (preview unavailable)' : '\u2713 Uploaded';
+            return item.previewUnavailable ? 'Uploaded (preview unavailable)' : 'Uploaded';
         }
         if (item.state === 'failed') {
             return item.error || 'Upload failed';
@@ -736,6 +2053,7 @@
             var image = document.createElement('img');
             image.className = 'eforms-upload-preview';
             image.alt = item.previewUnavailable ? 'Preview unavailable' : '';
+            bindPreviewError(runtime, item, image, item.previewRequest || 0);
             if (item.objectUrl) {
                 image.src = item.objectUrl;
             }
@@ -748,6 +2066,24 @@
             progress.setAttribute('aria-valuemin', '0');
             progress.setAttribute('aria-valuemax', '100');
             media.appendChild(progress);
+
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'eforms-upload-remove';
+            var removeIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            removeIcon.classList.add('eforms-upload-remove-icon');
+            removeIcon.setAttribute('viewBox', '0 0 24 24');
+            removeIcon.setAttribute('aria-hidden', 'true');
+            removeIcon.setAttribute('focusable', 'false');
+            var removeGlyph = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            removeGlyph.setAttribute('d', 'M7 7l10 10M17 7 7 17');
+            removeIcon.appendChild(removeGlyph);
+            remove.appendChild(removeIcon);
+            remove.setAttribute('aria-label', 'Remove ' + item.name);
+            remove.addEventListener('click', function () {
+                removeItem(runtime, item);
+            });
+            media.appendChild(remove);
             card.appendChild(media);
 
             var details = document.createElement('div');
@@ -772,15 +2108,6 @@
                 retryItem(runtime, item);
             });
             actions.appendChild(retry);
-            var remove = document.createElement('button');
-            remove.type = 'button';
-            remove.className = 'eforms-upload-remove';
-            remove.textContent = 'Remove';
-            remove.setAttribute('aria-label', 'Remove ' + item.name);
-            remove.addEventListener('click', function () {
-                removeItem(runtime, item);
-            });
-            actions.appendChild(remove);
             card.appendChild(actions);
             runtime.grid.appendChild(card);
 
@@ -789,10 +2116,12 @@
             item.nameNode = name;
             item.progressNode = progress;
             item.statusNode = status;
+            item.actionsNode = actions;
             item.retryButton = retry;
             item.removeButton = remove;
         }
 
+        item.card.setAttribute('data-eforms-upload-id', item.id);
         item.card.setAttribute('data-eforms-upload-state', item.state);
         if (item.previewUnavailable) {
             item.card.setAttribute('data-eforms-upload-preview', 'unavailable');
@@ -805,11 +2134,13 @@
         item.progressNode.setAttribute('aria-label', 'Upload progress for ' + item.name);
         item.removeButton.setAttribute('aria-label', 'Remove ' + item.name);
         item.statusNode.textContent = stateLabel(item);
+        item.statusNode.classList.toggle('screen-reader-text', item.state === 'uploaded' && !item.previewUnavailable);
         item.progressNode.textContent = item.progress + '%';
         item.progressNode.setAttribute('aria-valuenow', String(item.progress));
         item.progressNode.style.background = 'conic-gradient(var(--eforms-upload-accent) ' + (item.progress * 3.6) + 'deg, var(--eforms-upload-track) 0)';
-        item.progressNode.hidden = item.state !== 'uploading' && item.state !== 'processing';
-        item.retryButton.hidden = item.state !== 'failed' || runtime.frozen || runtime.expired || runtime.unavailable || !item.file;
+        item.progressNode.hidden = item.state !== 'uploading' && item.state !== 'verifying';
+        item.retryButton.hidden = item.state !== 'failed' || runtime.frozen || runtime.expired || runtime.unavailable || (!item.file && !item.sourceFile);
+        item.actionsNode.hidden = item.retryButton.hidden;
         item.removeButton.hidden = item.state === 'removed' || runtime.frozen || runtime.unavailable;
         item.removeButton.disabled = item.state === 'removing';
     }
@@ -821,9 +2152,6 @@
         var changed = item.state !== state;
         item.state = state;
         item.error = typeof error === 'string' ? error.slice(0, 160) : '';
-        if (state === 'processing') {
-            item.progress = 100;
-        }
         renderItem(runtime, item);
         if (changed && state !== 'queued') {
             var announcement = state === 'uploading' ? 'Upload started' : stateLabel(item);
@@ -848,17 +2176,21 @@
         captureSubmitLabels(formState);
         forEachNode(formState.submitLabels, function (entry) {
             if (entry.node.tagName.toLowerCase() === 'button') {
-                entry.node.textContent = waiting ? 'WAITING FOR PHOTOS' : entry.value;
+                entry.node.textContent = waiting ? 'Finishing photos...' : entry.value;
             } else {
-                entry.node.value = waiting ? 'WAITING FOR PHOTOS' : entry.value;
+                entry.node.value = waiting ? 'Finishing photos...' : entry.value;
             }
         });
+    }
+
+    function requiredUploadMissing(runtime) {
+        return runtime.required === true && runtime.items.length === 0;
     }
 
     function unresolvedItem(runtime) {
         for (var i = 0; i < runtime.items.length; i += 1) {
             var state = runtime.items[i].state;
-            if (state !== 'uploaded' && state !== 'removed') {
+            if (state !== 'uploaded') {
                 return runtime.items[i];
             }
         }
@@ -876,15 +2208,18 @@
         }
         var waiting = false;
         forEachNode(formState.runtimes, function (runtime) {
-            var selected = runtime.items.filter(function (item) {
-                return item.state !== 'removed';
-            }).length;
+            var selected = runtime.items.length;
             if (unresolvedItem(runtime) || restoreBlocked(runtime) || runtime.expired || runtime.unavailable) {
                 waiting = true;
             }
             runtime.countStatus.textContent = selected > 0 ? selected + ' of ' + runtime.maxFiles + ' photos selected' : '';
-            runtime.clearButton.hidden = restoreBlocked(runtime) || runtime.frozen || runtime.unavailable || runtime.items.every(function (item) {
-                return item.state === 'removed';
+            if (requiredUploadMissing(runtime) && runtime.requiredPrompted && runtime.fieldStatus.textContent === '') {
+                runtime.fieldStatus.textContent = 'Add at least one photo.';
+            } else if (!requiredUploadMissing(runtime) && runtime.fieldStatus.textContent === 'Add at least one photo.') {
+                runtime.fieldStatus.textContent = '';
+            }
+            runtime.clearButton.hidden = restoreBlocked(runtime) || runtime.frozen || runtime.unavailable || runtime.items.length === 0 || runtime.items.every(function (item) {
+                return item.state === 'removing';
             });
         });
         showWaitingLabel(formState, waiting);
@@ -948,6 +2283,7 @@
             return;
         }
         runtime.expired = true;
+        abortRuntimePreparation(runtime);
         runtime.restoreState = 'terminal';
         runtime.mount.removeAttribute('data-eforms-upload-restoring');
         runtime.mount.removeAttribute('data-eforms-upload-restore-failed');
@@ -956,6 +2292,9 @@
         runtime.chooseButton.textContent = 'Browse photos';
         runtime.mount.setAttribute('data-eforms-upload-expired', '1');
         runtime.fieldStatus.textContent = 'Form expired\u2014reload and select your photos again.';
+        forEachNode(runtime.items, function (item) {
+            renderItem(runtime, item);
+        });
         fieldAnnouncement(runtime, 'Form expired\u2014reload and select your photos again.');
         updateFormUploadState(runtime.form);
     }
@@ -965,6 +2304,7 @@
             return;
         }
         runtime.unavailable = true;
+        abortRuntimePreparation(runtime);
         runtime.restoreState = 'terminal';
         runtime.mount.removeAttribute('data-eforms-upload-restoring');
         runtime.mount.removeAttribute('data-eforms-upload-restore-failed');
@@ -1005,6 +2345,55 @@
         setRuntimeExpiry(runtime, runtime.recoveryUntil);
     }
 
+    function updateLimitLabel(runtime) {
+        if (runtime.limitsStatus) {
+            runtime.limitsStatus.textContent = 'Limits: ' + runtime.maxFiles + ' photos \u00b7 ' + uploadSizeLabel(runtime.maxFileBytes) + ' each \u00b7 ' + uploadSizeLabel(runtime.maxTotalBytes) + ' total';
+        }
+    }
+
+    function applyServerLimits(runtime, payload) {
+        var limits = payload && payload[uploadResponseName('limits')];
+        var maxFileBytes = limits && limits[uploadResponseName('maxFileBytes')];
+        var maxFiles = limits && limits[uploadResponseName('maxFiles')];
+        var maxTotalBytes = limits && limits[uploadResponseName('maxTotalBytes')];
+        if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes <= 0
+            || !Number.isSafeInteger(maxFiles) || maxFiles <= 0
+            || !Number.isSafeInteger(maxTotalBytes) || maxTotalBytes <= 0
+            || maxFiles > Math.floor(Number.MAX_SAFE_INTEGER / maxFileBytes)
+            || maxTotalBytes > maxFileBytes * maxFiles) {
+            return false;
+        }
+        runtime.maxFileBytes = maxFileBytes;
+        runtime.maxFiles = maxFiles;
+        runtime.maxTotalBytes = maxTotalBytes;
+        updateLimitLabel(runtime);
+        updateFormUploadState(runtime.form);
+        return true;
+    }
+
+    function beginRuntimeFetch(runtime) {
+        abortRuntimeFetch(runtime);
+        var request = {
+            controller: typeof AbortController === 'function' ? new AbortController() : null
+        };
+        runtime.runtimeRequest = request;
+        return request;
+    }
+
+    function clearRuntimeFetch(runtime, request) {
+        if (runtime.runtimeRequest === request) {
+            runtime.runtimeRequest = null;
+        }
+    }
+
+    function abortRuntimeFetch(runtime) {
+        var request = runtime.runtimeRequest;
+        runtime.runtimeRequest = null;
+        if (request && request.controller) {
+            request.controller.abort();
+        }
+    }
+
     function ensureBatch(runtime, callback) {
         if (runtime.batchId) {
             callback(true);
@@ -1035,21 +2424,25 @@
         body.push(encodeURIComponent(uploadName('fieldParam')) + '=' + encodeURIComponent(runtime.fieldKey));
         var headers = uploadHeaders(runtime);
         headers['Content-Type'] = 'application/x-www-form-urlencoded';
-        fetch(managedUrl(''), {
+        var request = beginRuntimeFetch(runtime);
+        var options = {
             method: 'POST',
             headers: headers,
             body: body.join('&'),
             credentials: 'same-origin'
-        }).then(function (response) {
+        };
+        if (request.controller) {
+            options.signal = request.controller.signal;
+        }
+        fetch(managedUrl(''), options).then(function (response) {
             return response.json().catch(function () { return null; }).then(function (payload) {
                 return { status: response.status, payload: payload };
             });
         }).then(function (result) {
-            // Teardown clears credentials while create may still be in flight; ignore a late response completely.
-            if (runtime.destroyed) {
-                finishBatchCreate(runtime, false);
+            if (runtime.runtimeRequest !== request) {
                 return;
             }
+            clearRuntimeFetch(runtime, request);
             var batchIdName = uploadResponseName('batchId');
             var acceptUntilName = uploadResponseName('acceptUntil');
             if (result.status === 410) {
@@ -1059,13 +2452,19 @@
             }
             var ok = result.status === 200
                 && result.payload
-                && validManagedId(result.payload[batchIdName], uploadRuntimeValue('batchIdChars'), true);
+                && validManagedId(result.payload[batchIdName], uploadRuntimeValue('batchIdChars'), true)
+                && applyServerLimits(runtime, result.payload);
             if (ok) {
                 runtime.batchId = result.payload[batchIdName];
                 setAcceptUntil(runtime, result.payload[acceptUntilName]);
+                enforceChosenArtifactLimits(runtime);
             }
             finishBatchCreate(runtime, ok);
         }).catch(function () {
+            if (runtime.runtimeRequest !== request) {
+                return;
+            }
+            clearRuntimeFetch(runtime, request);
             finishBatchCreate(runtime, false);
         });
     }
@@ -1087,63 +2486,70 @@
         }
     }
 
-    function loadServerPreview(runtime, item) {
-        item.previewRequest = (item.previewRequest || 0) + 1;
-        var request = item.previewRequest;
-        fetch(managedUrl('/' + encodeURIComponent(runtime.batchId) + '/items/' + encodeURIComponent(item.id) + '/preview'), {
-            method: 'GET',
-            headers: uploadHeaders(runtime),
-            credentials: 'same-origin'
-        }).then(function (response) {
-            if (!response.ok) {
-                throw new Error('preview');
-            }
-            return response.blob();
-        }).then(function (blob) {
-            if (request !== item.previewRequest || item.state === 'removed' || runtime.destroyed) {
-                return;
-            }
-            var objectUrl = URL.createObjectURL(blob);
-            if (item.objectUrl) {
-                URL.revokeObjectURL(item.objectUrl);
-            }
-            item.objectUrl = objectUrl;
-            item.previewUnavailable = false;
-            item.image.src = objectUrl;
-            renderItem(runtime, item);
-        }).catch(function () {
-            // Upload state remains server-authoritative; preview bytes are
-            // presentation-only and may fail transiently.
-            if (request !== item.previewRequest || item.state === 'removed' || runtime.destroyed) {
-                return;
-            }
-            item.previewUnavailable = true;
-            renderItem(runtime, item);
-            fieldAnnouncement(runtime, item.name + ': Uploaded; preview unavailable');
-        });
-    }
-
-    function requiresServerPreview(item) {
-        var sourceName = item.file && item.file.name ? item.file.name : item.name;
-        var extension = fileExtension(sourceName);
-        return extension === 'heic' || extension === 'heif';
-    }
-
-    function reconcileItem(runtime, item, removal) {
-        if (!runtime.batchId || runtime.destroyed) {
-            setItemState(runtime, item, 'failed', removal ? 'Could not remove photo.' : 'Upload failed. Retry.');
+    function markPreviewUnavailable(runtime, item, request) {
+        if (request !== item.previewRequest || item.state === 'removed' || runtime.destroyed) {
             return;
         }
-        fetch(managedUrl('/' + encodeURIComponent(runtime.batchId)), {
+        if (item.objectUrl) {
+            URL.revokeObjectURL(item.objectUrl);
+            item.objectUrl = '';
+        }
+        item.image.removeAttribute('src');
+        item.previewUnavailable = true;
+        renderItem(runtime, item);
+        var current = item.state === 'uploaded' ? 'Uploaded' : stateLabel(item);
+        fieldAnnouncement(runtime, item.name + ': ' + (current || 'Preview unavailable') + '; preview unavailable');
+    }
+
+    function beginControlFetch(item) {
+        var previous = item.controlRequest;
+        if (previous && previous.controller) {
+            previous.controller.abort();
+        }
+        var request = {
+            controller: typeof AbortController === 'function' ? new AbortController() : null
+        };
+        item.controlRequest = request;
+        return request;
+    }
+
+    function clearControlFetch(item, request) {
+        if (item.controlRequest === request) {
+            item.controlRequest = null;
+        }
+    }
+
+    function abortControlFetch(item) {
+        var request = item.controlRequest;
+        item.controlRequest = null;
+        if (request && request.controller) {
+            request.controller.abort();
+        }
+    }
+
+    function reconcileItem(runtime, item, removal, retireIfAbsent) {
+        if (runtime.destroyed) {
+            return Promise.resolve();
+        }
+        if (!runtime.batchId) {
+            setItemState(runtime, item, 'failed', removal ? 'Could not remove photo.' : 'Upload failed. Retry.');
+            return Promise.resolve();
+        }
+        var request = beginControlFetch(item);
+        var options = {
             method: 'GET',
             headers: uploadHeaders(runtime),
             credentials: 'same-origin'
-        }).then(function (response) {
+        };
+        if (request.controller) {
+            options.signal = request.controller.signal;
+        }
+        return fetch(managedUrl('/' + encodeURIComponent(runtime.batchId)), options).then(function (response) {
             return response.json().catch(function () { return null; }).then(function (payload) {
                 return { status: response.status, payload: payload };
             });
         }).then(function (result) {
-            if (item.state === 'removed' || (item.state === 'removing' && !removal)) {
+            if (runtime.destroyed || item.controlRequest !== request || item.state === 'removed' || (item.state === 'removing' && !removal)) {
                 return;
             }
             if (result.status === 410) {
@@ -1152,7 +2558,8 @@
                 return;
             }
             var itemsName = uploadResponseName('items');
-            if (result.status !== 200 || !result.payload || !Array.isArray(result.payload[itemsName])) {
+            var intentsName = uploadResponseName('intents');
+            if (result.status !== 200 || !result.payload || !Array.isArray(result.payload[itemsName]) || !Array.isArray(result.payload[intentsName]) || !applyServerLimits(runtime, result.payload)) {
                 setItemState(runtime, item, 'failed', removal ? 'Could not remove photo.' : 'Upload failed. Retry.');
                 return;
             }
@@ -1165,8 +2572,11 @@
             var found = result.payload[itemsName].find(function (serverItem) {
                 return serverItem && serverItem[uploadResponseName('uploadId')] === item.id;
             });
+            var pending = result.payload[intentsName].find(function (serverIntent) {
+                return serverIntent && serverIntent[uploadResponseName('uploadId')] === item.id;
+            });
             if (removal) {
-                if (found) {
+                if (found || pending) {
                     setItemState(runtime, item, 'failed', 'Could not remove photo.');
                 } else {
                     finishLocalRemoval(runtime, item);
@@ -1176,130 +2586,447 @@
             var displayName = found && found[uploadResponseName('displayName')];
             if (found && validServerDisplayName(displayName)) {
                 item.name = displayName;
+                item.progress = 100;
                 setItemState(runtime, item, 'uploaded');
-                if (requiresServerPreview(item)) {
-                    loadServerPreview(runtime, item);
+                return;
+            }
+            if (retireIfAbsent && !pending) {
+                var replacementId = randomId(uploadRuntimeValue('uploadIdBytes'));
+                if (replacementId) {
+                    item.id = replacementId;
+                    setItemState(runtime, item, 'failed', 'Upload expired. Retry.');
+                    return;
                 }
+                item.file = null;
+                setItemState(runtime, item, 'failed', 'Remove and select this photo again.');
                 return;
             }
             setItemState(runtime, item, 'failed', 'Upload failed. Retry.');
         }).catch(function () {
+            if (runtime.destroyed || item.controlRequest !== request) {
+                return;
+            }
             setItemState(runtime, item, 'failed', removal ? 'Could not remove photo.' : 'Upload failed. Retry.');
+        }).then(function () {
+            clearControlFetch(item, request);
+        });
+    }
+
+    function releaseStarting(runtime, item) {
+        if (item.starting) {
+            item.starting = false;
+            runtime.starting = Math.max(0, runtime.starting - 1);
+        }
+    }
+
+    function reconcileStartingUpload(runtime, item, retireIfAbsent) {
+        var operation = reconcileItem(runtime, item, false, retireIfAbsent);
+        var release = function () {
+            releaseStarting(runtime, item);
+            scheduleUploads(runtime);
+        };
+        return operation.then(release, release);
+    }
+
+    function reconcileActiveUpload(runtime, item) {
+        var operation = reconcileItem(runtime, item);
+        var release = function () {
+            releaseUploadSlot(runtime, item);
+        };
+        return operation.then(release, release);
+    }
+
+    function beginTransferFetch(item) {
+        var controller = typeof AbortController === 'function' ? new AbortController() : null;
+        item.transferController = controller;
+        return controller;
+    }
+
+    function clearTransferFetch(item, controller) {
+        if (item.transferController === controller) {
+            item.transferController = null;
+        }
+    }
+
+    function abortTransferFetch(runtime, item) {
+        var controller = item.transferController;
+        item.transferController = null;
+        if (controller) {
+            controller.abort();
+        }
+        releaseStarting(runtime, item);
+        releaseUploadSlot(runtime, item);
+    }
+
+    function acceptCommittedItem(runtime, item, payload) {
+        var displayName = payload && payload[uploadResponseName('displayName')];
+        if (!validServerDisplayName(displayName)) {
+            setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
+            return false;
+        }
+        item.name = displayName;
+        item.progress = 100;
+        setItemState(runtime, item, 'uploaded');
+        return true;
+    }
+
+    function beginMultipartUpload(runtime, item) {
+        releaseStarting(runtime, item);
+        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || item.state !== 'queued') {
+            scheduleUploads(runtime);
+            return;
+        }
+        var xhr = new XMLHttpRequest();
+        item.xhr = xhr;
+        item.slotActive = true;
+        runtime.active += 1;
+        item.progress = 0;
+        setItemState(runtime, item, 'uploading');
+        var url = managedUrl('/' + encodeURIComponent(runtime.batchId) + '/items/' + encodeURIComponent(item.id));
+        xhr.open('POST', url, true);
+        xhr.withCredentials = true;
+        xhr.setRequestHeader(uploadName('batchSecretHeader'), runtime.secret);
+        xhr.upload.onprogress = function (event) {
+            if (item.state !== 'uploading' || !event.lengthComputable) {
+                return;
+            }
+            item.progress = Math.max(0, Math.min(100, Math.floor((event.loaded / event.total) * 100)));
+            if (item.progress >= 100) {
+                setItemState(runtime, item, 'verifying');
+            } else {
+                renderItem(runtime, item);
+            }
+        };
+        xhr.upload.onload = function () {
+            if (item.state === 'uploading') {
+                item.progress = 100;
+                setItemState(runtime, item, 'verifying');
+            }
+        };
+        xhr.onload = function () {
+            if (item.state === 'removed' || item.state === 'removing') {
+                releaseUploadSlot(runtime, item);
+                return;
+            }
+            if (xhr.status === 200) {
+                var payload = null;
+                try {
+                    payload = JSON.parse(xhr.responseText);
+                } catch (error) {
+                    payload = null;
+                }
+                acceptCommittedItem(runtime, item, payload);
+                releaseUploadSlot(runtime, item);
+                return;
+            }
+            if (xhr.status === 410) {
+                unavailableRuntime(runtime);
+                setItemState(runtime, item, 'failed', 'Upload unavailable. Reload the form.');
+                releaseUploadSlot(runtime, item);
+                return;
+            }
+            if (xhr.status === 0 || xhr.status === 409 || xhr.status >= 500) {
+                reconcileActiveUpload(runtime, item);
+                return;
+            }
+            setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
+            releaseUploadSlot(runtime, item);
+        };
+        xhr.onerror = function () {
+            if (item.state !== 'removed' && item.state !== 'removing') {
+                reconcileActiveUpload(runtime, item);
+            } else {
+                releaseUploadSlot(runtime, item);
+            }
+        };
+        xhr.onabort = function () {
+            releaseUploadSlot(runtime, item);
+        };
+        var data = new FormData();
+        var declaredMime = uploadMime(item);
+        var multipartFile = item.file;
+        if (declaredMime && item.file.type !== declaredMime && typeof item.file.slice === 'function') {
+            multipartFile = item.file.slice(0, item.file.size, declaredMime);
+        }
+        data.append(uploadName('fileParam'), multipartFile, item.name);
+        data.append(uploadName('ordinalParam'), String(item.ordinal));
+        xhr.send(data);
+    }
+
+    function completeWorkerUpload(runtime, item, receipt) {
+        var body = encodeURIComponent(uploadName('receiptParam')) + '=' + encodeURIComponent(receipt);
+        var headers = uploadHeaders(runtime);
+        headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        var controller = beginTransferFetch(item);
+        var options = {
+            method: 'POST',
+            headers: headers,
+            body: body,
+            credentials: 'same-origin'
+        };
+        if (controller) {
+            options.signal = controller.signal;
+        }
+        fetch(managedUrl('/' + encodeURIComponent(runtime.batchId) + '/items/' + encodeURIComponent(item.id)), options).then(function (response) {
+            return response.json().catch(function () { return null; }).then(function (payload) {
+                return { status: response.status, payload: payload };
+            });
+        }).then(function (result) {
+            clearTransferFetch(item, controller);
+            if (item.state === 'removed' || item.state === 'removing' || runtime.destroyed) {
+                releaseUploadSlot(runtime, item);
+                return;
+            }
+            if (result.status === 200) {
+                acceptCommittedItem(runtime, item, result.payload);
+                releaseUploadSlot(runtime, item);
+                return;
+            }
+            if (result.status === 410) {
+                unavailableRuntime(runtime);
+                setItemState(runtime, item, 'failed', 'Upload unavailable. Reload the form.');
+                releaseUploadSlot(runtime, item);
+                return;
+            }
+            if (result.status === 0 || result.status === 409 || result.status >= 500) {
+                reconcileActiveUpload(runtime, item);
+                return;
+            }
+            setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
+            releaseUploadSlot(runtime, item);
+        }).catch(function () {
+            clearTransferFetch(item, controller);
+            if (item.state !== 'removed' && item.state !== 'removing') {
+                reconcileActiveUpload(runtime, item);
+            } else {
+                releaseUploadSlot(runtime, item);
+            }
+        });
+    }
+
+    function beginWorkerUpload(runtime, item, transport) {
+        releaseStarting(runtime, item);
+        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || item.state !== 'queued') {
+            scheduleUploads(runtime);
+            return;
+        }
+        var xhr = new XMLHttpRequest();
+        item.xhr = xhr;
+        item.slotActive = true;
+        runtime.active += 1;
+        item.progress = 0;
+        setItemState(runtime, item, 'uploading');
+        xhr.open('PUT', transport[uploadResponseName('transportUrl')], true);
+        xhr.withCredentials = false;
+        xhr.setRequestHeader(uploadName('workerGrantHeader'), transport[uploadResponseName('transportGrant')]);
+        xhr.setRequestHeader('Content-Type', transport[uploadResponseName('transportMime')]);
+        xhr.upload.onprogress = function (event) {
+            if (item.state !== 'uploading' || !event.lengthComputable) {
+                return;
+            }
+            item.progress = Math.max(0, Math.min(100, Math.floor((event.loaded / event.total) * 100)));
+            if (item.progress >= 100) {
+                setItemState(runtime, item, 'verifying');
+            } else {
+                renderItem(runtime, item);
+            }
+        };
+        xhr.upload.onload = function () {
+            if (item.state === 'uploading') {
+                item.progress = 100;
+                setItemState(runtime, item, 'verifying');
+            }
+        };
+        xhr.onload = function () {
+            if (item.state === 'removed' || item.state === 'removing' || runtime.destroyed) {
+                releaseUploadSlot(runtime, item);
+                return;
+            }
+            if (xhr.status === 200) {
+                var payload = null;
+                try {
+                    payload = JSON.parse(xhr.responseText);
+                } catch (error) {
+                    payload = null;
+                }
+                var receipt = payload && payload[uploadName('receiptParam')];
+                if (typeof receipt === 'string' && receipt !== '') {
+                    completeWorkerUpload(runtime, item, receipt);
+                    return;
+                }
+            }
+            if (xhr.status === 0 || xhr.status === 409 || xhr.status >= 500) {
+                reconcileActiveUpload(runtime, item);
+                return;
+            }
+            setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
+            releaseUploadSlot(runtime, item);
+        };
+        xhr.onerror = function () {
+            if (item.state !== 'removed' && item.state !== 'removing') {
+                reconcileActiveUpload(runtime, item);
+            } else {
+                releaseUploadSlot(runtime, item);
+            }
+        };
+        xhr.onabort = function () {
+            releaseUploadSlot(runtime, item);
+        };
+        xhr.send(item.file);
+    }
+
+    function validWorkerTransport(transport, item) {
+        var declaredMime = uploadMime(item);
+        if (!transport || transport[uploadResponseName('transportKind')] !== uploadName('workerTransport')
+            || typeof transport[uploadResponseName('transportUrl')] !== 'string'
+            || typeof transport[uploadResponseName('transportGrant')] !== 'string'
+            || typeof transport[uploadResponseName('transportMime')] !== 'string'
+            || transport[uploadResponseName('transportGrant')] === ''
+            || declaredMime === ''
+            || transport[uploadResponseName('transportMime')] !== declaredMime) {
+            return false;
+        }
+        try {
+            var transportUrl = new URL(transport[uploadResponseName('transportUrl')]);
+            return transportUrl.protocol === 'https:' && transportUrl.origin !== window.location.origin;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function authorizeUpload(runtime, item) {
+        var body = [];
+        body.push(encodeURIComponent(uploadName('ordinalParam')) + '=' + encodeURIComponent(String(item.ordinal)));
+        body.push(encodeURIComponent(uploadName('displayNameParam')) + '=' + encodeURIComponent(item.name));
+        body.push(encodeURIComponent(uploadName('bytesParam')) + '=' + encodeURIComponent(String(item.bytes)));
+        body.push(encodeURIComponent(uploadName('mimeParam')) + '=' + encodeURIComponent(uploadMime(item)));
+        var headers = uploadHeaders(runtime);
+        headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        var controller = beginTransferFetch(item);
+        var options = {
+            method: 'POST',
+            headers: headers,
+            body: body.join('&'),
+            credentials: 'same-origin'
+        };
+        if (controller) {
+            options.signal = controller.signal;
+        }
+        fetch(managedUrl('/' + encodeURIComponent(runtime.batchId) + '/items/' + encodeURIComponent(item.id)), options).then(function (response) {
+            return response.json().catch(function () { return null; }).then(function (payload) {
+                return { status: response.status, payload: payload };
+            });
+        }).then(function (result) {
+            clearTransferFetch(item, controller);
+            if (item.state === 'removed' || item.state === 'removing' || runtime.destroyed) {
+                releaseStarting(runtime, item);
+                scheduleUploads(runtime);
+                return;
+            }
+            if (result.status === 410) {
+                releaseStarting(runtime, item);
+                unavailableRuntime(runtime);
+                setItemState(runtime, item, 'failed', 'Upload unavailable. Reload the form.');
+                scheduleUploads(runtime);
+                return;
+            }
+            if (result.status === 200 && result.payload && result.payload[uploadResponseName('authorized')] === true) {
+                if (result.payload[uploadResponseName('committed')] === true) {
+                    releaseStarting(runtime, item);
+                    acceptCommittedItem(runtime, item, result.payload);
+                    scheduleUploads(runtime);
+                } else {
+                    var transport = result.payload[uploadResponseName('transport')];
+                    var transportKind = transport && transport[uploadResponseName('transportKind')];
+                    if (transportKind === uploadName('localTransport')) {
+                        beginMultipartUpload(runtime, item);
+                    } else if (validWorkerTransport(transport, item)) {
+                        beginWorkerUpload(runtime, item, transport);
+                    } else {
+                        releaseStarting(runtime, item);
+                        setItemState(runtime, item, 'failed', 'Upload failed. Retry.');
+                        scheduleUploads(runtime);
+                    }
+                }
+                return;
+            }
+            if (result.status === 409 || result.status >= 500) {
+                setItemState(runtime, item, 'verifying');
+                reconcileStartingUpload(runtime, item, result.status === 409);
+            } else {
+                releaseStarting(runtime, item);
+                setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
+                scheduleUploads(runtime);
+            }
+        }).catch(function () {
+            clearTransferFetch(item, controller);
+            if (item.state !== 'removed' && item.state !== 'removing') {
+                setItemState(runtime, item, 'verifying');
+                reconcileStartingUpload(runtime, item);
+            } else {
+                releaseStarting(runtime, item);
+                scheduleUploads(runtime);
+            }
         });
     }
 
     function startUpload(runtime, item) {
-        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || !item.file || item.state !== 'queued' || item.starting) {
+        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || !item.artifactChosen || !item.file || item.state !== 'queued' || item.starting) {
             return;
         }
         item.starting = true;
         runtime.starting += 1;
         ensureBatch(runtime, function (ok) {
-            item.starting = false;
-            runtime.starting = Math.max(0, runtime.starting - 1);
             if (!ok || runtime.expired || runtime.unavailable || item.state !== 'queued') {
-                setItemState(runtime, item, 'failed', 'Upload could not start. Retry.');
+                releaseStarting(runtime, item);
+                if (item.state === 'queued') {
+                    setItemState(runtime, item, 'failed', 'Upload could not start. Retry.');
+                }
                 scheduleUploads(runtime);
                 return;
             }
-            var xhr = new XMLHttpRequest();
-            item.xhr = xhr;
-            item.slotActive = true;
-            runtime.active += 1;
-            item.progress = 0;
-            setItemState(runtime, item, 'uploading');
-            var url = managedUrl('/' + encodeURIComponent(runtime.batchId) + '/items/' + encodeURIComponent(item.id));
-            xhr.open('POST', url, true);
-            xhr.withCredentials = true;
-            xhr.setRequestHeader(uploadName('batchSecretHeader'), runtime.secret);
-            xhr.upload.onprogress = function (event) {
-                if (item.state !== 'uploading' || !event.lengthComputable) {
-                    return;
-                }
-                item.progress = Math.max(0, Math.min(100, Math.floor((event.loaded / event.total) * 100)));
-                if (item.progress >= 100) {
-                    setItemState(runtime, item, 'processing');
-                } else {
-                    renderItem(runtime, item);
-                }
-            };
-            xhr.onload = function () {
-                releaseUploadSlot(runtime, item);
-                if (item.state === 'removed' || item.state === 'removing') {
-                    return;
-                }
-                if (xhr.status === 200) {
-                    var payload = null;
-                    try {
-                        payload = JSON.parse(xhr.responseText);
-                    } catch (error) {
-                        payload = null;
-                    }
-                    var displayName = payload && payload[uploadResponseName('displayName')];
-                    if (!validServerDisplayName(displayName)) {
-                        setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
-                        return;
-                    }
-                    item.name = displayName;
-                    item.progress = 100;
-                    setItemState(runtime, item, 'uploaded');
-                    if (requiresServerPreview(item)) {
-                        loadServerPreview(runtime, item);
-                    }
-                    return;
-                }
-                if (xhr.status === 410) {
-                    unavailableRuntime(runtime);
-                    setItemState(runtime, item, 'failed', 'Upload unavailable. Reload the form.');
-                    return;
-                }
-                if (xhr.status === 0 || xhr.status >= 500) {
-                    reconcileItem(runtime, item);
-                    return;
-                }
-                if (xhr.status === 409) {
-                    reconcileItem(runtime, item);
-                    return;
-                }
+            if (item.bytes > runtime.maxFileBytes) {
+                releaseStarting(runtime, item);
                 setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
-            };
-            xhr.onerror = function () {
-                releaseUploadSlot(runtime, item);
-                if (item.state !== 'removed' && item.state !== 'removing') {
-                    reconcileItem(runtime, item);
-                }
-            };
-            xhr.onabort = function () {
-                releaseUploadSlot(runtime, item);
-            };
-            var data = new FormData();
-            data.append(uploadName('fileParam'), item.file, item.name);
-            data.append(uploadName('ordinalParam'), String(item.ordinal));
-            xhr.send(data);
+                scheduleUploads(runtime);
+                return;
+            }
+            authorizeUpload(runtime, item);
         });
     }
 
     function scheduleUploads(runtime) {
-        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed) {
+        if (runtime.clearing || runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed) {
             return;
         }
         for (var i = 0; i < runtime.items.length && runtime.active + runtime.starting < uploadRuntimeValue('concurrency'); i += 1) {
-            if (runtime.items[i].state === 'queued') {
+            if (runtime.items[i].state === 'queued' && runtime.items[i].artifactChosen) {
                 startUpload(runtime, runtime.items[i]);
             }
         }
     }
 
     function retryItem(runtime, item) {
-        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || item.state !== 'failed' || !item.file) {
+        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || item.state !== 'failed' || (!item.file && !item.sourceFile)) {
             return;
         }
         item.progress = 0;
+        if (!item.artifactChosen && item.file) {
+            chooseArtifact(runtime, item, item.file, Boolean(item.sourceFile));
+            return;
+        }
+        if (!item.artifactChosen && item.sourceFile) {
+            setItemState(runtime, item, 'queued');
+            queuePreparation(runtime, item);
+            return;
+        }
         setItemState(runtime, item, 'queued');
         scheduleUploads(runtime);
     }
 
-    function finishLocalRemoval(runtime, item) {
+    function retireItem(runtime, item) {
+        var index = runtime.items.indexOf(item);
+        abortPreparation(item);
         item.state = 'removed';
         if (item.objectUrl) {
             URL.revokeObjectURL(item.objectUrl);
@@ -1308,27 +3035,57 @@
         if (item.card && item.card.parentNode) {
             item.card.parentNode.removeChild(item.card);
         }
-        fieldAnnouncement(runtime, item.name + ': removed');
+        item.previewRequest += 1;
+        item.file = null;
+        item.sourceFile = null;
+        item.xhr = null;
+        item.transferController = null;
+        item.controlRequest = null;
+        item.card = null;
+        item.image = null;
+        item.nameNode = null;
+        item.progressNode = null;
+        item.statusNode = null;
+        item.actionsNode = null;
+        item.retryButton = null;
+        item.removeButton = null;
+        if (index !== -1) {
+            runtime.items.splice(index, 1);
+        }
+    }
+
+    function finishLocalRemoval(runtime, item) {
+        var name = item.name;
+        retireItem(runtime, item);
+        fieldAnnouncement(runtime, name + ': removed');
         updateFormUploadState(runtime.form);
     }
 
-    function removeItem(runtime, item) {
-        if (runtime.frozen || runtime.unavailable || runtime.destroyed || item.state === 'removed' || item.state === 'removing') {
+    function releaseRemovalSlot(runtime, item) {
+        if (!item.removalInFlight) {
             return;
         }
-        if (item.xhr && (item.state === 'uploading' || item.state === 'processing')) {
-            item.xhr.abort();
-        }
-        if (!runtime.batchId) {
-            finishLocalRemoval(runtime, item);
-            return;
-        }
-        setItemState(runtime, item, 'removing');
-        fetch(managedUrl('/' + encodeURIComponent(runtime.batchId) + '/items/' + encodeURIComponent(item.id)), {
+        item.removalInFlight = false;
+        runtime.removalActive = false;
+        scheduleRemovals(runtime);
+    }
+
+    function beginRemoval(runtime, item) {
+        item.removalInFlight = true;
+        runtime.removalActive = true;
+        var request = beginControlFetch(item);
+        var options = {
             method: 'DELETE',
             headers: uploadHeaders(runtime),
             credentials: 'same-origin'
-        }).then(function (response) {
+        };
+        if (request.controller) {
+            options.signal = request.controller.signal;
+        }
+        var operation = fetch(managedUrl('/' + encodeURIComponent(runtime.batchId) + '/items/' + encodeURIComponent(item.id)), options).then(function (response) {
+            if (runtime.destroyed || item.controlRequest !== request) {
+                return;
+            }
             if (response.status === 200) {
                 finishLocalRemoval(runtime, item);
                 return;
@@ -1339,24 +3096,68 @@
                 return;
             }
             if (response.status === 409) {
-                reconcileItem(runtime, item, true);
-                return;
+                return reconcileItem(runtime, item, true);
             }
             setItemState(runtime, item, 'failed', 'Could not remove photo.');
         }).catch(function () {
-            reconcileItem(runtime, item, true);
+            if (runtime.destroyed || item.controlRequest !== request) {
+                return;
+            }
+            return reconcileItem(runtime, item, true);
         });
+        operation.then(function () {
+            clearControlFetch(item, request);
+            releaseRemovalSlot(runtime, item);
+        }, function () {
+            clearControlFetch(item, request);
+            releaseRemovalSlot(runtime, item);
+        });
+    }
+
+    function scheduleRemovals(runtime) {
+        if (runtime.clearing || runtime.removalActive || runtime.frozen || runtime.unavailable || runtime.destroyed) {
+            return;
+        }
+        for (var i = 0; i < runtime.items.length; i += 1) {
+            if (runtime.items[i].state === 'removing' && !runtime.items[i].removalInFlight) {
+                beginRemoval(runtime, runtime.items[i]);
+                return;
+            }
+        }
+    }
+
+    function removeItem(runtime, item) {
+        if (runtime.frozen || runtime.unavailable || runtime.destroyed || item.state === 'removed' || item.state === 'removing') {
+            return;
+        }
+        var hasServerState = item.artifactChosen || item.starting || item.slotActive || item.controlRequest;
+        if (item.xhr && (item.state === 'uploading' || item.state === 'verifying')) {
+            item.xhr.abort();
+        }
+        abortPreparation(item);
+        abortTransferFetch(runtime, item);
+        if (!runtime.batchId || !hasServerState) {
+            finishLocalRemoval(runtime, item);
+            return;
+        }
+        setItemState(runtime, item, 'removing');
+        scheduleRemovals(runtime);
     }
 
     function addFiles(runtime, files) {
         if (restoreBlocked(runtime) || runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed) {
             return;
         }
-        var activeItems = runtime.items.filter(function (item) { return item.state !== 'removed'; });
-        var totalBytes = activeItems.reduce(function (total, item) { return total + item.bytes; }, 0);
+        var preparation = clientPreparationSettings();
         for (var i = 0; i < files.length; i += 1) {
             var file = files[i];
-            if (activeItems.length >= runtime.maxFiles || file.size > runtime.maxFileBytes || totalBytes + file.size > runtime.maxTotalBytes || runtime.acceptedExtensions.indexOf(fileExtension(file.name)) === -1) {
+            var extension = fileExtension(file.name);
+            var canScreenJpeg = preparation
+                && (extension === 'jpg' || extension === 'jpeg')
+                && file.size <= preparation.recipe.inputMaxBytes;
+            if (runtime.items.length >= runtime.maxFiles
+                || runtime.acceptedExtensions.indexOf(extension) === -1
+                || (!canScreenJpeg && !artifactFits(runtime, null, file.size))) {
                 runtime.fieldStatus.textContent = 'One or more photos exceed the allowed type, count, or size.';
                 fieldAnnouncement(runtime, runtime.fieldStatus.textContent);
                 continue;
@@ -1369,24 +3170,31 @@
             var item = {
                 id: id,
                 ordinal: runtime.nextOrdinal,
-                file: file,
+                file: canScreenJpeg ? null : file,
+                sourceFile: canScreenJpeg ? file : null,
                 name: safeFileName(file.name),
                 bytes: file.size,
+                artifactChosen: !canScreenJpeg,
                 objectUrl: URL.createObjectURL(file),
                 previewUnavailable: false,
                 state: 'queued',
                 progress: 0,
                 error: '',
                 xhr: null,
+                transferController: null,
+                controlRequest: null,
                 slotActive: false,
                 starting: false,
+                removalInFlight: false,
+                preparationAttempt: 0,
                 previewRequest: 0
             };
             runtime.nextOrdinal += 1;
             runtime.items.push(item);
-            activeItems.push(item);
-            totalBytes += file.size;
             renderItem(runtime, item);
+            if (canScreenJpeg) {
+                queuePreparation(runtime, item);
+            }
         }
         runtime.picker.value = '';
         updateFormUploadState(runtime.form);
@@ -1410,20 +3218,20 @@
 
     function restoredItems(payload) {
         var source = payload ? payload[uploadResponseName('items')] : null;
-        if (!Array.isArray(source)) {
+        var pending = payload ? payload[uploadResponseName('intents')] : null;
+        if (!Array.isArray(source) || !Array.isArray(pending)) {
             return null;
         }
         var seen = Object.create(null);
         var seenOrdinals = Object.create(null);
         var items = [];
-        for (var i = 0; i < source.length; i += 1) {
-            var serverItem = source[i];
+        function append(serverItem, state) {
             var id = serverItem && serverItem[uploadResponseName('uploadId')];
             var ordinal = serverItem && serverItem[uploadResponseName('ordinal')];
             var displayName = serverItem && serverItem[uploadResponseName('displayName')];
             var bytes = serverItem && serverItem[uploadResponseName('bytes')];
             if (!validManagedId(id, uploadRuntimeValue('uploadIdMaxChars'), false) || seen[id] || !Number.isInteger(ordinal) || ordinal < 0 || seenOrdinals[ordinal] || !validServerDisplayName(displayName) || !Number.isInteger(bytes) || bytes < 0) {
-                return null;
+                return false;
             }
             seen[id] = true;
             seenOrdinals[ordinal] = true;
@@ -1431,18 +3239,35 @@
                 id: id,
                 ordinal: ordinal,
                 file: null,
+                sourceFile: null,
                 name: displayName,
                 bytes: bytes,
+                artifactChosen: true,
                 objectUrl: '',
-                previewUnavailable: false,
-                state: 'uploaded',
-                progress: 100,
-                error: '',
+                previewUnavailable: true,
+                state: state,
+                progress: state === 'uploaded' ? 100 : 0,
+                error: state === 'uploaded' ? '' : 'Remove and select this photo again.',
                 xhr: null,
+                transferController: null,
+                controlRequest: null,
                 slotActive: false,
                 starting: false,
+                removalInFlight: false,
+                preparationAttempt: 0,
                 previewRequest: 0
             });
+            return true;
+        }
+        for (var i = 0; i < source.length; i += 1) {
+            if (!append(source[i], 'uploaded')) {
+                return null;
+            }
+        }
+        for (var pendingIndex = 0; pendingIndex < pending.length; pendingIndex += 1) {
+            if (!append(pending[pendingIndex], 'failed')) {
+                return null;
+            }
         }
         return items;
     }
@@ -1459,24 +3284,31 @@
         runtime.chooseButton.textContent = 'Browse photos';
         runtime.fieldStatus.textContent = 'Restoring uploaded photos\u2026';
         updateFormUploadState(runtime.form);
-        fetch(managedUrl('/' + encodeURIComponent(runtime.batchId)), {
+        var request = beginRuntimeFetch(runtime);
+        var options = {
             method: 'GET',
             headers: uploadHeaders(runtime),
             credentials: 'same-origin'
-        }).then(function (response) {
+        };
+        if (request.controller) {
+            options.signal = request.controller.signal;
+        }
+        fetch(managedUrl('/' + encodeURIComponent(runtime.batchId)), options).then(function (response) {
             return response.json().catch(function () { return null; }).then(function (payload) {
                 return { status: response.status, payload: payload };
             });
         }).then(function (result) {
-            if (runtime.destroyed) {
+            if (runtime.runtimeRequest !== request) {
                 return;
             }
+            clearRuntimeFetch(runtime, request);
             var payload = result.payload;
             var state = payload && payload[uploadResponseName('state')];
             var acceptUntil = payload && payload[uploadResponseName('acceptUntil')];
             var deleteAfter = payload && payload[uploadResponseName('deleteAfter')];
             var recovering = runtime.rerenderRestore && state === 'finalizing';
-            var items = result.status === 200 && (state === 'open' || recovering) ? restoredItems(payload) : null;
+            var limitsValid = result.status === 200 && (state === 'open' || recovering) && applyServerLimits(runtime, payload);
+            var items = limitsValid ? restoredItems(payload) : null;
             if (result.status === 410 || (result.status >= 400 && result.status < 500 && result.status !== 408 && result.status !== 429) || (result.status === 200 && state === 'finalizing' && !recovering)) {
                 unavailableRuntime(runtime);
                 return;
@@ -1502,7 +3334,6 @@
                 runtime.nextOrdinal = Math.max(runtime.nextOrdinal, item.ordinal + 1);
                 if (!recovering) {
                     renderItem(runtime, item);
-                    loadServerPreview(runtime, item);
                 }
             });
             runtime.restoreState = 'ready';
@@ -1519,6 +3350,10 @@
                 updateFormUploadState(runtime.form);
             }
         }).catch(function () {
+            if (runtime.runtimeRequest !== request) {
+                return;
+            }
+            clearRuntimeFetch(runtime, request);
             retryBatchRestore(runtime);
         });
     }
@@ -1599,10 +3434,10 @@
         formats.className = 'eforms-upload-formats';
         formats.textContent = 'Supported formats: ' + uploadFormats(runtime);
         guidance.appendChild(formats);
-        var limits = document.createElement('span');
-        limits.className = 'eforms-upload-limits';
-        limits.textContent = 'Limits: ' + runtime.maxFiles + ' photos \u00b7 ' + uploadSizeLabel(runtime.maxFileBytes) + ' each \u00b7 ' + uploadSizeLabel(runtime.maxTotalBytes) + ' total';
-        guidance.appendChild(limits);
+        runtime.limitsStatus = document.createElement('span');
+        runtime.limitsStatus.className = 'eforms-upload-limits';
+        guidance.appendChild(runtime.limitsStatus);
+        updateLimitLabel(runtime);
         runtime.mount.appendChild(guidance);
 
         var meta = document.createElement('div');
@@ -1616,9 +3451,15 @@
         runtime.clearButton.textContent = 'Clear all';
         runtime.clearButton.hidden = true;
         runtime.clearButton.addEventListener('click', function () {
-            forEachNode(runtime.items.slice(), function (item) {
-                removeItem(runtime, item);
-            });
+            runtime.clearing = true;
+            try {
+                forEachNode(runtime.items.slice(), function (item) {
+                    removeItem(runtime, item);
+                });
+            } finally {
+                runtime.clearing = false;
+            }
+            scheduleRemovals(runtime);
         });
         meta.appendChild(runtime.clearButton);
         runtime.mount.appendChild(meta);
@@ -1678,21 +3519,26 @@
             return;
         }
         runtime.destroyed = true;
+        abortRuntimePreparation(runtime);
         runtime.restoreState = 'terminal';
         runtime.secret = '';
+        abortRuntimeFetch(runtime);
+        runtime.createPending = false;
+        runtime.createCallbacks = [];
         window.clearTimeout(runtime.expiryTimer);
+        runtime.expiryTimer = null;
         runtime.picker.disabled = true;
         runtime.mount.removeAttribute('data-eforms-upload-restoring');
         runtime.mount.removeAttribute('data-eforms-upload-restore-failed');
-        forEachNode(runtime.items, function (item) {
+        forEachNode(runtime.items.slice(), function (item) {
             if (item.xhr) {
                 item.xhr.abort();
             }
-            if (item.objectUrl) {
-                URL.revokeObjectURL(item.objectUrl);
-                item.objectUrl = '';
-            }
+            abortTransferFetch(runtime, item);
+            abortControlFetch(item);
+            retireItem(runtime, item);
         });
+        runtime.items = [];
         forEachNode(runtime.hiddenInputs, function (input) {
             if (input && input.parentNode) {
                 input.parentNode.removeChild(input);
@@ -1703,6 +3549,7 @@
 
     function freezeForSubmit(runtime) {
         runtime.frozen = true;
+        abortRuntimePreparation(runtime);
         runtime.picker.value = '';
         runtime.picker.disabled = true;
         runtime.chooseButton.disabled = true;
@@ -1746,15 +3593,20 @@
                 maxFileBytes: integerAttribute(mount, uploadValue('dataAttributes', 'maxFileBytes')),
                 maxTotalBytes: integerAttribute(mount, uploadValue('dataAttributes', 'maxTotalBytes')),
                 acceptedExtensions: acceptedExtensions,
+                required: picker.hasAttribute('required'),
+                requiredPrompted: false,
                 items: [],
                 nextOrdinal: 0,
                 active: 0,
                 starting: 0,
+                clearing: false,
+                removalActive: false,
                 batchId: '',
                 secret: '',
                 hiddenInputs: [],
                 createPending: false,
                 createCallbacks: [],
+                runtimeRequest: null,
                 activated: false,
                 frozen: false,
                 rerenderRestore: false,
@@ -1778,6 +3630,12 @@
         form.addEventListener('submit', function (event) {
             var blocked = null;
             forEachNode(formState.runtimes, function (runtime) {
+                if (!blocked && requiredUploadMissing(runtime)) {
+                    runtime.requiredPrompted = true;
+                    runtime.fieldStatus.textContent = 'Add at least one photo.';
+                    fieldAnnouncement(runtime, runtime.fieldStatus.textContent);
+                    blocked = runtime;
+                }
                 if (!blocked) {
                     blocked = unresolvedItem(runtime);
                 }
@@ -1851,12 +3709,24 @@
         forEachNode(forms, function (form) {
             setJsOk(form);
             focusErrors(form);
+            bindFriendlyInputs(form);
+            addClientValidation(form);
             initializeStagedUploads(form);
-            addSubmitLock(form);
             if (getFormMode(form) === 'js') {
                 handleJsMintedForm(form);
             }
+            addEnhancedSubmitHandler(form);
+            addSubmitLock(form);
         });
         observeUploadTeardown();
+    });
+
+    window.addEventListener('pageshow', function (event) {
+        if (!event.persisted) {
+            return;
+        }
+        forEachNode(document.querySelectorAll('form.eforms-form[data-eforms-enhanced-pending="1"], form.eforms-form[data-eforms-enhanced-navigating="1"]'), function (form) {
+            clearEnhancedPendingForNavigation(form, true);
+        });
     });
 })();

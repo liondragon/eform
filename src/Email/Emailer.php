@@ -14,10 +14,10 @@ require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Privacy/ClientIp.php';
 require_once __DIR__ . '/../Security/Security.php';
+require_once __DIR__ . '/../Submission/SubmissionReviewSnapshot.php';
 require_once __DIR__ . '/../Spam/ContentFilter.php';
 require_once __DIR__ . '/../Uploads/ReviewController.php';
 require_once __DIR__ . '/../Uploads/UploadValue.php';
-require_once __DIR__ . '/../Validation/FieldTypes/TextLike.php';
 require_once __DIR__ . '/Templates.php';
 if ( ! class_exists( 'Logging' ) ) {
     require_once __DIR__ . '/../Logging.php';
@@ -71,7 +71,7 @@ class Emailer {
 
         $meta = self::build_meta( $form_id, $submission_id, $security, $request, $config );
         $values = is_array( $values ) ? $values : array();
-        $canonical = self::build_email_values( $context, $values, $display_format );
+        $canonical = SubmissionReviewSnapshot::display_values( $context, $values, $display_format );
         $galleries = self::build_staged_galleries( $context, $values, $submission_id, $config );
         if ( empty( $galleries['ok'] ) ) {
             return self::failure( 'staged_gallery_unavailable' );
@@ -99,7 +99,7 @@ class Emailer {
         $template_data = array(
             'canonical' => $canonical['fields'],
             'include_fields' => $include_fields,
-            'display_rows' => self::display_rows( $context, $canonical['fields'], $include_fields, $meta, $galleries['fields'] ),
+            'display_rows' => SubmissionReviewSnapshot::display_rows( $context, $canonical['fields'], $include_fields, $meta, $galleries['fields'] ),
             'meta' => $meta,
             'uploads' => $canonical['uploads'],
         );
@@ -285,100 +285,6 @@ class Emailer {
         );
     }
 
-    private static function build_email_values( $context, $values, $display_format ) {
-        $fields = array();
-        $uploads = array();
-        $descriptors = array();
-
-        if ( is_array( $context ) && isset( $context['descriptors'] ) && is_array( $context['descriptors'] ) ) {
-            $descriptors = $context['descriptors'];
-        }
-
-        foreach ( $descriptors as $descriptor ) {
-            if ( ! is_array( $descriptor ) ) {
-                continue;
-            }
-
-            $key = isset( $descriptor['key'] ) && is_string( $descriptor['key'] ) ? $descriptor['key'] : '';
-            if ( $key === '' ) {
-                continue;
-            }
-
-            $type = isset( $descriptor['type'] ) && is_string( $descriptor['type'] ) ? $descriptor['type'] : '';
-            $value = array_key_exists( $key, $values ) ? $values[ $key ] : null;
-
-            if ( $type === 'file' || $type === 'files' ) {
-                $staged_items = UploadValue::staged_items( $value );
-                if ( ! empty( $staged_items ) ) {
-                    $count = count( $staged_items );
-                    $fields[ $key ] = $count . ( $count === 1 ? ' photo' : ' photos' );
-                    $uploads[ $key ] = array();
-                    continue;
-                }
-                $names = self::upload_names( $value );
-                $fields[ $key ] = implode( ', ', $names );
-                $uploads[ $key ] = self::upload_entries( $names );
-                continue;
-            }
-
-            $fields[ $key ] = self::stringify_value( $value, $type, $display_format );
-        }
-
-        $fields['_uploads'] = $uploads;
-
-        return array(
-            'fields' => $fields,
-            'uploads' => $uploads,
-        );
-    }
-
-    private static function stringify_value( $value, $type, $display_format ) {
-        if ( $value === null ) {
-            return '';
-        }
-
-        if ( is_array( $value ) ) {
-            $parts = array();
-            foreach ( $value as $entry ) {
-                $parts[] = self::stringify_value( $entry, $type, $display_format );
-            }
-            return implode( ', ', array_filter( $parts, 'strlen' ) );
-        }
-
-        if ( ! is_string( $value ) ) {
-            if ( is_scalar( $value ) ) {
-                return (string) $value;
-            }
-            return '';
-        }
-
-        if ( $type === 'tel' || $type === 'tel_us' ) {
-            return FieldTypes_TextLike::format_tel_us( $value, $display_format );
-        }
-
-        return $value;
-    }
-
-    private static function upload_names( $value ) {
-        $names = array();
-        foreach ( UploadValue::items( $value, true ) as $item ) {
-            $name = UploadValue::display_name( $item );
-            if ( $name !== '' ) {
-                $names[] = $name;
-            }
-        }
-
-        return $names;
-    }
-
-    private static function upload_entries( $names ) {
-        $entries = array();
-        foreach ( $names as $name ) {
-            $entries[] = array( 'original_name_safe' => $name );
-        }
-        return $entries;
-    }
-
     private static function build_staged_galleries( $context, $values, $submission_id, $config ) {
         $field = is_array( $context ) && isset( $context['staged_field'] ) && is_array( $context['staged_field'] )
             ? $context['staged_field']
@@ -407,8 +313,7 @@ class Emailer {
                 $key => array(
                     'count' => $reference['count'],
                     'url' => $reference['url'],
-                    'expires_at' => $reference['expires_at'],
-                    'expires_label' => $reference['expires_label'],
+                    'available_label' => $reference['available_label'],
                 ),
             ),
         );
@@ -431,91 +336,6 @@ class Emailer {
         }
 
         return $out;
-    }
-
-    private static function display_rows( $context, $canonical, $include_fields, $meta, $galleries = array() ) {
-        $rows = array();
-        $labels = self::field_labels( $context );
-
-        foreach ( $include_fields as $key ) {
-            if ( ! is_string( $key ) || $key === '' ) {
-                continue;
-            }
-
-            if ( isset( $canonical['_uploads'][ $key ] ) ) {
-                $names = array_column( $canonical['_uploads'][ $key ], 'original_name_safe' );
-                $value = implode( ', ', $names );
-            } else {
-                $value = isset( $canonical[ $key ] ) ? $canonical[ $key ] : ( isset( $meta[ $key ] ) ? $meta[ $key ] : '' );
-            }
-
-            if ( isset( $galleries[ $key ] ) && is_array( $galleries[ $key ] ) ) {
-                $gallery = $galleries[ $key ];
-                $count = isset( $gallery['count'] ) ? (int) $gallery['count'] : 0;
-                $rows[] = array(
-                    'key' => $key,
-                    'label' => self::display_label( $key, $labels ),
-                    'value' => $count . ( $count === 1 ? ' photo' : ' photos' ),
-                    'type' => 'gallery',
-                    'url' => isset( $gallery['url'] ) ? (string) $gallery['url'] : '',
-                    'expires_at' => isset( $gallery['expires_at'] ) ? (int) $gallery['expires_at'] : 0,
-                    'expires_label' => isset( $gallery['expires_label'] ) ? (string) $gallery['expires_label'] : '',
-                );
-                continue;
-            }
-
-            $rows[] = array(
-                'key' => $key,
-                'label' => self::display_label( $key, $labels ),
-                'value' => is_scalar( $value ) ? (string) $value : '',
-                'type' => $key === 'email' ? 'email' : 'text',
-            );
-        }
-
-        return $rows;
-    }
-
-    private static function field_labels( $context ) {
-        $labels = array();
-        $fields = is_array( $context ) && isset( $context['fields'] ) && is_array( $context['fields'] ) ? $context['fields'] : array();
-
-        foreach ( $fields as $field ) {
-            if ( ! is_array( $field ) || ! isset( $field['key'] ) || ! is_string( $field['key'] ) ) {
-                continue;
-            }
-
-            if ( isset( $field['label'] ) && is_string( $field['label'] ) && trim( $field['label'] ) !== '' ) {
-                $labels[ $field['key'] ] = trim( $field['label'] );
-            }
-        }
-
-        return $labels;
-    }
-
-    private static function display_label( $key, $labels ) {
-        $known = array(
-            'name' => 'Name',
-            'email' => 'Email',
-            'tel_us' => 'Phone',
-            'phone' => 'Phone',
-            'zip_us' => 'Zip Code',
-            'zip' => 'Zip Code',
-            'message' => 'Message',
-            'ip' => 'Sent from',
-            'submitted_at' => 'Submitted',
-            'form_id' => 'Form',
-            'submission_id' => 'Submission',
-        );
-
-        if ( isset( $known[ $key ] ) ) {
-            return $known[ $key ];
-        }
-
-        if ( is_array( $labels ) && isset( $labels[ $key ] ) && $labels[ $key ] !== '' ) {
-            return $labels[ $key ];
-        }
-
-        return ucwords( str_replace( '_', ' ', $key ) );
     }
 
     private static function token_map( $fields, $meta ) {

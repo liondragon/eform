@@ -23,6 +23,24 @@ $context = array(
             'validate' => array(),
         ),
         array(
+            'key' => 'zip',
+            'type' => 'zip_us',
+            'is_multivalue' => false,
+            'validate' => array(),
+        ),
+        array(
+            'key' => 'area',
+            'type' => 'number',
+            'is_multivalue' => false,
+            'validate' => array(),
+        ),
+        array(
+            'key' => 'listing',
+            'type' => 'url',
+            'is_multivalue' => false,
+            'validate' => array(),
+        ),
+        array(
             'key' => 'name',
             'type' => 'name',
             'is_multivalue' => false,
@@ -52,6 +70,9 @@ $context = array(
 $values = array(
     'email' => 'Casey@EXAMPLE.COM',
     'tel' => '1 (212) 555-1212',
+    'zip' => '80231-1234',
+    'area' => '1,200',
+    'listing' => 'zillow.com/homedetails/123',
     'name' => 'Ada   Lovelace',
     'notes' => 'keep  spaces',
     'aliases' => array( 'Ada   Lovelace', 'Grace   Hopper' ),
@@ -75,6 +96,19 @@ eforms_test_assert(
 eforms_test_assert(
     isset( $coerced['tel'] ) && $coerced['tel'] === '2125551212',
     'Coerce should canonicalize tel_us values to digits.'
+);
+
+eforms_test_assert(
+    isset( $coerced['zip'] ) && $coerced['zip'] === '80231',
+    'Coerce should canonicalize zip_us values to five digits.'
+);
+eforms_test_assert(
+    isset( $coerced['area'] ) && $coerced['area'] === '1200',
+    'Coerce should canonicalize grouped number values.'
+);
+eforms_test_assert(
+    isset( $coerced['listing'] ) && $coerced['listing'] === 'https://zillow.com/homedetails/123',
+    'Coerce should canonicalize bare http URL domains.'
 );
 
 // Given a name value with internal whitespace...

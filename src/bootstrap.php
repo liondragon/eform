@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/ErrorMessages.php';
 require_once __DIR__ . '/FormProtocol.php';
+require_once __DIR__ . '/Compat.php';
 require_once __DIR__ . '/Uploads/PrivateDir.php';
 
 if ( ! function_exists( 'eforms_register_autoloader' ) ) {
@@ -128,8 +129,11 @@ if ( ! function_exists( 'eforms_activate' ) ) {
             $configured_uploads_dir = Config::value( $config, array( 'uploads', 'dir' ), '' );
             $uploads_dir = is_string( $configured_uploads_dir ) ? rtrim( $configured_uploads_dir, '/\\' ) : '';
             if ( $uploads_dir !== '' ) {
-                if ( ! PrivateDir::resume_after_install( $uploads_dir ) ) {
-                    $message = 'eForms could not reopen its managed storage. The plugin was not activated.';
+                $storage_failure = Compat::probe_uploads_semantics( $uploads_dir );
+                if ( $storage_failure !== null || ! PrivateDir::resume_after_install( $uploads_dir ) ) {
+                    $message = $storage_failure !== null
+                        ? 'eForms managed storage is incompatible: ' . $storage_failure
+                        : 'eForms could not reopen its managed storage. The plugin was not activated.';
                     if ( function_exists( 'deactivate_plugins' ) && defined( 'EFORMS_PLUGIN_FILE' ) ) {
                         $plugin = function_exists( 'plugin_basename' ) ? plugin_basename( EFORMS_PLUGIN_FILE ) : EFORMS_PLUGIN_FILE;
                         deactivate_plugins( $plugin, true );
@@ -211,34 +215,12 @@ if ( ! function_exists( 'eforms_rest_upload_batch_response' ) ) {
         }
         $result = call_user_func( array( 'UploadBatchEndpoint', $action ), $request );
         $body = isset( $result['body'] ) ? $result['body'] : array( 'error' => 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
-        if ( $action === 'preview' && isset( $result['status'] ) && (int) $result['status'] === 200 && is_string( $body ) ) {
-            $body = new RawRestBody( $body );
-        }
 
         return eforms_rest_response(
             $body,
             isset( $result['status'] ) ? (int) $result['status'] : 503,
             isset( $result['headers'] ) && is_array( $result['headers'] ) ? $result['headers'] : array()
         );
-    }
-}
-
-if ( ! function_exists( 'eforms_rest_serve_raw_body' ) ) {
-    /**
-     * Serve explicitly marked binary REST bodies after WordPress sends headers.
-     */
-    function eforms_rest_serve_raw_body( $served, $result ) {
-        if ( $served || ! is_object( $result ) || ! method_exists( $result, 'get_data' ) ) {
-            return $served;
-        }
-
-        $body = $result->get_data();
-        if ( ! $body instanceof RawRestBody ) {
-            return $served;
-        }
-
-        echo $body->bytes();
-        return true;
     }
 }
 
@@ -263,12 +245,6 @@ if ( ! function_exists( 'eforms_rest_upload_batch_item' ) ) {
             $action = strtoupper( (string) $request['method'] ) === 'DELETE' ? 'delete' : 'upload';
         }
         return eforms_rest_upload_batch_response( $request, $action === 'delete' ? 'delete' : 'upload' );
-    }
-}
-
-if ( ! function_exists( 'eforms_rest_upload_batch_preview' ) ) {
-    function eforms_rest_upload_batch_preview( $request ) {
-        return eforms_rest_upload_batch_response( $request, 'preview' );
     }
 }
 
@@ -379,15 +355,6 @@ if ( ! function_exists( 'eforms_register_rest_routes' ) ) {
                 'permission_callback' => 'eforms_rest_allow_public',
             )
         );
-        register_rest_route(
-            'eforms',
-            '/upload-batches/(?P<' . FormProtocol::UPLOAD_BATCH_PARAM . '>' . FormProtocol::upload_batch_id_pattern( false ) . ')/items/(?P<' . FormProtocol::UPLOAD_ITEM_PARAM . '>' . FormProtocol::managed_id_pattern( false ) . ')/preview',
-            array(
-                'methods'             => $methods,
-                'callback'            => 'eforms_rest_upload_batch_preview',
-                'permission_callback' => 'eforms_rest_allow_public',
-            )
-        );
     }
 }
 
@@ -416,6 +383,12 @@ if ( ! function_exists( 'eforms_register_admin' ) ) {
         }
 
         SettingsAdmin::register();
+
+        if ( ! class_exists( 'SubmissionsAdmin' ) ) {
+            require_once __DIR__ . '/Admin/SubmissionsAdmin.php';
+        }
+
+        SubmissionsAdmin::register();
 
         if ( Config::bool( Config::get(), array( 'declined_review', 'enable' ), false ) ) {
             if ( ! class_exists( 'DeclinedReviewAdmin' ) ) {
@@ -489,7 +462,7 @@ if ( ! function_exists( 'eforms_register_hooks' ) ) {
         if ( function_exists( 'add_filter' ) ) {
             add_filter( 'rest_pre_dispatch', 'eforms_rest_pre_dispatch', 5, 3 );
             add_filter( 'rest_pre_serve_request', 'eforms_rest_strip_cors_headers', 15, 3 );
-            add_filter( 'rest_pre_serve_request', 'eforms_rest_serve_raw_body', 20, 2 );
+            add_filter( 'lbwps_enabled', array( 'ReviewController', 'enable_lightbox_for_current_review' ), 99, 2 );
         }
     }
 }

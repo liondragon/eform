@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../DeclinedReviewLog.php';
+require_once __DIR__ . '/AdminListPagination.php';
 
 class DeclinedReviewAdmin {
     const SLUG = 'eforms-declined';
@@ -90,7 +91,7 @@ class DeclinedReviewAdmin {
         $per_page = isset( $query['per_page'] ) ? (int) $query['per_page'] : 50;
 
         echo '<div class="tablenav top">';
-        echo '<div class="tablenav-pages">' . esc_html( self::pagination_label( $total, $page, $per_page ) ) . '</div>';
+        self::render_pagination( $filters, $total, $page, $per_page );
         echo '<br class="clear" />';
         echo '</div>';
 
@@ -113,6 +114,35 @@ class DeclinedReviewAdmin {
         echo '</tbody></table>';
 
         self::render_maintenance( $config );
+    }
+
+    private static function render_pagination( $filters, $total, $page, $per_page ) {
+        $total = max( 0, (int) $total );
+        $page = max( 1, (int) $page );
+        $per_page = max( 1, (int) $per_page );
+        $total_pages = $total > 0 ? (int) ceil( $total / $per_page ) : 1;
+        $page = min( $page, $total_pages );
+
+        AdminListPagination::render(
+            self::item_count_label( $total ),
+            array(
+                'first' => $page > 1 ? self::pagination_url( $filters, 1 ) : null,
+                'previous' => $page > 1 ? self::pagination_url( $filters, $page - 1 ) : null,
+                'next' => $page < $total_pages ? self::pagination_url( $filters, $page + 1 ) : null,
+                'last' => $page < $total_pages ? self::pagination_url( $filters, $total_pages ) : null,
+            ),
+            $page,
+            $total_pages
+        );
+    }
+
+    private static function pagination_url( $filters, $page ) {
+        $args = self::filter_query_args( $filters );
+        unset( $args['paged'] );
+        if ( (int) $page > 1 ) {
+            $args['paged'] = (int) $page;
+        }
+        return self::url( $args );
     }
 
     private static function render_filters( $filters ) {
@@ -378,14 +408,9 @@ class DeclinedReviewAdmin {
         return $base . '?' . http_build_query( $args, '', '&', PHP_QUERY_RFC3986 );
     }
 
-    private static function pagination_label( $total, $page, $per_page ) {
+    private static function item_count_label( $total ) {
         $total = max( 0, (int) $total );
-        if ( $total === 0 ) {
-            return '0 items';
-        }
-        $start = ( ( max( 1, (int) $page ) - 1 ) * max( 1, (int) $per_page ) ) + 1;
-        $end = min( $total, $start + max( 1, (int) $per_page ) - 1 );
-        return $start . '-' . $end . ' of ' . $total . ' items';
+        return $total . ( $total === 1 ? ' item' : ' items' );
     }
 
     private static function decision_options() {

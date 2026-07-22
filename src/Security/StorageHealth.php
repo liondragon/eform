@@ -208,12 +208,6 @@ class StorageHealth {
         $meta = array(
             'reason' => $result['reason'],
         );
-        if ( isset( $result['uploads_dir'] ) && is_string( $result['uploads_dir'] ) && $result['uploads_dir'] !== '' ) {
-            $meta['uploads_dir'] = $result['uploads_dir'];
-        }
-        if ( isset( $result['private_dir'] ) && is_string( $result['private_dir'] ) && $result['private_dir'] !== '' ) {
-            $meta['private_dir'] = $result['private_dir'];
-        }
 
         Logging::event( 'warning', 'EFORMS_ERR_STORAGE_UNAVAILABLE', $meta );
     }

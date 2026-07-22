@@ -10,8 +10,10 @@ defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
 
 require_once __DIR__ . '/src/Config.php';
 require_once __DIR__ . '/src/Admin/AdminSettingsStore.php';
+require_once __DIR__ . '/src/Logging/Fail2banLogger.php';
 require_once __DIR__ . '/src/Uploads/PrivateDir.php';
 require_once __DIR__ . '/src/Uploads/UploadBatchStore.php';
+require_once __DIR__ . '/src/Uploads/WorkerClient.php';
 
 if ( ! function_exists( 'eforms_uninstall_remove_tree' ) ) {
     /**
@@ -21,7 +23,7 @@ if ( ! function_exists( 'eforms_uninstall_remove_tree' ) ) {
      * @return void
      */
     function eforms_uninstall_remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
+        if ( ! is_string( $path ) || $path === '' || ( ! file_exists( $path ) && ! is_link( $path ) ) ) {
             return;
         }
 
@@ -87,103 +89,6 @@ if ( ! function_exists( 'eforms_uninstall_try_remove_empty_chain' ) ) {
     }
 }
 
-if ( ! function_exists( 'eforms_uninstall_is_absolute_path' ) ) {
-    /**
-     * Check whether the provided path is absolute.
-     *
-     * @param string $path
-     * @return bool
-     */
-    function eforms_uninstall_is_absolute_path( $path ) {
-        if ( ! is_string( $path ) || $path === '' ) {
-            return false;
-        }
-
-        if ( $path[0] === '/' || $path[0] === '\\' ) {
-            return true;
-        }
-
-        return preg_match( '/^[A-Za-z]:[\\\\\\/]/', $path ) === 1;
-    }
-}
-
-if ( ! function_exists( 'eforms_uninstall_fail2ban_path' ) ) {
-    /**
-     * Resolve fail2ban file path from config.
-     *
-     * @param array $config
-     * @param string $uploads_dir
-     * @return string
-     */
-    function eforms_uninstall_fail2ban_path( $config, $uploads_dir ) {
-        if ( ! is_array( $config ) ) {
-            return '';
-        }
-
-        $file = '';
-        if ( isset( $config['logging']['fail2ban']['file'] ) && is_string( $config['logging']['fail2ban']['file'] ) ) {
-            $file = trim( $config['logging']['fail2ban']['file'] );
-        }
-
-        if ( $file === '' ) {
-            return '';
-        }
-
-        if ( eforms_uninstall_is_absolute_path( $file ) ) {
-            return $file;
-        }
-
-        if ( ! is_string( $uploads_dir ) || $uploads_dir === '' ) {
-            return '';
-        }
-
-        return rtrim( $uploads_dir, '/\\' ) . '/' . ltrim( $file, '/\\' );
-    }
-}
-
-if ( ! function_exists( 'eforms_uninstall_remove_fail2ban_family' ) ) {
-    /**
-     * Remove fail2ban file and its rotated siblings.
-     *
-     * @param string $file_path
-     * @param string $uploads_dir
-     * @return void
-     */
-    function eforms_uninstall_remove_fail2ban_family( $file_path, $uploads_dir ) {
-        if ( ! is_string( $file_path ) || $file_path === '' ) {
-            return;
-        }
-
-        $dir = dirname( $file_path );
-        if ( ! is_dir( $dir ) ) {
-            return;
-        }
-
-        $base = basename( $file_path );
-        $entries = @scandir( $dir );
-        if ( ! is_array( $entries ) ) {
-            return;
-        }
-
-        foreach ( $entries as $entry ) {
-            if ( $entry === '.' || $entry === '..' ) {
-                continue;
-            }
-
-            if ( $entry !== $base && strpos( $entry, $base . '.' ) !== 0 ) {
-                continue;
-            }
-
-            $candidate = rtrim( $dir, '/\\' ) . '/' . $entry;
-            if ( is_file( $candidate ) || is_link( $candidate ) ) {
-                @unlink( $candidate );
-            }
-        }
-
-        eforms_uninstall_try_remove_empty_chain( $dir, rtrim( (string) $uploads_dir, '/\\' ) );
-    }
-}
-
 if ( ! function_exists( 'eforms_uninstall_ensure_wp_upload_dir' ) ) {
     /**
      * Ensure wp_upload_dir() is callable in uninstall context.
@@ -212,7 +117,11 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
      *
      * @return array{ok:bool, reason:string}
      */
-    function eforms_uninstall_run() {
+    function eforms_uninstall_run( $options = array() ) {
+        $options = is_array( $options ) ? $options : array();
+        $remove_tree = isset( $options['remove_tree'] ) && is_callable( $options['remove_tree'] )
+            ? $options['remove_tree']
+            : 'eforms_uninstall_remove_tree';
         Config::bootstrap();
         $config = Config::get();
 
@@ -252,6 +161,59 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
             }
             $private_dir = $lifecycle->private_dir();
             $private_exists = true;
+            $record_path = $private_dir . '/' . UploadBatchStore::REMOTE_PURGE_FILENAME;
+            $marker_path = $private_dir . '/' . PrivateDir::PURGE_MARKER_FILENAME;
+            $remote_state = UploadBatchStore::remote_artifacts_present( $lifecycle );
+            if ( empty( $remote_state['ok'] ) ) {
+                $lifecycle->release();
+                return array(
+                    'ok' => false,
+                    'reason' => isset( $remote_state['reason'] ) ? $remote_state['reason'] : 'manifest_invalid',
+                );
+            }
+            if ( ! empty( $remote_state['present'] ) || file_exists( $record_path ) || is_link( $record_path ) ) {
+                $now = isset( $options['now'] ) && is_numeric( $options['now'] ) ? (int) $options['now'] : time();
+                $fingerprint = WorkerClient::composition_fingerprint();
+                if ( $fingerprint === '' ) {
+                    $lifecycle->release();
+                    return array( 'ok' => false, 'reason' => 'upload_composition_unavailable' );
+                }
+                if ( ( file_exists( $record_path ) || is_link( $record_path ) )
+                    && is_file( $marker_path )
+                    && ! is_link( $marker_path )
+                ) {
+                    $remote_delete = isset( $options['remote_delete'] ) && is_callable( $options['remote_delete'] )
+                        ? $options['remote_delete']
+                        : function ( $object_key, $object_version, $artifact_store_identity ) use ( $now ) {
+                            return WorkerClient::delete_object(
+                                $object_key,
+                                $object_version,
+                                $artifact_store_identity,
+                                $now,
+                                null,
+                                'uninstall_drain'
+                            );
+                        };
+                    $remote = UploadBatchStore::resume_remote_purge(
+                        $lifecycle,
+                        $fingerprint,
+                        $remote_delete,
+                        $now
+                    );
+                } else {
+                    $remote = UploadBatchStore::prepare_remote_purge( $lifecycle, $fingerprint, $now );
+                }
+                if ( empty( $remote['ok'] ) || empty( $remote['ready'] ) ) {
+                    $lifecycle->release();
+                    return array(
+                        'ok' => false,
+                        'reason' => empty( $remote['ok'] )
+                            ? ( isset( $remote['reason'] ) ? $remote['reason'] : 'remote_purge_failed' )
+                            : 'remote_purge_draining',
+                        'retry_at' => isset( $remote['safe_after'] ) ? (int) $remote['safe_after'] : 0,
+                    );
+                }
+            }
             $managed_lock = UploadBatchStore::acquire_purge_capacity_lock( $lifecycle );
             if ( ! is_resource( $managed_lock ) ) {
                 $lifecycle->release();
@@ -259,6 +221,8 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
             }
             $staged_dir = $private_dir . '/' . UploadBatchStore::STAGED_DIR;
             $submissions_dir = $private_dir . '/' . UploadBatchStore::SUBMISSIONS_DIR;
+            $artifacts_dir = $private_dir . '/' . UploadBatchStore::ARTIFACTS_DIR;
+            $preview_cache_dir = $private_dir . '/' . UploadBatchStore::PREVIEW_CACHE_DIR;
             $aggregate_locks = UploadBatchStore::prelock_purge_aggregates( $lifecycle );
             if ( ! is_array( $aggregate_locks ) ) {
                 UploadBatchStore::release_purge_locks( $managed_lock );
@@ -275,23 +239,37 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
             // The durable barrier blocks queued aggregate writers; close their
             // handles before deletion so Windows can unlink each lock inode.
             UploadBatchStore::release_purge_locks( $aggregate_locks );
-            eforms_uninstall_remove_tree( $private_dir . '/tokens' );
-            eforms_uninstall_remove_tree( $private_dir . '/ledger' );
-            eforms_uninstall_remove_tree( $private_dir . '/uploads' );
-            eforms_uninstall_remove_tree( $private_dir . '/throttle' );
-            eforms_uninstall_remove_tree( $staged_dir );
-            eforms_uninstall_remove_tree( $submissions_dir );
-            $managed_roots_removed = ! file_exists( $staged_dir ) && ! file_exists( $submissions_dir );
+            call_user_func( $remove_tree, $private_dir . '/tokens' );
+            call_user_func( $remove_tree, $private_dir . '/ledger' );
+            call_user_func( $remove_tree, $private_dir . '/uploads' );
+            call_user_func( $remove_tree, $private_dir . '/throttle' );
+            call_user_func( $remove_tree, $staged_dir );
+            call_user_func( $remove_tree, $submissions_dir );
+            call_user_func( $remove_tree, $artifacts_dir );
+            call_user_func( $remove_tree, $preview_cache_dir );
+            $managed_roots_removed = ! file_exists( $staged_dir ) && ! is_link( $staged_dir )
+                && ! file_exists( $submissions_dir ) && ! is_link( $submissions_dir )
+                && ! file_exists( $artifacts_dir ) && ! is_link( $artifacts_dir )
+                && ! file_exists( $preview_cache_dir ) && ! is_link( $preview_cache_dir );
             if ( $managed_roots_removed ) {
-                eforms_uninstall_remove_tree( $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME );
+                call_user_func( $remove_tree, $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME );
+                call_user_func( $remove_tree, $private_dir . '/' . UploadBatchStore::REMOTE_PURGE_FILENAME );
             }
             UploadBatchStore::release_purge_locks( $managed_lock );
             $lifecycle->release();
             if ( ! $managed_roots_removed
                 || file_exists( $private_dir . '/tokens' )
+                || is_link( $private_dir . '/tokens' )
                 || file_exists( $private_dir . '/ledger' )
+                || is_link( $private_dir . '/ledger' )
                 || file_exists( $private_dir . '/uploads' )
+                || is_link( $private_dir . '/uploads' )
                 || file_exists( $private_dir . '/throttle' )
+                || is_link( $private_dir . '/throttle' )
+                || file_exists( $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME )
+                || is_link( $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME )
+                || file_exists( $private_dir . '/' . UploadBatchStore::REMOTE_PURGE_FILENAME )
+                || is_link( $private_dir . '/' . UploadBatchStore::REMOTE_PURGE_FILENAME )
             ) {
                 return array( 'ok' => false, 'reason' => 'upload_purge_incomplete' );
             }
@@ -299,13 +277,18 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
 
         if ( $purge_logs ) {
             if ( $private_exists ) {
-                eforms_uninstall_remove_tree( $private_dir . '/logs' );
-                eforms_uninstall_remove_tree( $private_dir . '/f2b' );
-                eforms_uninstall_remove_tree( $private_dir . '/declined' );
+                call_user_func( $remove_tree, $private_dir . '/logs' );
+                call_user_func( $remove_tree, $private_dir . '/f2b' );
+                call_user_func( $remove_tree, $private_dir . '/declined' );
             }
 
-            $fail2ban_file = eforms_uninstall_fail2ban_path( $config, $uploads_dir );
-            eforms_uninstall_remove_fail2ban_family( $fail2ban_file, $uploads_dir );
+            $fail2ban_file = Fail2banLogger::target_path( $config, $uploads_dir );
+            if ( $fail2ban_file !== '' ) {
+                Fail2banLogger::delete_family( $fail2ban_file );
+                if ( Fail2banLogger::target_uses_uploads_dir( $config ) ) {
+                    eforms_uninstall_try_remove_empty_chain( dirname( $fail2ban_file ), $uploads_dir );
+                }
+            }
         }
 
         if ( $private_exists ) {
@@ -321,6 +304,9 @@ $eforms_uninstall_result = eforms_uninstall_run();
 if ( empty( $eforms_uninstall_result['ok'] ) ) {
     $reason = isset( $eforms_uninstall_result['reason'] ) ? $eforms_uninstall_result['reason'] : 'unknown';
     $message = 'eForms uninstall could not safely purge runtime data (' . $reason . '). Plugin deletion was stopped.';
+    if ( ! empty( $eforms_uninstall_result['retry_at'] ) ) {
+        $message .= ' Retry after ' . gmdate( 'Y-m-d H:i:s', (int) $eforms_uninstall_result['retry_at'] ) . ' UTC.';
+    }
     if ( function_exists( 'wp_die' ) ) {
         wp_die( $message );
     }

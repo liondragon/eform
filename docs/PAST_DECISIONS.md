@@ -34,6 +34,93 @@ Architectural decisions made during Electronic Forms spec development.
 
 ## Design Choices
 
+### Adopted: Authoritative-artifact pre-implementation safety profile
+
+Before implementing the authoritative-artifact upload path, eForms fixed one
+bounded media/object envelope, short-lived scoped Worker credentials around a
+longer bounded transfer window, 30-day finalized retention, a staged two-key
+rotation procedure, one shared resumable uninstall-drain record, generic
+provider-neutral outage behavior, and a local preview concurrency ceiling.
+Exact runtime values now live in `src/Anchors.php`; active contracts own their
+behavioral meaning.
+
+The rejected alternatives were a file limit too close to the provider's hard
+inspection ceiling, hour-long bearer grants, an active-plus-previous-only key
+deployment that creates a cross-runtime mismatch window, automatic local
+fallback during R2 outage, and unbounded or broadly configurable local image
+conversion. P0-T2 chose the WordPress uninstall entrypoint from real deletion
+evidence without reopening the drain state or purge ownership.
+
+### Adopted: Normal two-attempt WordPress uninstall drain
+
+A disposable WordPress 7.0.1 proof exercised wp-admin single-plugin AJAX
+deletion, both multi-plugin queue orders, REST deletion, and WP-CLI with normal
+deletion and `--skip-delete`. Incomplete and simulated provider-failed drains
+returned HTTP 503 or a nonzero CLI status, retained the plugin files and retry
+instructions, and resumed the same persisted barrier on a later ready attempt.
+Normal ready attempts removed the plugin; `--skip-delete` intentionally retained
+its files after running uninstall.
+
+wp-admin bulk deletion is sequential rather than transactional. Its AJAX queue
+continues to other plugins after eForms blocks; its server fallback stops at
+eForms, so only plugins earlier in the list are deleted. Because every supported
+entrypoint preserved the eForms safety invariant, eForms will use ordinary
+WordPress deletion as the two-attempt adapter over the single purge owner. A
+separate pre-uninstall admin/CLI state machine was rejected as unnecessary.
+
+### Adopted: One authoritative artifact with optional review previews
+
+Managed upload acceptance means that exactly one bounded, inspected artifact is
+durably committed for an item. Browser preparation may choose that artifact
+before authorization, but it never creates a second retained source. Review
+previews are replaceable presentation caches: their readiness, generation, and
+failure do not participate in upload, manifest, finalization, or email success.
+
+This superseded the never-production normalized-master design. Its manifest-v2
+reader, required `master.jpg`/`preview.jpg` generation, derivative capacity,
+processing readiness gate, customer artifact-preview route, and compatibility
+tests were removed without a migration layer; Git history is the recovery
+mechanism. The accepted trade is that submitted HEIC/HEIF or metadata-bearing
+artifacts may require operator download when an optional preview is unavailable.
+
+Each installation binds one validated artifact/review composition. Runtime
+provider pickers and automatic local fallback were rejected because they would
+require per-item backend identity, parallel cleanup/accounting paths, and
+ambiguous outage behavior. A backend change requires a retention drain or an
+explicit migration. Optional browser JPEG preparation remains capability-gated,
+defaults off, and does not change stored manifest semantics.
+
+An owner review retained `UploadBatchStore` as the public aggregate facade even
+though it exceeds the original line-count signal. Its remaining size is active
+aggregate traversal, intent/tombstone/finalization coordination, remote purge,
+and object-budget-before-aggregate lock ordering. The proven physical concerns
+already live in `ManagedCapacityStore`, `LocalArtifactStore`,
+`LocalPreviewProvider`, and `WorkerClient`; extracting a generic manifest
+repository solely to meet a line target would split the sole-writer authority
+without removing state or behavior.
+
+The final reviewed Phase 5/6 upload/media PHP focus slice was 13,303 lines versus the
+8,117-line pre-feature signal. The newly approved Worker/R2 composition explains the
+greater-than-3,000-line growth, but did not waive the owner review. The review
+retained each owner for a distinct reason:
+
+| Owner family | Decision |
+| --- | --- |
+| `UploadPolicy` / `HeifInspector` | Keep the small policy facade and its bounded, decoder-free HEIF parser; merging them would mix format parsing with public policy. |
+| `LocalArtifactStore` / `LocalPreviewProvider` | Keep physical local-object operations separate from optional, replaceable preview cache/concurrency work. |
+| `ManagedCapacityStore` | Keep capacity arithmetic and persistence private behind `UploadBatchStore`; no other caller may create a second accounting seam. |
+| `WorkerProtocol` / `WorkerClient` | Keep canonical capability envelopes separate from bounded network transport; neither owns aggregate state. |
+| `UploadBatchEndpoint` / `ReviewController` | Keep the customer upload HTTP adapter separate from authenticated operator review delivery. |
+| `UploadBatchStore` | Keep the sole manifest writer and lock-order coordinator intact; its remaining breadth is aggregate behavior, not another physical concern. |
+| `PrivateDir` / `UploadStore` / `UploadValue` | Keep established filesystem, legacy non-managed upload, and submitted-value owners; the feature did not duplicate them. |
+| `GcRunner` / `RuntimeHealthDiagnostic` / `uninstall.php` | Keep orchestration, read-only health reporting, and the WordPress deletion adapter distinct; all delegate managed state changes to the aggregate owner. |
+
+No further extraction removed a dependency or state machine. The rejected
+alternative was a generic repository/service layer that would add indirection
+while weakening sole-writer, exact-version, or lock-order invariants. This is an
+explicit acceptance of the focus-slice growth, not a precedent to bypass future
+LOC gates.
+
 ### Kept: Soft Signal Scoring
 
 Weighted accumulation of spam signals (honeypot/timing/origin/challenge) with threshold. Provides tuning flexibility and visibility into "almost spam" patterns. Hard gates lose this insight.

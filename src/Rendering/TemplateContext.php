@@ -11,6 +11,7 @@
  */
 
 require_once __DIR__ . '/../Errors.php';
+require_once __DIR__ . '/../ErrorMessages.php';
 require_once __DIR__ . '/../Validation/TemplateValidator.php';
 require_once __DIR__ . '/../Validation/FieldTypeRegistry.php';
 require_once __DIR__ . '/../Validation/ValidatorRegistry.php';
@@ -124,6 +125,62 @@ class TemplateContext {
         return self::result( true, $context, $errors );
     }
 
+    public static function error_field_context( $context ) {
+        $descriptors = is_array( $context ) && isset( $context['descriptors'] ) && is_array( $context['descriptors'] )
+            ? $context['descriptors']
+            : array();
+        $fields = array();
+        foreach ( $descriptors as $descriptor ) {
+            if ( ! is_array( $descriptor ) ) {
+                continue;
+            }
+            $key = isset( $descriptor['key'] ) && is_string( $descriptor['key'] ) ? $descriptor['key'] : '';
+            if ( $key === '' ) {
+                continue;
+            }
+            $fields[ $key ] = array(
+                'label' => ErrorMessages::field_error_label_text( $descriptor, $key ),
+                'type' => isset( $descriptor['type'] ) && is_string( $descriptor['type'] ) ? $descriptor['type'] : '',
+            );
+        }
+        return $fields;
+    }
+
+    public static function redisplay_values( $context, $validated ) {
+        $values = is_array( $validated ) && isset( $validated['values'] ) && is_array( $validated['values'] )
+            ? $validated['values']
+            : array();
+        $descriptors = is_array( $context ) && isset( $context['descriptors'] ) && is_array( $context['descriptors'] )
+            ? $context['descriptors']
+            : array();
+        $safe = array();
+
+        foreach ( $descriptors as $descriptor ) {
+            if ( ! is_array( $descriptor ) ) {
+                continue;
+            }
+
+            $key = isset( $descriptor['key'] ) && is_string( $descriptor['key'] ) ? $descriptor['key'] : '';
+            $type = isset( $descriptor['type'] ) && is_string( $descriptor['type'] ) ? $descriptor['type'] : '';
+            if ( $key === '' || ! array_key_exists( $key, $values ) || in_array( $type, array( 'file', 'files', 'password' ), true ) ) {
+                continue;
+            }
+
+            $value = $values[ $key ];
+            if ( ! empty( $descriptor['is_multivalue'] ) ) {
+                if ( ! is_array( $value ) || array_filter( $value, 'is_string' ) !== $value ) {
+                    continue;
+                }
+            } elseif ( $value !== null && ! is_string( $value ) ) {
+                continue;
+            }
+
+            $safe[ $key ] = $value;
+        }
+
+        return $safe;
+    }
+
     private static function normalize_version( $template, $version_override ) {
         if ( is_string( $version_override ) && $version_override !== '' ) {
             return $version_override;
@@ -142,6 +199,8 @@ class TemplateContext {
 
         return array(
             'key' => isset( $field['key'] ) ? $field['key'] : '',
+            'label' => isset( $field['label'] ) && is_string( $field['label'] ) ? $field['label'] : '',
+            'placeholder' => isset( $field['placeholder'] ) && is_string( $field['placeholder'] ) ? $field['placeholder'] : '',
             'type' => isset( $descriptor['type'] ) ? $descriptor['type'] : '',
             'is_multivalue' => isset( $descriptor['is_multivalue'] ) ? $descriptor['is_multivalue'] : false,
             'name_tpl' => $form_id . '[{key}]',
@@ -149,6 +208,8 @@ class TemplateContext {
             'html' => $html,
             'validate' => isset( $descriptor['validate'] ) ? $descriptor['validate'] : array(),
             'constants' => isset( $descriptor['constants'] ) ? $descriptor['constants'] : array(),
+            'defaults' => isset( $descriptor['defaults'] ) ? $descriptor['defaults'] : array(),
+            'render' => isset( $descriptor['render'] ) ? $descriptor['render'] : array(),
             'attr_mirror' => $attr_mirror,
             'handlers' => $handlers,
         );

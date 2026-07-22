@@ -42,6 +42,10 @@ class ErrorCodes
         'EFORMS_FINFO_UNAVAILABLE',
         'EFORMS_LEDGER_IO',
         'EFORMS_RESERVE',
+        'EFORMS_ERR_FIELD_REQUIRED',
+        'EFORMS_ERR_ONE_OF_REQUIRED',
+        'EFORMS_ERR_FIELD_INVALID',
+        'EFORMS_ERR_MUTUALLY_EXCLUSIVE',
     ];
 
     /**

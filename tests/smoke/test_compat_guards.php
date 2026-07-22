@@ -41,6 +41,7 @@ mkdir( $base, 0700, true );
 
 $probe = Compat::probe_uploads_semantics( $base );
 eforms_test_assert( $probe === null, 'Writable temp dir should pass uploads semantics probe.' );
+eforms_test_assert( glob( $base . '/.eforms-compat-probe-*' ) === array(), 'Compatibility probing should remove its request-unique directory.' );
 
 $file_path = $base . '/not-a-dir';
 file_put_contents( $file_path, 'x' );

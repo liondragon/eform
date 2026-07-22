@@ -31,6 +31,11 @@ Config::reset_for_tests();
 $defaults = Config::defaults();
 $config   = Config::get();
 eforms_test_assert( $config['security']['origin_mode'] === $defaults['security']['origin_mode'], 'Defaults should load when no drop-in exists.' );
+eforms_test_assert(
+    $defaults['throttle']['per_ip']['max_per_minute'] >= Anchors::get( 'STAGED_THROTTLED_REQUESTS_PER_BATCH' )
+        + ( Anchors::get( 'STAGED_THROTTLED_REQUESTS_PER_ITEM' ) * 24 ),
+    'The default throttle budget should cover batch creation plus authorization and completion for every advertised staged item.'
+);
 
 // Given a valid drop-in override...
 // When Config::get is called...

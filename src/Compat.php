@@ -98,19 +98,6 @@ class Compat {
             );
         }
 
-        $uploads_dir = self::current_uploads_basedir();
-        if ( $uploads_dir !== null ) {
-            $probe = self::probe_uploads_semantics( $uploads_dir );
-            if ( $probe !== null ) {
-                return array(
-                    'code'        => 'EFORMS_COMPAT_UPLOADS_SEMANTICS',
-                    'current'     => $uploads_dir,
-                    'minimum'     => '',
-                    'description' => $probe,
-                );
-            }
-        }
-
         return null;
     }
 
@@ -129,24 +116,6 @@ class Compat {
         return null;
     }
 
-    private static function current_uploads_basedir() {
-        if ( ! function_exists( 'wp_upload_dir' ) ) {
-            return null;
-        }
-
-        $uploads = wp_upload_dir();
-        if ( ! is_array( $uploads ) || ! isset( $uploads['basedir'] ) || ! is_string( $uploads['basedir'] ) ) {
-            return null;
-        }
-
-        $basedir = $uploads['basedir'];
-        if ( $basedir === '' ) {
-            return null;
-        }
-
-        return $basedir;
-    }
-
     /**
      * Return null when semantics appear supported; otherwise return a human-readable reason.
      */
@@ -163,15 +132,12 @@ class Compat {
             return 'Uploads directory is not writable.';
         }
 
-        $probe_dir = rtrim( $uploads_dir, '/\\' ) . '/.eforms-compat-probe';
-        if ( ! is_dir( $probe_dir ) ) {
-            $created = @mkdir( $probe_dir, 0700, true );
-            if ( ! $created ) {
-                return 'Unable to create a probe directory under uploads.';
-            }
+        $salt = self::probe_salt();
+        $probe_dir = rtrim( $uploads_dir, '/\\' ) . '/.eforms-compat-probe-' . $salt;
+        if ( file_exists( $probe_dir ) || is_link( $probe_dir ) || ! @mkdir( $probe_dir, 0700 ) ) {
+            return 'Unable to create a probe directory under uploads.';
         }
 
-        $salt  = self::probe_salt();
         $tmp   = $probe_dir . '/probe-' . $salt . '.tmp';
         $final = $probe_dir . '/probe-' . $salt . '.final';
 

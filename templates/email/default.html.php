@@ -16,7 +16,7 @@ defined('ABSPATH') || exit;
     $val = isset($row['value']) ? (string) $row['value'] : '';
     $type = isset($row['type']) ? (string) $row['type'] : 'text';
     $url = isset($row['url']) ? (string) $row['url'] : '';
-    $expires = isset($row['expires_label']) ? (string) $row['expires_label'] : '';
+    $available = isset($row['available_label']) ? (string) $row['available_label'] : '';
 ?>
 <tr>
   <th scope="row" style="font-weight:bold;text-align:left;vertical-align:top;padding:0 28px 4px 0;"><?= htmlspecialchars($label, ENT_QUOTES) ?>:</th>
@@ -26,7 +26,7 @@ defined('ABSPATH') || exit;
     <?php elseif ($type === 'gallery' && $url !== ''): ?>
       <?= htmlspecialchars($val, ENT_QUOTES) ?><br>
       <a href="<?= htmlspecialchars($url, ENT_QUOTES) ?>">Review photos</a><br>
-      <small>Available until <?= htmlspecialchars($expires, ENT_QUOTES) ?></small>
+      <small>Available until <?= htmlspecialchars($available, ENT_QUOTES) ?></small>
     <?php else: ?>
       <?= nl2br(htmlspecialchars($val, ENT_QUOTES)) ?>
     <?php endif; ?>

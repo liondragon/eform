@@ -10,6 +10,7 @@
 
 require_once __DIR__ . '/../../Uploads/UploadPolicy.php';
 require_once __DIR__ . '/../../FormProtocol.php';
+require_once __DIR__ . '/../../EformsMarkup.php';
 require_once __DIR__ . '/../../Helpers.php';
 
 class FieldRenderers_Upload {
@@ -51,7 +52,7 @@ class FieldRenderers_Upload {
 
         $accept = self::accept_attribute( $field );
         if ( $accept !== '' ) {
-            $attrs['accept'] = $accept;
+            $attrs['accept'] = self::is_staged( $field ) ? 'image/*' : $accept;
         }
 
         if ( is_array( $descriptor ) && ! empty( $descriptor['is_multivalue'] ) ) {
@@ -63,7 +64,7 @@ class FieldRenderers_Upload {
             $attrs[ FormProtocol::DATA_UPLOAD_PICKER ] = '1';
         }
 
-        return $attrs;
+        return EformsMarkup::apply_control_context( $attrs, $context );
     }
 
     private static function accept_attribute( $field ) {
@@ -102,50 +103,22 @@ class FieldRenderers_Upload {
     }
 
     private static function render_staged_mount( $field, $input_attrs ) {
+        $limits = UploadPolicy::effective_staged_limits( $field );
         $attrs = array(
             'class' => 'eforms-upload',
             FormProtocol::DATA_UPLOAD_MOUNT => '1',
             FormProtocol::DATA_UPLOAD_PICKER_ID => isset( $input_attrs['id'] ) ? $input_attrs['id'] : '',
             FormProtocol::DATA_UPLOAD_FIELD => isset( $field['key'] ) ? $field['key'] : '',
-            FormProtocol::DATA_UPLOAD_ACCEPT => isset( $input_attrs['accept'] ) ? $input_attrs['accept'] : '',
-            FormProtocol::DATA_UPLOAD_MAX_FILES => isset( $field['max_files'] ) ? (string) $field['max_files'] : '',
-            FormProtocol::DATA_UPLOAD_MAX_FILE_BYTES => isset( $field['max_file_bytes'] ) ? (string) $field['max_file_bytes'] : '',
-            FormProtocol::DATA_UPLOAD_MAX_TOTAL_BYTES => isset( $field['max_total_bytes'] ) ? (string) $field['max_total_bytes'] : '',
+            FormProtocol::DATA_UPLOAD_ACCEPT => self::accept_attribute( $field ),
+            FormProtocol::DATA_UPLOAD_MAX_FILES => (string) $limits['max_files'],
+            FormProtocol::DATA_UPLOAD_MAX_FILE_BYTES => (string) $limits['max_file_bytes'],
+            FormProtocol::DATA_UPLOAD_MAX_TOTAL_BYTES => (string) $limits['max_total_bytes'],
         );
 
-        return '<div ' . self::attrs_to_string( $attrs ) . '></div>';
-    }
-
-    private static function attrs_to_string( $attrs ) {
-        $parts = array();
-        foreach ( $attrs as $key => $value ) {
-            if ( $value === null || $value === '' ) {
-                continue;
-            }
-            $parts[] = $key . '="' . self::escape_attr( $value ) . '"';
-        }
-        return implode( ' ', $parts );
+        return '<div ' . EformsMarkup::attributes( $attrs ) . '></div>';
     }
 
     private static function render_input( $attrs ) {
-        $parts = array();
-
-        foreach ( $attrs as $key => $value ) {
-            if ( $value === null ) {
-                continue;
-            }
-
-            $parts[] = $key . '="' . self::escape_attr( $value ) . '"';
-        }
-
-        return '<input ' . implode( ' ', $parts ) . ' />';
-    }
-
-    private static function escape_attr( $value ) {
-        if ( function_exists( 'esc_attr' ) ) {
-            return esc_attr( $value );
-        }
-
-        return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' );
+        return '<input ' . EformsMarkup::attributes( $attrs ) . ' />';
     }
 }

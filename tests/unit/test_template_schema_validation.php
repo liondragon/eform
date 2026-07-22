@@ -75,6 +75,27 @@ $template = array(
 $errors = TemplateValidator::validate_template_envelope( $template );
 eforms_test_assert( ! $errors->any(), 'Valid template should not emit schema errors.' );
 
+$one_of_message = $template;
+$one_of_message['rules'] = array(
+    array(
+        'rule' => 'one_of',
+        'fields' => array( 'name' ),
+        'message' => 'Please provide a name.',
+    ),
+);
+$errors = TemplateValidator::validate_template_envelope( $one_of_message );
+eforms_test_assert( ! $errors->any(), 'one_of should accept an optional string message.' );
+
+$invalid_one_of_message = $one_of_message;
+$invalid_one_of_message['rules'][0]['message'] = array( 'not', 'copy' );
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_one_of_message ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_TYPE', $codes, true ), 'one_of should reject a non-string message.' );
+
+$unsupported_rule_message = $template;
+$unsupported_rule_message['rules'][0]['message'] = 'Ignored copy is forbidden.';
+$codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $unsupported_rule_message ) );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_UNKNOWN_KEY', $codes, true ), 'Rule types without custom global copy should reject message.' );
+
 // Given unknown keys...
 // When TemplateValidator runs...
 // Then it emits schema unknown key errors.
@@ -301,6 +322,26 @@ foreach ( FieldTypeRegistry::supported_types() as $field_type ) {
     $codes  = eforms_test_collect_codes( $errors );
     eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'Registry type ' . $field_type . ' should be accepted.' );
 }
+
+// Given unit metadata on an eligible number field...
+// When TemplateValidator runs...
+// Then the descriptor-owned display metadata is accepted.
+$unit_number_template = $template;
+$unit_number_template['fields'][0]['type'] = 'number';
+$unit_number_template['fields'][0]['unit'] = 'sqft';
+$errors = TemplateValidator::validate_template_envelope( $unit_number_template );
+$codes = eforms_test_collect_codes( $errors );
+eforms_test_assert( ! in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'Number fields should accept descriptor-owned unit metadata.' );
+
+// Given unit metadata on a field without descriptor support...
+// When TemplateValidator runs...
+// Then the template is rejected instead of silently ignoring the unit.
+$unit_text_template = $template;
+$unit_text_template['fields'][0]['type'] = 'text';
+$unit_text_template['fields'][0]['unit'] = 'sqft';
+$errors = TemplateValidator::validate_template_envelope( $unit_text_template );
+$codes = eforms_test_collect_codes( $errors );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'Non-number fields should reject unit metadata.' );
 
 // Given row_group as a pseudo-field...
 // When TemplateValidator validates it...

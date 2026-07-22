@@ -7,7 +7,9 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
+$GLOBALS['eforms_test_uploads_dir'] = eforms_test_tmp_root( 'eforms-runtime-bootstrap-must-not-probe-storage' );
 require_once __DIR__ . '/../../eforms.php';
+unset( $GLOBALS['eforms_test_uploads_dir'] );
 
 // Given a loaded plugin...
 // When the public entry points are registered...
@@ -40,29 +42,9 @@ eforms_test_assert(
 );
 
 eforms_test_assert(
-    isset( $GLOBALS['eforms_test_hooks']['filter']['rest_pre_serve_request'] ),
-    'The binary REST body adapter should be registered.'
-);
-eforms_test_assert(
     isset( $GLOBALS['eforms_test_hooks']['filter']['rest_pre_dispatch'] ),
     'The route-scoped REST preflight guard should be registered.'
 );
-
-$raw_response = new class( new RawRestBody( "\xFF\xD8\xFF\xD9" ) ) {
-    private $data;
-
-    public function __construct( $data ) {
-        $this->data = $data;
-    }
-
-    public function get_data() {
-        return $this->data;
-    }
-};
-ob_start();
-$raw_served = eforms_rest_serve_raw_body( false, $raw_response );
-$raw_bytes = ob_get_clean();
-eforms_test_assert( $raw_served === true && $raw_bytes === "\xFF\xD8\xFF\xD9", 'Marked REST bodies should bypass JSON serialization unchanged.' );
 
 foreach ( $GLOBALS['eforms_test_hooks']['action']['rest_api_init'] as $callback ) {
     call_user_func( $callback );
@@ -122,3 +104,26 @@ eforms_test_assert( is_dir( $blocked_marker ), 'Failed activation should preserv
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();
 eforms_test_remove_tree( $blocked_uploads );
+
+$incompatible_uploads_root = eforms_test_tmp_root( 'eforms-activation-incompatible-storage' );
+mkdir( $incompatible_uploads_root, 0700, true );
+$incompatible_uploads = eforms_test_write_file( $incompatible_uploads_root, 'not-a-directory', 'x' );
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config ) use ( $incompatible_uploads ) {
+        $config['uploads']['dir'] = $incompatible_uploads;
+        return $config;
+    }
+);
+Config::reset_for_tests();
+$incompatible_activation_failed = false;
+try {
+    call_user_func( $activation );
+} catch ( RuntimeException $error ) {
+    $incompatible_activation_failed = strpos( $error->getMessage(), 'managed storage is incompatible' ) !== false;
+}
+eforms_test_assert( $incompatible_activation_failed === true, 'Activation should reject incompatible configured storage.' );
+eforms_test_assert( is_file( $incompatible_uploads ), 'Failed compatibility probing should preserve the configured path.' );
+eforms_test_set_filter( 'eforms_config', null );
+Config::reset_for_tests();
+eforms_test_remove_tree( $incompatible_uploads_root );

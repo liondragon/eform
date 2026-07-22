@@ -45,6 +45,15 @@ $options = array(
     'dry_run' => true,
 );
 
+$GLOBALS['eforms_test_redirects'] = array();
+$location = Success::result_location( Success::RESULT_SUCCESS, 'contact', $options );
+eforms_test_assert( $location['ok'] === true, 'Success location should resolve without redirecting.' );
+eforms_test_assert( ! isset( $location['status'] ), 'Pure success location should not carry redirect status.' );
+eforms_test_assert( strpos( $location['location'], 'eforms_result=success' ) !== false, 'Pure success location should target the success result page.' );
+eforms_test_assert( $GLOBALS['eforms_test_redirects'] === array(), 'Pure success location must not call wp_safe_redirect.' );
+$email_failure_location = Success::result_location( Success::RESULT_EMAIL_FAILURE, 'contact', $options );
+eforms_test_assert( $email_failure_location['ok'] === true && strpos( $email_failure_location['location'], 'eforms_result=email_failure' ) !== false, 'Pure success location should resolve the email-failure destination.' );
+
 $result = Success::redirect( $context, $options );
 
 eforms_test_assert( $result['ok'] === true, 'Success redirect should return ok=true.' );

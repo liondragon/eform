@@ -172,3 +172,6 @@ When the user asks for your opinion on an idea (including feedback from others),
 - **Machine-applyable diffs:** Do not put prose/notes inside a `*.diff` file; keep it strictly patch content so it can be applied by standard tooling.
 - **Must-check apply:** Before finalizing a diff-only change, validate it applies cleanly to the current workspace state using a dry-run (prefer `git apply --check <file>.diff`; otherwise use `patch --dry-run`), and fix the diff until it passes or explicitly report that it fails and why.
 - **Must-report artifacts:** In the final response, explicitly state which file(s) were edited (e.g. “edited `a.diff` only”), whether any target files were modified/applied, and whether the dry-run apply check passed.
+## Agent delegation
+
+Do not spawn or delegate to subagents unless the user explicitly requests it.

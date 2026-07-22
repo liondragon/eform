@@ -7,10 +7,14 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../FormProtocol.php';
+require_once __DIR__ . '/../Privacy/ClientIp.php';
 
 class Challenge {
     const TURNSTILE_RESPONSE_FIELD = 'cf-turnstile-response';
     const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+    const TURNSTILE_SCRIPT_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    const TURNSTILE_WIDGET_CLASS = 'cf-turnstile';
 
     /**
      * True when the posted payload includes a provider response token.
@@ -39,6 +43,49 @@ class Challenge {
             'has_site_key' => $has_site_key,
             'has_secret_key' => $has_secret_key,
             'configured' => $provider === 'turnstile' && $has_site_key && $has_secret_key,
+        );
+    }
+
+    /**
+     * Return provider-owned public metadata for rendering and browser recovery.
+     *
+     * @param array|null $config Optional config snapshot.
+     * @return array<string, string>
+     */
+    public static function public_metadata( $config = null ) {
+        $config = is_array( $config ) ? $config : Config::get();
+        $status = self::configuration_status( $config );
+        if ( empty( $status['configured'] ) ) {
+            return array();
+        }
+
+        return array(
+            FormProtocol::RESPONSE_CHALLENGE_PROVIDER => $status['provider'],
+            FormProtocol::RESPONSE_CHALLENGE_SITE_KEY => self::challenge_site_key( $config ),
+            FormProtocol::CHALLENGE_SCRIPT_URL => self::TURNSTILE_SCRIPT_URL,
+        );
+    }
+
+    /**
+     * Return provider-specific widget attributes for validated public metadata.
+     *
+     * @param array $metadata Public metadata from public_metadata().
+     * @return array<string, string>
+     */
+    public static function widget_attributes( $metadata ) {
+        $provider = is_array( $metadata ) && isset( $metadata[ FormProtocol::RESPONSE_CHALLENGE_PROVIDER ] )
+            ? $metadata[ FormProtocol::RESPONSE_CHALLENGE_PROVIDER ]
+            : '';
+        $site_key = is_array( $metadata ) && isset( $metadata[ FormProtocol::RESPONSE_CHALLENGE_SITE_KEY ] )
+            ? $metadata[ FormProtocol::RESPONSE_CHALLENGE_SITE_KEY ]
+            : '';
+        if ( $provider !== 'turnstile' || ! is_string( $site_key ) || $site_key === '' ) {
+            return array();
+        }
+
+        return array(
+            'class' => self::TURNSTILE_WIDGET_CLASS,
+            'data-sitekey' => $site_key,
         );
     }
 
@@ -91,7 +138,7 @@ class Challenge {
             $response,
             self::challenge_secret_key( $config ),
             self::http_timeout( $config ),
-            self::request_client_ip( $request ),
+            ClientIp::resolve( $request, $config ),
             self::idempotency_key( $security )
         );
 
@@ -269,18 +316,6 @@ class Challenge {
         }
 
         return trim( (string) $post[ self::TURNSTILE_RESPONSE_FIELD ] );
-    }
-
-    private static function request_client_ip( $request ) {
-        if ( is_array( $request ) && isset( $request['client_ip'] ) && is_string( $request['client_ip'] ) ) {
-            return trim( $request['client_ip'] );
-        }
-
-        if ( isset( $_SERVER['REMOTE_ADDR'] ) && is_string( $_SERVER['REMOTE_ADDR'] ) ) {
-            return trim( $_SERVER['REMOTE_ADDR'] );
-        }
-
-        return '';
     }
 
     private static function security_soft_reasons( $security ) {

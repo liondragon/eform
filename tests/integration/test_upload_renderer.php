@@ -104,7 +104,7 @@ $field = array(
 
 $method = new ReflectionMethod( 'FormRenderer', 'render_control' );
 $method->setAccessible( true );
-$control = $method->invoke( null, $descriptor, $field, 'demo', false, null );
+$control = $method->invoke( null, $descriptor, $field, 'demo', 'demo-attachments', false, null, array() );
 
 eforms_test_assert( strpos( $control, 'type="file"' ) !== false, 'Files field should render a file input.' );
 eforms_test_assert( strpos( $control, 'multiple="multiple"' ) !== false, 'Files field should render multiple.' );
@@ -122,16 +122,18 @@ $staged['upload_mode'] = 'staged';
 $staged['max_file_bytes'] = 20971520;
 $staged['max_files'] = 24;
 $staged['max_total_bytes'] = 314572800;
-$control = $method->invoke( null, $descriptor, $staged, 'demo', false, null );
+$control = $method->invoke( null, $descriptor, $staged, 'demo', 'demo-project_photos', false, null, array() );
 
 eforms_test_assert( strpos( $control, 'id="demo-project_photos"' ) !== false, 'Staged picker should retain deterministic label targeting.' );
 eforms_test_assert( strpos( $control, 'disabled="disabled"' ) !== false, 'Staged picker should render disabled before enhancement.' );
 eforms_test_assert( strpos( $control, 'name=' ) === false, 'Staged picker should never submit a multipart photo body.' );
 eforms_test_assert( substr_count( $control, FormProtocol::DATA_UPLOAD_MOUNT . '="1"' ) === 1, 'Staged field should emit one canonical managed mount.' );
 eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_FILES . '="24"' ) !== false, 'Managed mount should disclose the count bound.' );
-eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_FILE_BYTES . '="20971520"' ) !== false, 'Managed mount should disclose the per-file bound.' );
+eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_FILE_BYTES . '="' . Anchors::get( 'MANAGED_ARTIFACT_MAX_BYTES' ) . '"' ) !== false, 'Managed mount should disclose the effective managed-artifact bound.' );
 eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_TOTAL_BYTES . '="314572800"' ) !== false, 'Managed mount should disclose the total-original-byte bound.' );
-eforms_test_assert( strpos( $control, 'image/webp' ) !== false && strpos( $control, 'image/gif' ) === false, 'Staged hints should include WebP and exclude GIF.' );
+eforms_test_assert( strpos( $control, 'accept="image/*"' ) !== false, 'Staged picker should use the broad image hint for native mobile photo pickers.' );
+eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_ACCEPT . '="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"' ) !== false, 'Managed mount should retain the exact staged accept policy.' );
+eforms_test_assert( strpos( $control, 'image/webp' ) !== false && strpos( $control, 'image/gif' ) === false, 'Staged policy hints should include WebP and exclude GIF.' );
 eforms_test_assert(
     strpos( $control, 'image/heic' ) !== false
         && strpos( $control, 'image/heif' ) !== false
@@ -146,8 +148,8 @@ $long_descriptor = $descriptor;
 $long_descriptor['id_prefix'] = $long_form_id;
 $long_staged = $staged;
 $long_staged['key'] = str_repeat( 'p', 64 );
-$long_control = $method->invoke( null, $long_descriptor, $long_staged, $long_form_id, false, null );
 $long_picker_id = Helpers::cap_id( $long_form_id . '-' . $long_staged['key'] );
+$long_control = $method->invoke( null, $long_descriptor, $long_staged, $long_form_id, $long_picker_id, false, null, array() );
 eforms_test_assert( strpos( $long_control, 'id="' . $long_picker_id . '"' ) !== false, 'Long staged picker IDs should use the shared cap owner.' );
 eforms_test_assert(
     strpos( $long_control, FormProtocol::DATA_UPLOAD_PICKER_ID . '="' . $long_picker_id . '"' ) !== false,

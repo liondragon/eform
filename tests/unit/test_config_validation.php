@@ -212,4 +212,34 @@ eforms_test_assert( $config['declined_review']['enable'] === true, 'declined_rev
 eforms_test_assert( $config['declined_review']['retention_days'] === 12, 'Null declined retention should materialize to logging.retention_days.' );
 eforms_test_set_filter( 'eforms_config', null );
 
+// Case 8: client preparation is deployment-only, default-off, and enum validated.
+$remove_dropin();
+Logging::reset_for_tests();
+$write_dropin(array(
+    'media' => array(
+        'client_preparation' => 'always_reencode',
+    ),
+));
+Config::reset_for_tests();
+$config = Config::get();
+eforms_test_assert( $config['media']['client_preparation'] === Config::CLIENT_PREPARATION_OFF, 'Invalid client preparation mode should remain off.' );
+$found = false;
+foreach (Logging::$events as $event) {
+    if ($event['code'] === 'EFORMS_CONFIG_DROPIN_INVALID' && isset($event['meta']['path']) && $event['meta']['path'] === 'media.client_preparation') {
+        $found = true;
+        eforms_test_assert($event['meta']['reason'] === 'enum', 'Client preparation mode failures should be tagged with reason=enum.' );
+    }
+}
+eforms_test_assert($found, 'Expected schema warning for media.client_preparation.' );
+
+$write_dropin(array(
+    'media' => array(
+        'client_preparation' => Config::CLIENT_PREPARATION_OPPORTUNISTIC_JPEG,
+    ),
+));
+Config::reset_for_tests();
+$config = Config::get();
+eforms_test_assert( $config['media']['client_preparation'] === Config::CLIENT_PREPARATION_OPPORTUNISTIC_JPEG, 'Canonical opportunistic JPEG mode should pass deployment validation.' );
+eforms_test_assert( Config::client_preparation_modes() === array( 'off', 'opportunistic_jpeg' ), 'Config should own the exact client preparation vocabulary.' );
+
 $remove_dropin();
