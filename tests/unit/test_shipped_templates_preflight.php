@@ -75,13 +75,17 @@ foreach ( $files as $path ) {
         $photos = isset( $photo_fields[0] ) ? $photo_fields[0] : array();
         eforms_test_assert(
             count( $photo_fields ) === 1
-                && ! isset( $photos['upload_mode'] )
-                && ! isset( $photos['max_total_bytes'] )
+                && isset( $photos['upload_mode'] )
+                && $photos['upload_mode'] === 'staged'
                 && isset( $photos['max_file_bytes'] )
-                && $photos['max_file_bytes'] === 2097152
+                && $photos['max_file_bytes'] === 20971520
+                && isset( $photos['max_files'] )
+                && $photos['max_files'] === 24
+                && isset( $photos['max_total_bytes'] )
+                && $photos['max_total_bytes'] === 314572800
                 && isset( $photos['email_attach'] )
-                && $photos['email_attach'] === true,
-            'Virtual Estimate must remain on its synchronous attachment path until staged host readiness is approved.'
+                && $photos['email_attach'] === false,
+            'Virtual Estimate should use the approved staged image policy without email attachments.'
         );
     }
 

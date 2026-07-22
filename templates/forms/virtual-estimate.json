@@ -118,11 +118,12 @@
       "accept": [
         "image"
       ],
-      "max_file_bytes": 2097152,
+      "upload_mode": "staged",
+      "max_file_bytes": 20971520,
       "max_files": 24,
-      "email_attach": true,
-      "before_html": "<h2>Project photos</h2><p class=\"virtual-estimate-section-copy\">Show the full areas that need work and any damaged or unusual sections.</p>",
-      "after_html": "<span class=\"virtual-estimate-upload-status\" role=\"status\" aria-atomic=\"true\" data-selected-singular=\"photo selected\" data-selected-plural=\"photos selected\">No photos selected</span><p class=\"virtual-estimate-help\">Up to 24 JPG, PNG, GIF, or WebP images, 2 MB each.</p>"
+      "max_total_bytes": 314572800,
+      "email_attach": false,
+      "before_html": "<h2>Project photos</h2><p class=\"virtual-estimate-section-copy\">Show the full areas that need work and any damaged or unusual sections.</p>"
     },
     {
       "type": "row_group",

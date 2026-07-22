@@ -16,12 +16,6 @@ require_once __DIR__ . '/../../src/Submission/PublicRequestController.php';
 require_once __DIR__ . '/../../src/Submission/SubmitHandler.php';
 require_once __DIR__ . '/../../src/Uploads/UploadBatchStore.php';
 
-if ( ! function_exists( 'wp_image_editor_supports' ) ) {
-    function wp_image_editor_supports( $args = array() ) {
-        return isset( $args['mime_type'] ) && in_array( $args['mime_type'], array( 'image/jpeg', 'image/png', 'image/webp' ), true );
-    }
-}
-
 if ( ! function_exists( 'wp_salt' ) ) {
     function wp_salt( $scheme = 'auth' ) {
         return 'staged-submission-' . (string) $scheme . '-salt';
@@ -203,7 +197,7 @@ $_SERVER['SERVER_PORT'] = 443;
 $png = eforms_test_fixture_bytes( 'staged-landscape.png' );
 $field = eforms_test_staged_field();
 
-if ( ! UploadPolicy::staged_host_readiness( 'image/png' )['ok'] ) {
+if ( ! UploadPolicy::staged_host_readiness()['ok'] ) {
     echo "Skipped staged submission integration: no supported local image backend.\n";
     return;
 }
@@ -291,7 +285,7 @@ $failed_submission = UploadBatchStore::submission( $mint['token'], $uploads_dir 
 eforms_test_assert( ! empty( $failed_submission['ok'] ) && $failed_submission['submission']['email_attempted_at'] !== null, 'The finalized gallery and attempt marker should survive transport failure.' );
 $failed_mail = $GLOBALS['eforms_test_mail_calls'][0];
 eforms_test_assert( substr_count( $failed_mail['message'], 'Review photos' ) === 1 && substr_count( $failed_mail['alt_body'], 'eforms_review=' ) === 1, 'HTML and text alternatives should each contain one gallery summary.' );
-eforms_test_assert( $failed_mail['attachments'] === array(), 'Staged HTML email should not attach managed originals or previews.' );
+eforms_test_assert( $failed_mail['attachments'] === array(), 'Staged HTML email should not attach managed masters or previews.' );
 $post_failure_replay = SubmitHandler::handle( 'staged-demo', $mail_failure_request, array( 'template_base_dir' => $template_dir ) );
 eforms_test_assert( $post_failure_replay['ok'] === false && count( $GLOBALS['eforms_test_mail_calls'] ) === 2, 'A replay after failed transport should not attempt a submission resend or another admin notice.' );
 
@@ -331,12 +325,13 @@ eforms_test_assert( $foreign_result['ok'] === false && empty( $foreign_result['v
 
 $body_request = $invalid_request;
 $body_request['post']['staged-demo']['name'] = 'Ada';
+$body_source = eforms_test_write_file( $uploads_dir, 'body-source.png', $png );
 $body_request['files'] = array(
     'staged-demo' => array(
         'name' => array( 'photos' => array( 'body.png' ) ),
-        'tmp_name' => array( 'photos' => array( $source ) ),
+        'tmp_name' => array( 'photos' => array( $body_source ) ),
         'error' => array( 'photos' => array( 0 ) ),
-        'size' => array( 'photos' => array( filesize( $source ) ) ),
+        'size' => array( 'photos' => array( filesize( $body_source ) ) ),
     ),
 );
 $body_result = SubmitHandler::handle( 'staged-demo', $body_request, array( 'template_base_dir' => $template_dir ) );

@@ -41,6 +41,30 @@ function eforms_upload_batch_store_capacity_health( $uploads_dir ) {
 
 $uploads_dir = eforms_test_setup_uploads( 'eforms-upload-batch-store' );
 $now = 1700000000;
+$capacity_shape_uploads = eforms_test_setup_uploads( 'eforms-capacity-record-shapes' );
+$capacity_shape_private = PrivateDir::ensure( $capacity_shape_uploads );
+eforms_test_assert( ! empty( $capacity_shape_private['ok'] ), 'Capacity record shape fixtures should create private storage.' );
+$capacity_shape_lock = $capacity_shape_private['path'] . '/' . UploadBatchStore::CAPACITY_LOCK_FILENAME;
+$capacity_shape_path = $capacity_shape_private['path'] . '/' . UploadBatchStore::CAPACITY_FILENAME;
+file_put_contents( $capacity_shape_lock, '' );
+chmod( $capacity_shape_lock, 0600 );
+mkdir( $capacity_shape_path, 0700 );
+$nonregular_capacity = eforms_upload_batch_store_capacity_health( $capacity_shape_uploads );
+eforms_test_assert(
+    empty( $nonregular_capacity['ok'] ) && $nonregular_capacity['reason'] === 'capacity_invalid',
+    'The managed-capacity facade should reject a non-regular record before attempting to read bytes.'
+);
+rmdir( $capacity_shape_path );
+if ( function_exists( 'posix_mkfifo' ) ) {
+    eforms_test_assert( posix_mkfifo( $capacity_shape_path, 0600 ), 'The capacity FIFO fixture should be created.' );
+    $fifo_capacity = eforms_upload_batch_store_capacity_health( $capacity_shape_uploads );
+    eforms_test_assert(
+        empty( $fifo_capacity['ok'] ) && $fifo_capacity['reason'] === 'capacity_invalid',
+        'The managed-capacity facade should reject a FIFO without opening its blocking stream.'
+    );
+    unlink( $capacity_shape_path );
+}
+eforms_test_remove_tree( $capacity_shape_uploads );
 $field = array(
     'type' => 'files',
     'upload_mode' => 'staged',
@@ -112,14 +136,9 @@ eforms_test_assert(
     ) === $expected_id,
     'The store should reproduce the canonical full HMAC fixture.'
 );
-$heic_policy_field = $fixture_field;
-$heic_policy_field['accept'] = array( 'image', 'heic' );
-$reordered_heic_policy = $heic_policy_field;
-$reordered_heic_policy['accept'] = array( 'heic', 'image' );
 eforms_test_assert(
-    UploadBatchStore::canonical_policy( $heic_policy_field )['accept'] === array( 'heic', 'image' )
-        && UploadBatchStore::policy_fingerprint( $heic_policy_field ) === UploadBatchStore::policy_fingerprint( $reordered_heic_policy ),
-    'The managed policy should canonicalize HEIC opt-in independently of template token order.'
+    UploadBatchStore::canonical_policy( $fixture_field )['accept'] === array( 'image' ),
+    'The managed policy should retain the sole staged image token.'
 );
 
 $created = UploadBatchStore::create_batch( $binding, $secret, $field, $uploads_dir, $now );
@@ -139,16 +158,16 @@ $unlocked_status = UploadBatchStore::status( $created['batch']['batch_id'], $sec
 eforms_test_assert( empty( $unlocked_status['ok'] ) && $unlocked_status['reason'] === 'batch_lock_failed' && ! file_exists( $created_lock_path ), 'Status reads should fail closed without recreating a missing aggregate lock.' );
 file_put_contents( $created_lock_path, '' );
 chmod( $created_lock_path, 0600 );
-$heic_field = $field;
-$heic_field['accept'] = array( 'image', 'heic' );
-$heic_created = UploadBatchStore::create_batch(
+$removed_heic_field = $field;
+$removed_heic_field['accept'] = array( 'image', 'heic' );
+$removed_heic_created = UploadBatchStore::create_batch(
     eforms_test_batch_binding( 'token-heic-policy', 'heic_photos', $now + 3600 ),
     $secret,
-    $heic_field,
+    $removed_heic_field,
     $uploads_dir,
     $now
 );
-eforms_test_assert( ! empty( $heic_created['ok'] ), 'A managed batch should accept the explicit staged HEIC policy.' );
+eforms_test_assert( empty( $removed_heic_created['ok'] ), 'A managed batch should reject the removed staged HEIC opt-in token.' );
 $expired_create = UploadBatchStore::create_batch(
     eforms_test_batch_binding( 'token-expired-while-waiting', 'expired_photos', $now ),
     $secret,
@@ -249,41 +268,67 @@ eforms_test_assert( $manifest['binding']['token_digest'] === hash( 'sha256', $bi
 eforms_test_assert( $manifest['batch_secret_digest'] === hash( 'sha256', str_repeat( "\x11", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), 'The manifest should store only the decoded secret digest.' );
 eforms_test_assert( ( fileperms( $batch_path ) & 0777 ) === 0700, 'Managed aggregate directories should be private.' );
 eforms_test_assert( ( fileperms( $manifest_path ) & 0777 ) === 0600, 'Managed manifests should be private.' );
+$legacy_manifest = $manifest;
+$legacy_manifest['version'] = 1;
+file_put_contents( $manifest_path, json_encode( $legacy_manifest ) );
+$legacy_status = UploadBatchStore::status( $batch_id, $secret, $uploads_dir, $now );
+eforms_test_assert( empty( $legacy_status['ok'] ) && $legacy_status['reason'] === 'manifest_invalid', 'The target store should reject a version-1 manifest without a compatibility reader.' );
+file_put_contents( $manifest_path, $manifest_json );
 
 $wrong_status = UploadBatchStore::status( $batch_id, $other_secret, $uploads_dir, $now );
 eforms_test_assert( $wrong_status['ok'] === false, 'The batch ID alone should not authorize status.' );
 
 $png_bytes = eforms_test_fixture_bytes( 'staged-landscape.png' );
-$source = eforms_test_write_file( $uploads_dir, 'source.png', $png_bytes );
-$item = array(
-    'tmp_name' => $source,
-    'original_name' => '../Customer Photo.png',
-    'size' => 1,
-    'error' => UPLOAD_ERR_OK,
-);
+$item_sequence = 0;
+$new_item = function () use ( $uploads_dir, $png_bytes, &$item_sequence ) {
+    $item_sequence++;
+    $source = eforms_test_write_file( $uploads_dir, 'source-' . $item_sequence . '.png', $png_bytes );
+    return array(
+        'tmp_name' => $source,
+        'original_name' => '../Customer Photo.png',
+        'size' => filesize( $source ),
+        'error' => UPLOAD_ERR_OK,
+    );
+};
 $options = array(
     'now' => $now,
     'memory_limit' => -1,
     'execution_limit' => 0,
-    'editor_support' => function () {
-        return true;
-    },
     'free_bytes' => Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) + 1073741824,
 );
-$backend = UploadPolicy::staged_host_readiness( 'image/png', $options );
+$backend = UploadPolicy::staged_host_readiness( $options );
 if ( $backend['ok'] ) {
-    $put = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $item, $uploads_dir, $options );
+    $put = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $put['ok'] === true, 'A validated source and derivative should commit as one item.' );
-    eforms_test_assert( ! isset( $put['item']['original_relpath'] ) && ! isset( $put['item']['preview_relpath'] ), 'Item responses should not expose private paths.' );
+    eforms_test_assert( ! isset( $put['item']['master_relpath'] ) && ! isset( $put['item']['preview_relpath'] ), 'Item responses should not expose private paths.' );
 
     $manifest = json_decode( file_get_contents( $manifest_path ), true );
     $stored = $manifest['items']['upload_one'];
-    $original = $batch_path . '/' . $stored['original_relpath'];
+    $master = $batch_path . '/' . $stored['master_relpath'];
     $preview = $batch_path . '/' . $stored['preview_relpath'];
-    eforms_test_assert( is_file( $original ) && is_file( $preview ), 'The manifest item should own one original and one preview.' );
-    eforms_test_assert( ( fileperms( $original ) & 0777 ) === 0600 && ( fileperms( $preview ) & 0777 ) === 0600, 'Managed originals and previews should be private.' );
+    eforms_test_assert( is_file( $master ) && is_file( $preview ), 'The manifest item should own one master and one preview.' );
+    eforms_test_assert( ( fileperms( $master ) & 0777 ) === 0600 && ( fileperms( $preview ) & 0777 ) === 0600, 'Managed masters and previews should be private.' );
+    eforms_test_assert( UploadPolicy::detect_mime( $master ) === 'image/jpeg', 'The managed master should contain JPEG bytes.' );
     eforms_test_assert( UploadPolicy::detect_mime( $preview ) === 'image/jpeg', 'The managed preview should contain JPEG bytes.' );
-    eforms_test_assert( $stored['managed_bytes'] === filesize( $original ) + filesize( $preview ), 'Managed item accounting should include original and preview bytes.' );
+    eforms_test_assert( $stored['managed_bytes'] === filesize( $master ) + filesize( $preview ), 'Managed item accounting should include master and preview bytes.' );
+
+    $corrupt_png = $png_bytes;
+    $corrupt_offset = strpos( $corrupt_png, 'IDAT' );
+    eforms_test_assert( is_int( $corrupt_offset ), 'The atomic-commit fixture should contain a PNG data chunk.' );
+    $corrupt_offset += 4;
+    $corrupt_png[ $corrupt_offset ] = chr( ord( $corrupt_png[ $corrupt_offset ] ) ^ 0xff );
+    $corrupt_source = eforms_test_write_file( $uploads_dir, 'corrupt-decode.png', $corrupt_png );
+    $corrupt_put = UploadBatchStore::put_item(
+        $batch_id,
+        $secret,
+        'corrupt_decode',
+        2,
+        array( 'tmp_name' => $corrupt_source, 'original_name' => 'corrupt.png', 'size' => filesize( $corrupt_source ), 'error' => UPLOAD_ERR_OK ),
+        $uploads_dir,
+        $options
+    );
+    eforms_test_assert( empty( $corrupt_put['ok'] ) && ! file_exists( $corrupt_source ), 'A decode failure should reject the item and remove its source.' );
+    eforms_test_assert( ! file_exists( $batch_path . '/files/corrupt_decode' ) && glob( $batch_path . '/files/.corrupt_decode.*.pending' ) === array(), 'A failed two-derivative commit should leave no visible item or pending directory.' );
 
     $oriented_binding = eforms_test_batch_binding( 'token-oriented-preview', 'oriented_photos', $now + 3600 );
     $oriented_created = UploadBatchStore::create_batch( $oriented_binding, $secret, $field, $uploads_dir, $now );
@@ -313,14 +358,305 @@ if ( $backend['ok'] ) {
     eforms_test_assert( is_array( $capacity ) && $capacity['total_bytes'] === $stored['managed_bytes'], 'Capacity should settle from reservation to exact committed bytes.' );
     eforms_test_assert( $capacity['reservations'] === array(), 'A completed item should clear its in-progress reservation.' );
 
+    $capacity_path = $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME;
+    $settled_capacity_json = file_get_contents( $capacity_path );
+    $claim_snapshot = UploadBatchStore::resolve_open( $batch_id, $secret, $binding, $field, $uploads_dir, $now );
+    eforms_test_assert( ! empty( $claim_snapshot['ok'] ), 'The capacity-guard fixture should resolve the committed item set.' );
+    $capacity_guard_submission = '123e4567-e89b-42d3-a456-426614174099';
+    unlink( $capacity_path );
+    $missing_capacity_retry = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $new_item(), $uploads_dir, $options );
+    eforms_test_assert(
+        empty( $missing_capacity_retry['ok'] ) && $missing_capacity_retry['reason'] === 'capacity_settlement_failed',
+        'An exact retry should fail closed when durable derivatives exist without their capacity record.'
+    );
+    $missing_capacity_claim = UploadBatchStore::claim_finalization(
+        $batch_id,
+        $secret,
+        $binding,
+        $field,
+        $claim_snapshot['items'],
+        $capacity_guard_submission,
+        $uploads_dir,
+        $now
+    );
+    eforms_test_assert(
+        empty( $missing_capacity_claim['ok'] ) && $missing_capacity_claim['reason'] === 'capacity_invalid',
+        'Finalization claim should fail before freezing a batch whose capacity record is missing.'
+    );
+    file_put_contents( $capacity_path, $settled_capacity_json );
+
+    $guarded_claim = UploadBatchStore::claim_finalization(
+        $batch_id,
+        $secret,
+        $binding,
+        $field,
+        $claim_snapshot['items'],
+        $capacity_guard_submission,
+        $uploads_dir,
+        $now
+    );
+    eforms_test_assert( ! empty( $guarded_claim['ok'] ), 'The capacity-guard fixture should claim finalization with consistent accounting.' );
+    unlink( $capacity_path );
+    $missing_capacity_finalize = UploadBatchStore::finalize( $batch_id, $capacity_guard_submission, $uploads_dir, $now );
+    eforms_test_assert(
+        empty( $missing_capacity_finalize['ok'] )
+            && $missing_capacity_finalize['reason'] === 'capacity_invalid'
+            && is_dir( $batch_path ),
+        'Finalization should fail closed before renaming an aggregate whose capacity record disappeared after claim.'
+    );
+    file_put_contents( $capacity_path, $settled_capacity_json );
+    $reopened_capacity_guard = UploadBatchStore::reopen_claim( $batch_id, $capacity_guard_submission, $uploads_dir, $now );
+    eforms_test_assert( ! empty( $reopened_capacity_guard['ok'] ), 'The failed pre-ledger capacity-guard claim should reopen for later tests.' );
+
+    file_put_contents(
+        $capacity_path,
+        json_encode( array( 'version' => UploadBatchStore::CAPACITY_VERSION, 'total_bytes' => 0, 'reservations' => array(), 'updated_at' => $now ) )
+    );
+    $reset_capacity_retry = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $new_item(), $uploads_dir, $options );
+    eforms_test_assert(
+        empty( $reset_capacity_retry['ok'] ) && $reset_capacity_retry['reason'] === 'capacity_settlement_failed',
+        'An exact retry should fail closed when a zeroed capacity record contradicts durable derivatives.'
+    );
+    file_put_contents( $capacity_path, $settled_capacity_json );
+
+    if ( function_exists( 'pcntl_fork' ) && function_exists( 'pcntl_waitpid' ) && function_exists( 'posix_mkfifo' ) ) {
+        $race_binding = eforms_test_batch_binding( 'token-capacity-attempt-race', 'race_photos', $now + 3600 );
+        $race_secret = eforms_test_batch_secret( "\x37" );
+        $race_created = UploadBatchStore::create_batch( $race_binding, $race_secret, $field, $uploads_dir, $now );
+        eforms_test_assert( ! empty( $race_created['ok'] ), 'The capacity-attempt race fixture should create a batch.' );
+        $race_batch_id = $race_created['batch']['batch_id'];
+        $race_upload_id = 'same_id_retry';
+        $race_source_a = eforms_test_write_file( $uploads_dir, 'race-source-a.png', $png_bytes );
+        $race_source_b = eforms_test_write_file( $uploads_dir, 'race-source-b.png', $png_bytes );
+        $race_root = eforms_test_tmp_root( 'eforms-capacity-attempt-race' );
+        mkdir( $race_root, 0700, true );
+        $a_ready = $race_root . '/a-ready';
+        $a_result_path = $race_root . '/a-result.json';
+        $race_free_bytes = Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) + 1073741824;
+        $race_reservation_id = hash( 'sha256', $race_batch_id . "\0" . $race_upload_id );
+        $adopted_attempt_id = '00000000-0000-4000-8000-000000000001';
+
+        $pid_a = pcntl_fork();
+        eforms_test_assert( $pid_a >= 0, 'The capacity-attempt race should fork the failing owner.' );
+        if ( $pid_a === 0 ) {
+            if ( function_exists( 'pcntl_alarm' ) ) {
+                pcntl_alarm( 5 );
+            }
+            $attempt_a_options = $options;
+            $attempt_a_options['free_bytes'] = function () use ( $race_source_a, $a_ready, $race_free_bytes ) {
+                @unlink( $race_source_a );
+                posix_mkfifo( $race_source_a, 0600 );
+                file_put_contents( $a_ready, 'ready' );
+                return $race_free_bytes;
+            };
+            $attempt_a = UploadBatchStore::put_item(
+                $race_batch_id,
+                $race_secret,
+                $race_upload_id,
+                0,
+                array( 'tmp_name' => $race_source_a, 'original_name' => 'Race A.png', 'size' => strlen( $png_bytes ), 'error' => UPLOAD_ERR_OK ),
+                $uploads_dir,
+                $attempt_a_options
+            );
+            if ( function_exists( 'pcntl_alarm' ) ) {
+                pcntl_alarm( 0 );
+            }
+            file_put_contents( $a_result_path, json_encode( $attempt_a ) );
+            exit( 0 );
+        }
+
+        $deadline = microtime( true ) + 5;
+        while ( ! is_file( $a_ready ) && microtime( true ) < $deadline ) {
+            usleep( 10000 );
+        }
+        eforms_test_assert( is_file( $a_ready ), 'The failing owner should replace its validated source with the derivative-read barrier.' );
+        $capacity_path = $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME;
+        $deadline = microtime( true ) + 5;
+        $race_capacity = null;
+        while ( microtime( true ) < $deadline ) {
+            $race_capacity = is_file( $capacity_path ) ? json_decode( file_get_contents( $capacity_path ), true ) : null;
+            if ( is_array( $race_capacity ) && isset( $race_capacity['reservations'][ $race_reservation_id ]['attempt_id'] ) ) {
+                break;
+            }
+            usleep( 10000 );
+        }
+        eforms_test_assert(
+            is_array( $race_capacity ) && isset( $race_capacity['reservations'][ $race_reservation_id ]['attempt_id'] ),
+            'The failing owner should persist its attempt-owned reservation before derivative processing.'
+        );
+
+        $capacity_lock = fopen( $private_dir . '/' . UploadBatchStore::CAPACITY_LOCK_FILENAME, 'c+b' );
+        eforms_test_assert( is_resource( $capacity_lock ) && flock( $capacity_lock, LOCK_EX ), 'The adoption fixture should hold the managed-capacity lock.' );
+        $race_capacity = json_decode( file_get_contents( $capacity_path ), true );
+        $race_capacity['reservations'][ $race_reservation_id ]['attempt_id'] = $adopted_attempt_id;
+        file_put_contents( $capacity_path, json_encode( $race_capacity ) );
+        flock( $capacity_lock, LOCK_UN );
+        fclose( $capacity_lock );
+
+        $fifo_writer = pcntl_fork();
+        eforms_test_assert( $fifo_writer >= 0, 'The capacity-attempt race should fork one derivative barrier writer.' );
+        if ( $fifo_writer === 0 ) {
+            if ( function_exists( 'pcntl_alarm' ) ) {
+                pcntl_alarm( 5 );
+            }
+            file_put_contents( $race_source_a, 'not-an-image' );
+            if ( function_exists( 'pcntl_alarm' ) ) {
+                pcntl_alarm( 0 );
+            }
+            exit( 0 );
+        }
+        pcntl_waitpid( $pid_a, $status_a );
+        pcntl_waitpid( $fifo_writer, $writer_status );
+
+        $attempt_a = is_file( $a_result_path ) ? json_decode( file_get_contents( $a_result_path ), true ) : null;
+        $adopted_capacity = eforms_test_managed_capacity_record( $uploads_dir );
+        eforms_test_assert(
+            is_array( $attempt_a )
+                && empty( $attempt_a['ok'] )
+                && isset( $adopted_capacity['reservations'][ $race_reservation_id ]['attempt_id'] )
+                && $adopted_capacity['reservations'][ $race_reservation_id ]['attempt_id'] === $adopted_attempt_id,
+            'A late failing owner must not settle a reservation after another attempt adopts it.'
+        );
+
+        $attempt_b = UploadBatchStore::put_item(
+            $race_batch_id,
+            $race_secret,
+            $race_upload_id,
+            0,
+            array( 'tmp_name' => $race_source_b, 'original_name' => 'Race B.png', 'size' => strlen( $png_bytes ), 'error' => UPLOAD_ERR_OK ),
+            $uploads_dir,
+            $options
+        );
+        $race_manifest_path = $private_dir . '/staged/' . Helpers::h2( $race_batch_id ) . '/' . $race_batch_id . '/' . UploadBatchStore::MANIFEST_FILENAME;
+        $race_manifest = json_decode( file_get_contents( $race_manifest_path ), true );
+        $race_item = isset( $race_manifest['items'][ $race_upload_id ] ) ? $race_manifest['items'][ $race_upload_id ] : null;
+        $race_capacity = eforms_test_managed_capacity_record( $uploads_dir );
+        eforms_test_assert(
+            is_array( $attempt_b )
+                && ! empty( $attempt_b['ok'] )
+                && is_array( $race_item ),
+            'A same-ID retry should adopt the retained reservation and commit after the prior owner fails.'
+        );
+        eforms_test_assert(
+            $race_capacity['reservations'] === array()
+                && $race_capacity['total_bytes'] === $stored['managed_bytes'] + $race_item['managed_bytes'],
+            'A late failing owner must not settle the reservation adopted by a waiting same-ID retry.'
+        );
+        $race_delete = UploadBatchStore::delete_item( $race_batch_id, $race_secret, $race_upload_id, $uploads_dir, $now );
+        eforms_test_assert( ! empty( $race_delete['ok'] ), 'The capacity-attempt race fixture should release its committed bytes.' );
+        eforms_test_remove_tree( $race_root );
+    }
+
+    $recovery_binding = eforms_test_batch_binding( 'token-interrupted-item-retry', 'recovery_photos', $now + 3600 );
+    $recovery_secret = eforms_test_batch_secret( "\x35" );
+    $recovery_created = UploadBatchStore::create_batch( $recovery_binding, $recovery_secret, $field, $uploads_dir, $now );
+    eforms_test_assert( ! empty( $recovery_created['ok'] ), 'The interrupted-item fixture should create a batch.' );
+    $recovery_batch_id = $recovery_created['batch']['batch_id'];
+    $recovery_batch_path = $private_dir . '/staged/' . Helpers::h2( $recovery_batch_id ) . '/' . $recovery_batch_id;
+    $recovery_upload_id = 'interrupted_retry';
+    $recovery_item_dir = $recovery_batch_path . '/files/' . $recovery_upload_id;
+    $recovery_pending_dir = $recovery_batch_path . '/files/.' . $recovery_upload_id . '.0123456789abcdef.pending';
+    mkdir( $recovery_item_dir, 0700 );
+    mkdir( $recovery_pending_dir, 0700 );
+    file_put_contents( $recovery_item_dir . '/master.jpg', 'interrupted-master' );
+    file_put_contents( $recovery_pending_dir . '/preview.jpg', 'interrupted-preview' );
+    $recovery_reservation_id = hash( 'sha256', $recovery_batch_id . "\0" . $recovery_upload_id );
+    $recovery_reserved_bytes = Anchors::get( 'STAGED_MASTER_MAX_BYTES' ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
+    $capacity['total_bytes'] += $recovery_reserved_bytes;
+    $capacity['reservations'][ $recovery_reservation_id ] = array(
+        'batch_id' => $recovery_batch_id,
+        'upload_id' => $recovery_upload_id,
+        'bytes' => $recovery_reserved_bytes,
+        'created_at' => $now,
+    );
+    file_put_contents( $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME, json_encode( $capacity ) );
+    $recovery_low_item = $new_item();
+    $recovery_low_options = $options;
+    $recovery_low_options['free_bytes'] = Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' )
+        + $recovery_reserved_bytes
+        + filesize( $recovery_low_item['tmp_name'] )
+        - 1;
+    $recovery_low_put = UploadBatchStore::put_item(
+        $recovery_batch_id,
+        $recovery_secret,
+        $recovery_upload_id,
+        0,
+        $recovery_low_item,
+        $uploads_dir,
+        $recovery_low_options
+    );
+    eforms_test_assert(
+        empty( $recovery_low_put['ok'] )
+            && $recovery_low_put['reason'] === 'free_space_reserve'
+            && is_dir( $recovery_item_dir )
+            && is_dir( $recovery_pending_dir ),
+        'An interrupted-item retry should recheck free space for its new temporary source before touching retained materialization.'
+    );
+    $recovery_put = UploadBatchStore::put_item( $recovery_batch_id, $recovery_secret, $recovery_upload_id, 0, $new_item(), $uploads_dir, $options );
+    eforms_test_assert( ! empty( $recovery_put['ok'] ), 'A retry should replace item directories left by an interrupted pre-manifest commit.' );
+    $recovery_manifest = json_decode( file_get_contents( $recovery_batch_path . '/' . UploadBatchStore::MANIFEST_FILENAME ), true );
+    $recovered_item = $recovery_manifest['items'][ $recovery_upload_id ];
+    eforms_test_assert(
+        UploadPolicy::detect_mime( $recovery_batch_path . '/' . $recovered_item['master_relpath'] ) === 'image/jpeg'
+            && UploadPolicy::detect_mime( $recovery_batch_path . '/' . $recovered_item['preview_relpath'] ) === 'image/jpeg'
+            && ! file_exists( $recovery_pending_dir ),
+        'An interrupted-item retry should remove stale materialization and commit fresh derivatives.'
+    );
+    $recovery_capacity = eforms_test_managed_capacity_record( $uploads_dir );
+    eforms_test_assert(
+        ! isset( $recovery_capacity['reservations'][ $recovery_reservation_id ] )
+            && $recovery_capacity['total_bytes'] === $stored['managed_bytes'] + $recovered_item['managed_bytes'],
+        'An interrupted-item retry should settle its retained capacity reservation exactly once.'
+    );
+    $recovery_delete = UploadBatchStore::delete_item( $recovery_batch_id, $recovery_secret, $recovery_upload_id, $uploads_dir, $now );
+    eforms_test_assert( ! empty( $recovery_delete['ok'] ), 'The interrupted-item fixture should release its managed capacity.' );
+
+    $cleanup_binding = eforms_test_batch_binding( 'token-item-cleanup-failure', 'cleanup_photos', $now + 3600 );
+    $cleanup_secret = eforms_test_batch_secret( "\x36" );
+    $cleanup_created = UploadBatchStore::create_batch( $cleanup_binding, $cleanup_secret, $field, $uploads_dir, $now );
+    eforms_test_assert( ! empty( $cleanup_created['ok'] ), 'The cleanup-failure fixture should create a batch.' );
+    $cleanup_batch_id = $cleanup_created['batch']['batch_id'];
+    $cleanup_upload_id = 'cleanup_failure';
+    $cleanup_item_dir = $private_dir . '/staged/' . Helpers::h2( $cleanup_batch_id ) . '/' . $cleanup_batch_id . '/files/' . $cleanup_upload_id;
+    $cleanup_options = $options;
+    $cleanup_options['free_bytes'] = function () use ( $cleanup_item_dir ) {
+        mkdir( $cleanup_item_dir, 0700 );
+        file_put_contents( $cleanup_item_dir . '/locked-residue', 'retained' );
+        chmod( $cleanup_item_dir, 0500 );
+        return Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) + 1073741824;
+    };
+    $cleanup_put = UploadBatchStore::put_item( $cleanup_batch_id, $cleanup_secret, $cleanup_upload_id, 0, $new_item(), $uploads_dir, $cleanup_options );
+    eforms_test_assert(
+        empty( $cleanup_put['ok'] ) && $cleanup_put['reason'] === 'item_cleanup_failed',
+        'A retry should fail closed when interrupted item materialization cannot be removed.'
+    );
+    $cleanup_reservation_id = hash( 'sha256', $cleanup_batch_id . "\0" . $cleanup_upload_id );
+    $cleanup_capacity = eforms_test_managed_capacity_record( $uploads_dir );
+    eforms_test_assert(
+        isset( $cleanup_capacity['reservations'][ $cleanup_reservation_id ] )
+            && $cleanup_capacity['total_bytes'] === $stored['managed_bytes'] + $recovery_reserved_bytes,
+        'Failed cleanup should retain the full reservation until reconciliation can inspect the residue.'
+    );
+    chmod( $cleanup_item_dir, 0700 );
+    eforms_test_remove_tree( $cleanup_item_dir );
+    $cleanup_reconcile = UploadBatchStore::reconcile_capacity( $uploads_dir, $now, $now );
+    eforms_test_assert(
+        ! empty( $cleanup_reconcile['ok'] )
+            && $cleanup_reconcile['capacity']['total_bytes'] === $stored['managed_bytes']
+            && ! isset( $cleanup_reconcile['capacity']['reservations'][ $cleanup_reservation_id ] ),
+        'Reconciliation should release a retained reservation after an operator removes the failed-cleanup residue.'
+    );
+    $capacity = eforms_test_managed_capacity_record( $uploads_dir );
+
     $committing_reservation_id = hash( 'sha256', $batch_id . "\0" . 'upload_one' );
-    $committing_reserved_bytes = $stored['bytes'] + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
+    $committing_reserved_bytes = Anchors::get( 'STAGED_MASTER_MAX_BYTES' ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
     $capacity['total_bytes'] = $committing_reserved_bytes;
     $capacity['reservations'][ $committing_reservation_id ] = array(
         'batch_id' => $batch_id,
         'upload_id' => 'upload_one',
         'bytes' => $committing_reserved_bytes,
         'created_at' => $now,
+        'attempt_id' => '00000000-0000-4000-8000-000000000002',
     );
     file_put_contents( $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME, json_encode( $capacity ) );
     $committing_health = eforms_upload_batch_store_capacity_health( $uploads_dir );
@@ -330,6 +666,25 @@ if ( $backend['ok'] ) {
             && $committing_health['capacity']['committing_bytes'] === $stored['managed_bytes'],
         'Capacity health should treat committed files plus their unsettled reservation as one in-flight item.'
     );
+
+    $settlement_retry = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $new_item(), $uploads_dir, $options );
+    $settlement_retry_capacity = eforms_test_managed_capacity_record( $uploads_dir );
+    eforms_test_assert(
+        ! empty( $settlement_retry['ok'] )
+            && $settlement_retry_capacity['total_bytes'] === $stored['managed_bytes']
+            && $settlement_retry_capacity['reservations'] === array(),
+        'An exact same-item retry should repair a committed reservation whose post-manifest settlement did not persist.'
+    );
+
+    $settlement_retry_capacity['total_bytes'] = $committing_reserved_bytes;
+    $settlement_retry_capacity['reservations'][ $committing_reservation_id ] = array(
+        'batch_id' => $batch_id,
+        'upload_id' => 'upload_one',
+        'bytes' => $committing_reserved_bytes,
+        'created_at' => $now,
+        'attempt_id' => '00000000-0000-4000-8000-000000000003',
+    );
+    file_put_contents( $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME, json_encode( $settlement_retry_capacity ) );
     $committing_reconcile = UploadBatchStore::reconcile_capacity( $uploads_dir, $now - 1, $now );
     eforms_test_assert(
         $committing_reconcile['ok'] === true
@@ -345,11 +700,11 @@ if ( $backend['ok'] ) {
     $delete_secret = eforms_test_batch_secret( "\x33" );
     $delete_created = UploadBatchStore::create_batch( $delete_binding, $delete_secret, $field, $uploads_dir, $now );
     $delete_batch_id = $delete_created['batch']['batch_id'];
-    $delete_put = UploadBatchStore::put_item( $delete_batch_id, $delete_secret, 'delete_committing', 0, $item, $uploads_dir, $options );
+    $delete_put = UploadBatchStore::put_item( $delete_batch_id, $delete_secret, 'delete_committing', 0, $new_item(), $uploads_dir, $options );
     eforms_test_assert( ! empty( $delete_put['ok'] ), 'The committed-reservation deletion fixture should upload one item.' );
     $delete_capacity = eforms_test_managed_capacity_record( $uploads_dir );
     $delete_actual_bytes = $delete_capacity['total_bytes'] - $stored['managed_bytes'];
-    $delete_reserved_bytes = $delete_put['item']['bytes'] + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
+    $delete_reserved_bytes = Anchors::get( 'STAGED_MASTER_MAX_BYTES' ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
     $delete_reservation_id = hash( 'sha256', $delete_batch_id . "\0" . 'delete_committing' );
     $delete_capacity['total_bytes'] = $delete_capacity['total_bytes'] - $delete_actual_bytes + $delete_reserved_bytes;
     $delete_capacity['reservations'][ $delete_reservation_id ] = array(
@@ -373,19 +728,19 @@ if ( $backend['ok'] ) {
     $retry_delete_secret = eforms_test_batch_secret( "\x34" );
     $retry_delete_created = UploadBatchStore::create_batch( $retry_delete_binding, $retry_delete_secret, $field, $uploads_dir, $now );
     $retry_delete_batch_id = $retry_delete_created['batch']['batch_id'];
-    $retry_delete_put = UploadBatchStore::put_item( $retry_delete_batch_id, $retry_delete_secret, 'delete_write_retry', 0, $item, $uploads_dir, $options );
+    $retry_delete_put = UploadBatchStore::put_item( $retry_delete_batch_id, $retry_delete_secret, 'delete_write_retry', 0, $new_item(), $uploads_dir, $options );
     eforms_test_assert( ! empty( $retry_delete_put['ok'] ), 'Capacity-write retry fixture should commit one managed item.' );
     $retry_delete_path = $private_dir . '/staged/' . Helpers::h2( $retry_delete_batch_id ) . '/' . $retry_delete_batch_id;
     $retry_delete_manifest_path = $retry_delete_path . '/' . UploadBatchStore::MANIFEST_FILENAME;
     $retry_delete_manifest = json_decode( file_get_contents( $retry_delete_manifest_path ), true );
     $retry_delete_item = $retry_delete_manifest['items']['delete_write_retry'];
     unset( $retry_delete_manifest['items']['delete_write_retry'] );
-    $retry_delete_manifest['original_bytes'] = 0;
+    $retry_delete_manifest['source_bytes'] = 0;
     $retry_delete_manifest['managed_bytes'] = 0;
     $retry_delete_manifest['tombstones']['delete_write_retry'] = array(
         'deleted_at' => $now,
         'managed_bytes' => $retry_delete_item['managed_bytes'],
-        'original_relpath' => $retry_delete_item['original_relpath'],
+        'master_relpath' => $retry_delete_item['master_relpath'],
         'preview_relpath' => $retry_delete_item['preview_relpath'],
         'capacity_release_started' => true,
         'capacity_released' => false,
@@ -400,7 +755,7 @@ if ( $backend['ok'] ) {
         'created_at' => $now,
     );
     file_put_contents( $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME, json_encode( $retry_delete_capacity ) );
-    unlink( $retry_delete_path . '/' . $retry_delete_item['original_relpath'] );
+    unlink( $retry_delete_path . '/' . $retry_delete_item['master_relpath'] );
     unlink( $retry_delete_path . '/' . $retry_delete_item['preview_relpath'] );
     $retry_delete = UploadBatchStore::delete_item( $retry_delete_batch_id, $retry_delete_secret, 'delete_write_retry', $uploads_dir, $now );
     eforms_test_assert( ! empty( $retry_delete['ok'] ), 'A retry after files were removed but capacity persistence failed should converge.' );
@@ -417,21 +772,65 @@ if ( $backend['ok'] ) {
     $manifest_retry_capacity = eforms_test_managed_capacity_record( $uploads_dir );
     eforms_test_assert( $manifest_retry_capacity['total_bytes'] === $stored['managed_bytes'], 'Manifest-write retry must not release the same capacity twice.' );
 
-    $retry_put = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $item, $uploads_dir, $options );
+    $retry_put = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $retry_put['ok'] === true, 'A response-loss retry with the same logical ID and bytes should return the existing item.' );
     $capacity_retry = eforms_test_managed_capacity_record( $uploads_dir );
     eforms_test_assert( $capacity_retry['total_bytes'] === $stored['managed_bytes'], 'An idempotent item retry must not reserve capacity twice.' );
 
+    $locked_retry_dir = $uploads_dir . '/locked-idempotent-retry';
+    mkdir( $locked_retry_dir, 0700 );
+    $locked_retry_source = eforms_test_write_file( $locked_retry_dir, 'source.png', $png_bytes );
+    $locked_failure_source = eforms_test_write_file( $locked_retry_dir, 'failed-source.png', $png_bytes );
+    chmod( $locked_retry_dir, 0500 );
+    $locked_retry = UploadBatchStore::put_item(
+        $batch_id,
+        $secret,
+        'upload_one',
+        1,
+        array( 'tmp_name' => $locked_retry_source, 'original_name' => 'source.png', 'size' => filesize( $locked_retry_source ), 'error' => UPLOAD_ERR_OK ),
+        $uploads_dir,
+        $options
+    );
+    $locked_failure = UploadBatchStore::put_item(
+        $batch_id,
+        $secret,
+        'invalid upload id',
+        1,
+        array( 'tmp_name' => $locked_failure_source, 'original_name' => 'failed-source.png', 'size' => filesize( $locked_failure_source ), 'error' => UPLOAD_ERR_OK ),
+        $uploads_dir,
+        $options
+    );
+    clearstatcache( true, $locked_retry_source );
+    $locked_retry_source_retained = file_exists( $locked_retry_source );
+    clearstatcache( true, $locked_failure_source );
+    $locked_failure_source_retained = file_exists( $locked_failure_source );
+    chmod( $locked_retry_dir, 0700 );
+    @unlink( $locked_retry_source );
+    @unlink( $locked_failure_source );
+    eforms_test_remove_tree( $locked_retry_dir );
+    eforms_test_assert(
+        empty( $locked_retry['ok'] )
+            && $locked_retry['reason'] === 'source_cleanup_failed'
+            && $locked_retry_source_retained,
+        'An idempotent retry must not report success when its raw source cannot be removed.'
+    );
+    eforms_test_assert(
+        empty( $locked_failure['ok'] )
+            && $locked_failure['reason'] === 'source_cleanup_failed'
+            && $locked_failure_source_retained,
+        'A failed upload operation must report raw-source cleanup failure instead of hiding it behind the preceding error.'
+    );
+
     $oversize_retry_path = eforms_test_write_file( $uploads_dir, 'oversize-retry.png', str_repeat( 'x', $field['max_file_bytes'] + 1 ) );
-    $oversize_retry_item = $item;
+    $oversize_retry_item = $new_item();
     $oversize_retry_item['tmp_name'] = $oversize_retry_path;
     $oversize_retry_item['size'] = filesize( $oversize_retry_path );
     $oversize_retry = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $oversize_retry_item, $uploads_dir, $options );
     eforms_test_assert( empty( $oversize_retry['ok'] ) && $oversize_retry['reason'] === 'max_file_bytes_exceeded', 'A committed-ID retry must enforce the item bound before hashing its body.' );
 
-    $ordinal_retry = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 2, $item, $uploads_dir, $options );
+    $ordinal_retry = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 2, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $ordinal_retry['ok'] === false && $ordinal_retry['reason'] === 'upload_id_conflict', 'A same-ID retry with a different ordinal should conflict.' );
-    $duplicate_ordinal = UploadBatchStore::put_item( $batch_id, $secret, 'upload_two', 1, $item, $uploads_dir, $options );
+    $duplicate_ordinal = UploadBatchStore::put_item( $batch_id, $secret, 'upload_two', 1, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $duplicate_ordinal['ok'] === false && $duplicate_ordinal['reason'] === 'ordinal_conflict', 'A second upload ID must not claim an existing ordinal.' );
     $after_ordinal_conflicts = UploadBatchStore::status( $batch_id, $secret, $uploads_dir, $now );
     eforms_test_assert( $after_ordinal_conflicts['ok'] === true && count( $after_ordinal_conflicts['batch']['items'] ) === 1, 'Rejected ordinal conflicts must leave the batch readable and unchanged.' );
@@ -439,7 +838,7 @@ if ( $backend['ok'] ) {
     eforms_test_assert( $capacity_after_ordinal_conflicts['total_bytes'] === $stored['managed_bytes'], 'Rejected ordinal conflicts must not reserve managed capacity.' );
 
     $different_source = eforms_test_write_file( $uploads_dir, 'different.png', $png_bytes . 'different' );
-    $different_item = $item;
+    $different_item = $new_item();
     $different_item['tmp_name'] = $different_source;
     $different_item['size'] = filesize( $different_source );
     $put_conflict = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $different_item, $uploads_dir, $options );
@@ -447,9 +846,18 @@ if ( $backend['ok'] ) {
 
     $preview_read = UploadBatchStore::preview_bytes( $batch_id, $secret, 'upload_one', $uploads_dir, $now );
     eforms_test_assert( $preview_read['ok'] === true && $preview_read['body'] === file_get_contents( $preview ), 'The authenticated store read should materialize only the manifest preview member.' );
+    $preview_body = $preview_read['body'];
+    $tampered_preview_body = $preview_body;
+    $tampered_preview_body[0] = chr( ord( $tampered_preview_body[0] ) ^ 0xff );
+    file_put_contents( $preview, $tampered_preview_body );
+    $tampered_preview = UploadBatchStore::preview_bytes( $batch_id, $secret, 'upload_one', $uploads_dir, $now );
+    eforms_test_assert(
+        empty( $tampered_preview['ok'] ) && $tampered_preview['reason'] === 'preview_missing',
+        'Staged preview reads should reject same-length bytes that do not match the manifest digest.'
+    );
+    file_put_contents( $preview, $preview_body );
     if ( function_exists( 'symlink' ) ) {
         $outside_preview = eforms_test_write_file( $uploads_dir, 'outside-preview.jpg', 'outside-preview' );
-        $preview_body = $preview_read['body'];
         eforms_test_assert( unlink( $preview ) && symlink( $outside_preview, $preview ), 'The staged preview symlink fixture should replace only the manifest member.' );
         $linked_preview = UploadBatchStore::preview_bytes( $batch_id, $secret, 'upload_one', $uploads_dir, $now );
         eforms_test_assert( empty( $linked_preview['ok'] ) && $linked_preview['reason'] === 'preview_missing', 'Staged preview reads should reject symlinked manifest members.' );
@@ -458,10 +866,10 @@ if ( $backend['ok'] ) {
     }
 
     $deleted = UploadBatchStore::delete_item( $batch_id, $secret, 'upload_one', $uploads_dir, $now );
-    eforms_test_assert( $deleted['ok'] === true && ! is_dir( dirname( $original ) ), 'Open deletion should remove the aggregate item directory.' );
+    eforms_test_assert( $deleted['ok'] === true && ! is_dir( dirname( $master ) ), 'Open deletion should remove the aggregate item directory.' );
     $deleted_retry = UploadBatchStore::delete_item( $batch_id, $secret, 'upload_one', $uploads_dir, $now );
     eforms_test_assert( $deleted_retry['ok'] === true, 'Open deletion should be idempotent.' );
-    $resurrection = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $item, $uploads_dir, $options );
+    $resurrection = UploadBatchStore::put_item( $batch_id, $secret, 'upload_one', 1, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $resurrection['ok'] === false, 'A deletion tombstone should prevent late item resurrection.' );
     $capacity_after_delete = eforms_test_managed_capacity_record( $uploads_dir );
     eforms_test_assert( $capacity_after_delete['total_bytes'] === 0, 'Capacity should release only after confirmed item deletion.' );
@@ -475,12 +883,12 @@ if ( $backend['ok'] ) {
     eforms_test_assert( ! empty( $lifetime_created['ok'] ), 'The replacement-lifetime fixture should create one-item batch.' );
     $lifetime_batch_id = $lifetime_created['batch']['batch_id'];
     foreach ( array( 'replacement_one', 'replacement_two' ) as $ordinal => $replacement_id ) {
-        $replacement_put = UploadBatchStore::put_item( $lifetime_batch_id, $lifetime_secret, $replacement_id, $ordinal, $item, $uploads_dir, $options );
+        $replacement_put = UploadBatchStore::put_item( $lifetime_batch_id, $lifetime_secret, $replacement_id, $ordinal, $new_item(), $uploads_dir, $options );
         eforms_test_assert( ! empty( $replacement_put['ok'] ), 'Each upload inside the lifetime bound should be accepted.' );
         $replacement_delete = UploadBatchStore::delete_item( $lifetime_batch_id, $lifetime_secret, $replacement_id, $uploads_dir, $now );
         eforms_test_assert( ! empty( $replacement_delete['ok'] ), 'Each accepted replacement must retain a tombstone slot and remain deletable.' );
     }
-    $lifetime_rejected = UploadBatchStore::put_item( $lifetime_batch_id, $lifetime_secret, 'replacement_three', 2, $item, $uploads_dir, $options );
+    $lifetime_rejected = UploadBatchStore::put_item( $lifetime_batch_id, $lifetime_secret, 'replacement_three', 2, $new_item(), $uploads_dir, $options );
     eforms_test_assert(
         empty( $lifetime_rejected['ok'] ) && $lifetime_rejected['reason'] === 'upload_lifetime_exceeded',
         'The store should enforce its deletion-history lifetime before accepting an item that could not be tombstoned.'
@@ -493,19 +901,19 @@ if ( $backend['ok'] ) {
     $after_delete_manifest = json_decode( file_get_contents( $manifest_path ), true );
     $overlapping_manifest = $after_delete_manifest;
     $overlapping_manifest['items']['upload_one'] = $stored;
-    $overlapping_manifest['original_bytes'] += $stored['bytes'];
+    $overlapping_manifest['source_bytes'] += $stored['source_bytes'];
     $overlapping_manifest['managed_bytes'] += $stored['managed_bytes'];
     file_put_contents( $manifest_path, json_encode( $overlapping_manifest ) );
     $overlap_status = UploadBatchStore::status( $batch_id, $secret, $uploads_dir, $now );
     eforms_test_assert( $overlap_status['ok'] === false && $overlap_status['code'] === 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'An upload ID cannot be both active and tombstoned.' );
-    $overlap_upload = UploadBatchStore::put_item( $batch_id, $secret, 'overlap_probe', 2, $item, $uploads_dir, $options );
+    $overlap_upload = UploadBatchStore::put_item( $batch_id, $secret, 'overlap_probe', 2, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $overlap_upload['ok'] === false && $overlap_upload['code'] === 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'Upload must reject an active/tombstone overlap before mutation.' );
     $overlap_claim = UploadBatchStore::claim_finalization( $batch_id, $secret, $binding, $field, array(), 'overlap-submission', $uploads_dir, $now + 10 );
     eforms_test_assert( $overlap_claim['ok'] === false && $overlap_claim['code'] === 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'Finalization must reject an active/tombstone overlap.' );
     file_put_contents( $manifest_path, json_encode( $after_delete_manifest ) );
 
     $capacity_path = $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME;
-    $reserved_bytes = filesize( $source ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
+    $reserved_bytes = Anchors::get( 'STAGED_MASTER_MAX_BYTES' ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
     $near_ceiling = array(
         'version' => UploadBatchStore::CAPACITY_VERSION,
         'total_bytes' => Anchors::get( 'MANAGED_UPLOAD_MAX_BYTES' ) - $reserved_bytes + 1,
@@ -514,7 +922,7 @@ if ( $backend['ok'] ) {
     );
     file_put_contents( $capacity_path, json_encode( $near_ceiling ) );
     chmod( $capacity_path, 0600 );
-    $capacity_failure = UploadBatchStore::put_item( $batch_id, $secret, 'over_capacity', 2, $item, $uploads_dir, $options );
+    $capacity_failure = UploadBatchStore::put_item( $batch_id, $secret, 'over_capacity', 2, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $capacity_failure['ok'] === false && $capacity_failure['reason'] === 'managed_capacity_exceeded', 'A cross-batch reservation above the managed ceiling should fail closed.' );
 
     $empty_capacity = $near_ceiling;
@@ -522,13 +930,15 @@ if ( $backend['ok'] ) {
     file_put_contents( $capacity_path, json_encode( $empty_capacity ) );
     $unknown_free = $options;
     $unknown_free['free_bytes'] = false;
-    $free_failure = UploadBatchStore::put_item( $batch_id, $secret, 'unknown_free', 2, $item, $uploads_dir, $unknown_free );
+    $free_failure = UploadBatchStore::put_item( $batch_id, $secret, 'unknown_free', 2, $new_item(), $uploads_dir, $unknown_free );
     eforms_test_assert( $free_failure['ok'] === false && $free_failure['reason'] === 'free_space_unavailable', 'Unavailable free-space observation should fail closed.' );
 
+    $same_filesystem_item = $new_item();
+    $same_filesystem_source_bytes = filesize( $same_filesystem_item['tmp_name'] );
     $low_free = $options;
-    $low_free['free_bytes'] = Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) + $reserved_bytes - 1;
-    $reserve_failure = UploadBatchStore::put_item( $batch_id, $secret, 'low_free', 2, $item, $uploads_dir, $low_free );
-    eforms_test_assert( $reserve_failure['ok'] === false && $reserve_failure['reason'] === 'free_space_reserve', 'A reservation that consumes the fixed disk reserve should fail closed.' );
+    $low_free['free_bytes'] = Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) + $reserved_bytes + $same_filesystem_source_bytes - 1;
+    $reserve_failure = UploadBatchStore::put_item( $batch_id, $secret, 'low_free', 2, $same_filesystem_item, $uploads_dir, $low_free );
+    eforms_test_assert( $reserve_failure['ok'] === false && $reserve_failure['reason'] === 'free_space_reserve', 'Free-space admission should include a temporary source that occupies the managed filesystem.' );
 
     $outstanding_capacity = $empty_capacity;
     $outstanding_capacity['total_bytes'] = $reserved_bytes;
@@ -541,7 +951,7 @@ if ( $backend['ok'] ) {
     file_put_contents( $capacity_path, json_encode( $outstanding_capacity ) );
     $reserved_free = $options;
     $reserved_free['free_bytes'] = Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) + ( 2 * $reserved_bytes ) - 1;
-    $outstanding_failure = UploadBatchStore::put_item( $batch_id, $secret, 'reserved_free', 2, $item, $uploads_dir, $reserved_free );
+    $outstanding_failure = UploadBatchStore::put_item( $batch_id, $secret, 'reserved_free', 2, $new_item(), $uploads_dir, $reserved_free );
     eforms_test_assert(
         $outstanding_failure['ok'] === false && $outstanding_failure['reason'] === 'free_space_reserve',
         'Free-space projection should include reservations from other in-flight batches.'
@@ -553,7 +963,7 @@ if ( $backend['ok'] ) {
     $final_created = UploadBatchStore::create_batch( $final_binding, $final_secret, $field, $uploads_dir, $now );
     eforms_test_assert( $final_created['ok'] === true, 'A second exact binding should create an independent batch.' );
     $final_batch_id = $final_created['batch']['batch_id'];
-    $final_put = UploadBatchStore::put_item( $final_batch_id, $final_secret, 'final_photo', 0, $item, $uploads_dir, $options );
+    $final_put = UploadBatchStore::put_item( $final_batch_id, $final_secret, 'final_photo', 0, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $final_put['ok'] === true, 'The finalization fixture should commit one item.' );
     $final_resolved = UploadBatchStore::resolve_open( $final_batch_id, $final_secret, $final_binding, $field, $uploads_dir, $now + 10 );
     eforms_test_assert( UploadBatchStore::delete_item( $final_batch_id, $final_secret, 'final_photo', $uploads_dir, $now + 10 )['ok'] === true, 'The finalization race fixture should delete the resolved item.' );
@@ -561,7 +971,7 @@ if ( $backend['ok'] ) {
     eforms_test_assert( $stale_claim['ok'] === false && $stale_claim['reason'] === 'batch_items_changed', 'Finalization must reject an item set that changed after resolution.' );
     $open_after_stale_claim = UploadBatchStore::status( $final_batch_id, $final_secret, $uploads_dir, $now + 10 );
     eforms_test_assert( $open_after_stale_claim['ok'] === true && $open_after_stale_claim['batch']['state'] === 'open', 'A stale finalization snapshot must leave the batch editable for retry.' );
-    $replacement_put = UploadBatchStore::put_item( $final_batch_id, $final_secret, 'final_photo_replacement', 1, $item, $uploads_dir, $options );
+    $replacement_put = UploadBatchStore::put_item( $final_batch_id, $final_secret, 'final_photo_replacement', 1, $new_item(), $uploads_dir, $options );
     eforms_test_assert( $replacement_put['ok'] === true, 'The open batch should accept a replacement after rejecting the stale snapshot.' );
     $before_finalize = eforms_test_managed_capacity_record( $uploads_dir );
     $final_resolved = UploadBatchStore::resolve_open( $final_batch_id, $final_secret, $final_binding, $field, $uploads_dir, $now + 10 );
@@ -601,10 +1011,10 @@ if ( $backend['ok'] ) {
 
     $submission = UploadBatchStore::submission( 'submission-01', $uploads_dir, $now + 20 );
     eforms_test_assert( $submission['ok'] === true && count( $submission['submission']['items'] ) === 1, 'Finalized reads should return bounded manifest summaries.' );
-    $original_read = UploadBatchStore::submission_file( 'submission-01', 'final_photo_replacement', 'original', $uploads_dir, $now + 20 );
-    eforms_test_assert( $original_read['ok'] === true && is_resource( $original_read['stream'] ), 'Finalized reads should open an exact manifest-owned variant inside the store boundary.' );
-    if ( isset( $original_read['stream'] ) && is_resource( $original_read['stream'] ) ) {
-        fclose( $original_read['stream'] );
+    $master_read = UploadBatchStore::submission_file( 'submission-01', 'final_photo_replacement', 'master', $uploads_dir, $now + 20 );
+    eforms_test_assert( $master_read['ok'] === true && is_resource( $master_read['stream'] ), 'Finalized reads should open an exact manifest-owned JPEG variant inside the store boundary.' );
+    if ( isset( $master_read['stream'] ) && is_resource( $master_read['stream'] ) ) {
+        fclose( $master_read['stream'] );
     }
     $submission_path = $private_dir . '/submissions/' . Helpers::h2( 'submission-01' ) . '/submission-01';
     eforms_test_assert( UploadBatchStore::aggregate_lock_path( UploadBatchStore::SUBMISSIONS_DIR, $submission_path ) === $submission_path . '/' . UploadBatchStore::LOCK_FILENAME, 'The store should own the internal finalized lock layout.' );
@@ -644,7 +1054,7 @@ if ( $backend['ok'] ) {
     chmod( $capacity_path, 0600 );
     $reconciled = UploadBatchStore::reconcile_capacity( $uploads_dir, $now - 1 );
     eforms_test_assert( $reconciled['ok'] === true && ! isset( $reconciled['capacity']['reservations']['stale'] ), 'Reconciliation should remove a caller-declared stale reservation.' );
-    eforms_test_assert( $reconciled['capacity']['total_bytes'] === $before_finalize['total_bytes'], 'Reconciliation should settle to the exact managed original and preview bytes.' );
+    eforms_test_assert( $reconciled['capacity']['total_bytes'] === $before_finalize['total_bytes'], 'Reconciliation should settle to the exact managed master and preview bytes.' );
 }
 
 $missing = UploadBatchStore::status( str_repeat( 'A', 43 ), $secret, $uploads_dir, $now );

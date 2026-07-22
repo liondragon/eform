@@ -348,7 +348,7 @@ eforms_test_assert( ! $errors->any(), 'A complete staged files policy should pas
 $heic_staged = $staged_template;
 $heic_staged['fields'][1]['accept'] = array( 'image', 'heic' );
 $errors = TemplateValidator::validate_template_envelope( $heic_staged );
-eforms_test_assert( ! $errors->any(), 'A staged files policy should accept explicit HEIC opt-in beside the base image token.' );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', eforms_test_collect_codes( $errors ), true ), 'A staged files policy should reject the removed HEIC opt-in token.' );
 
 $staged_without_gallery = $staged_template;
 $staged_without_gallery['email']['include_fields'] = array( 'name' );
@@ -370,12 +370,12 @@ eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_OBJECT', $codes, true ), 'Stage
 $invalid_staged = $staged_template;
 $invalid_staged['fields'][1]['accept'] = array( 'image', 'pdf' );
 $codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
-eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'Staged mode should reject tokens other than image and optional HEIC.' );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'Staged mode should reject every token other than image.' );
 
 $invalid_staged = $staged_template;
 $invalid_staged['fields'][1]['accept'] = array( 'heic' );
 $codes = eforms_test_collect_codes( TemplateValidator::validate_template_envelope( $invalid_staged ) );
-eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'HEIC should extend rather than replace the staged image token.' );
+eforms_test_assert( in_array( 'EFORMS_ERR_SCHEMA_ENUM', $codes, true ), 'HEIC should not exist as a standalone staged token.' );
 
 $invalid_staged = $staged_template;
 $invalid_staged['fields'][1]['email_attach'] = true;

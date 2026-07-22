@@ -17,15 +17,6 @@ if ( ! function_exists( 'home_url' ) ) {
     }
 }
 
-if ( ! function_exists( 'wp_image_editor_supports' ) ) {
-    function wp_image_editor_supports( $args = array() ) {
-        $GLOBALS['eforms_test_editor_support_calls'] = isset( $GLOBALS['eforms_test_editor_support_calls'] )
-            ? $GLOBALS['eforms_test_editor_support_calls'] + 1
-            : 1;
-        return isset( $args['mime_type'] ) && in_array( $args['mime_type'], array( 'image/jpeg', 'image/png', 'image/webp' ), true );
-    }
-}
-
 function eforms_test_upload_endpoint_config( $uploads_dir, $throttle = true, $max = 120, $uploads_enabled = true ) {
     eforms_test_set_filter(
         'eforms_config',
@@ -261,12 +252,16 @@ $cross_origin_bad_upload['headers']['Origin'] = 'https://evil.example';
 $cross_origin_bad_upload['headers']['Content-Type'] = 'application/octet-stream';
 eforms_test_assert( UploadBatchEndpoint::upload( $cross_origin_bad_upload )['status'] === 403, 'Upload must reject cross-origin requests before exposing content-type validation.' );
 $uploaded = UploadBatchEndpoint::upload( $upload_request );
-$backend_ready = UploadPolicy::staged_host_readiness( 'image/png' );
+$backend_ready = UploadPolicy::staged_host_readiness();
 if ( $backend_ready['ok'] ) {
     eforms_test_assert( $uploaded['status'] === 200 && $uploaded['body']['upload_id'] === 'client_upload_1', 'Multipart upload should return one safe committed item summary.' );
     eforms_test_assert( strpos( json_encode( $uploaded['body'] ), $uploads_dir ) === false, 'Upload responses should not expose private paths.' );
 
-$upload_retry = UploadBatchEndpoint::upload( $upload_request );
+$retry_path = eforms_test_write_file( $uploads_dir, 'endpoint-retry.png', $png );
+$upload_retry_request = $upload_request;
+$upload_retry_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['tmp_name'] = $retry_path;
+$upload_retry_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['size'] = filesize( $retry_path );
+$upload_retry = UploadBatchEndpoint::upload( $upload_retry_request );
 eforms_test_assert( $upload_retry['status'] === 200 && $upload_retry['body'] === $uploaded['body'], 'A same-ID same-content upload retry should return the existing item.' );
 
 $ordinal_retry_request = $upload_request;
@@ -278,17 +273,20 @@ $ordinal_retry_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ] = array(
     'error' => UPLOAD_ERR_OK,
     'size' => filesize( $identity_bad_path ),
 );
-$GLOBALS['eforms_test_editor_support_calls'] = 0;
 $ordinal_retry = UploadBatchEndpoint::upload( $ordinal_retry_request );
 eforms_test_assert( $ordinal_retry['status'] === 409 && $ordinal_retry['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'A same-ID retry with a different ordinal should return a generic conflict.' );
-eforms_test_assert( $GLOBALS['eforms_test_editor_support_calls'] === 0, 'Committed identity conflicts should precede image policy work.' );
 $content_retry_request = $ordinal_retry_request;
 $content_retry_request['params'][ FormProtocol::UPLOAD_ORDINAL_PARAM ] = 0;
+$content_bad_path = eforms_test_write_file( $uploads_dir, 'content-bad.txt', 'not an image' );
+$content_retry_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['tmp_name'] = $content_bad_path;
+$content_retry_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['size'] = filesize( $content_bad_path );
 $content_retry = UploadBatchEndpoint::upload( $content_retry_request );
 eforms_test_assert( $content_retry['status'] === 409 && $content_retry['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'A same-ID retry with unsupported different bytes should remain a generic conflict.' );
-eforms_test_assert( $GLOBALS['eforms_test_editor_support_calls'] === 0, 'Committed content comparison should use the raw hash without image decoding.' );
 $duplicate_ordinal_request = $upload_request;
 $duplicate_ordinal_request['params']['upload_id'] = 'client_upload_2';
+$duplicate_path = eforms_test_write_file( $uploads_dir, 'endpoint-duplicate.png', $png );
+$duplicate_ordinal_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['tmp_name'] = $duplicate_path;
+$duplicate_ordinal_request['files'][ FormProtocol::UPLOAD_FILE_PARAM ]['size'] = filesize( $duplicate_path );
 $duplicate_ordinal = UploadBatchEndpoint::upload( $duplicate_ordinal_request );
 eforms_test_assert( $duplicate_ordinal['status'] === 400 && $duplicate_ordinal['body'] === array( 'error' => 'EFORMS_ERR_UPLOAD_TYPE' ), 'A second upload ID must not claim an existing ordinal.' );
 $after_ordinal_conflicts = UploadBatchEndpoint::status( $status_request );
@@ -429,10 +427,8 @@ eforms_test_assert( $failed_image['status'] === 400, 'A malformed image should f
 $valid_path = eforms_test_write_file( $throttle_upload_dir, 'valid.png', $png );
 $bad_upload['params']['upload_id'] = 'valid_image';
 $bad_upload['files'][ FormProtocol::UPLOAD_FILE_PARAM ] = array( 'name' => 'valid.png', 'tmp_name' => $valid_path, 'error' => 0, 'size' => filesize( $valid_path ) );
-$GLOBALS['eforms_test_editor_support_calls'] = 0;
 $throttled_upload = UploadBatchEndpoint::upload( $bad_upload );
 eforms_test_assert( $throttled_upload['status'] === 429 && isset( $throttled_upload['headers']['Retry-After'] ), 'The next upload should return 429 with Retry-After.' );
-eforms_test_assert( $GLOBALS['eforms_test_editor_support_calls'] === 0, 'A throttled upload should not reach image-editor readiness or decode.' );
 $throttle_capacity = eforms_test_managed_capacity_record( $throttle_upload_dir );
 eforms_test_assert( is_array( $throttle_capacity ) && $throttle_capacity['total_bytes'] === 0, 'Failed and throttled uploads should not mutate managed capacity.' );
 

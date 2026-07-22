@@ -135,9 +135,9 @@ class GcRunner {
             'candidate_bytes' => 0,
             'deleted' => 0,
             'deleted_bytes' => 0,
-            'candidate_original_bytes' => 0,
+            'candidate_master_bytes' => 0,
             'candidate_preview_bytes' => 0,
-            'deleted_original_bytes' => 0,
+            'deleted_master_bytes' => 0,
             'deleted_preview_bytes' => 0,
             'released_bytes' => 0,
             'errors' => 0,
@@ -246,7 +246,7 @@ class GcRunner {
             $summary[ $key ] += $value;
             $summary['by_type'][ $target ][ $key ] += $value;
         }
-        foreach ( array( 'candidate_original_bytes', 'candidate_preview_bytes', 'deleted_original_bytes', 'deleted_preview_bytes', 'released_bytes', 'errors' ) as $key ) {
+        foreach ( array( 'candidate_master_bytes', 'candidate_preview_bytes', 'deleted_master_bytes', 'deleted_preview_bytes', 'released_bytes', 'errors' ) as $key ) {
             $summary['by_type'][ $target ][ $key ] = isset( $result[ $key ] ) && is_numeric( $result[ $key ] )
                 ? max( 0, (int) $result[ $key ] )
                 : 0;

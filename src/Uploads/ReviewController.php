@@ -123,7 +123,7 @@ class ReviewController {
     public static function file_url( $submission_id, $upload_id, $variant, $expires, $base_url = null, $salt = null ) {
         if ( ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
             || ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() )
-            || ! in_array( $variant, array( 'preview', 'original' ), true )
+            || ! in_array( $variant, array( 'preview', 'master' ), true )
             || ! is_numeric( $expires )
             || (int) $expires <= 0
         ) {
@@ -156,7 +156,7 @@ class ReviewController {
         if ( $action === 'gallery' && ( $upload_id !== '' || $variant !== '' ) ) {
             return '';
         }
-        if ( $action === 'file' && ( ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() ) || ! in_array( $variant, array( 'preview', 'original' ), true ) ) ) {
+        if ( $action === 'file' && ( ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() ) || ! in_array( $variant, array( 'preview', 'master' ), true ) ) ) {
             return '';
         }
 
@@ -210,8 +210,8 @@ class ReviewController {
                 return self::unavailable();
             }
             $preview_url = self::file_url( $submission_id, $item['upload_id'], 'preview', $expires, $base_url, $salt );
-            $original_url = self::file_url( $submission_id, $item['upload_id'], 'original', $expires, $base_url, $salt );
-            if ( $preview_url === '' || $original_url === '' ) {
+            $master_url = self::file_url( $submission_id, $item['upload_id'], 'master', $expires, $base_url, $salt );
+            if ( $preview_url === '' || $master_url === '' ) {
                 return self::unavailable();
             }
             $items[] = array(
@@ -220,7 +220,7 @@ class ReviewController {
                 'width' => isset( $item['width'] ) ? (int) $item['width'] : 0,
                 'height' => isset( $item['height'] ) ? (int) $item['height'] : 0,
                 'preview_url' => $preview_url,
-                'original_url' => $original_url,
+                'master_url' => $master_url,
             );
         }
 
@@ -304,7 +304,7 @@ class ReviewController {
                 && $has_variant
                 && self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
                 && self::valid_id( $query[ self::QUERY_UPLOAD ], FormProtocol::managed_id_pattern() )
-                && in_array( $query[ self::QUERY_VARIANT ], array( 'preview', 'original' ), true )
+                && in_array( $query[ self::QUERY_VARIANT ], array( 'preview', 'master' ), true )
             ) {
                 return array(
                     'matched' => true,
@@ -431,8 +431,11 @@ class ReviewController {
 
     private static function content_disposition( $variant, $display_name ) {
         $name = is_string( $display_name ) && $display_name !== '' ? $display_name : 'photo';
-        $fallback = $variant === 'preview' ? 'preview.jpg' : 'photo';
-        return 'inline; filename="' . $fallback . '"; filename*=UTF-8\'\'' . rawurlencode( $name );
+        $stem = pathinfo( $name, PATHINFO_FILENAME );
+        $stem = is_string( $stem ) && $stem !== '' ? $stem : 'photo';
+        $suffix = $variant === 'preview' ? '-preview.jpg' : '-high-resolution.jpg';
+        $fallback = $variant === 'preview' ? 'preview.jpg' : 'high-resolution.jpg';
+        return 'inline; filename="' . $fallback . '"; filename*=UTF-8\'\'' . rawurlencode( $stem . $suffix );
     }
 
     private static function enqueue_styles() {

@@ -37,10 +37,6 @@ class UploadPolicy {
                 'jpeg' => 'image/jpeg',
                 'png' => 'image/png',
                 'webp' => 'image/webp',
-            ),
-        ),
-        'heic' => array(
-            'extension_mimes' => array(
                 'heic' => array( 'image/heic', 'image/heif' ),
                 'heif' => array( 'image/heic', 'image/heif' ),
             ),
@@ -108,7 +104,7 @@ class UploadPolicy {
 
     public static function staged_tokens_allowed( $tokens ) {
         $tokens = self::canonical_tokens( $tokens );
-        return $tokens === array( 'image' ) || $tokens === array( 'heic', 'image' );
+        return $tokens === array( 'image' );
     }
 
     public static function policy_for_tokens( $tokens, $upload_mode = 'synchronous' ) {
@@ -139,8 +135,8 @@ class UploadPolicy {
         );
     }
 
-    public static function staged_mimes( $tokens = array( 'image' ) ) {
-        $policy = self::policy_for_tokens( $tokens, 'staged' );
+    public static function staged_mimes() {
+        $policy = self::policy_for_tokens( array( 'image' ), 'staged' );
         return $policy['mimes'];
     }
 
@@ -194,6 +190,9 @@ class UploadPolicy {
         if ( $mime === 'image/png' && self::png_animation_state( $path ) !== false ) {
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
         }
+        if ( $mime === 'image/webp' && self::webp_animation_state( $path ) !== false ) {
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
+        }
 
         $dimensions = self::image_dimensions( $path, $mime );
         if ( $dimensions === null ) {
@@ -206,14 +205,17 @@ class UploadPolicy {
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image exceeds the processing limit.' );
         }
 
-        $readiness = self::staged_host_readiness( $mime, $options );
+        $readiness = self::staged_host_readiness( $options );
         if ( empty( $readiness['ok'] ) ) {
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'Photo processing is unavailable on this server.' );
         }
 
         $result['width'] = $width;
         $result['height'] = $height;
-        $result['backend'] = $readiness['backend'];
+        $result['sha256'] = hash_file( 'sha256', $path );
+        if ( ! is_string( $result['sha256'] ) || strlen( $result['sha256'] ) !== 64 ) {
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
+        }
         return $result;
     }
 
@@ -266,7 +268,7 @@ class UploadPolicy {
         return $width <= intdiv( Anchors::get( 'STAGED_IMAGE_MAX_PIXELS' ), $height );
     }
 
-    public static function staged_host_readiness( $source_mime, $options = array() ) {
+    public static function staged_host_readiness( $options = array() ) {
         $memory = array_key_exists( 'memory_limit', $options ) ? $options['memory_limit'] : ini_get( 'memory_limit' );
         $execution = array_key_exists( 'execution_limit', $options ) ? $options['execution_limit'] : ini_get( 'max_execution_time' );
         $memory_bytes = self::ini_bytes( $memory );
@@ -279,27 +281,20 @@ class UploadPolicy {
             return array( 'ok' => false, 'reason' => 'execution_limit', 'backend' => '' );
         }
 
-        if ( ! self::is_heic_mime( $source_mime ) ) {
-            $supports = isset( $options['editor_support'] ) && is_callable( $options['editor_support'] )
-                ? $options['editor_support']
-                : ( function_exists( 'wp_image_editor_supports' ) ? 'wp_image_editor_supports' : null );
-            try {
-                $editor_ready = is_callable( $supports )
-                    && call_user_func( $supports, array( 'mime_type' => $source_mime ) )
-                    && call_user_func( $supports, array( 'mime_type' => 'image/jpeg' ) );
-            } catch ( Throwable $error ) {
-                $editor_ready = false;
-            }
-            if ( ! $editor_ready ) {
-                return array( 'ok' => false, 'reason' => 'editor_support', 'backend' => '' );
+        $missing_mimes = array();
+        foreach ( self::staged_mimes() as $required_mime ) {
+            if ( ! self::imagick_supports( $required_mime, $options ) ) {
+                $missing_mimes[] = $required_mime;
             }
         }
-
-        $backend = self::preview_backend( $source_mime, $options );
+        $missing_operations = self::imagick_encodes_jpeg( $options ) ? array() : array( 'jpeg_encode' );
+        $ready = empty( $missing_mimes ) && empty( $missing_operations );
         return array(
-            'ok' => $backend !== '',
-            'reason' => $backend === '' ? 'backend' : '',
-            'backend' => $backend,
+            'ok' => $ready,
+            'reason' => $ready ? '' : 'backend',
+            'backend' => $ready ? 'imagick' : '',
+            'missing_mimes' => $missing_mimes,
+            'missing_operations' => $missing_operations,
         );
     }
 
@@ -314,22 +309,38 @@ class UploadPolicy {
         return $attempts;
     }
 
-    public static function create_staged_preview( $validated, $destination ) {
-        if ( ! is_array( $validated ) || empty( $validated['ok'] ) || empty( $validated['tmp_name'] ) || empty( $validated['backend'] ) ) {
+    public static function master_attempts() {
+        $attempts = array();
+        for ( $index = 0; $index < Anchors::get( 'STAGED_MASTER_MAX_ATTEMPTS' ); $index++ ) {
+            $attempts[] = array(
+                'edge' => Anchors::get( 'STAGED_MASTER_MAX_EDGE' ) - ( $index * Anchors::get( 'STAGED_MASTER_EDGE_STEP' ) ),
+                'quality' => Anchors::get( 'STAGED_MASTER_JPEG_QUALITY_INITIAL' ) - ( $index * Anchors::get( 'STAGED_MASTER_JPEG_QUALITY_STEP' ) ),
+            );
+        }
+        return $attempts;
+    }
+
+    public static function create_staged_derivatives( $validated, $destination_directory ) {
+        if ( ! is_array( $validated ) || empty( $validated['ok'] ) || empty( $validated['tmp_name'] ) ) {
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
         }
-        if ( ! is_string( $destination ) || $destination === '' || strtolower( pathinfo( $destination, PATHINFO_EXTENSION ) ) !== 'jpg' || file_exists( $destination ) ) {
+        if ( ! is_string( $destination_directory )
+            || $destination_directory === ''
+            || ! is_dir( $destination_directory )
+        ) {
+            @unlink( $validated['tmp_name'] );
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
         }
 
-        if ( $validated['backend'] === 'imagick' ) {
-            return self::create_preview_imagick( $validated['tmp_name'], $destination, $validated['mime'] );
-        }
-        if ( $validated['backend'] === 'gd' ) {
-            return self::create_preview_gd( $validated['tmp_name'], $destination, $validated['mime'] );
+        $directory = rtrim( $destination_directory, '/\\' );
+        $master_path = $directory . '/master.jpg';
+        $preview_path = $directory . '/preview.jpg';
+        if ( file_exists( $master_path ) || file_exists( $preview_path ) ) {
+            @unlink( $validated['tmp_name'] );
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
         }
 
-        return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
+        return self::create_derivatives_imagick( $validated['tmp_name'], $validated['mime'], $master_path, $preview_path );
     }
 
     public static function extension_from_name( $name ) {
@@ -494,30 +505,83 @@ class UploadPolicy {
         }
     }
 
-    private static function preview_backend( $source_mime, $options = array() ) {
-        if ( self::imagick_supports( $source_mime, $options ) && self::imagick_supports( 'image/jpeg', $options ) ) {
-            return 'imagick';
+    /**
+     * Return true for animated WebP, false for a bounded static WebP, or null on parse failure.
+     */
+    private static function webp_animation_state( $path ) {
+        $length = @filesize( $path );
+        $handle = @fopen( $path, 'rb' );
+        if ( ! is_int( $length ) || $length < 20 || $handle === false ) {
+            if ( is_resource( $handle ) ) {
+                fclose( $handle );
+            }
+            return null;
         }
-
-        $gd_function = self::gd_loader( $source_mime );
-        $gd_functions = array( $gd_function, 'imagejpeg', 'imagecreatetruecolor', 'imagecopyresampled', 'imagecopy', 'imagedestroy' );
-        $exif_ready = $source_mime !== 'image/jpeg'
-            || ( array_key_exists( 'exif_support', $options )
-                ? (bool) $options['exif_support']
-                : function_exists( 'exif_read_data' ) );
-        // GD cannot uphold the JPEG orientation contract without an EXIF reader.
-        if ( $gd_function !== '' && $exif_ready && count( array_filter( $gd_functions, 'function_exists' ) ) === count( $gd_functions ) ) {
-            return 'gd';
+        try {
+            $riff = fread( $handle, 12 );
+            if ( ! is_string( $riff ) || strlen( $riff ) !== 12 || substr( $riff, 0, 4 ) !== 'RIFF' || substr( $riff, 8, 4 ) !== 'WEBP' ) {
+                return null;
+            }
+            $offset = 12;
+            while ( $offset + 8 <= $length ) {
+                $header = fread( $handle, 8 );
+                if ( ! is_string( $header ) || strlen( $header ) !== 8 ) {
+                    return null;
+                }
+                $type = substr( $header, 0, 4 );
+                $size = unpack( 'Vsize', substr( $header, 4, 4 ) );
+                $size = isset( $size['size'] ) ? (int) $size['size'] : -1;
+                $chunk_size = $size;
+                $data_offset = $offset + 8;
+                if ( $size < 0 || $data_offset > $length - $size ) {
+                    return null;
+                }
+                if ( $type === 'ANIM' || $type === 'ANMF' ) {
+                    return true;
+                }
+                if ( $type === 'VP8X' ) {
+                    $flags = $size > 0 ? fread( $handle, 1 ) : false;
+                    if ( ! is_string( $flags ) || strlen( $flags ) !== 1 ) {
+                        return null;
+                    }
+                    if ( ( ord( $flags ) & 0x02 ) !== 0 ) {
+                        return true;
+                    }
+                    $size--;
+                } elseif ( $type === 'VP8 ' || $type === 'VP8L' ) {
+                    return false;
+                }
+                $skip = $size + ( $chunk_size % 2 );
+                if ( $skip > 0 && fseek( $handle, $skip, SEEK_CUR ) !== 0 ) {
+                    return null;
+                }
+                $offset = ftell( $handle );
+                if ( ! is_int( $offset ) ) {
+                    return null;
+                }
+            }
+            return false;
+        } finally {
+            fclose( $handle );
         }
-        return '';
     }
 
-    private static function create_preview_imagick( $source, $destination, $source_mime ) {
+    private static function create_derivatives_imagick( $source, $mime, $master_path, $preview_path ) {
         $image = null;
+        $source_cleanup_failed = false;
         try {
             $image = new Imagick();
-            $read_source = self::is_heic_mime( $source_mime ) ? $source . '[0]' : $source;
-            $image->readImage( $read_source );
+            // HEIC/HEIF containers may include auxiliary images; other staged
+            // formats must load every frame so unsupported multi-image input is rejected.
+            $image->readImage( self::is_heic_mime( $mime ) ? $source . '[0]' : $source );
+            // Once Imagick owns the decoded pixels, the raw upload is no longer
+            // needed. Fail before writing durable derivatives if it cannot be removed.
+            if ( ( file_exists( $source ) || is_link( $source ) )
+                && ( ! @unlink( $source ) || file_exists( $source ) || is_link( $source ) )
+            ) {
+                $source_cleanup_failed = true;
+                throw new RuntimeException( 'source_cleanup_failed' );
+            }
             if ( $image->getNumberImages() !== 1 ) {
                 throw new RuntimeException( 'animated_image' );
             }
@@ -526,86 +590,75 @@ class UploadPolicy {
             if ( defined( 'Imagick::ORIENTATION_TOPLEFT' ) ) {
                 $image->setImageOrientation( Imagick::ORIENTATION_TOPLEFT );
             }
+            self::convert_imagick_to_srgb( $image );
             $image->setImageBackgroundColor( new ImagickPixel( '#ffffff' ) );
             $flattened = $image->mergeImageLayers( Imagick::LAYERMETHOD_FLATTEN );
             $image->clear();
             $image = $flattened;
             $image->stripImage();
 
-            return self::commit_preview_attempts(
-                $destination,
-                function ( $attempt ) use ( &$image ) {
-                    if ( max( $image->getImageWidth(), $image->getImageHeight() ) > $attempt['edge'] ) {
-                        $image->thumbnailImage( $attempt['edge'], $attempt['edge'], true, true );
-                    }
-                    $image->setImageFormat( 'jpeg' );
-                    $image->setImageCompression( Imagick::COMPRESSION_JPEG );
-                    $image->setImageCompressionQuality( $attempt['quality'] );
-                    $image->stripImage();
-                    return array(
-                        'blob' => $image->getImageBlob(),
-                        'width' => $image->getImageWidth(),
-                        'height' => $image->getImageHeight(),
-                    );
-                }
+            $master = self::commit_derivative_attempts(
+                $image,
+                $master_path,
+                self::master_attempts(),
+                Anchors::get( 'STAGED_MASTER_MAX_BYTES' )
+            );
+            if ( empty( $master['ok'] ) ) {
+                throw new RuntimeException( 'master_derivative' );
+            }
+            $preview = self::commit_derivative_attempts(
+                $image,
+                $preview_path,
+                self::preview_attempts(),
+                Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' )
+            );
+            if ( empty( $preview['ok'] ) ) {
+                throw new RuntimeException( 'preview_derivative' );
+            }
+
+            return array(
+                'ok' => true,
+                'code' => '',
+                'message' => '',
+                'master' => $master,
+                'preview' => $preview,
+                'managed_bytes' => $master['bytes'] + $preview['bytes'],
             );
         } catch ( Throwable $error ) {
+            @unlink( $master_path );
+            @unlink( $preview_path );
+            if ( $source_cleanup_failed ) {
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'Photo processing is unavailable on this server.', 'source_cleanup_failed' );
+            }
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
         } finally {
             if ( $image instanceof Imagick ) {
                 $image->clear();
                 $image->destroy();
             }
-        }
-
-    }
-
-    private static function create_preview_gd( $source, $destination, $mime ) {
-        $loader = self::gd_loader( $mime );
-        $image = null;
-        try {
-            $image = $loader !== '' && function_exists( $loader ) ? @$loader( $source ) : false;
-            if ( $image ) {
-                $image = self::gd_orient( $image, $source, $mime );
-            }
-            if ( $image ) {
-                $image = self::gd_flatten_white( $image );
-            }
-            if ( ! $image ) {
-                throw new RuntimeException();
-            }
-
-            return self::commit_preview_attempts(
-                $destination,
-                function ( $attempt ) use ( &$image ) {
-                    $image = self::gd_resize_within( $image, $attempt['edge'] );
-                    if ( ! $image ) {
-                        throw new RuntimeException( 'preview_resize' );
-                    }
-                    return array(
-                        'blob' => self::gd_jpeg_blob( $image, $attempt['quality'] ),
-                        'width' => imagesx( $image ),
-                        'height' => imagesy( $image ),
-                    );
-                }
-            );
-        } catch ( Throwable $error ) {
-            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
-        } finally {
-            if ( $image ) {
-                @imagedestroy( $image );
-            }
+            @unlink( $source );
         }
     }
 
-    private static function commit_preview_attempts( $destination, $encode_attempt ) {
+    private static function commit_derivative_attempts( $normalized, $destination, $attempts, $max_bytes ) {
         $candidate = '';
         try {
-            foreach ( self::preview_attempts() as $index => $attempt ) {
-                $encoded = call_user_func( $encode_attempt, $attempt );
-                $blob = is_array( $encoded ) && isset( $encoded['blob'] ) ? $encoded['blob'] : false;
+            foreach ( $attempts as $index => $attempt ) {
+                $image = clone $normalized;
+                if ( max( $image->getImageWidth(), $image->getImageHeight() ) > $attempt['edge'] ) {
+                    $image->thumbnailImage( $attempt['edge'], $attempt['edge'], true, false );
+                }
+                $image->setImageFormat( 'jpeg' );
+                $image->setImageCompression( Imagick::COMPRESSION_JPEG );
+                $image->setImageCompressionQuality( $attempt['quality'] );
+                $image->stripImage();
+                $blob = $image->getImageBlob();
+                $width = $image->getImageWidth();
+                $height = $image->getImageHeight();
+                $image->clear();
+                $image->destroy();
                 $bytes = is_string( $blob ) ? strlen( $blob ) : 0;
-                if ( $bytes <= 0 || $bytes > Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' ) ) {
+                if ( $bytes <= 0 || $bytes > $max_bytes ) {
                     unset( $blob );
                     continue;
                 }
@@ -616,10 +669,13 @@ class UploadPolicy {
                 }
                 unset( $blob );
                 if ( ! @rename( $candidate, $destination ) ) {
-                    throw new RuntimeException( 'preview_commit' );
+                    throw new RuntimeException( 'derivative_commit' );
                 }
-                @chmod( $destination, 0600 );
-                return self::preview_success( $destination, $bytes, $encoded['width'], $encoded['height'], $index );
+                if ( ! @chmod( $destination, 0600 ) ) {
+                    @unlink( $destination );
+                    throw new RuntimeException( 'derivative_permissions' );
+                }
+                return self::derivative_success( $destination, $bytes, $width, $height );
             }
         } catch ( Throwable $error ) {
             // The failure result lets the store release its reservation.
@@ -635,38 +691,21 @@ class UploadPolicy {
         return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
     }
 
-    private static function gd_jpeg_blob( $image, $quality ) {
-        $buffer_level = ob_get_level();
-        if ( ! ob_start() ) {
-            return false;
+    private static function derivative_success( $path, $bytes, $width, $height ) {
+        $sha256 = @hash_file( 'sha256', $path );
+        if ( ! is_string( $sha256 ) || strlen( $sha256 ) !== 64 ) {
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'This image could not be processed.' );
         }
-        try {
-            if ( ! @imagejpeg( $image, null, $quality ) ) {
-                return false;
-            }
-            $blob = ob_get_contents();
-            return is_string( $blob ) ? $blob : false;
-        } catch ( Throwable $error ) {
-            return false;
-        } finally {
-            while ( ob_get_level() > $buffer_level ) {
-                @ob_end_clean();
-            }
-        }
-    }
-
-    private static function preview_success( $path, $bytes, $width, $height, $attempt ) {
         return array(
             'ok' => true,
             'code' => '',
             'message' => '',
-            'path' => $path,
             'bytes' => (int) $bytes,
             'width' => (int) $width,
             'height' => (int) $height,
             'mime' => 'image/jpeg',
             'extension' => 'jpg',
-            'attempt' => (int) $attempt,
+            'sha256' => $sha256,
         );
     }
 
@@ -693,11 +732,88 @@ class UploadPolicy {
         if ( $format === '' ) {
             return false;
         }
-        try {
-            return ! empty( Imagick::queryFormats( $format ) );
-        } catch ( Throwable $error ) {
+        $probe = self::imagick_probe_bytes( $mime );
+        if ( $probe === '' ) {
             return false;
         }
+        $image = null;
+        try {
+            if ( empty( Imagick::queryFormats( $format ) ) ) {
+                return false;
+            }
+            $image = new Imagick();
+            $image->readImageBlob( $probe );
+            if ( $image->getNumberImages() < 1 ) {
+                return false;
+            }
+            $image->setIteratorIndex( 0 );
+            return $image->getImageWidth() > 0 && $image->getImageHeight() > 0;
+        } catch ( Throwable $error ) {
+            return false;
+        } finally {
+            if ( $image instanceof Imagick ) {
+                $image->clear();
+                $image->destroy();
+            }
+        }
+    }
+
+    private static function imagick_encodes_jpeg( $options = array() ) {
+        if ( array_key_exists( 'imagick_jpeg_encode', $options ) ) {
+            try {
+                return is_callable( $options['imagick_jpeg_encode'] )
+                    ? (bool) call_user_func( $options['imagick_jpeg_encode'] )
+                    : (bool) $options['imagick_jpeg_encode'];
+            } catch ( Throwable $error ) {
+                return false;
+            }
+        }
+        // Tests that inject the decoder seam remain independent of the host's
+        // Imagick installation unless they explicitly inject the encoder seam.
+        if ( isset( $options['imagick_support'] ) && is_callable( $options['imagick_support'] ) ) {
+            return true;
+        }
+        if ( ! class_exists( 'Imagick' ) ) {
+            return false;
+        }
+        $image = null;
+        try {
+            $image = new Imagick();
+            $image->newImage( 1, 1, new ImagickPixel( 'white' ) );
+            $image->setImageFormat( 'jpeg' );
+            $blob = $image->getImageBlob();
+            return is_string( $blob ) && strlen( $blob ) > 2 && substr( $blob, 0, 2 ) === "\xff\xd8";
+        } catch ( Throwable $error ) {
+            return false;
+        } finally {
+            if ( $image instanceof Imagick ) {
+                $image->clear();
+                $image->destroy();
+            }
+        }
+    }
+
+    private static function imagick_probe_bytes( $mime ) {
+        $encoded = array(
+            'image/jpeg' => '/9j/4QAiRXhpZgAASUkqAAgAAAABABIBAwABAAAABgAAAAAAAAD/4AAQSkZJRgABAQAAAAAAAAD//gAYZWZvcm1zLW1ldGFkYXRhLW1hcmtlcv/bAEMAAwICAgICAwICAgMDAwMEBgQEBAQECAYGBQYJCAoKCQgJCQoMDwwKCw4LCQkNEQ0ODxAQERAKDBITEhATDxAQEP/bAEMBAwMDBAMECAQECBALCQsQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEP/AABEIADwAeAMBEQACEQEDEQH/xAAVAAEBAAAAAAAAAAAAAAAAAAAAB//EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAVAQEBAAAAAAAAAAAAAAAAAAAAB//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AJEraXgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/Z',
+            'image/png' => 'iVBORw0KGgoAAAANSUhEUgAAAHgAAAA8AgMAAADQw5Y7AAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAJUExURQAAAP8AAP///2cZZB4AAAACdFJOUwCAmytOGAAAAAFiS0dEAmYLfGQAAAAfSURBVDjLY2AYBeSCUCzAYVR6VHpUelR6+EqPAjQAAA9NGpTFWdU2AAAAAElFTkSuQmCC',
+            'image/webp' => 'UklGRlwAAABXRUJQVlA4IFAAAADQBACdASp4ADwAPpFIoUylpCMiIQgAsBIJaQDWIoAACLUSrzW19OnTp06dOnTfAAD+6zb/+1MEkZAH/0KNlEn3UZOi2BEtUYcQLgQAAAAAAA==',
+        );
+        if ( self::is_heic_mime( $mime ) ) {
+            $path = __DIR__ . '/imagick-heic-probe.b64';
+            if ( is_link( $path ) || ! is_file( $path ) ) {
+                return '';
+            }
+            $value = @file_get_contents( $path );
+        } else {
+            $value = isset( $encoded[ $mime ] ) ? $encoded[ $mime ] : '';
+        }
+        if ( ! is_string( $value ) || $value === '' ) {
+            return '';
+        }
+        $value = preg_replace( '/\s+/', '', $value );
+        $decoded = is_string( $value ) ? base64_decode( $value, true ) : false;
+        return is_string( $decoded ) ? $decoded : '';
     }
 
     private static function is_heic_mime( $mime ) {
@@ -718,97 +834,21 @@ class UploadPolicy {
         }
     }
 
-    private static function gd_loader( $mime ) {
-        if ( $mime === 'image/jpeg' ) {
-            return 'imagecreatefromjpeg';
-        }
-        if ( $mime === 'image/png' ) {
-            return 'imagecreatefrompng';
-        }
-        if ( $mime === 'image/webp' ) {
-            return 'imagecreatefromwebp';
-        }
-        return '';
-    }
-
-    private static function gd_orient( $image, $source, $mime ) {
-        if ( $mime !== 'image/jpeg' ) {
-            return $image;
-        }
-        if ( ! function_exists( 'exif_read_data' ) ) {
-            @imagedestroy( $image );
-            return false;
-        }
-        $exif = @exif_read_data( $source );
-        $orientation = is_array( $exif ) && isset( $exif['Orientation'] ) ? (int) $exif['Orientation'] : 1;
-        if ( $orientation === 2 || $orientation === 4 || $orientation === 5 || $orientation === 7 ) {
-            // Orientation 5 is horizontal-flip + 90 CCW; 7 is horizontal-flip + 90 CW.
-            if ( ! @imageflip( $image, $orientation === 4 ? IMG_FLIP_VERTICAL : IMG_FLIP_HORIZONTAL ) ) {
-                @imagedestroy( $image );
-                return false;
+    private static function convert_imagick_to_srgb( $image ) {
+        $profiles = $image->getImageProfiles( 'icc', false );
+        if ( ! empty( $profiles ) ) {
+            // Imagick may label ICC-tagged RGB pixels as sRGB before converting them;
+            // applying the destination profile performs the actual profile-aware transform.
+            $encoded = @file_get_contents( __DIR__ . '/srgb.icc.b64' );
+            $profile = is_string( $encoded ) ? base64_decode( $encoded, true ) : false;
+            if ( ! is_string( $profile ) || strlen( $profile ) < 128 ) {
+                throw new RuntimeException( 'srgb_profile_unavailable' );
             }
+            $image->profileImage( 'icc', $profile );
+        } else {
+            $image->transformImageColorspace( Imagick::COLORSPACE_SRGB );
         }
-        $angle = 0;
-        if ( $orientation === 3 ) {
-            $angle = 180;
-        } elseif ( $orientation === 6 || $orientation === 7 ) {
-            $angle = -90;
-        } elseif ( $orientation === 5 || $orientation === 8 ) {
-            $angle = 90;
-        }
-        if ( $angle !== 0 ) {
-            $rotated = @imagerotate( $image, $angle, 0 );
-            if ( ! $rotated ) {
-                @imagedestroy( $image );
-                return false;
-            }
-            @imagedestroy( $image );
-            $image = $rotated;
-        }
-        return $image;
-    }
-
-    private static function gd_flatten_white( $image ) {
-        $width = imagesx( $image );
-        $height = imagesy( $image );
-        $canvas = imagecreatetruecolor( $width, $height );
-        if ( ! $canvas ) {
-            @imagedestroy( $image );
-            return false;
-        }
-        $white = imagecolorallocate( $canvas, 255, 255, 255 );
-        if ( $white === false
-            || ! @imagefill( $canvas, 0, 0, $white )
-            || ! @imagealphablending( $canvas, true )
-            || ! @imagecopy( $canvas, $image, 0, 0, 0, 0, $width, $height )
-        ) {
-            @imagedestroy( $canvas );
-            @imagedestroy( $image );
-            return false;
-        }
-        @imagedestroy( $image );
-        return $canvas;
-    }
-
-    private static function gd_resize_within( $image, $edge ) {
-        $width = imagesx( $image );
-        $height = imagesy( $image );
-        if ( max( $width, $height ) <= $edge ) {
-            return $image;
-        }
-        $ratio = $edge / max( $width, $height );
-        $target_width = max( 1, (int) floor( $width * $ratio ) );
-        $target_height = max( 1, (int) floor( $height * $ratio ) );
-        $target = imagecreatetruecolor( $target_width, $target_height );
-        if ( ! $target || ! imagecopyresampled( $target, $image, 0, 0, 0, 0, $target_width, $target_height, $width, $height ) ) {
-            if ( $target ) {
-                imagedestroy( $target );
-            }
-            imagedestroy( $image );
-            return false;
-        }
-        imagedestroy( $image );
-        return $target;
+        $image->setImageColorspace( Imagick::COLORSPACE_SRGB );
     }
 
     private static function ini_bytes( $value ) {

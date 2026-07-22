@@ -113,9 +113,6 @@ $put = UploadBatchStore::put_item(
         'now' => $now,
         'memory_limit' => -1,
         'execution_limit' => 0,
-        'editor_support' => function () {
-            return true;
-        },
         'free_bytes' => Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) + 1073741824,
     )
 );

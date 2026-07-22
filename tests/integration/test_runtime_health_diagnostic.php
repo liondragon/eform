@@ -26,9 +26,6 @@ $observations = array(
     'fileinfo' => true,
     'memory_limit' => -1,
     'execution_limit' => 0,
-    'editor_support' => function () {
-        return true;
-    },
     'disk_total_bytes' => Anchors::get( 'MANAGED_UPLOAD_MAX_BYTES' ) + Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ),
     'disk_free_bytes' => Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ),
     'upload_max_filesize' => '64M',
@@ -62,7 +59,7 @@ eforms_test_assert( $checks['runtime-dirs']['notes'] === 'temporary probes clean
 eforms_test_assert( $checks['mail-format']['result'] === 'PASS', 'Default mail format should pass with full HTML and text alternative.' );
 eforms_test_assert( $checks['challenge-config']['result'] === 'PASS', 'Challenge config should pass when challenge mode is off.' );
 eforms_test_assert( $checks['managed-upload-dirs']['result'] === 'PASS', 'Protected writable managed directories should pass.' );
-eforms_test_assert( $checks['staged-image-processing']['result'] === 'PASS', 'Valid fileinfo, image-editor, memory, and execution observations should pass.' );
+eforms_test_assert( $checks['staged-image-processing']['result'] === 'PASS', 'Valid fileinfo, Imagick, memory, and execution observations should pass.' );
 eforms_test_assert( $checks['managed-capacity']['result'] === 'PASS', 'Consistent accounting on a provisioned filesystem should pass.' );
 eforms_test_assert( $checks['staged-request-limits']['result'] === 'PASS', 'PHP request limits above the largest staged field should pass.' );
 eforms_test_assert( $checks['staged-throttle']['result'] === 'PASS', 'Enabled valid per-IP throttle settings should pass staged readiness.' );
@@ -105,9 +102,6 @@ $capacity_put = UploadBatchStore::put_item(
         'now' => $capacity_now,
         'memory_limit' => -1,
         'execution_limit' => 0,
-        'editor_support' => function () {
-            return true;
-        },
         'free_bytes' => Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) + 1073741824,
     )
 );
@@ -115,7 +109,7 @@ eforms_test_assert( ! empty( $capacity_put['ok'] ), 'The capacity-warning fixtur
 $capacity_record_path = $uploads_dir . '/eforms-private/' . UploadBatchStore::CAPACITY_FILENAME;
 $capacity_record = eforms_test_managed_capacity_record( $uploads_dir );
 $capacity_reservation_id = hash( 'sha256', $capacity_batch['batch']['batch_id'] . "\0" . $capacity_upload_id );
-$capacity_reserved_bytes = $capacity_source_bytes + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
+$capacity_reserved_bytes = Anchors::get( 'STAGED_MASTER_MAX_BYTES' ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
 $capacity_record['total_bytes'] = $capacity_reserved_bytes;
 $capacity_record['reservations'][ $capacity_reservation_id ] = array(
     'batch_id' => $capacity_batch['batch']['batch_id'],
@@ -264,7 +258,7 @@ $invalid_template['id'] = 'runtime-health-invalid';
 $invalid_template['unknown_root'] = true;
 foreach ( $invalid_template['fields'] as &$field ) {
     if ( isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged' ) {
-        $field['accept'] = array( 'image', 'heic' );
+        $field['accept'] = array( 'image' );
     }
 }
 unset( $field );
@@ -281,37 +275,38 @@ try {
     @unlink( $invalid_template_path );
 }
 
-$heic_template_path = $templates_dir . '/runtime-health-heic.json';
-$heic_template = json_decode( file_get_contents( $templates_dir . '/upload-test.json' ), true );
-eforms_test_assert( is_array( $heic_template ), 'The runtime-health HEIC fixture should derive from the valid upload template.' );
-$heic_template['id'] = 'runtime-health-heic';
-foreach ( $heic_template['fields'] as &$field ) {
-    if ( isset( $field['upload_mode'] ) && $field['upload_mode'] === 'staged' ) {
-        $field['accept'] = array( 'image', 'heic' );
-    }
-}
-unset( $field );
-file_put_contents( $heic_template_path, json_encode( $heic_template, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) );
-try {
-    $heic_failure = RuntimeHealthDiagnostic::run(
-        array_merge(
-            $observations,
-            array(
-                'imagick_support' => function ( $mime ) {
-                    return $mime !== 'image/heic' && $mime !== 'image/heif';
-                },
-            )
+$heic_failure = RuntimeHealthDiagnostic::run(
+    array_merge(
+        $observations,
+        array(
+            'imagick_support' => function ( $mime ) {
+                return $mime !== 'image/heic' && $mime !== 'image/heif';
+            },
         )
-    );
-    $heic_checks = array();
-    foreach ( $heic_failure['checks'] as $check ) {
-        $heic_checks[ $check['name'] ] = $check;
-    }
-    eforms_test_assert( $heic_checks['staged-image-processing']['result'] === 'FAIL', 'An active HEIC template should fail readiness without the HEIC Imagick delegate.' );
-    eforms_test_assert( strpos( $heic_checks['staged-image-processing']['observed'], 'heic:backend' ) !== false, 'HEIC readiness failure should identify the missing backend capability.' );
-} finally {
-    @unlink( $heic_template_path );
+    )
+);
+$heic_checks = array();
+foreach ( $heic_failure['checks'] as $check ) {
+    $heic_checks[ $check['name'] ] = $check;
 }
+eforms_test_assert( $heic_checks['staged-image-processing']['result'] === 'FAIL', 'An active image field should fail readiness without the required HEIC/HEIF Imagick delegate.' );
+eforms_test_assert(
+    $heic_checks['staged-image-processing']['observed'] === 'heic:backend,heif:backend',
+    'All-format readiness failure should name only the missing Imagick capabilities.'
+);
+
+$jpeg_encode_failure = RuntimeHealthDiagnostic::run(
+    array_merge( $observations, array( 'imagick_support' => function () { return true; }, 'imagick_jpeg_encode' => false ) )
+);
+$jpeg_encode_checks = array();
+foreach ( $jpeg_encode_failure['checks'] as $check ) {
+    $jpeg_encode_checks[ $check['name'] ] = $check;
+}
+eforms_test_assert(
+    $jpeg_encode_checks['staged-image-processing']['result'] === 'FAIL'
+        && $jpeg_encode_checks['staged-image-processing']['observed'] === 'jpeg-encode:backend',
+    'Runtime health should report an Imagick installation that cannot emit JPEG bytes.'
+);
 
 $request_failure = RuntimeHealthDiagnostic::run( array_merge( $observations, array( 'upload_max_filesize' => '1M', 'post_max_size' => '1M' ) ) );
 $request_checks = array();

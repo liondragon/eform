@@ -34,7 +34,7 @@ class RuntimeHealthDiagnostic {
             $uploads_base,
             self::check_private_storage( $private_lease ),
             self::check_runtime_dirs( $private_lease ),
-            self::check_staged_image_processing( $observations, $staged_fields ),
+            self::check_staged_image_processing( $observations ),
             self::check_managed_capacity( $observations, $private_lease ),
             self::check_managed_upload_dirs( $private_lease ),
             self::check_staged_request_limits( $observations, $staged_fields ),
@@ -150,8 +150,8 @@ class RuntimeHealthDiagnostic {
         return self::check( 'managed-upload-dirs', 'PASS', 'protected and writable', 'staged/finalized storage protected and writable', 'private deny rules active; temporary probes cleaned' );
     }
 
-    private static function check_staged_image_processing( $observations, $staged_fields ) {
-        $mimes = self::required_staged_mimes( $staged_fields );
+    private static function check_staged_image_processing( $observations ) {
+        $mimes = UploadPolicy::staged_mimes();
         $formats = array_map(
             function ( $mime ) {
                 return strtoupper( substr( $mime, 6 ) );
@@ -167,16 +167,31 @@ class RuntimeHealthDiagnostic {
         }
 
         $options = array();
-        foreach ( array( 'memory_limit', 'execution_limit', 'editor_support', 'imagick_support' ) as $key ) {
+        foreach ( array( 'memory_limit', 'execution_limit', 'imagick_support', 'imagick_jpeg_encode' ) as $key ) {
             if ( array_key_exists( $key, $observations ) ) {
                 $options[ $key ] = $observations[ $key ];
             }
         }
         $failures = array();
-        foreach ( $mimes as $mime ) {
-            $ready = UploadPolicy::staged_host_readiness( $mime, $options );
-            if ( empty( $ready['ok'] ) ) {
-                $failures[] = substr( $mime, 6 ) . ':' . ( isset( $ready['reason'] ) ? $ready['reason'] : 'unavailable' );
+        $ready = UploadPolicy::staged_host_readiness( $options );
+        if ( empty( $ready['ok'] ) ) {
+            $reason = isset( $ready['reason'] ) ? $ready['reason'] : 'unavailable';
+            $missing_mimes = isset( $ready['missing_mimes'] ) && is_array( $ready['missing_mimes'] )
+                ? $ready['missing_mimes']
+                : array();
+            $missing_operations = isset( $ready['missing_operations'] ) && is_array( $ready['missing_operations'] )
+                ? $ready['missing_operations']
+                : array();
+            if ( $reason === 'backend' && ! empty( $missing_mimes ) ) {
+                foreach ( $missing_mimes as $mime ) {
+                    $failures[] = substr( $mime, 6 ) . ':backend';
+                }
+            }
+            if ( $reason === 'backend' && in_array( 'jpeg_encode', $missing_operations, true ) ) {
+                $failures[] = 'jpeg-encode:backend';
+            }
+            if ( empty( $failures ) ) {
+                $failures[] = $reason;
             }
         }
         if ( ! empty( $failures ) ) {
@@ -184,7 +199,7 @@ class RuntimeHealthDiagnostic {
                 . ' memory and ' . Anchors::get( 'STAGED_IMAGE_MIN_EXECUTION_SECONDS' ) . ' seconds execution time, or unlimited values';
             return self::check( 'staged-image-processing', 'FAIL', implode( ',', $failures ), $expected, $requirements );
         }
-        return self::check( 'staged-image-processing', 'PASS', 'fileinfo and image editor ready', $expected, 'JPEG previews normalize orientation, strip metadata, and flatten alpha' );
+        return self::check( 'staged-image-processing', 'PASS', 'fileinfo and Imagick ready', $expected, 'JPEG masters and previews normalize orientation and color, strip metadata, and flatten alpha' );
     }
 
     private static function check_managed_capacity( $observations, $private_lease ) {
@@ -376,17 +391,6 @@ class RuntimeHealthDiagnostic {
             }
         }
         return $largest;
-    }
-
-    private static function required_staged_mimes( $staged_fields ) {
-        $tokens = array( 'image' => true );
-        foreach ( $staged_fields as $field ) {
-            $accept = isset( $field['accept'] ) && is_array( $field['accept'] ) ? $field['accept'] : array();
-            foreach ( UploadPolicy::resolve_tokens( $accept, false, 'staged' ) as $token ) {
-                $tokens[ $token ] = true;
-            }
-        }
-        return UploadPolicy::staged_mimes( array_keys( $tokens ) );
     }
 
     private static function template_inventory() {

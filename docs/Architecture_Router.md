@@ -17,7 +17,7 @@ This repo uses this router, `docs/Owner_Index.md`, `docs/overview.md`, `docs/con
 
 - Rendering: `src/Rendering/` loads templates, builds context, renders forms, and enqueues browser assets.
 - Submission: `src/Submission/` handles public POST routing, virtual result-page GET routing, pipeline orchestration, ledger reservation, and result redirects.
-- Managed uploads: `UploadBatchStore` owns staged/finalized aggregate state and capacity accounting; `UploadBatchEndpoint` owns batch HTTP requests; `ReviewController` owns signed gallery and file reads.
+- Managed uploads: `UploadBatchStore` owns staged/finalized aggregate state and remains the external capacity-accounting facade; one store-private collaborator owns capacity-record locking, persistence, reservation transitions, health, and reconciliation arithmetic while the facade retains aggregate traversal and lock ordering. `UploadBatchEndpoint` owns batch HTTP requests; `ReviewController` owns signed gallery and file reads.
 - Security: `src/Security/` owns tokens, origin policy, challenge verification, throttling, and mint endpoint behavior.
 - Spam policy: `src/Spam/ContentFilter.php` owns local blocked-term parsing, normalization, field selection, and matching; it does not own request behavior soft signals or threshold math.
 - Validation and registries: `src/Validation/` owns template validation, field descriptors, normalizers, validators, and handler registries.
@@ -38,7 +38,7 @@ This repo uses this router, `docs/Owner_Index.md`, `docs/overview.md`, `docs/con
 ## Dependency Direction
 
 - Public entrypoints call rendering, submission, and security owners.
-- Managed-upload endpoints, submission finalization, review reads, and GC call `UploadBatchStore`; no caller writes manifests or capacity state directly.
+- Managed-upload endpoints, submission finalization, review reads, and GC call `UploadBatchStore`; no caller writes manifests or calls capacity persistence/reconciliation directly.
 - Rendering and submission consume validation/registry descriptors.
 - Browser assets consume settings emitted by rendering; they do not parse templates or specs.
 - Security and submission may emit metadata for email/logging; email/logging do not drive security decisions.

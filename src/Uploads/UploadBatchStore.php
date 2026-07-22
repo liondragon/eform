@@ -11,6 +11,7 @@ require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Security/Entropy.php';
 require_once __DIR__ . '/PrivateDir.php';
+require_once __DIR__ . '/ManagedCapacityStore.php';
 require_once __DIR__ . '/UploadPolicy.php';
 require_once __DIR__ . '/UploadValue.php';
 
@@ -24,7 +25,7 @@ class UploadBatchStore {
     const FILES_DIR = 'files';
     const CAPACITY_FILENAME = 'managed-capacity.json';
     const CAPACITY_LOCK_FILENAME = 'managed-capacity.lock';
-    const MANIFEST_VERSION = 1;
+    const MANIFEST_VERSION = 2;
     const CAPACITY_VERSION = 1;
 
     public static function aggregate_lock_path( $family, $aggregate ) {
@@ -50,15 +51,7 @@ class UploadBatchStore {
         if ( is_link( $path ) || ( file_exists( $path ) && ! is_file( $path ) ) ) {
             return false;
         }
-        $handle = @fopen( $path, 'c+b' );
-        if ( $handle === false ) {
-            return false;
-        }
-        if ( ! @chmod( $path, 0600 ) || ! @flock( $handle, LOCK_EX | LOCK_NB ) ) {
-            fclose( $handle );
-            return false;
-        }
-        return $handle;
+        return ManagedCapacityStore::acquire_lock( $path, true, true );
     }
 
     public static function prelock_purge_aggregates( $lifecycle ) {
@@ -321,7 +314,7 @@ class UploadBatchStore {
             'delete_after' => $accept_until + Anchors::get( 'MANAGED_STAGED_DELETE_GRACE_SECONDS' ),
             'items' => array(),
             'tombstones' => array(),
-            'original_bytes' => 0,
+            'source_bytes' => 0,
             'managed_bytes' => 0,
         );
         $written = self::write_json_atomic( $manifest_path, $manifest );
@@ -410,6 +403,24 @@ class UploadBatchStore {
     }
 
     public static function put_item( $batch_id, $batch_secret, $upload_id, $ordinal, $item, $uploads_dir, $options = array() ) {
+        $incoming_source = UploadValue::temporary_path( $item );
+        $result = null;
+        $source_removed = true;
+        try {
+            $result = self::put_item_consuming_source( $batch_id, $batch_secret, $upload_id, $ordinal, $item, $uploads_dir, $options );
+        } finally {
+            if ( $incoming_source !== '' && ( file_exists( $incoming_source ) || is_link( $incoming_source ) ) ) {
+                @unlink( $incoming_source );
+                $source_removed = ! file_exists( $incoming_source ) && ! is_link( $incoming_source );
+            }
+        }
+        if ( ! $source_removed ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'source_cleanup_failed' );
+        }
+        return $result;
+    }
+
+    private static function put_item_consuming_source( $batch_id, $batch_secret, $upload_id, $ordinal, $item, $uploads_dir, $options ) {
         if ( ! self::valid_upload_id( $upload_id ) || ! is_numeric( $ordinal ) || (int) $ordinal < 0 ) {
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'item_identity_invalid' );
         }
@@ -450,50 +461,42 @@ class UploadBatchStore {
                 return $envelope;
             }
             $sha256 = hash_file( 'sha256', $envelope['tmp_name'] );
-
-            $locked = self::lock_staged_batch( $batch_id, $uploads_dir );
-            if ( empty( $locked['ok'] ) ) {
-                return $locked;
-            }
-            $manifest = self::read_manifest( $locked['manifest_path'], 'staged', $batch_id );
-            $check = self::check_item_mutation(
-                $manifest,
+            @unlink( $envelope['tmp_name'] );
+            return self::recover_existing_item(
+                $batch_id,
                 $batch_secret,
+                $upload_id,
+                $ordinal,
+                $sha256,
+                $uploads_dir,
+                $lifecycle,
                 self::now( isset( $options['now'] ) ? $options['now'] : null )
             );
-            $existing = is_array( $manifest ) && isset( $manifest['items'][ $upload_id ] )
-                ? $manifest['items'][ $upload_id ]
-                : null;
-            self::release_lock( $locked['lock'] );
-            if ( empty( $check['ok'] ) ) {
-                return $check;
-            }
-            if ( is_array( $existing )
-                && $existing['ordinal'] === $ordinal
-                && is_string( $sha256 )
-                && isset( $existing['sha256'] )
-                && hash_equals( $existing['sha256'], $sha256 )
-            ) {
-                return self::success( array( 'item' => self::item_summary( $existing ) ) );
-            }
-            return self::failure( 'EFORMS_ERR_TOKEN', 'upload_id_conflict' );
         }
 
         $validated = UploadPolicy::validate_item( $item, $field, $options );
         if ( empty( $validated['ok'] ) ) {
+            $source_path = UploadValue::temporary_path( $item );
+            if ( $source_path !== '' ) {
+                @unlink( $source_path );
+            }
             return $validated;
         }
-        $sha256 = hash_file( 'sha256', $validated['tmp_name'] );
-        if ( ! is_string( $sha256 ) || $sha256 === '' ) {
-            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'source_hash_failed' );
+        $sha256 = $validated['sha256'];
+        $attempt_id = Entropy::uuid_v4();
+        if ( $attempt_id === '' ) {
+            @unlink( $validated['tmp_name'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'entropy_unavailable' );
         }
 
         $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
         if ( empty( $capacity['ok'] ) ) {
+            @unlink( $validated['tmp_name'] );
             return $capacity;
         }
         $locked = self::lock_staged_batch( $batch_id, $uploads_dir );
         if ( empty( $locked['ok'] ) ) {
+            @unlink( $validated['tmp_name'] );
             self::release_lock( $capacity['lock'] );
             return $locked;
         }
@@ -502,6 +505,7 @@ class UploadBatchStore {
         $now = self::now( isset( $options['now'] ) ? $options['now'] : null );
         $check = self::check_item_mutation( $manifest, $batch_secret, $now );
         if ( empty( $check['ok'] ) ) {
+            @unlink( $validated['tmp_name'] );
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return $check;
@@ -509,88 +513,117 @@ class UploadBatchStore {
 
         if ( isset( $manifest['items'][ $upload_id ] ) ) {
             $existing = $manifest['items'][ $upload_id ];
-            self::release_lock( $locked['lock'] );
-            self::release_lock( $capacity['lock'] );
+            @unlink( $validated['tmp_name'] );
             if ( $existing['ordinal'] !== $ordinal ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
                 return self::failure( 'EFORMS_ERR_TOKEN', 'upload_id_conflict' );
             }
-            if ( isset( $existing['sha256'] ) && hash_equals( $existing['sha256'], $sha256 ) ) {
+            if ( isset( $existing['source_sha256'] ) && hash_equals( $existing['source_sha256'], $sha256 ) ) {
+                $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+                $settled = self::settle_committed_capacity( $record, $capacity['path'], $batch_id, $upload_id, $existing['managed_bytes'], $now );
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                if ( ! $settled ) {
+                    return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_settlement_failed' );
+                }
                 return self::success( array( 'item' => self::item_summary( $existing ) ) );
             }
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_TOKEN', 'upload_id_conflict' );
         }
         if ( isset( $manifest['tombstones'][ $upload_id ] ) ) {
+            @unlink( $validated['tmp_name'] );
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_TOKEN', 'item_deleted' );
         }
         if ( count( $manifest['items'] ) + count( $manifest['tombstones'] ) >= self::tombstone_limit( $manifest['policy'] ) ) {
+            @unlink( $validated['tmp_name'] );
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'upload_lifetime_exceeded' );
         }
         foreach ( $manifest['items'] as $existing ) {
             if ( $existing['ordinal'] === $ordinal ) {
+                @unlink( $validated['tmp_name'] );
                 self::release_lock( $locked['lock'] );
                 self::release_lock( $capacity['lock'] );
                 return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'ordinal_conflict' );
             }
         }
         if ( count( $manifest['items'] ) >= $manifest['policy']['max_files'] ) {
+            @unlink( $validated['tmp_name'] );
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'max_files_exceeded' );
         }
-        if ( $manifest['original_bytes'] + $validated['bytes'] > $manifest['policy']['max_total_bytes'] ) {
+        if ( $manifest['source_bytes'] + $validated['bytes'] > $manifest['policy']['max_total_bytes'] ) {
+            @unlink( $validated['tmp_name'] );
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'max_total_bytes_exceeded' );
         }
 
         $reservation_id = hash( 'sha256', $batch_id . "\0" . $upload_id );
-        $reserved_bytes = $validated['bytes'] + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
-        $record = self::read_capacity( $capacity['path'] );
+        $reserved_bytes = Anchors::get( 'STAGED_MASTER_MAX_BYTES' ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
         if ( $record === null ) {
+            @unlink( $validated['tmp_name'] );
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
         }
-        $reservation = self::reserve_capacity( $record, $reservation_id, $batch_id, $upload_id, $reserved_bytes, $capacity['private_dir'], $options, $now );
-        if ( empty( $reservation['ok'] ) || ! self::write_json_atomic( $capacity['path'], $reservation['record'] ) ) {
+        $reservation_options = $options;
+        $reservation_options['source_path'] = $validated['tmp_name'];
+        $reservation_options['source_bytes'] = $validated['bytes'];
+        $reservation = self::reserve_capacity( $record, $reservation_id, $attempt_id, $batch_id, $upload_id, $reserved_bytes, $capacity['private_dir'], $reservation_options, $now );
+        if ( empty( $reservation['ok'] ) || ! ManagedCapacityStore::write( $capacity['path'], $reservation['record'] ) ) {
+            @unlink( $validated['tmp_name'] );
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return empty( $reservation['ok'] ) ? $reservation : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_write_failed' );
         }
         self::release_lock( $capacity['lock'] );
 
-        $item_dir = $locked['path'] . '/' . self::FILES_DIR . '/' . $upload_id;
-        $commit = self::commit_item_files( $validated, $sha256, $item_dir );
+        $files_dir = $locked['path'] . '/' . self::FILES_DIR;
+        $item_dir = $files_dir . '/' . $upload_id;
+        $commit = self::commit_item_files( $validated, $files_dir, $upload_id );
         if ( empty( $commit['ok'] ) ) {
+            $cleanup_failed = isset( $commit['reason'] ) && $commit['reason'] === 'item_cleanup_failed';
             self::release_lock( $locked['lock'] );
-            if ( file_exists( $item_dir ) || is_link( $item_dir ) ) {
+            if ( $cleanup_failed || file_exists( $item_dir ) || is_link( $item_dir ) ) {
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_cleanup_failed' );
             }
-            self::finish_reservation( $uploads_dir, $lifecycle, $reservation_id, $reserved_bytes, 0 );
+            self::finish_reservation( $uploads_dir, $lifecycle, $reservation_id, $attempt_id, 0 );
             return $commit;
         }
 
         $stored = array(
             'upload_id' => $upload_id,
             'ordinal' => $ordinal,
-            'display_name' => $validated['display_name'],
-            'bytes' => $validated['bytes'],
-            'mime' => $validated['mime'],
-            'width' => $commit['preview']['width'],
-            'height' => $commit['preview']['height'],
-            'sha256' => $sha256,
-            'original_relpath' => self::FILES_DIR . '/' . $upload_id . '/' . $commit['original_name'],
+            'source_display_name' => $validated['display_name'],
+            'source_bytes' => $validated['bytes'],
+            'source_mime' => $validated['mime'],
+            'source_width' => $validated['width'],
+            'source_height' => $validated['height'],
+            'source_sha256' => $sha256,
+            'master_relpath' => self::FILES_DIR . '/' . $upload_id . '/master.jpg',
+            'master_bytes' => $commit['master']['bytes'],
+            'master_width' => $commit['master']['width'],
+            'master_height' => $commit['master']['height'],
+            'master_sha256' => $commit['master']['sha256'],
             'preview_relpath' => self::FILES_DIR . '/' . $upload_id . '/preview.jpg',
             'preview_bytes' => $commit['preview']['bytes'],
-            'managed_bytes' => $validated['bytes'] + $commit['preview']['bytes'],
+            'preview_width' => $commit['preview']['width'],
+            'preview_height' => $commit['preview']['height'],
+            'preview_sha256' => $commit['preview']['sha256'],
+            'managed_bytes' => $commit['managed_bytes'],
             'created_at' => $now,
         );
         $manifest['items'][ $upload_id ] = $stored;
-        $manifest['original_bytes'] += $validated['bytes'];
+        $manifest['source_bytes'] += $validated['bytes'];
         $manifest['managed_bytes'] += $stored['managed_bytes'];
         if ( ! self::write_json_atomic( $locked['manifest_path'], $manifest ) ) {
             $cleaned = self::remove_tree( $item_dir );
@@ -598,12 +631,14 @@ class UploadBatchStore {
             if ( ! $cleaned ) {
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_cleanup_failed' );
             }
-            self::finish_reservation( $uploads_dir, $lifecycle, $reservation_id, $reserved_bytes, 0 );
+            self::finish_reservation( $uploads_dir, $lifecycle, $reservation_id, $attempt_id, 0 );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
         }
 
         self::release_lock( $locked['lock'] );
-        self::finish_reservation( $uploads_dir, $lifecycle, $reservation_id, $reserved_bytes, $stored['managed_bytes'] );
+        if ( ! self::finish_reservation( $uploads_dir, $lifecycle, $reservation_id, $attempt_id, $stored['managed_bytes'] ) ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_settlement_failed' );
+        }
         return self::success( array( 'item' => self::item_summary( $stored ) ) );
     }
 
@@ -667,14 +702,14 @@ class UploadBatchStore {
         $manifest['tombstones'][ $upload_id ] = array(
             'deleted_at' => $now,
             'managed_bytes' => is_array( $stored ) ? (int) $stored['managed_bytes'] : 0,
-            'original_relpath' => is_array( $stored ) ? $stored['original_relpath'] : '',
+            'master_relpath' => is_array( $stored ) ? $stored['master_relpath'] : '',
             'preview_relpath' => is_array( $stored ) ? $stored['preview_relpath'] : '',
             'capacity_release_started' => ! is_array( $stored ),
             'capacity_released' => ! is_array( $stored ),
         );
         if ( is_array( $stored ) ) {
             unset( $manifest['items'][ $upload_id ] );
-            $manifest['original_bytes'] -= (int) $stored['bytes'];
+            $manifest['source_bytes'] -= (int) $stored['source_bytes'];
             $manifest['managed_bytes'] -= (int) $stored['managed_bytes'];
         }
         if ( ! self::write_json_atomic( $locked['manifest_path'], $manifest ) ) {
@@ -712,8 +747,15 @@ class UploadBatchStore {
         $path = self::member_path( $locked['path'], $item['preview_relpath'] );
         $bytes = $path !== '' ? @file_get_contents( $path ) : false;
         $expected_bytes = (int) $item['preview_bytes'];
+        $expected_sha256 = isset( $item['preview_sha256'] ) ? $item['preview_sha256'] : '';
+        $actual_sha256 = is_string( $bytes ) ? hash( 'sha256', $bytes ) : '';
         self::release_lock( $locked['lock'] );
-        if ( ! is_string( $bytes ) || strlen( $bytes ) !== $expected_bytes ) {
+        if ( ! is_string( $bytes )
+            || strlen( $bytes ) !== $expected_bytes
+            || ! is_string( $expected_sha256 )
+            || strlen( $expected_sha256 ) !== 64
+            || ! hash_equals( $expected_sha256, $actual_sha256 )
+        ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'preview_missing' );
         }
         return self::success( array( 'body' => $bytes, 'mime' => 'image/jpeg', 'bytes' => $expected_bytes ) );
@@ -739,6 +781,16 @@ class UploadBatchStore {
         $lifecycle = PrivateDir::acquire_write_lease( $uploads_dir );
         if ( ! $lifecycle instanceof PrivateDirLease ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
+        }
+
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            return $capacity;
+        }
+        $capacity_record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+        self::release_lock( $capacity['lock'] );
+        if ( $capacity_record === null ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
         }
 
         $locked = self::lock_staged_batch( $batch_id, $uploads_dir );
@@ -903,6 +955,10 @@ class UploadBatchStore {
         if ( empty( $capacity['ok'] ) ) {
             return $capacity;
         }
+        if ( self::read_capacity( $capacity['path'], $capacity['private_dir'] ) === null ) {
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
         $result = self::finalize_with_capacity_lock( $batch_id, $submission_id, $uploads_dir, $lifecycle, $now );
         self::release_lock( $capacity['lock'] );
         return $result;
@@ -994,7 +1050,7 @@ class UploadBatchStore {
     }
 
     public static function submission_file( $submission_id, $upload_id, $variant, $uploads_dir, $now = null ) {
-        if ( ! self::valid_upload_id( $upload_id ) || ! in_array( $variant, array( 'preview', 'original' ), true ) ) {
+        if ( ! self::valid_upload_id( $upload_id ) || ! in_array( $variant, array( 'preview', 'master' ), true ) ) {
             return self::failure( 'EFORMS_ERR_TOKEN', 'file_unavailable' );
         }
         $locked = self::lock_submission( $submission_id, $uploads_dir, true );
@@ -1011,14 +1067,19 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_TOKEN', 'file_unavailable' );
         }
         $item = $manifest['items'][ $upload_id ];
-        $relpath = $variant === 'preview' ? $item['preview_relpath'] : $item['original_relpath'];
+        $relpath = $variant === 'preview' ? $item['preview_relpath'] : $item['master_relpath'];
         $path = self::member_path( $locked['path'], $relpath );
-        $mime = $variant === 'preview' ? 'image/jpeg' : $item['mime'];
-        $bytes = $variant === 'preview' ? (int) $item['preview_bytes'] : (int) $item['bytes'];
+        $mime = 'image/jpeg';
+        $bytes = $variant === 'preview' ? (int) $item['preview_bytes'] : (int) $item['master_bytes'];
+        $expected_sha256 = $variant === 'preview' ? $item['preview_sha256'] : $item['master_sha256'];
         $stream = $path !== '' && is_file( $path ) ? @fopen( $path, 'rb' ) : false;
         $stat = is_resource( $stream ) ? fstat( $stream ) : false;
         $actual_bytes = is_array( $stat ) && isset( $stat['size'] ) && is_int( $stat['size'] ) ? $stat['size'] : -1;
-        if ( ! is_resource( $stream ) || $actual_bytes !== $bytes ) {
+        $hash = is_resource( $stream ) ? hash_init( 'sha256' ) : false;
+        $hashed = $hash !== false && hash_update_stream( $hash, $stream ) === $actual_bytes;
+        $actual_sha256 = $hashed ? hash_final( $hash ) : '';
+        $rewound = is_resource( $stream ) && @rewind( $stream );
+        if ( ! is_resource( $stream ) || $actual_bytes !== $bytes || ! $rewound || ! hash_equals( $expected_sha256, $actual_sha256 ) ) {
             if ( is_resource( $stream ) ) {
                 fclose( $stream );
             }
@@ -1031,7 +1092,7 @@ class UploadBatchStore {
                 'stream' => $stream,
                 'mime' => $mime,
                 'bytes' => $actual_bytes,
-                'display_name' => $item['display_name'],
+                'display_name' => $item['source_display_name'],
                 'gallery_expires_at' => (int) $manifest['gallery_expires_at'],
             )
         );
@@ -1143,7 +1204,7 @@ class UploadBatchStore {
                 )
             );
         }
-        $record = self::read_capacity( $capacity['path'] );
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
         if ( $record === null ) {
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
@@ -1158,32 +1219,13 @@ class UploadBatchStore {
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_scan_failed' );
         }
-        $reserved_bytes = 0;
-        foreach ( $record['reservations'] as $reservation ) {
-            if ( $reserved_bytes > PHP_INT_MAX - $reservation['bytes'] ) {
-                self::release_lock( $capacity['lock'] );
-                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
-            }
-            $reserved_bytes += $reservation['bytes'];
-        }
-        $committed_bytes = array_sum( $materialization['committed'] );
-        $orphaned_bytes = array_sum( $materialization['orphaned'] );
-        $materialized_bytes = $committed_bytes + $orphaned_bytes;
-        $consistent = $materialized_bytes <= $file_bytes
-            && $file_bytes - $materialized_bytes <= PHP_INT_MAX - $reserved_bytes
-            && $record['total_bytes'] === $file_bytes - $materialized_bytes + $reserved_bytes;
+        $health = ManagedCapacityStore::health( $record, $file_bytes, $materialization['committed'], $materialization['orphaned'] );
         self::release_lock( $capacity['lock'] );
+        if ( $health === null ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
         return self::success(
-            array(
-                'capacity' => array(
-                    'total_bytes' => $record['total_bytes'],
-                    'file_bytes' => $file_bytes,
-                    'reserved_bytes' => $reserved_bytes,
-                    'committing_bytes' => $materialized_bytes,
-                    'orphaned_bytes' => $orphaned_bytes,
-                    'consistent' => $consistent,
-                ),
-            )
+            array( 'capacity' => $health )
         );
     }
 
@@ -1196,7 +1238,7 @@ class UploadBatchStore {
         if ( empty( $capacity['ok'] ) ) {
             return $capacity;
         }
-        $record = self::read_capacity( $capacity['path'] );
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
         if ( $record === null ) {
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
@@ -1209,53 +1251,33 @@ class UploadBatchStore {
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reconcile_failed' );
         }
-        $committed = $materialization['committed'];
-        $orphaned = $materialization['orphaned'];
-        $reservations = array();
-        $reserved_bytes = 0;
-        foreach ( $record['reservations'] as $id => $reservation ) {
-            if ( ! is_array( $reservation ) || ! isset( $reservation['created_at'], $reservation['bytes'] ) ) {
-                self::release_lock( $capacity['lock'] );
-                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
-            }
-            if ( isset( $committed[ $id ] ) ) {
-                continue;
-            }
-            if ( isset( $orphaned[ $id ] ) ) {
-                $reservation['bytes'] = max( (int) $reservation['bytes'], (int) $orphaned[ $id ] );
-                $reservations[ $id ] = $reservation;
-                $reserved_bytes += (int) $reservation['bytes'];
-                continue;
-            }
-            if ( (int) $reservation['created_at'] > (int) $stale_reservation_before ) {
-                $reservations[ $id ] = $reservation;
-                $reserved_bytes += (int) $reservation['bytes'];
-            }
-        }
-
         $file_bytes = self::managed_file_bytes( $capacity['private_dir'] );
         if ( $file_bytes === null ) {
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reconcile_failed' );
         }
-        $orphaned_file_bytes = array_sum( $orphaned );
-        if ( $orphaned_file_bytes > $file_bytes ) {
+        $record = ManagedCapacityStore::reconcile(
+            $record,
+            $materialization['committed'],
+            $materialization['orphaned'],
+            $file_bytes,
+            $stale_reservation_before,
+            self::now( $now )
+        );
+        if ( $record === null ) {
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reconcile_failed' );
         }
-        $record['reservations'] = $reservations;
-        $record['total_bytes'] = $file_bytes - $orphaned_file_bytes + $reserved_bytes;
-        $record['updated_at'] = self::now( $now );
-        $written = self::write_json_atomic( $capacity['path'], $record );
+        $written = ManagedCapacityStore::write( $capacity['path'], $record );
         self::release_lock( $capacity['lock'] );
         return $written
             ? self::success(
                 array(
                     'capacity' => $record,
                     'previous_total_bytes' => $previous_total_bytes,
-                    'stale_reservations_removed' => $previous_reservation_count - count( $reservations ) - count( $committed ),
-                    'committed_reservations_settled' => count( $committed ),
-                    'materialized_reservations_retained' => count( $orphaned ),
+                    'stale_reservations_removed' => $previous_reservation_count - count( $record['reservations'] ) - count( $materialization['committed'] ),
+                    'committed_reservations_settled' => count( $materialization['committed'] ),
+                    'materialized_reservations_retained' => count( $materialization['orphaned'] ),
                 )
             )
             : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_write_failed' );
@@ -1272,11 +1294,11 @@ class UploadBatchStore {
             'scanned' => 0,
             'candidates' => 0,
             'candidate_bytes' => 0,
-            'candidate_original_bytes' => 0,
+            'candidate_master_bytes' => 0,
             'candidate_preview_bytes' => 0,
             'deleted' => 0,
             'deleted_bytes' => 0,
-            'deleted_original_bytes' => 0,
+            'deleted_master_bytes' => 0,
             'deleted_preview_bytes' => 0,
             'released_bytes' => 0,
             'errors' => 0,
@@ -1336,12 +1358,12 @@ class UploadBatchStore {
             }
             $result['candidates']++;
             $result['candidate_bytes'] += $one['managed_bytes'];
-            $result['candidate_original_bytes'] += $one['original_bytes'];
+            $result['candidate_master_bytes'] += $one['master_bytes'];
             $result['candidate_preview_bytes'] += $one['preview_bytes'];
             if ( ! empty( $one['deleted'] ) ) {
                 $result['deleted']++;
                 $result['deleted_bytes'] += $one['managed_bytes'];
-                $result['deleted_original_bytes'] += $one['original_bytes'];
+                $result['deleted_master_bytes'] += $one['master_bytes'];
                 $result['deleted_preview_bytes'] += $one['preview_bytes'];
                 $result['released_bytes'] += $one['released_bytes'];
             }
@@ -1354,7 +1376,7 @@ class UploadBatchStore {
         if ( empty( $capacity['ok'] ) ) {
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_lock_failed' );
         }
-        $record = self::read_capacity( $capacity['path'] );
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
         if ( $record === null ) {
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_invalid' );
@@ -1403,7 +1425,7 @@ class UploadBatchStore {
                     'candidate' => true,
                     'deleted' => false,
                     'managed_bytes' => 0,
-                    'original_bytes' => 0,
+                    'master_bytes' => 0,
                     'preview_bytes' => 0,
                     'released_bytes' => 0,
                 );
@@ -1447,56 +1469,38 @@ class UploadBatchStore {
             'candidate' => true,
             'deleted' => false,
             'managed_bytes' => $parts['managed_bytes'],
-            'original_bytes' => $parts['original_bytes'],
+            'master_bytes' => $parts['master_bytes'],
             'preview_bytes' => $parts['preview_bytes'],
             'released_bytes' => 0,
         );
         $pending_tombstone_bytes = 0;
-        $pending_tombstones = array();
         $missing_tombstones = array();
+        $attributed_bytes = array();
+        foreach ( $manifest['items'] as $upload_id => $item ) {
+            $attributed_bytes[ $upload_id ] = (int) $item['managed_bytes'];
+        }
         foreach ( $manifest['tombstones'] as $upload_id => $tombstone ) {
             if ( ! empty( $tombstone['capacity_released'] ) ) {
                 continue;
             }
             $pending_tombstone_bytes += (int) $tombstone['managed_bytes'];
-            $pending_tombstones[ $upload_id ] = (int) $tombstone['managed_bytes'];
-            $original = self::member_path( $path, $tombstone['original_relpath'] );
+            $attributed_bytes[ $upload_id ] = (int) $tombstone['managed_bytes'];
+            $master = self::member_path( $path, $tombstone['master_relpath'] );
             $preview = self::member_path( $path, $tombstone['preview_relpath'] );
-            if ( ( $original === '' || ! is_file( $original ) ) && ( $preview === '' || ! is_file( $preview ) ) ) {
+            if ( ( $master === '' || ! is_file( $master ) ) && ( $preview === '' || ! is_file( $preview ) ) ) {
                 $missing_tombstones[ $upload_id ] = (int) $tombstone['managed_bytes'];
             }
         }
-        $reservation_bytes = 0;
-        $reserved_item_bytes = 0;
-        $reserved_items = array();
-        $remaining_reservations = array();
-        foreach ( $record['reservations'] as $id => $reservation ) {
-            if ( isset( $reservation['batch_id'] ) && is_string( $reservation['batch_id'] ) && hash_equals( $manifest['batch_id'], $reservation['batch_id'] ) ) {
-                $reservation_bytes += (int) $reservation['bytes'];
-                $upload_id = isset( $reservation['upload_id'] ) && is_string( $reservation['upload_id'] ) ? $reservation['upload_id'] : '';
-                if ( $upload_id !== '' && ! isset( $reserved_items[ $upload_id ] ) && isset( $manifest['items'][ $upload_id ] ) ) {
-                    $reserved_item_bytes += (int) $manifest['items'][ $upload_id ]['managed_bytes'];
-                    $reserved_items[ $upload_id ] = true;
-                } elseif ( $upload_id !== '' && ! isset( $reserved_items[ $upload_id ] ) && isset( $pending_tombstones[ $upload_id ] ) ) {
-                    $reserved_item_bytes += $pending_tombstones[ $upload_id ];
-                    $reserved_items[ $upload_id ] = true;
-                }
-            } else {
-                $remaining_reservations[ $id ] = $reservation;
-            }
-        }
         $manifest_capacity_bytes = $parts['managed_bytes'] + $pending_tombstone_bytes;
-        $ambiguous_tombstone_bytes = 0;
-        foreach ( array_diff_key( $missing_tombstones, $reserved_items ) as $managed_bytes ) {
-            $ambiguous_tombstone_bytes += $managed_bytes;
-        }
-        if ( $reserved_item_bytes > $manifest_capacity_bytes ) {
-            self::release_lock( $lock );
-            self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
-        }
-        $release_bytes = $manifest_capacity_bytes - $reserved_item_bytes - $ambiguous_tombstone_bytes + $reservation_bytes;
-        if ( $release_bytes < 0 || $record['total_bytes'] < $release_bytes ) {
+        $released = ManagedCapacityStore::release_aggregate(
+            $record,
+            $manifest['batch_id'],
+            $manifest_capacity_bytes,
+            $attributed_bytes,
+            $missing_tombstones,
+            $now
+        );
+        if ( empty( $released['ok'] ) ) {
             self::release_lock( $lock );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
@@ -1511,14 +1515,11 @@ class UploadBatchStore {
             return array( 'ok' => false, 'reason' => 'aggregate_delete_failed' );
         }
         $out['deleted'] = true;
-        $record['reservations'] = $remaining_reservations;
-        $record['total_bytes'] -= $release_bytes;
-        $record['updated_at'] = $now;
-        if ( ! self::write_json_atomic( $capacity['path'], $record ) ) {
+        if ( ! ManagedCapacityStore::write( $capacity['path'], $released['record'] ) ) {
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_write_failed' );
         }
-        $out['released_bytes'] = $release_bytes;
+        $out['released_bytes'] = $released['released_bytes'];
         self::release_lock( $capacity['lock'] );
         if ( $family === 'staged' ) {
             self::remove_staged_lock_file( $path );
@@ -1574,25 +1575,29 @@ class UploadBatchStore {
     }
 
     private static function aggregate_byte_parts( $manifest ) {
-        $original = 0;
+        $source = 0;
+        $master = 0;
         $preview = 0;
         foreach ( $manifest['items'] as $item ) {
             if ( ! is_array( $item )
-                || ! isset( $item['bytes'], $item['preview_bytes'] )
-                || ! is_int( $item['bytes'] )
+                || ! isset( $item['source_bytes'], $item['master_bytes'], $item['preview_bytes'] )
+                || ! is_int( $item['source_bytes'] )
+                || ! is_int( $item['master_bytes'] )
                 || ! is_int( $item['preview_bytes'] )
-                || $item['bytes'] < 0
+                || $item['source_bytes'] < 0
+                || $item['master_bytes'] < 0
                 || $item['preview_bytes'] < 0
             ) {
                 return null;
             }
-            $original += $item['bytes'];
+            $source += $item['source_bytes'];
+            $master += $item['master_bytes'];
             $preview += $item['preview_bytes'];
         }
-        if ( $original !== (int) $manifest['original_bytes'] || $original + $preview !== (int) $manifest['managed_bytes'] ) {
+        if ( $source !== (int) $manifest['source_bytes'] || $master + $preview !== (int) $manifest['managed_bytes'] ) {
             return null;
         }
-        return array( 'original_bytes' => $original, 'preview_bytes' => $preview, 'managed_bytes' => $original + $preview );
+        return array( 'source_bytes' => $source, 'master_bytes' => $master, 'preview_bytes' => $preview, 'managed_bytes' => $master + $preview );
     }
 
     private static function initializable_partial_batch( $aggregate ) {
@@ -1716,46 +1721,67 @@ class UploadBatchStore {
         return @rmdir( $path );
     }
 
-    private static function commit_item_files( $validated, $expected_sha256, $item_dir ) {
-        if ( ( file_exists( $item_dir ) || is_link( $item_dir ) ) && ! self::remove_tree( $item_dir ) ) {
+    private static function commit_item_files( $validated, $files_dir, $upload_id ) {
+        $item_dir = rtrim( $files_dir, '/\\' ) . '/' . $upload_id;
+        // The aggregate lock and absent manifest item make same-ID materialization
+        // evidence of an interrupted commit. Clear it before regenerating the item.
+        if ( ! self::remove_interrupted_item_files( $files_dir, $upload_id ) ) {
+            @unlink( $validated['tmp_name'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_cleanup_failed' );
         }
-        if ( ! self::ensure_dir( $item_dir ) ) {
+        $suffix = Entropy::hex( self::JSON_TEMP_ENTROPY_BYTES );
+        if ( $suffix === '' ) {
+            @unlink( $validated['tmp_name'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_dir_failed' );
         }
+        $pending_dir = rtrim( $files_dir, '/\\' ) . '/.' . $upload_id . '.' . $suffix . '.pending';
+        if ( file_exists( $pending_dir ) || is_link( $pending_dir ) ) {
+            @unlink( $validated['tmp_name'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_cleanup_failed' );
+        }
+        if ( ! @mkdir( $pending_dir, 0700 ) ) {
+            @unlink( $validated['tmp_name'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_dir_failed' );
+        }
+        if ( ! @chmod( $pending_dir, 0700 ) ) {
+            $cleaned = self::remove_tree( $pending_dir );
+            @unlink( $validated['tmp_name'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', $cleaned ? 'item_dir_failed' : 'item_cleanup_failed' );
+        }
 
-        $extension = $validated['extension'];
-        $original_name = 'original.' . $extension;
-        $original_pending = $item_dir . '/original.pending.' . $extension;
-        $original = $item_dir . '/' . $original_name;
-        $preview_pending = $item_dir . '/preview.pending.jpg';
-        $preview = $item_dir . '/preview.jpg';
-
-        if ( ! self::copy_file( $validated['tmp_name'], $original_pending ) ) {
-            self::remove_tree( $item_dir );
-            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'original_write_failed' );
+        $derivatives = UploadPolicy::create_staged_derivatives( $validated, $pending_dir );
+        if ( empty( $derivatives['ok'] ) ) {
+            if ( ! self::remove_tree( $pending_dir ) ) {
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_cleanup_failed' );
+            }
+            return $derivatives;
         }
-        $copied_bytes = filesize( $original_pending );
-        $copied_sha256 = hash_file( 'sha256', $original_pending );
-        if ( ! is_int( $copied_bytes )
-            || $copied_bytes !== (int) $validated['bytes']
-            || ! is_string( $copied_sha256 )
-            || ! hash_equals( $expected_sha256, $copied_sha256 )
-        ) {
-            self::remove_tree( $item_dir );
-            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'original_copy_mismatch' );
-        }
-        $preview_result = UploadPolicy::create_staged_preview( $validated, $preview_pending );
-        if ( empty( $preview_result['ok'] ) ) {
-            self::remove_tree( $item_dir );
-            return $preview_result;
-        }
-        if ( ! @rename( $original_pending, $original ) || ! @rename( $preview_pending, $preview ) || ! @chmod( $original, 0600 ) || ! @chmod( $preview, 0600 ) ) {
-            self::remove_tree( $item_dir );
+        if ( ! @rename( $pending_dir, $item_dir ) ) {
+            if ( ! self::remove_tree( $pending_dir ) ) {
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_cleanup_failed' );
+            }
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_commit_failed' );
         }
+        return $derivatives;
+    }
 
-        return self::success( array( 'original_name' => $original_name, 'preview' => $preview_result ) );
+    private static function remove_interrupted_item_files( $files_dir, $upload_id ) {
+        $files_dir = rtrim( $files_dir, '/\\' );
+        $entries = @scandir( $files_dir );
+        if ( ! is_array( $entries ) ) {
+            return false;
+        }
+        $pending_pattern = '/^\\.' . preg_quote( $upload_id, '/' ) . '\\.[0-9a-f]+\\.pending$/';
+        foreach ( $entries as $entry ) {
+            if ( $entry !== $upload_id && preg_match( $pending_pattern, $entry ) !== 1 ) {
+                continue;
+            }
+            $path = $files_dir . '/' . $entry;
+            if ( ! self::remove_tree( $path ) || file_exists( $path ) || is_link( $path ) ) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static function finish_tombstone_delete( &$manifest, $upload_id, $locked, $capacity ) {
@@ -1764,39 +1790,28 @@ class UploadBatchStore {
             return self::success( array( 'deleted' => true ) );
         }
 
-        $record = self::read_capacity( $capacity['path'] );
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
         if ( $record === null ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
         }
-        $matching_reservations = array();
-        $reservation_bytes = 0;
-        foreach ( $record['reservations'] as $reservation_id => $reservation ) {
-            if ( $reservation['batch_id'] === $manifest['batch_id'] && $reservation['upload_id'] === $upload_id ) {
-                $matching_reservations[] = $reservation_id;
-                $reservation_bytes += (int) $reservation['bytes'];
-            }
+        $release = ManagedCapacityStore::prepare_item_release(
+            $record,
+            $manifest['batch_id'],
+            $upload_id,
+            $tombstone['managed_bytes'],
+            $tombstone['deleted_at'],
+            empty( $tombstone['capacity_release_started'] ),
+            time()
+        );
+        if ( empty( $release['ok'] ) ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', isset( $release['reason'] ) ? $release['reason'] : 'capacity_invalid' );
+        }
+        $record = $release['record'];
+        if ( ! empty( $release['changed'] ) && ! ManagedCapacityStore::write( $capacity['path'], $record ) ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_write_failed' );
         }
 
         if ( empty( $tombstone['capacity_release_started'] ) ) {
-            if ( empty( $matching_reservations ) && (int) $tombstone['managed_bytes'] > 0 ) {
-                $reservation_id = hash( 'sha256', $manifest['batch_id'] . "\0" . $upload_id );
-                if ( isset( $record['reservations'][ $reservation_id ] ) ) {
-                    return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reservation_conflict' );
-                }
-                $record['reservations'][ $reservation_id ] = array(
-                    'batch_id' => $manifest['batch_id'],
-                    'upload_id' => $upload_id,
-                    'bytes' => (int) $tombstone['managed_bytes'],
-                    'created_at' => (int) $tombstone['deleted_at'],
-                );
-                $record['updated_at'] = time();
-                if ( ! self::write_json_atomic( $capacity['path'], $record ) ) {
-                    return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_write_failed' );
-                }
-                $matching_reservations[] = $reservation_id;
-                $reservation_bytes = (int) $tombstone['managed_bytes'];
-            }
-
             // Persist release intent before unlinking so a retry can tell a
             // pending capacity write from one that already committed.
             $manifest['tombstones'][ $upload_id ]['capacity_release_started'] = true;
@@ -1806,8 +1821,8 @@ class UploadBatchStore {
             $tombstone = $manifest['tombstones'][ $upload_id ];
         }
 
-        if ( empty( $matching_reservations ) ) {
-            foreach ( array( 'original_relpath', 'preview_relpath' ) as $key ) {
+        if ( empty( $release['matching_reservations'] ) ) {
+            foreach ( array( 'master_relpath', 'preview_relpath' ) as $key ) {
                 $path = self::member_path( $locked['path'], isset( $tombstone[ $key ] ) ? $tombstone[ $key ] : '' );
                 if ( $path !== '' && is_file( $path ) ) {
                     return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_release_state_invalid' );
@@ -1815,7 +1830,7 @@ class UploadBatchStore {
             }
         }
 
-        foreach ( array( 'original_relpath', 'preview_relpath' ) as $key ) {
+        foreach ( array( 'master_relpath', 'preview_relpath' ) as $key ) {
             $path = self::member_path( $locked['path'], isset( $tombstone[ $key ] ) ? $tombstone[ $key ] : '' );
             if ( $path !== '' && is_file( $path ) && ! @unlink( $path ) ) {
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'item_delete_failed' );
@@ -1826,18 +1841,11 @@ class UploadBatchStore {
             @rmdir( $item_dir );
         }
 
-        foreach ( $matching_reservations as $reservation_id ) {
-            unset( $record['reservations'][ $reservation_id ] );
+        $settled = ManagedCapacityStore::finish_item_release( $record, $manifest['batch_id'], $upload_id, time() );
+        if ( empty( $settled['ok'] ) ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', isset( $settled['reason'] ) ? $settled['reason'] : 'capacity_invalid' );
         }
-
-        if ( ! empty( $matching_reservations ) ) {
-            if ( $record['total_bytes'] < $reservation_bytes ) {
-                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
-            }
-            $record['total_bytes'] -= $reservation_bytes;
-            $record['updated_at'] = time();
-        }
-        if ( ! self::write_json_atomic( $capacity['path'], $record ) ) {
+        if ( ! empty( $settled['changed'] ) && ! ManagedCapacityStore::write( $capacity['path'], $settled['record'] ) ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_write_failed' );
         }
 
@@ -1848,71 +1856,104 @@ class UploadBatchStore {
         return self::success( array( 'deleted' => true ) );
     }
 
-    private static function finish_reservation( $uploads_dir, $lifecycle, $reservation_id, $reserved_bytes, $actual_bytes ) {
+    private static function recover_existing_item( $batch_id, $batch_secret, $upload_id, $ordinal, $sha256, $uploads_dir, $lifecycle, $now ) {
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            return $capacity;
+        }
+        $locked = self::lock_staged_batch( $batch_id, $uploads_dir );
+        if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            return $locked;
+        }
+
+        $manifest = self::read_manifest( $locked['manifest_path'], 'staged', $batch_id );
+        $check = self::check_item_mutation( $manifest, $batch_secret, $now );
+        $existing = is_array( $manifest ) && isset( $manifest['items'][ $upload_id ] )
+            ? $manifest['items'][ $upload_id ]
+            : null;
+        if ( empty( $check['ok'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return $check;
+        }
+        if ( ! is_array( $existing )
+            || $existing['ordinal'] !== $ordinal
+            || ! is_string( $sha256 )
+            || ! isset( $existing['source_sha256'] )
+            || ! hash_equals( $existing['source_sha256'], $sha256 )
+        ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'upload_id_conflict' );
+        }
+
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+        $settled = self::settle_committed_capacity( $record, $capacity['path'], $batch_id, $upload_id, $existing['managed_bytes'], $now );
+        self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
+        return $settled
+            ? self::success( array( 'item' => self::item_summary( $existing ) ) )
+            : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_settlement_failed' );
+    }
+
+    private static function settle_committed_capacity( $record, $path, $batch_id, $upload_id, $managed_bytes, $now ) {
+        if ( ! is_array( $record ) ) {
+            return false;
+        }
+        $reservation_id = hash( 'sha256', $batch_id . "\0" . $upload_id );
+        $finished = ManagedCapacityStore::finish_committed(
+            $record,
+            $reservation_id,
+            $batch_id,
+            $upload_id,
+            $managed_bytes,
+            $now
+        );
+        return is_array( $finished )
+            && ( $finished === $record || ManagedCapacityStore::write( $path, $finished ) );
+    }
+
+    private static function finish_reservation( $uploads_dir, $lifecycle, $reservation_id, $attempt_id, $actual_bytes ) {
         $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
         if ( empty( $capacity['ok'] ) ) {
             return false;
         }
-        $record = self::read_capacity( $capacity['path'] );
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
         if ( $record === null ) {
             self::release_lock( $capacity['lock'] );
             return false;
         }
-        if ( isset( $record['reservations'][ $reservation_id ] ) ) {
-            if ( $record['total_bytes'] < (int) $reserved_bytes ) {
-                self::release_lock( $capacity['lock'] );
-                return false;
-            }
-            unset( $record['reservations'][ $reservation_id ] );
-            $record['total_bytes'] = $record['total_bytes'] - (int) $reserved_bytes + (int) $actual_bytes;
-            $record['updated_at'] = time();
-            $ok = self::write_json_atomic( $capacity['path'], $record );
-        } else {
-            $ok = true;
-        }
+        $finished = ManagedCapacityStore::finish( $record, $reservation_id, $attempt_id, $actual_bytes, time() );
+        $ok = is_array( $finished )
+            && ( $finished === $record || ManagedCapacityStore::write( $capacity['path'], $finished ) );
         self::release_lock( $capacity['lock'] );
         return $ok;
     }
 
-    private static function reserve_capacity( $record, $reservation_id, $batch_id, $upload_id, $bytes, $private_dir, $options, $now ) {
-        if ( isset( $record['reservations'][ $reservation_id ] ) ) {
-            $existing = $record['reservations'][ $reservation_id ];
-            if ( isset( $existing['batch_id'], $existing['upload_id'], $existing['bytes'] )
-                && $existing['batch_id'] === $batch_id
-                && $existing['upload_id'] === $upload_id
-                && (int) $existing['bytes'] === (int) $bytes
-            ) {
-                return self::success( array( 'record' => $record ) );
-            }
-            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reservation_conflict' );
-        }
-
-        if ( $record['total_bytes'] > Anchors::get( 'MANAGED_UPLOAD_MAX_BYTES' ) - $bytes ) {
-            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'managed_capacity_exceeded' );
-        }
-        $outstanding_bytes = 0;
-        foreach ( $record['reservations'] as $reservation ) {
-            $outstanding_bytes += (int) $reservation['bytes'];
-        }
-        if ( $outstanding_bytes > PHP_INT_MAX - $bytes ) {
-            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
-        }
-        // disk_free_space() does not reflect reservations that have not materialized yet.
-        $projected_bytes = $outstanding_bytes + $bytes;
+    private static function reserve_capacity( $record, $reservation_id, $attempt_id, $batch_id, $upload_id, $bytes, $private_dir, $options, $now ) {
         $free_bytes = self::free_bytes( $private_dir, $options );
-        if ( $free_bytes === null || $free_bytes < $projected_bytes || $free_bytes - $projected_bytes < Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ) ) {
-            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', $free_bytes === null ? 'free_space_unavailable' : 'free_space_reserve' );
-        }
-
-        $record['total_bytes'] += $bytes;
-        $record['reservations'][ $reservation_id ] = array(
-            'batch_id' => $batch_id,
-            'upload_id' => $upload_id,
-            'bytes' => $bytes,
-            'created_at' => $now,
+        $source_bytes = ManagedCapacityStore::source_bytes_on_managed_filesystem(
+            isset( $options['source_path'] ) ? $options['source_path'] : '',
+            $private_dir,
+            isset( $options['source_bytes'] ) ? $options['source_bytes'] : 0
         );
-        $record['updated_at'] = $now;
-        return self::success( array( 'record' => $record ) );
+        $reserved = ManagedCapacityStore::reserve(
+            $record,
+            $reservation_id,
+            $attempt_id,
+            $batch_id,
+            $upload_id,
+            $bytes,
+            $free_bytes,
+            Anchors::get( 'MANAGED_UPLOAD_MIN_FREE_BYTES' ),
+            Anchors::get( 'MANAGED_UPLOAD_MAX_BYTES' ),
+            $source_bytes,
+            $now
+        );
+        return ! empty( $reserved['ok'] )
+            ? self::success( array( 'record' => $reserved['record'] ) )
+            : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', isset( $reserved['reason'] ) ? $reserved['reason'] : 'capacity_invalid' );
     }
 
     private static function check_item_mutation( $manifest, $batch_secret, $now ) {
@@ -2000,7 +2041,7 @@ class UploadBatchStore {
         if ( $expected_private === '' || $private_dir !== $expected_private || is_link( $private_dir ) || ! is_dir( $private_dir ) ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'private_dir_unavailable' );
         }
-        $lock = self::acquire_lock( $private_dir . '/' . self::CAPACITY_LOCK_FILENAME );
+        $lock = ManagedCapacityStore::acquire_lock( $private_dir . '/' . self::CAPACITY_LOCK_FILENAME );
         if ( $lock === false ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_lock_failed' );
         }
@@ -2041,11 +2082,8 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_lock_failed' );
         }
         if ( is_file( $lock_path ) ) {
-            $lock = @fopen( $lock_path, 'r+b' );
-            if ( $lock === false || ! @flock( $lock, LOCK_SH ) ) {
-                if ( is_resource( $lock ) ) {
-                    fclose( $lock );
-                }
+            $lock = ManagedCapacityStore::acquire_lock( $lock_path, false, false, true );
+            if ( $lock === false ) {
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_lock_failed' );
             }
         } elseif ( is_link( $capacity_path ) ) {
@@ -2159,7 +2197,7 @@ class UploadBatchStore {
             || preg_match( '/^[0-9a-f]{64}$/', $manifest['batch_secret_digest'] ) !== 1
             || ! is_array( $manifest['policy'] )
             || ! self::valid_manifest_policy( $manifest['policy'] )
-            || ! isset( $manifest['accept_until'], $manifest['delete_after'], $manifest['items'], $manifest['tombstones'], $manifest['original_bytes'], $manifest['managed_bytes'] )
+            || ! isset( $manifest['accept_until'], $manifest['delete_after'], $manifest['items'], $manifest['tombstones'], $manifest['source_bytes'], $manifest['managed_bytes'] )
             || ! isset( $manifest['created_at'] )
             || ! self::nonnegative_int( $manifest['created_at'] )
             || ! self::nonnegative_int( $manifest['accept_until'] )
@@ -2168,7 +2206,7 @@ class UploadBatchStore {
             || $manifest['accept_until'] > $manifest['delete_after']
             || ! is_array( $manifest['items'] )
             || ! is_array( $manifest['tombstones'] )
-            || ! self::nonnegative_int( $manifest['original_bytes'] )
+            || ! self::nonnegative_int( $manifest['source_bytes'] )
             || ! self::nonnegative_int( $manifest['managed_bytes'] )
         ) {
             return null;
@@ -2197,7 +2235,7 @@ class UploadBatchStore {
         if ( count( $manifest['items'] ) > $manifest['policy']['max_files']
             || count( $manifest['tombstones'] ) > self::tombstone_limit( $manifest['policy'] )
             || ! empty( array_intersect_key( $manifest['items'], $manifest['tombstones'] ) )
-            || $manifest['original_bytes'] > $manifest['policy']['max_total_bytes']
+            || $manifest['source_bytes'] > $manifest['policy']['max_total_bytes']
             || self::aggregate_byte_parts( $manifest ) === null
             || ! hash_equals( $manifest['binding']['policy_fingerprint'], self::policy_fingerprint( $manifest['policy'] ) )
             || ! self::valid_manifest_state( $manifest )
@@ -2245,50 +2283,69 @@ class UploadBatchStore {
     }
 
     private static function valid_manifest_item( $upload_id, $item, $policy ) {
+        $expected_keys = array(
+            'created_at', 'managed_bytes', 'master_bytes', 'master_height', 'master_relpath', 'master_sha256', 'master_width',
+            'ordinal', 'preview_bytes', 'preview_height', 'preview_relpath', 'preview_sha256', 'preview_width', 'source_bytes',
+            'source_display_name', 'source_height', 'source_mime', 'source_sha256', 'source_width', 'upload_id',
+        );
+        $actual_keys = is_array( $item ) ? array_keys( $item ) : array();
+        sort( $actual_keys, SORT_STRING );
         if ( ! self::valid_upload_id( $upload_id )
             || ! is_array( $item )
-            || ! isset( $item['upload_id'], $item['ordinal'], $item['display_name'], $item['bytes'], $item['mime'], $item['width'], $item['height'], $item['sha256'], $item['original_relpath'], $item['preview_relpath'], $item['preview_bytes'], $item['managed_bytes'], $item['created_at'] )
+            || $actual_keys !== $expected_keys
             || ! is_string( $item['upload_id'] )
             || ! hash_equals( $upload_id, $item['upload_id'] )
             || ! self::nonnegative_int( $item['ordinal'] )
-            || ! is_string( $item['display_name'] )
-            || $item['display_name'] === ''
-            || ! self::nonnegative_int( $item['bytes'] )
-            || $item['bytes'] > $policy['max_file_bytes']
-            || ! is_string( $item['mime'] )
-            || ! is_int( $item['width'] )
-            || $item['width'] < 1
-            || ! is_int( $item['height'] )
-            || $item['height'] < 1
-            || ! UploadPolicy::staged_dimensions_allowed( $item['width'], $item['height'] )
-            || ! is_string( $item['sha256'] )
-            || preg_match( '/^[0-9a-f]{64}$/', $item['sha256'] ) !== 1
-            || ! is_string( $item['original_relpath'] )
+            || ! is_string( $item['source_display_name'] )
+            || $item['source_display_name'] === ''
+            || ! self::nonnegative_int( $item['source_bytes'] )
+            || $item['source_bytes'] > $policy['max_file_bytes']
+            || ! is_string( $item['source_mime'] )
+            || ! is_int( $item['source_width'] )
+            || ! is_int( $item['source_height'] )
+            || ! UploadPolicy::staged_dimensions_allowed( $item['source_width'], $item['source_height'] )
+            || ! is_string( $item['source_sha256'] )
+            || preg_match( '/^[0-9a-f]{64}$/', $item['source_sha256'] ) !== 1
+            || ! is_string( $item['master_relpath'] )
+            || ! self::nonnegative_int( $item['master_bytes'] )
+            || $item['master_bytes'] > Anchors::get( 'STAGED_MASTER_MAX_BYTES' )
+            || ! is_int( $item['master_width'] )
+            || ! is_int( $item['master_height'] )
+            || min( $item['master_width'], $item['master_height'] ) < 1
+            || max( $item['master_width'], $item['master_height'] ) > Anchors::get( 'STAGED_MASTER_MAX_EDGE' )
+            || ! is_string( $item['master_sha256'] )
+            || preg_match( '/^[0-9a-f]{64}$/', $item['master_sha256'] ) !== 1
             || ! is_string( $item['preview_relpath'] )
             || ! self::nonnegative_int( $item['preview_bytes'] )
             || $item['preview_bytes'] > Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' )
+            || ! is_int( $item['preview_width'] )
+            || ! is_int( $item['preview_height'] )
+            || min( $item['preview_width'], $item['preview_height'] ) < 1
+            || max( $item['preview_width'], $item['preview_height'] ) > Anchors::get( 'STAGED_PREVIEW_MAX_EDGE' )
+            || ! is_string( $item['preview_sha256'] )
+            || preg_match( '/^[0-9a-f]{64}$/', $item['preview_sha256'] ) !== 1
             || ! self::nonnegative_int( $item['managed_bytes'] )
-            || $item['bytes'] > PHP_INT_MAX - $item['preview_bytes']
-            || $item['managed_bytes'] !== $item['bytes'] + $item['preview_bytes']
+            || $item['master_bytes'] > PHP_INT_MAX - $item['preview_bytes']
+            || $item['managed_bytes'] !== $item['master_bytes'] + $item['preview_bytes']
             || ! self::nonnegative_int( $item['created_at'] )
         ) {
             return false;
         }
         $prefix = self::FILES_DIR . '/' . $upload_id . '/';
-        $extension = UploadPolicy::extension_from_name( $item['original_relpath'] );
+        $extension = UploadPolicy::extension_from_name( $item['source_display_name'] );
         $mime_policy = UploadPolicy::policy_for_tokens( $policy['accept'], 'staged' );
-        return strpos( $item['original_relpath'], $prefix . 'original.' ) === 0
+        return $item['master_relpath'] === $prefix . 'master.jpg'
             && $item['preview_relpath'] === $prefix . 'preview.jpg'
-            && UploadPolicy::mime_allowed( $item['mime'], $extension, $mime_policy );
+            && UploadPolicy::mime_allowed( $item['source_mime'], $extension, $mime_policy );
     }
 
     private static function valid_manifest_tombstone( $upload_id, $tombstone ) {
         if ( ! self::valid_upload_id( $upload_id )
             || ! is_array( $tombstone )
-            || ! isset( $tombstone['deleted_at'], $tombstone['managed_bytes'], $tombstone['original_relpath'], $tombstone['preview_relpath'], $tombstone['capacity_release_started'], $tombstone['capacity_released'] )
+            || ! isset( $tombstone['deleted_at'], $tombstone['managed_bytes'], $tombstone['master_relpath'], $tombstone['preview_relpath'], $tombstone['capacity_release_started'], $tombstone['capacity_released'] )
             || ! self::nonnegative_int( $tombstone['deleted_at'] )
             || ! self::nonnegative_int( $tombstone['managed_bytes'] )
-            || ! is_string( $tombstone['original_relpath'] )
+            || ! is_string( $tombstone['master_relpath'] )
             || ! is_string( $tombstone['preview_relpath'] )
             || ! is_bool( $tombstone['capacity_release_started'] )
             || ! is_bool( $tombstone['capacity_released'] )
@@ -2297,7 +2354,7 @@ class UploadBatchStore {
             return false;
         }
         $prefix = self::FILES_DIR . '/' . $upload_id . '/';
-        return ( $tombstone['original_relpath'] === '' || strpos( $tombstone['original_relpath'], $prefix . 'original.' ) === 0 )
+        return ( $tombstone['master_relpath'] === '' || $tombstone['master_relpath'] === $prefix . 'master.jpg' )
             && ( $tombstone['preview_relpath'] === '' || $tombstone['preview_relpath'] === $prefix . 'preview.jpg' );
     }
 
@@ -2338,44 +2395,17 @@ class UploadBatchStore {
         return is_int( $value ) && $value >= 0;
     }
 
-    private static function read_capacity( $path ) {
-        if ( is_link( $path ) ) {
-            return null;
-        }
-        if ( ! file_exists( $path ) ) {
-            return array(
-                'version' => self::CAPACITY_VERSION,
-                'total_bytes' => 0,
-                'reservations' => array(),
-                'updated_at' => time(),
-            );
-        }
-        $record = self::read_json( $path );
-        if ( ! is_array( $record )
-            || ! isset( $record['version'], $record['total_bytes'], $record['reservations'] )
-            || (int) $record['version'] !== self::CAPACITY_VERSION
-            || ! is_int( $record['total_bytes'] )
-            || $record['total_bytes'] < 0
-            || ! is_array( $record['reservations'] )
+    private static function read_capacity( $path, $private_dir, $require_empty_consistency = true ) {
+        $record = ManagedCapacityStore::read( $path, self::CAPACITY_VERSION );
+        if ( ! $require_empty_consistency
+            || ! is_array( $record )
+            || $record['total_bytes'] !== 0
+            || $record['reservations'] !== array()
         ) {
-            return null;
+            return $record;
         }
-        $reserved_total = 0;
-        foreach ( $record['reservations'] as $reservation ) {
-            if ( ! is_array( $reservation )
-                || ! isset( $reservation['batch_id'], $reservation['upload_id'], $reservation['bytes'], $reservation['created_at'] )
-                || ! is_string( $reservation['batch_id'] )
-                || ! is_string( $reservation['upload_id'] )
-                || ! is_int( $reservation['bytes'] )
-                || $reservation['bytes'] < 0
-                || ! is_int( $reservation['created_at'] )
-                || $reserved_total > PHP_INT_MAX - $reservation['bytes']
-            ) {
-                return null;
-            }
-            $reserved_total += $reservation['bytes'];
-        }
-        return $reserved_total <= $record['total_bytes'] ? $record : null;
+        $file_bytes = self::managed_file_bytes( $private_dir );
+        return $file_bytes === 0 ? $record : null;
     }
 
     private static function batch_summary( $manifest ) {
@@ -2407,18 +2437,18 @@ class UploadBatchStore {
         return array(
             'upload_id' => $item['upload_id'],
             'ordinal' => (int) $item['ordinal'],
-            'display_name' => $item['display_name'],
-            'bytes' => (int) $item['bytes'],
-            'mime' => $item['mime'],
-            'width' => (int) $item['width'],
-            'height' => (int) $item['height'],
+            'display_name' => $item['source_display_name'],
+            'bytes' => (int) $item['source_bytes'],
+            'mime' => $item['source_mime'],
+            'width' => (int) $item['preview_width'],
+            'height' => (int) $item['preview_height'],
         );
     }
 
     private static function resolved_items( $manifest ) {
         $items = array();
         foreach ( $manifest['items'] as $item ) {
-            $value = UploadValue::staged_item( $item );
+            $value = UploadValue::staged_item( self::item_summary( $item ) );
             if ( ! empty( $value ) ) {
                 $items[] = $value;
             }
@@ -2608,7 +2638,23 @@ class UploadBatchStore {
             return null;
         }
         if ( ! file_exists( $item_dir ) ) {
-            return 0;
+            $matches = array();
+            $file_entries = @scandir( $files_dir );
+            if ( ! is_array( $file_entries ) ) {
+                return null;
+            }
+            foreach ( $file_entries as $entry ) {
+                if ( preg_match( '/^\.' . preg_quote( $upload_id, '/' ) . '\.[0-9a-f]+\.pending$/', $entry ) === 1 ) {
+                    $matches[] = $files_dir . '/' . $entry;
+                }
+            }
+            if ( count( $matches ) === 0 ) {
+                return 0;
+            }
+            if ( count( $matches ) !== 1 || is_link( $matches[0] ) || ! is_dir( $matches[0] ) ) {
+                return null;
+            }
+            $item_dir = $matches[0];
         }
         if ( ! is_dir( $item_dir ) ) {
             return null;
@@ -2706,30 +2752,6 @@ class UploadBatchStore {
             return false;
         }
         return @chmod( $path, 0600 );
-    }
-
-    private static function copy_file( $source, $destination ) {
-        $read = @fopen( $source, 'rb' );
-        $write = @fopen( $destination, 'xb' );
-        if ( $read === false || $write === false ) {
-            if ( is_resource( $read ) ) {
-                fclose( $read );
-            }
-            if ( is_resource( $write ) ) {
-                fclose( $write );
-            }
-            @unlink( $destination );
-            return false;
-        }
-        $bytes = stream_copy_to_stream( $read, $write );
-        $ok = $bytes !== false && @fflush( $write );
-        fclose( $read );
-        fclose( $write );
-        if ( ! $ok || ! @chmod( $destination, 0600 ) ) {
-            @unlink( $destination );
-            return false;
-        }
-        return true;
     }
 
     private static function write_all( $handle, $bytes ) {
@@ -2916,10 +2938,16 @@ class UploadBatchStore {
     }
 
     private static function remove_tree( $path ) {
-        if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
+        if ( ! is_string( $path ) || $path === '' ) {
             return true;
         }
-        if ( is_file( $path ) || is_link( $path ) ) {
+        if ( is_link( $path ) ) {
+            return @unlink( $path );
+        }
+        if ( ! file_exists( $path ) ) {
+            return true;
+        }
+        if ( is_file( $path ) ) {
             return @unlink( $path );
         }
         $entries = @scandir( $path );

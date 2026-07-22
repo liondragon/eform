@@ -66,29 +66,37 @@ function eforms_test_gc_managed_fixture( $uploads_dir, $name, $created_at, $acce
     $upload_id = 'photo_' . substr( hash( 'sha256', $name ), 0, 12 );
     $item_dir = $path . '/files/' . $upload_id;
     mkdir( $item_dir, 0700, true );
-    $original_bytes = strlen( $name ) + 17;
+    $source_bytes = strlen( $name ) + 17;
+    $master_bytes = strlen( $name ) + 13;
     $preview_bytes = strlen( $name ) + 7;
-    file_put_contents( $item_dir . '/original.png', str_repeat( 'o', $original_bytes ) );
+    file_put_contents( $item_dir . '/master.jpg', str_repeat( 'm', $master_bytes ) );
     file_put_contents( $item_dir . '/preview.jpg', str_repeat( 'p', $preview_bytes ) );
-    chmod( $item_dir . '/original.png', 0600 );
+    chmod( $item_dir . '/master.jpg', 0600 );
     chmod( $item_dir . '/preview.jpg', 0600 );
     $manifest['items'][ $upload_id ] = array(
         'upload_id' => $upload_id,
         'ordinal' => 0,
-        'display_name' => $name . '.png',
-        'bytes' => $original_bytes,
-        'preview_bytes' => $preview_bytes,
-        'managed_bytes' => $original_bytes + $preview_bytes,
-        'mime' => 'image/png',
-        'width' => 10,
-        'height' => 10,
-        'sha256' => hash( 'sha256', str_repeat( 'o', $original_bytes ) ),
-        'original_relpath' => 'files/' . $upload_id . '/original.png',
+        'source_display_name' => $name . '.png',
+        'source_bytes' => $source_bytes,
+        'source_mime' => 'image/png',
+        'source_width' => 10,
+        'source_height' => 10,
+        'source_sha256' => hash( 'sha256', str_repeat( 's', $source_bytes ) ),
+        'master_relpath' => 'files/' . $upload_id . '/master.jpg',
+        'master_bytes' => $master_bytes,
+        'master_width' => 10,
+        'master_height' => 10,
+        'master_sha256' => hash( 'sha256', str_repeat( 'm', $master_bytes ) ),
         'preview_relpath' => 'files/' . $upload_id . '/preview.jpg',
+        'preview_bytes' => $preview_bytes,
+        'preview_width' => 10,
+        'preview_height' => 10,
+        'preview_sha256' => hash( 'sha256', str_repeat( 'p', $preview_bytes ) ),
+        'managed_bytes' => $master_bytes + $preview_bytes,
         'created_at' => $created_at,
     );
-    $manifest['original_bytes'] = $original_bytes;
-    $manifest['managed_bytes'] = $original_bytes + $preview_bytes;
+    $manifest['source_bytes'] = $source_bytes;
+    $manifest['managed_bytes'] = $master_bytes + $preview_bytes;
     file_put_contents( $manifest_path, json_encode( $manifest ) );
     chmod( $manifest_path, 0600 );
 
@@ -123,9 +131,10 @@ function eforms_test_gc_managed_fixture( $uploads_dir, $name, $created_at, $acce
         'batch_id' => $batch_id,
         'upload_id' => $upload_id,
         'submission_id' => $submission_id,
-        'original_bytes' => $original_bytes,
+        'source_bytes' => $source_bytes,
+        'master_bytes' => $master_bytes,
         'preview_bytes' => $preview_bytes,
-        'managed_bytes' => $original_bytes + $preview_bytes,
+        'managed_bytes' => $master_bytes + $preview_bytes,
         'staged_delete_after' => $staged_delete_after,
         'delete_after' => $finalized_at === null
             ? $created['batch']['delete_after']
@@ -181,9 +190,9 @@ $dry_run = GcRunner::run( array( 'dry_run' => true, 'now' => $run_now, 'limit' =
 eforms_test_assert( $dry_run['ok'] === true, 'Managed aggregate dry-run should succeed: ' . json_encode( $dry_run ) );
 eforms_test_assert( $dry_run['by_type']['staged_batches']['candidates'] === 1, 'Dry-run should find one expired staged aggregate.' );
 eforms_test_assert( $dry_run['by_type']['finalized_submissions']['candidates'] === 1, 'Dry-run should find one expired finalized aggregate.' );
-eforms_test_assert( $dry_run['by_type']['staged_batches']['candidate_original_bytes'] === $expired_staged['original_bytes'], 'Staged dry-run should report original bytes separately.' );
+eforms_test_assert( $dry_run['by_type']['staged_batches']['candidate_master_bytes'] === $expired_staged['master_bytes'], 'Staged dry-run should report master bytes separately.' );
 eforms_test_assert( $dry_run['by_type']['staged_batches']['candidate_preview_bytes'] === $expired_staged['preview_bytes'], 'Staged dry-run should report preview bytes separately.' );
-eforms_test_assert( $dry_run['by_type']['finalized_submissions']['candidate_original_bytes'] === $expired_final['original_bytes'], 'Finalized dry-run should report original bytes separately.' );
+eforms_test_assert( $dry_run['by_type']['finalized_submissions']['candidate_master_bytes'] === $expired_final['master_bytes'], 'Finalized dry-run should report master bytes separately.' );
 eforms_test_assert( $dry_run['deleted'] === 0 && $dry_run['by_type']['staged_batches']['released_bytes'] === 0, 'Dry-run should delete nothing and release no capacity.' );
 eforms_test_assert( is_dir( $expired_staged['path'] ) && is_dir( $expired_final['path'] ), 'Dry-run should preserve eligible aggregates.' );
 $capacity_after_dry_run = eforms_test_managed_capacity_record( $uploads_dir );
@@ -237,7 +246,7 @@ eforms_test_gc_managed_configure( $committing_dir );
 $committing = eforms_test_gc_managed_fixture( $committing_dir, 'committing-expired', $base, $base + 100 );
 $committing_capacity_path = $committing_dir . '/eforms-private/' . UploadBatchStore::CAPACITY_FILENAME;
 $committing_capacity = eforms_test_managed_capacity_record( $committing_dir );
-$committing_reserved_bytes = $committing['original_bytes'] + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
+$committing_reserved_bytes = Anchors::get( 'STAGED_MASTER_MAX_BYTES' ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
 $committing_reservation_id = hash( 'sha256', $committing['batch_id'] . "\0" . $committing['upload_id'] );
 $committing_capacity['total_bytes'] = $committing_reserved_bytes;
 $committing_capacity['reservations'][ $committing_reservation_id ] = array(
@@ -264,12 +273,12 @@ $orphan = eforms_test_gc_managed_fixture( $orphan_dir, 'materialized-orphan-expi
 $orphan_manifest_path = $orphan['path'] . '/' . UploadBatchStore::MANIFEST_FILENAME;
 $orphan_manifest = json_decode( file_get_contents( $orphan_manifest_path ), true );
 unset( $orphan_manifest['items'][ $orphan['upload_id'] ] );
-$orphan_manifest['original_bytes'] = 0;
+$orphan_manifest['source_bytes'] = 0;
 $orphan_manifest['managed_bytes'] = 0;
 file_put_contents( $orphan_manifest_path, json_encode( $orphan_manifest ) );
 $orphan_capacity_path = $orphan_dir . '/eforms-private/' . UploadBatchStore::CAPACITY_FILENAME;
 $orphan_capacity = eforms_test_managed_capacity_record( $orphan_dir );
-$orphan_reserved_bytes = $orphan['original_bytes'] + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
+$orphan_reserved_bytes = Anchors::get( 'STAGED_MASTER_MAX_BYTES' ) + Anchors::get( 'STAGED_PREVIEW_MAX_BYTES' );
 $orphan_reservation_id = hash( 'sha256', $orphan['batch_id'] . "\0" . $orphan['upload_id'] );
 $orphan_capacity['total_bytes'] = $orphan_reserved_bytes;
 $orphan_capacity['reservations'][ $orphan_reservation_id ] = array(
@@ -293,7 +302,7 @@ if ( function_exists( 'symlink' ) ) {
     $linked_capacity = eforms_test_gc_managed_fixture( $linked_capacity_dir, 'linked-capacity-member', $base, $base + 100 );
     $linked_manifest_path = $linked_capacity['path'] . '/' . UploadBatchStore::MANIFEST_FILENAME;
     $linked_manifest = json_decode( file_get_contents( $linked_manifest_path ), true );
-    $linked_relpath = $linked_manifest['items'][ $linked_capacity['upload_id'] ]['original_relpath'];
+    $linked_relpath = $linked_manifest['items'][ $linked_capacity['upload_id'] ]['master_relpath'];
     $linked_member = $linked_capacity['path'] . '/' . $linked_relpath;
     $linked_target = eforms_test_write_file( $linked_capacity_dir, 'outside-capacity-member.bin', 'outside' );
     eforms_test_assert( unlink( $linked_member ) && symlink( $linked_target, $linked_member ), 'Capacity symlink fixture should replace only one managed member.' );
@@ -324,12 +333,12 @@ $tombstone_manifest_path = $tombstone['path'] . '/' . UploadBatchStore::MANIFEST
 $tombstone_manifest = json_decode( file_get_contents( $tombstone_manifest_path ), true );
 $tombstone_item = $tombstone_manifest['items'][ $tombstone['upload_id'] ];
 unset( $tombstone_manifest['items'][ $tombstone['upload_id'] ] );
-$tombstone_manifest['original_bytes'] = 0;
+$tombstone_manifest['source_bytes'] = 0;
 $tombstone_manifest['managed_bytes'] = 0;
 $tombstone_manifest['tombstones'][ $tombstone['upload_id'] ] = array(
     'deleted_at' => $base + 1,
     'managed_bytes' => $tombstone['managed_bytes'],
-    'original_relpath' => $tombstone_item['original_relpath'],
+    'master_relpath' => $tombstone_item['master_relpath'],
     'preview_relpath' => $tombstone_item['preview_relpath'],
     'capacity_release_started' => false,
     'capacity_released' => false,
@@ -348,18 +357,18 @@ $settled_manifest_path = $settled_tombstone['path'] . '/' . UploadBatchStore::MA
 $settled_manifest = json_decode( file_get_contents( $settled_manifest_path ), true );
 $settled_item = $settled_manifest['items'][ $settled_tombstone['upload_id'] ];
 unset( $settled_manifest['items'][ $settled_tombstone['upload_id'] ] );
-$settled_manifest['original_bytes'] = 0;
+$settled_manifest['source_bytes'] = 0;
 $settled_manifest['managed_bytes'] = 0;
 $settled_manifest['tombstones'][ $settled_tombstone['upload_id'] ] = array(
     'deleted_at' => $base + 1,
     'managed_bytes' => $settled_tombstone['managed_bytes'],
-    'original_relpath' => $settled_item['original_relpath'],
+    'master_relpath' => $settled_item['master_relpath'],
     'preview_relpath' => $settled_item['preview_relpath'],
     'capacity_release_started' => false,
     'capacity_released' => false,
 );
 file_put_contents( $settled_manifest_path, json_encode( $settled_manifest ) );
-unlink( $settled_tombstone['path'] . '/' . $settled_item['original_relpath'] );
+unlink( $settled_tombstone['path'] . '/' . $settled_item['master_relpath'] );
 unlink( $settled_tombstone['path'] . '/' . $settled_item['preview_relpath'] );
 $settled_gc = GcRunner::run( array( 'now' => $run_now, 'limit' => 500 ) );
 eforms_test_assert( $settled_gc['ok'] === true && $settled_gc['deleted'] === 1, 'GC should conservatively recover when tombstone file deletion has an ambiguous capacity outcome.' );

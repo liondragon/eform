@@ -42,12 +42,12 @@ if ( ! function_exists( 'eforms_test_uninstall_seed_runtime' ) ) {
             'throttle' => $private_dir . '/throttle/aa/ip.tally',
             'staged_manifest' => $private_dir . '/staged/aa/batch-id/manifest.json',
             'staged_lock' => $private_dir . '/staged/aa/batch-id' . UploadBatchStore::LOCK_FILENAME,
-            'staged_original' => $private_dir . '/staged/aa/batch-id/files/photo/original.png',
+            'staged_master' => $private_dir . '/staged/aa/batch-id/files/photo/master.jpg',
             'staged_preview' => $private_dir . '/staged/aa/batch-id/files/photo/preview.jpg',
-            'staged_partial' => $private_dir . '/staged/aa/batch-id/files/photo/original.pending.png',
+            'staged_partial' => $private_dir . '/staged/aa/batch-id/files/.photo.0123456789abcdef.pending/preview.jpg',
             'final_manifest' => $private_dir . '/submissions/bb/submission-id/manifest.json',
             'final_lock' => $private_dir . '/submissions/bb/submission-id/' . UploadBatchStore::LOCK_FILENAME,
-            'final_original' => $private_dir . '/submissions/bb/submission-id/files/photo/original.png',
+            'final_master' => $private_dir . '/submissions/bb/submission-id/files/photo/master.jpg',
             'final_preview' => $private_dir . '/submissions/bb/submission-id/files/photo/preview.jpg',
             'capacity' => $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME,
             'capacity_lock' => $private_dir . '/' . UploadBatchStore::CAPACITY_LOCK_FILENAME,
@@ -68,12 +68,12 @@ if ( ! function_exists( 'eforms_test_uninstall_seed_runtime' ) ) {
         eforms_test_uninstall_write_file( $paths['throttle'], '1' );
         eforms_test_uninstall_write_file( $paths['staged_manifest'], '{}' );
         eforms_test_uninstall_write_file( $paths['staged_lock'], '' );
-        eforms_test_uninstall_write_file( $paths['staged_original'], 'original' );
+        eforms_test_uninstall_write_file( $paths['staged_master'], 'master' );
         eforms_test_uninstall_write_file( $paths['staged_preview'], 'preview' );
         eforms_test_uninstall_write_file( $paths['staged_partial'], 'partial' );
         eforms_test_uninstall_write_file( $paths['final_manifest'], '{}' );
         eforms_test_uninstall_write_file( $paths['final_lock'], '' );
-        eforms_test_uninstall_write_file( $paths['final_original'], 'original' );
+        eforms_test_uninstall_write_file( $paths['final_master'], 'master' );
         eforms_test_uninstall_write_file( $paths['final_preview'], 'preview' );
         eforms_test_uninstall_write_file( $paths['capacity'], '{"version":1,"total_bytes":31,"reservations":[]}' );
         eforms_test_uninstall_write_file( $paths['capacity_lock'], '' );
@@ -126,7 +126,7 @@ $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
 $case1 = eforms_test_uninstall_seed_runtime( $uploads_dir );
 eforms_test_uninstall_run( $uploads_dir, false, false );
 eforms_test_assert( file_exists( $case1['token'] ), 'Token file should remain when purge flags are disabled.' );
-eforms_test_assert( file_exists( $case1['staged_original'] ) && file_exists( $case1['final_preview'] ), 'Managed aggregates should remain when purge flags are disabled.' );
+eforms_test_assert( file_exists( $case1['staged_master'] ) && file_exists( $case1['final_preview'] ), 'Managed aggregates should remain when purge flags are disabled.' );
 eforms_test_assert( file_exists( $case1['capacity'] ) && file_exists( $case1['capacity_lock'] ), 'Managed capacity artifacts should remain when purge flags are disabled.' );
 eforms_test_assert( file_exists( $case1['log'] ), 'Log file should remain when purge flags are disabled.' );
 eforms_test_assert( file_exists( $case1['declined_rotated'] ), 'Declined review files should remain when purge flags are disabled.' );
@@ -151,7 +151,7 @@ eforms_test_set_filter(
 Config::reset_for_tests();
 eforms_uninstall_run();
 eforms_test_assert( file_exists( $case2['log'] ) && file_exists( $case2['f2b'] ), 'String-like purge flags should not purge log artifacts.' );
-eforms_test_assert( file_exists( $case2['token'] ) && file_exists( $case2['upload'] ) && file_exists( $case2['staged_original'] ), 'String-like purge flags should not purge upload artifacts.' );
+eforms_test_assert( file_exists( $case2['token'] ) && file_exists( $case2['upload'] ) && file_exists( $case2['staged_master'] ), 'String-like purge flags should not purge upload artifacts.' );
 eforms_test_remove_tree( $uploads_dir . '/eforms-private' );
 eforms_test_remove_tree( $uploads_dir . '/f2b' );
 
@@ -196,8 +196,8 @@ eforms_test_assert( ! file_exists( dirname( $case3['token'] ) ), 'Tokens subtree
 eforms_test_assert( ! file_exists( $case3['ledger'] ), 'Ledger markers should be removed when purge_uploads=true.' );
 eforms_test_assert( ! file_exists( $case3['upload'] ), 'Upload files should be removed when purge_uploads=true.' );
 eforms_test_assert( ! file_exists( $case3['throttle'] ), 'Throttle state should be removed when purge_uploads=true.' );
-eforms_test_assert( ! file_exists( $case3['staged_manifest'] ) && ! file_exists( $case3['staged_original'] ) && ! file_exists( $case3['staged_preview'] ) && ! file_exists( $case3['staged_partial'] ), 'Staged manifests, originals, previews, and partials should be removed when purge_uploads=true.' );
-eforms_test_assert( ! file_exists( $case3['final_manifest'] ) && ! file_exists( $case3['final_original'] ) && ! file_exists( $case3['final_preview'] ), 'Finalized aggregate files should be removed when purge_uploads=true.' );
+eforms_test_assert( ! file_exists( $case3['staged_manifest'] ) && ! file_exists( $case3['staged_master'] ) && ! file_exists( $case3['staged_preview'] ) && ! file_exists( $case3['staged_partial'] ), 'Staged manifests, masters, previews, and partials should be removed when purge_uploads=true.' );
+eforms_test_assert( ! file_exists( $case3['final_manifest'] ) && ! file_exists( $case3['final_master'] ) && ! file_exists( $case3['final_preview'] ), 'Finalized aggregate files should be removed when purge_uploads=true.' );
 eforms_test_assert( ! file_exists( $case3['staged_lock'] ) && ! file_exists( $case3['final_lock'] ), 'Purge should close aggregate handles before deleting their lock files and roots.' );
 eforms_test_assert( ! file_exists( $case3['capacity'] ), 'Managed capacity accounting should be removed when purge_uploads=true.' );
 eforms_test_assert( file_exists( $case3['capacity_lock'] ) && file_exists( $case3['ledger_root_lock'] ) && file_exists( $case3['lifecycle_lock'] ) && file_exists( $case3['purge_marker'] ), 'Successful purge should retain its synchronization inodes and lifecycle barrier for already-open requests.' );
@@ -235,12 +235,12 @@ $write_lease = PrivateDir::acquire_write_lease( $uploads_dir );
 eforms_test_assert( $write_lease instanceof PrivateDirLease, 'Test setup should hold one shared upload lifecycle lease.' );
 $contended_lifecycle = eforms_test_uninstall_run( $uploads_dir, false, true );
 eforms_test_assert( empty( $contended_lifecycle['ok'] ) && $contended_lifecycle['reason'] === 'upload_lifecycle_unavailable', 'Lifecycle contention should make uninstall fail visibly.' );
-eforms_test_assert( file_exists( $case4['token'] ) && file_exists( $case4['upload'] ) && file_exists( $case4['staged_original'] ), 'Lifecycle contention should preserve every upload-owned family.' );
+eforms_test_assert( file_exists( $case4['token'] ) && file_exists( $case4['upload'] ) && file_exists( $case4['staged_master'] ), 'Lifecycle contention should preserve every upload-owned family.' );
 eforms_test_assert( ! file_exists( $case4['purge_marker'] ), 'A purge skipped for an in-flight writer must not close the active runtime.' );
 eforms_test_assert( get_option( AdminSettingsStore::OPTION_NAME, null ) !== null, 'Failed uninstall should preserve settings for a retry.' );
 $write_lease->release();
 eforms_test_uninstall_run( $uploads_dir, false, true );
-eforms_test_assert( ! file_exists( $case4['token'] ) && ! file_exists( $case4['upload'] ) && ! file_exists( $case4['staged_original'] ), 'A retry after the in-flight writer exits should complete the purge.' );
+eforms_test_assert( ! file_exists( $case4['token'] ) && ! file_exists( $case4['upload'] ) && ! file_exists( $case4['staged_master'] ), 'A retry after the in-flight writer exits should complete the purge.' );
 eforms_test_remove_tree( $uploads_dir . '/eforms-private' );
 
 // Case 4b: purge-only managed locks require the exclusive lifecycle lease.
@@ -258,7 +258,7 @@ $capacity_lock_handle = fopen( $case5['capacity_lock'], 'c+b' );
 eforms_test_assert( is_resource( $capacity_lock_handle ) && flock( $capacity_lock_handle, LOCK_EX | LOCK_NB ), 'Test setup should hold the managed-capacity lock.' );
 $contended_capacity = eforms_test_uninstall_run( $uploads_dir, false, true );
 eforms_test_assert( empty( $contended_capacity['ok'] ) && $contended_capacity['reason'] === 'managed_capacity_lock_unavailable', 'Capacity-lock contention should make uninstall fail visibly.' );
-eforms_test_assert( file_exists( $case5['upload'] ) && file_exists( $case5['staged_original'] ) && file_exists( $case5['final_original'] ), 'Lock contention should preserve all upload-owned state.' );
+eforms_test_assert( file_exists( $case5['upload'] ) && file_exists( $case5['staged_master'] ) && file_exists( $case5['final_master'] ), 'Lock contention should preserve all upload-owned state.' );
 eforms_test_assert( file_exists( $case5['capacity'] ), 'Lock contention should preserve managed capacity accounting.' );
 flock( $capacity_lock_handle, LOCK_UN );
 fclose( $capacity_lock_handle );
@@ -270,7 +270,7 @@ $outside_lock = eforms_test_write_file( $uploads_dir, 'outside-capacity.lock', '
 eforms_test_assert( unlink( $case6['capacity_lock'] ) && symlink( $outside_lock, $case6['capacity_lock'] ), 'Test setup should replace only the managed-capacity lock with a symlink.' );
 $linked_capacity = eforms_test_uninstall_run( $uploads_dir, false, true );
 eforms_test_assert( empty( $linked_capacity['ok'] ) && $linked_capacity['reason'] === 'managed_capacity_lock_unavailable', 'A symlinked capacity lock should make uninstall fail visibly.' );
-eforms_test_assert( file_exists( $case6['upload'] ) && file_exists( $case6['staged_original'] ) && file_exists( $case6['final_original'] ), 'A symlinked managed-capacity lock should preserve all upload-owned state.' );
+eforms_test_assert( file_exists( $case6['upload'] ) && file_exists( $case6['staged_master'] ) && file_exists( $case6['final_master'] ), 'A symlinked managed-capacity lock should preserve all upload-owned state.' );
 eforms_test_assert( is_link( $case6['capacity_lock'] ) && file_get_contents( $outside_lock ) === 'outside', 'Uninstall should not open or chmod through a symlinked managed-capacity lock.' );
 eforms_test_remove_tree( $uploads_dir . '/eforms-private' );
 
@@ -281,14 +281,14 @@ eforms_test_assert( is_resource( $aggregate_lock_handle ) && flock( $aggregate_l
 $contended_aggregate = eforms_test_uninstall_run( $uploads_dir, false, true );
 eforms_test_assert( empty( $contended_aggregate['ok'] ) && $contended_aggregate['reason'] === 'managed_aggregate_lock_unavailable', 'Aggregate-lock contention should make uninstall fail visibly.' );
 eforms_test_assert( file_exists( $case6['token'] ) && file_exists( $case6['upload'] ), 'Aggregate lock contention should preserve non-aggregate upload state.' );
-eforms_test_assert( file_exists( $case6['staged_original'] ) && file_exists( $case6['final_original'] ), 'Aggregate lock contention should preserve every managed aggregate.' );
+eforms_test_assert( file_exists( $case6['staged_master'] ) && file_exists( $case6['final_master'] ), 'Aggregate lock contention should preserve every managed aggregate.' );
 eforms_test_assert( file_exists( $case6['capacity'] ) && file_exists( $case6['capacity_lock'] ), 'Aggregate lock contention should preserve managed capacity accounting and its synchronization inode.' );
 eforms_test_assert( ! file_exists( $case6['purge_marker'] ), 'A skipped purge must not block the still-active managed runtime.' );
 flock( $aggregate_lock_handle, LOCK_UN );
 fclose( $aggregate_lock_handle );
 $aggregate_retry = eforms_test_uninstall_run( $uploads_dir, false, true );
 eforms_test_assert( ! empty( $aggregate_retry['ok'] ), 'A retry after aggregate-lock contention should complete uninstall.' );
-eforms_test_assert( ! file_exists( $case6['staged_original'] ) && ! file_exists( $case6['final_original'] ), 'A retry after the aggregate writer exits should complete the purge.' );
+eforms_test_assert( ! file_exists( $case6['staged_master'] ) && ! file_exists( $case6['final_master'] ), 'A retry after the aggregate writer exits should complete the purge.' );
 eforms_test_remove_tree( $uploads_dir . '/eforms-private' );
 
 // Case 8: incomplete managed-root deletion must retain capacity accounting.

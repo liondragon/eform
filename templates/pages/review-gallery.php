@@ -49,7 +49,7 @@ if ( function_exists( 'get_header' ) ) {
                         <?php
                         $name = isset( $item['display_name'] ) ? (string) $item['display_name'] : 'Photo';
                         $preview_url = isset( $item['preview_url'] ) ? (string) $item['preview_url'] : '';
-                        $original_url = isset( $item['original_url'] ) ? (string) $item['original_url'] : '';
+                        $master_url = isset( $item['master_url'] ) ? (string) $item['master_url'] : '';
                         $width = isset( $item['width'] ) ? max( 1, (int) $item['width'] ) : 1;
                         $height = isset( $item['height'] ) ? max( 1, (int) $item['height'] ) : 1;
                         ?>
@@ -58,8 +58,8 @@ if ( function_exists( 'get_header' ) ) {
                             <figcaption class="eforms-review-caption">
                                 <span class="eforms-review-name"><?php echo $escape_html( $name ); ?></span>
                                 <span class="eforms-review-actions">
-                                    <a href="<?php echo $escape_url( $original_url ); ?>" target="_blank" rel="noopener noreferrer">Open original</a>
-                                    <a href="<?php echo $escape_url( $original_url ); ?>" download>Download</a>
+                                    <a href="<?php echo $escape_url( $master_url ); ?>" target="_blank" rel="noopener noreferrer" aria-label="<?php echo $escape_attr( 'Open high-resolution ' . $name ); ?>">High-resolution</a>
+                                    <a href="<?php echo $escape_url( $master_url ); ?>" download aria-label="<?php echo $escape_attr( 'Download high-resolution ' . $name ); ?>">Download high-resolution</a>
                                 </span>
                             </figcaption>
                         </figure>

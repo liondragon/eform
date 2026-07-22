@@ -12,12 +12,6 @@ require_once __DIR__ . '/../../src/Submission/PublicRequestController.php';
 require_once __DIR__ . '/../../src/Uploads/ReviewController.php';
 require_once __DIR__ . '/../../src/Uploads/UploadBatchStore.php';
 
-if ( ! function_exists( 'wp_image_editor_supports' ) ) {
-    function wp_image_editor_supports( $args = array() ) {
-        return isset( $args['mime_type'] ) && in_array( $args['mime_type'], array( 'image/jpeg', 'image/png', 'image/webp' ), true );
-    }
-}
-
 if ( ! function_exists( 'wp_enqueue_style' ) ) {
     function wp_enqueue_style( $handle, $src, $deps = array(), $ver = false ) {
         if ( ! isset( $GLOBALS['eforms_test_styles'] ) ) {
@@ -149,7 +143,7 @@ eforms_test_assert( $gallery['headers']['X-Robots-Tag'] === 'noindex, nofollow' 
 eforms_test_assert( $gallery['headers']['Referrer-Policy'] === 'no-referrer', 'Gallery responses should not leak bearer URLs through referrers.' );
 eforms_test_assert( $gallery['review_page']['submission_id'] === $submission_id && $gallery['review_page']['count'] === 1, 'Gallery context should expose only its stable id and item count.' );
 $review_item = $gallery['review_page']['items'][0];
-eforms_test_assert( strpos( $review_item['preview_url'], 'eforms_review_variant=preview' ) !== false && strpos( $review_item['original_url'], 'eforms_review_variant=original' ) !== false, 'Preview and original grants should be separately purpose-bound.' );
+eforms_test_assert( strpos( $review_item['preview_url'], 'eforms_review_variant=preview' ) !== false && strpos( $review_item['master_url'], 'eforms_review_variant=master' ) !== false, 'Preview and master grants should be separately purpose-bound.' );
 eforms_test_assert( strpos( json_encode( $gallery['review_page'] ), $uploads_dir ) === false, 'Gallery context must not disclose private paths.' );
 
 eforms_test_set_filter( 'eforms_config', function ( $config ) {
@@ -171,15 +165,16 @@ if ( is_resource( $preview['stream'] ) ) {
 }
 $preview_copy = is_string( $preview_bytes ) ? eforms_test_write_file( $uploads_dir, 'served-review-preview.jpg', $preview_bytes ) : '';
 eforms_test_assert( $preview_copy !== '' && UploadPolicy::detect_mime( $preview_copy ) === 'image/jpeg', 'The controlled preview stream should agree with its MIME header.' );
+eforms_test_assert( strpos( $preview['headers']['Content-Disposition'], "filename*=UTF-8''Customer%20%3CPhoto%3E-preview.jpg" ) !== false, 'Preview names should use an encoded JPEG disposition.' );
 
-$original = eforms_test_review_request( $review_item['original_url'], $uploads_dir, $salt, $now + 30 );
-eforms_test_assert( $original['status'] === 200 && $original['headers']['Content-Type'] === 'image/png', 'The signed original grant should preserve the declared source MIME.' );
-$original_bytes = is_resource( $original['stream'] ) ? stream_get_contents( $original['stream'] ) : false;
-if ( is_resource( $original['stream'] ) ) {
-    fclose( $original['stream'] );
+$master = eforms_test_review_request( $review_item['master_url'], $uploads_dir, $salt, $now + 30 );
+eforms_test_assert( $master['status'] === 200 && $master['headers']['Content-Type'] === 'image/jpeg', 'The signed master grant should return only the normalized JPEG.' );
+$master_bytes = is_resource( $master['stream'] ) ? stream_get_contents( $master['stream'] ) : false;
+if ( is_resource( $master['stream'] ) ) {
+    fclose( $master['stream'] );
 }
-eforms_test_assert( is_string( $original_bytes ) && hash( 'sha256', $original_bytes ) === hash( 'sha256', $png ), 'The original grant should stream the exact manifest member.' );
-eforms_test_assert( strpos( $original['headers']['Content-Disposition'], "filename*=UTF-8''Customer%20%3CPhoto%3E.png" ) !== false, 'Original names should use encoded safe disposition metadata.' );
+eforms_test_assert( is_string( $master_bytes ) && UploadPolicy::detect_mime( eforms_test_write_file( $uploads_dir, 'served-review-master.jpg', $master_bytes ) ) === 'image/jpeg', 'The master grant should stream a normalized JPEG member.' );
+eforms_test_assert( strpos( $master['headers']['Content-Disposition'], "filename*=UTF-8''Customer%20%3CPhoto%3E-high-resolution.jpg" ) !== false, 'Master names should use an encoded JPEG disposition.' );
 
 foreach ( array( '', '/index.php/%postname%/', '/%postname%/' ) as $permalink_structure ) {
     update_option( 'permalink_structure', $permalink_structure );
@@ -228,7 +223,7 @@ $generic = eforms_test_review_unavailable_shape(
 );
 eforms_test_assert( $generic['status'] === 404, 'Invalid review requests should return a generic not-found response.' );
 
-$modified_variant = str_replace( 'eforms_review_variant=preview', 'eforms_review_variant=original', $review_item['preview_url'] );
+$modified_variant = str_replace( 'eforms_review_variant=preview', 'eforms_review_variant=master', $review_item['preview_url'] );
 $expired = eforms_test_review_request( $gallery_url, $uploads_dir, $salt, $expires );
 $foreign_upload_url = ReviewController::file_url( $submission_id, 'foreign_photo', 'preview', $expires, 'https://example.test', $salt );
 $foreign = eforms_test_review_request( $foreign_upload_url, $uploads_dir, $salt, $now + 30 );
@@ -268,23 +263,24 @@ $missing_preview = eforms_test_review_request( $review_item['preview_url'], $upl
 eforms_test_assert( eforms_test_review_unavailable_shape( $missing_preview ) === $generic, 'A missing declared preview should use the generic unavailable response.' );
 
 if ( function_exists( 'symlink' ) ) {
-    $original_path = $submission_path . '/' . $submission_manifest['items']['review_photo']['original_relpath'];
-    $outside_original = eforms_test_write_file( $uploads_dir, 'outside-original.png', 'outside-original' );
-    eforms_test_assert( is_file( $original_path ) && unlink( $original_path ) && symlink( $outside_original, $original_path ), 'The finalized original symlink fixture should replace only the manifest member.' );
-    $linked_original = UploadBatchStore::submission_file( $submission_id, 'review_photo', 'original', $uploads_dir, $now + 30 );
-    eforms_test_assert( empty( $linked_original['ok'] ) && $linked_original['reason'] === 'file_missing', 'Finalized member reads should reject symlinked manifest members.' );
-    @unlink( $original_path );
-    file_put_contents( $original_path, $png );
+    $master_path = $submission_path . '/' . $submission_manifest['items']['review_photo']['master_relpath'];
+    $saved_master = file_get_contents( $master_path );
+    $outside_master = eforms_test_write_file( $uploads_dir, 'outside-master.jpg', 'outside-master' );
+    eforms_test_assert( is_file( $master_path ) && unlink( $master_path ) && symlink( $outside_master, $master_path ), 'The finalized master symlink fixture should replace only the manifest member.' );
+    $linked_master = UploadBatchStore::submission_file( $submission_id, 'review_photo', 'master', $uploads_dir, $now + 30 );
+    eforms_test_assert( empty( $linked_master['ok'] ) && $linked_master['reason'] === 'file_missing', 'Finalized member reads should reject symlinked manifest members.' );
+    @unlink( $master_path );
+    file_put_contents( $master_path, $saved_master );
 }
 
-$opened_original = UploadBatchStore::submission_file( $submission_id, 'review_photo', 'original', $uploads_dir, $now + 30 );
-eforms_test_assert( ! empty( $opened_original['ok'] ) && is_resource( $opened_original['stream'] ), 'The store should return an opened manifest-owned member rather than a filesystem path.' );
+$opened_master = UploadBatchStore::submission_file( $submission_id, 'review_photo', 'master', $uploads_dir, $now + 30 );
+eforms_test_assert( ! empty( $opened_master['ok'] ) && is_resource( $opened_master['stream'] ), 'The store should return an opened manifest-owned member rather than a filesystem path.' );
 $gc_while_open = UploadBatchStore::gc_aggregates( 'finalized', $uploads_dir, $expires, 1 );
-$opened_original_bytes = is_resource( $opened_original['stream'] ) ? stream_get_contents( $opened_original['stream'] ) : false;
-if ( is_resource( $opened_original['stream'] ) ) {
-    fclose( $opened_original['stream'] );
+$opened_master_bytes = is_resource( $opened_master['stream'] ) ? stream_get_contents( $opened_master['stream'] ) : false;
+if ( is_resource( $opened_master['stream'] ) ) {
+    fclose( $opened_master['stream'] );
 }
-eforms_test_assert( is_string( $opened_original_bytes ) && hash( 'sha256', $opened_original_bytes ) === hash( 'sha256', $png ), 'A store-opened member should remain readable when GC attempts aggregate deletion.' );
+eforms_test_assert( is_string( $opened_master_bytes ) && hash( 'sha256', $opened_master_bytes ) === $submission_manifest['items']['review_photo']['master_sha256'], 'A store-opened master should remain readable when GC attempts aggregate deletion.' );
 eforms_test_assert( $gc_while_open['deleted'] === 1 || is_dir( $submission_path ), 'GC may delete an opened aggregate on Unix or retain it for retry on filesystems that deny open-file deletion.' );
 if ( is_dir( $submission_path ) ) {
     $gc_after_close = UploadBatchStore::gc_aggregates( 'finalized', $uploads_dir, $expires, 1 );

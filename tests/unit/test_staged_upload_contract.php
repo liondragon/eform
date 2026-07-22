@@ -47,15 +47,26 @@ eforms_test_assert( $credentials === array(
     'batch_secret' => 'batch_secret',
 ), 'Credential transport names should remain field-scoped and distinct by entrypoint.' );
 
-$attempts = array();
-for ( $index = 0; $index < Anchors::get( 'STAGED_PREVIEW_MAX_ATTEMPTS' ); $index++ ) {
-    $attempts[] = array(
-        'edge' => Anchors::get( 'STAGED_PREVIEW_MAX_EDGE' ) - ( $index * Anchors::get( 'STAGED_PREVIEW_EDGE_STEP' ) ),
-        'quality' => Anchors::get( 'STAGED_PREVIEW_JPEG_QUALITY_INITIAL' ) - ( $index * Anchors::get( 'STAGED_PREVIEW_JPEG_QUALITY_STEP' ) ),
-    );
-}
-eforms_test_assert( $attempts === $fixture['preview_attempts'], 'Preview attempts should derive only from fixed Anchors.' );
 eforms_test_assert( $fixture['production_readiness']['throttle_enable'] === true, 'Staged production readiness should require the existing throttle.' );
+eforms_test_assert( $fixture['production_readiness']['staged_backend'] === 'imagick', 'Staged production readiness should require the sole approved image backend.' );
+
+$managed_manifest = $fixture['managed_manifest'];
+eforms_test_assert( $managed_manifest['version'] === 2, 'The target managed manifest should use only schema version 2.' );
+eforms_test_assert( $managed_manifest['aggregate_byte_fields'] === array( 'source_bytes', 'managed_bytes' ), 'Aggregate totals should not duplicate item-owned derivative breakdowns.' );
+eforms_test_assert( $managed_manifest['variants'] === array( 'preview', 'master' ), 'Signed review variants should expose preview and master only.' );
+eforms_test_assert( $managed_manifest['filenames'] === array( 'master' => 'master.jpg', 'preview' => 'preview.jpg' ), 'Both committed derivatives should use fixed JPEG member names.' );
+eforms_test_assert(
+    array_intersect( array( 'original_bytes', 'original_relpath', 'bytes', 'mime', 'width', 'height', 'sha256' ), $managed_manifest['item_fields'] ) === array(),
+    'The target manifest fixture should not retain ambiguous or original-artifact item fields.'
+);
+eforms_test_assert(
+    in_array( 'source_sha256', $managed_manifest['item_fields'], true )
+        && in_array( 'master_relpath', $managed_manifest['item_fields'], true )
+        && in_array( 'master_sha256', $managed_manifest['item_fields'], true )
+        && in_array( 'preview_relpath', $managed_manifest['item_fields'], true )
+        && in_array( 'preview_sha256', $managed_manifest['item_fields'], true ),
+    'The target manifest fixture should distinguish source facts from committed derivative artifacts.'
+);
 
 $css = file_get_contents( dirname( __DIR__, 2 ) . '/assets/forms.css' );
 eforms_test_assert( is_string( $css ), 'Managed uploader CSS should be readable.' );

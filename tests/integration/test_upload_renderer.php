@@ -132,19 +132,14 @@ eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_FILES . '="2
 eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_FILE_BYTES . '="20971520"' ) !== false, 'Managed mount should disclose the per-file bound.' );
 eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_TOTAL_BYTES . '="314572800"' ) !== false, 'Managed mount should disclose the total-original-byte bound.' );
 eforms_test_assert( strpos( $control, 'image/webp' ) !== false && strpos( $control, 'image/gif' ) === false, 'Staged hints should include WebP and exclude GIF.' );
-eforms_test_assert( strpos( $control, 'image/heic' ) === false && strpos( $control, '.heic' ) === false, 'Staged hints should keep HEIC disabled by default.' );
-eforms_test_assert( strpos( $control, '<noscript>' ) !== false, 'Staged field should explain its JavaScript requirement.' );
-
-$heic_staged = $staged;
-$heic_staged['accept'] = array( 'image', 'heic' );
-$heic_control = $method->invoke( null, $descriptor, $heic_staged, 'demo', false, null );
 eforms_test_assert(
-    strpos( $heic_control, 'image/heic' ) !== false
-        && strpos( $heic_control, 'image/heif' ) !== false
-        && strpos( $heic_control, '.heic' ) !== false
-        && strpos( $heic_control, '.heif' ) !== false,
-    'Explicit HEIC opt-in should reach both picker and managed-mount browser hints.'
+    strpos( $control, 'image/heic' ) !== false
+        && strpos( $control, 'image/heif' ) !== false
+        && strpos( $control, '.heic' ) !== false
+        && strpos( $control, '.heif' ) !== false,
+    'The staged image token should expose HEIC and HEIF picker hints.'
 );
+eforms_test_assert( strpos( $control, '<noscript>' ) !== false, 'Staged field should explain its JavaScript requirement.' );
 
 $long_form_id = str_repeat( 'f', 64 );
 $long_descriptor = $descriptor;

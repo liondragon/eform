@@ -32,7 +32,7 @@ function formMarkup(id = 'staged-demo', field = 'photos', credentials = '', pick
       ${credentials}
       <label for="${id}-${field}">Choose photos</label>
       <input id="${pickerId}" type="file" multiple required disabled ${uploadAttrs.picker}="1" accept="image/jpeg,image/png,image/webp">
-      <div ${uploadAttrs.mount}="1" ${uploadAttrs.pickerId}="${pickerId}" ${uploadAttrs.field}="${field}" ${uploadAttrs.accept}="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" ${uploadAttrs.maxFiles}="24" ${uploadAttrs.maxFileBytes}="20971520" ${uploadAttrs.maxTotalBytes}="314572800"></div>
+      <div class="eforms-upload" ${uploadAttrs.mount}="1" ${uploadAttrs.pickerId}="${pickerId}" ${uploadAttrs.field}="${field}" ${uploadAttrs.accept}="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" ${uploadAttrs.maxFiles}="24" ${uploadAttrs.maxFileBytes}="20971520" ${uploadAttrs.maxTotalBytes}="314572800"></div>
       <button type="submit">Send Estimate Request</button>
     </form>`;
 }
@@ -105,6 +105,42 @@ test('staged mount uses its exact picker reference when capped IDs lose the fiel
   const picker = page.locator('#capped-picker-reference');
   await expect(picker).toBeEnabled();
   await expect(page.locator(uploadSelector('mount'))).toHaveAttribute(uploadAttrs.pickerId, 'capped-picker-reference');
+});
+
+test('staged upload prompt keeps a compact vertical hierarchy at desktop and narrow widths', async ({ page }) => {
+  await boot(page, formMarkup('upload-prompt-demo'));
+  await page.addStyleTag({ path: formsCss });
+  const mount = page.locator(uploadSelector('mount'));
+  const prompt = page.locator('.eforms-upload-controls');
+  await expect(prompt.locator('.eforms-upload-icon')).toBeVisible();
+  await expect(prompt.locator('.eforms-upload-drop-hint')).toBeVisible();
+  await expect(prompt.locator('.eforms-upload-choose')).toBeVisible();
+  await expect(prompt.locator('.eforms-upload-guidance')).toHaveCount(0);
+  await expect(mount.locator('.eforms-upload-formats')).toBeVisible();
+  await expect(mount.locator('.eforms-upload-limits')).toBeVisible();
+
+  const desktop = await prompt.evaluate(node => {
+    const rect = selector => node.querySelector(selector).getBoundingClientRect();
+    const box = node.getBoundingClientRect();
+    const icon = rect('.eforms-upload-icon');
+    const hint = rect('.eforms-upload-drop-hint');
+    const choose = rect('.eforms-upload-choose');
+    return {
+      height: box.height,
+      centered: [icon, hint, choose].every(item => Math.abs((item.left + item.right) / 2 - (box.left + box.right) / 2) < 2),
+      ordered: icon.bottom <= hint.top && hint.bottom <= choose.top
+    };
+  });
+  expect(desktop.centered).toBeTruthy();
+  expect(desktop.ordered).toBeTruthy();
+  expect(desktop.height).toBeLessThan(190);
+  await page.setViewportSize({ width: 320, height: 640 });
+  expect(await prompt.evaluate(node => ({
+    contained: node.scrollWidth <= node.clientWidth,
+    pageContained: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    height: node.getBoundingClientRect().height
+  }))).toEqual({ contained: true, pageContained: true, height: expect.any(Number) });
+  expect(await prompt.evaluate(node => node.getBoundingClientRect().height)).toBeLessThan(210);
 });
 
 test('staged upload stays disabled when renderer upload endpoint settings are missing', async ({ page }) => {
@@ -379,6 +415,50 @@ test('staged queue uses one retry-safe secret, explicit selection, three uploads
   await expect(mount.locator('.eforms-upload-field-status')).toContainText('allowed type');
 });
 
+test('HEIC upload replaces its browser-local source with the generated JPEG preview', async ({ page }) => {
+  let releaseUpload;
+  let previewRequests = 0;
+  await page.route('https://example.test/eforms/upload-batches**', async route => {
+    const request = route.request();
+    const kind = routeKind(request.url());
+    if (kind === 'create') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(batchResponse(batchId('H'))) });
+      return;
+    }
+    if (kind === 'item' && request.method() === 'POST') {
+      const id = new URL(request.url()).pathname.split('/').pop();
+      await new Promise(resolve => {
+        releaseUpload = async () => {
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(uploadItemResponse(id, 'server-photo.heic')) });
+          resolve();
+        };
+      });
+      return;
+    }
+    if (kind === 'preview') {
+      previewRequests += 1;
+      await route.fulfill({ status: 200, contentType: 'image/jpeg', body: Buffer.from([255, 216, 255, 217]) });
+    }
+  });
+
+  const markup = formMarkup('heic-preview-demo')
+    .replace('accept="image/jpeg,image/png,image/webp"', 'accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"')
+    .replace(
+      `${uploadAttrs.accept}="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"`,
+      `${uploadAttrs.accept}="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"`
+    );
+  await boot(page, markup);
+  const mount = page.locator(uploadSelector('mount'));
+  await page.locator(uploadSelector('picker')).setInputFiles(imagePayload('camera.heic', 1, 'image/heic'));
+  await expect.poll(() => typeof releaseUpload).toBe('function');
+  const localUrl = await mount.evaluate(node => node.__eformsUploadRuntime.items[0].objectUrl);
+  await releaseUpload();
+  await expect.poll(() => previewRequests).toBe(1);
+  await expect.poll(() => mount.evaluate(node => node.__eformsUploadRuntime.items[0].objectUrl)).not.toBe(localUrl);
+  await expect(mount.locator('.eforms-upload-item')).toHaveAttribute('data-eforms-upload-state', 'uploaded');
+  await expect(mount.locator('.eforms-upload-preview')).toHaveAttribute('src', /^blob:/);
+});
+
 test('retry, removal, Clear all, stable identity, and terminal 410 stay server-authoritative', async ({ page }) => {
   const uploads = [];
   const deletes = [];
@@ -621,7 +701,7 @@ test('validated rerender restores authenticated previews; teardown revokes URLs 
 
   await expect(restored.locator('[data-eforms-upload-state="uploaded"]')).toHaveCount(2);
   await expect(picker).toBeEnabled();
-  await expect(choose).toHaveText('Choose photos');
+  await expect(choose).toHaveText('Browse photos');
   await expect(restored.locator('[data-eforms-upload-id="restored"] .eforms-upload-preview')).toHaveAttribute('src', /^blob:/);
   const missingPreview = restored.locator('[data-eforms-upload-id="preview-missing"]');
   await expect(missingPreview).toHaveAttribute('data-eforms-upload-preview', 'unavailable');
@@ -639,6 +719,7 @@ test('validated rerender restores authenticated previews; teardown revokes URLs 
 test('expired finalizing rerender restores a frozen batch for corrected submission', async ({ page }) => {
   const recoveryId = batchId('R');
   const recoverySecret = batchId('T');
+  let previewRequests = 0;
   await page.route('https://example.test/eforms/upload-batches**', async route => {
     const kind = routeKind(route.request().url());
     if (kind === 'status') {
@@ -651,6 +732,7 @@ test('expired finalizing rerender restores a frozen batch for corrected submissi
       return;
     }
     if (kind === 'preview') {
+      previewRequests += 1;
       await route.fulfill({ status: 410, contentType: 'application/json', body: JSON.stringify({ error: 'EFORMS_ERR_TOKEN' }) });
     }
   });
@@ -661,10 +743,14 @@ test('expired finalizing rerender restores a frozen batch for corrected submissi
   await expect(form.locator('[data-eforms-upload-state="uploaded"]')).toHaveCount(1);
   await expect(form.locator(uploadSelector('picker'))).toBeDisabled();
   await expect(form.locator('.eforms-upload-choose')).toBeDisabled();
+  await expect(form.locator('.eforms-upload-clear')).toBeDisabled();
+  await expect(form.locator('.eforms-upload-clear')).toBeHidden();
   await expect(form.locator('.eforms-upload-remove')).toBeHidden();
+  await expect(mount).toHaveAttribute('data-eforms-upload-frozen', '1');
   await expect(mount).not.toHaveAttribute('data-eforms-upload-unavailable', '1');
   await expect(mount).not.toHaveAttribute('data-eforms-upload-expired', '1');
   await expect(form.locator('.eforms-upload-field-status')).toContainText('restored for corrected submission');
+  expect(previewRequests).toBe(0);
 
   const submitted = await form.evaluate(node => {
     const allowed = node.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -710,6 +796,7 @@ test('responsive uploader geometry keeps accessible targets and removes mobile d
 
 test('finalizing denial freezes mutation while accept expiry uses the reload contract', async ({ page }) => {
   let uploadBodies = 0;
+  let releasePendingUpload;
   await page.route('https://example.test/eforms/upload-batches**', async route => {
     const request = route.request();
     const kind = routeKind(request.url());
@@ -724,6 +811,15 @@ test('finalizing denial freezes mutation while accept expiry uses the reload con
     }
     if (kind === 'item' && request.method() === 'POST') {
       uploadBodies += 1;
+      if (uploadBodies === 2) {
+        await new Promise(resolve => {
+          releasePendingUpload = async () => {
+            await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'EFORMS_ERR_TOKEN' }) });
+            resolve();
+          };
+        });
+        return;
+      }
       await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'EFORMS_ERR_TOKEN' }) });
       return;
     }
@@ -733,10 +829,41 @@ test('finalizing denial freezes mutation while accept expiry uses the reload con
   });
   await boot(page, formMarkup('finalizing-demo') + formMarkup('expired-demo'));
   const finalizing = page.locator('form.eforms-form-finalizing-demo');
-  await finalizing.locator(uploadSelector('picker')).setInputFiles(imagePayload('race.png'));
+  const picker = finalizing.locator(uploadSelector('picker'));
+  const mount = finalizing.locator(uploadSelector('mount'));
+  await picker.setInputFiles([imagePayload('race.png'), imagePayload('still-processing.png', 2)]);
+  await expect.poll(() => typeof releasePendingUpload).toBe('function');
   await expect(finalizing.locator('[data-eforms-upload-state="failed"]')).toContainText('Photos are being submitted.');
-  await expect(finalizing.locator('.eforms-upload-remove')).toBeHidden();
+  expect(await mount.evaluate(node => ({
+    items: node.querySelectorAll('.eforms-upload-item').length,
+    frozen: node.getAttribute('data-eforms-upload-frozen'),
+    picker: { disabled: node.__eformsUploadRuntime.picker.disabled, value: node.__eformsUploadRuntime.picker.value },
+    chooseDisabled: node.querySelector('.eforms-upload-choose').disabled,
+    clear: { disabled: node.querySelector('.eforms-upload-clear').disabled, hidden: node.querySelector('.eforms-upload-clear').hidden },
+    visibleRemoves: node.querySelectorAll('.eforms-upload-remove:not([hidden])').length,
+    visibleRetries: node.querySelectorAll('.eforms-upload-retry:not([hidden])').length
+  }))).toEqual({ items: 2, frozen: '1', picker: { disabled: true, value: '' }, chooseDisabled: true, clear: { disabled: true, hidden: true }, visibleRemoves: 0, visibleRetries: 0 });
   await expect(finalizing).not.toContainText('finalized');
+
+  expect(await mount.evaluate(async node => {
+    let fetchCalls = 0;
+    const fetchOwner = window.fetch;
+    window.fetch = function () { fetchCalls += 1; return Promise.resolve({ status: 500 }); };
+    try {
+      node.querySelectorAll('.eforms-upload-remove, .eforms-upload-retry').forEach(button => button.click());
+      node.querySelector('.eforms-upload-clear').click();
+      const pickerNode = node.__eformsUploadRuntime.picker;
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['blocked'], 'blocked.png', { type: 'image/png' }));
+      pickerNode.files = transfer.files;
+      pickerNode.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      return { fetchCalls, items: node.querySelectorAll('.eforms-upload-item').length };
+    } finally {
+      window.fetch = fetchOwner;
+    }
+  })).toEqual({ fetchCalls: 0, items: 2 });
+  await releasePendingUpload();
 
   const expired = page.locator('form.eforms-form-expired-demo');
   await expired.locator(uploadSelector('picker')).setInputFiles(imagePayload('expired.png'));
@@ -744,5 +871,5 @@ test('finalizing denial freezes mutation while accept expiry uses the reload con
   await expect(expired).toContainText('Form expired—reload and select your photos again.');
   const allowed = await expired.evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(allowed).toBeFalsy();
-  expect(uploadBodies).toBe(1);
+  expect(uploadBodies).toBe(2);
 });

@@ -30,24 +30,49 @@
 @media (max-width:30rem) { .eforms-review-grid { grid-template-columns:1fr; } }
 
 .eforms-upload {
-  --eforms-upload-accent:#1769aa;
+  --eforms-upload-accent:#202020;
   --eforms-upload-track:#d8dee5;
   --eforms-upload-border:#c7ced6;
   --eforms-upload-card-bg:#fff;
   --eforms-upload-error:#b42318;
+  box-sizing:border-box;
   margin:.75rem 0 1rem;
-  padding:.75rem;
-  border:1px dashed var(--eforms-upload-border);
-  border-radius:.35rem;
+  padding-inline:1.25rem;
 }
-.eforms-upload[data-eforms-upload-dragover="1"] { border-style:solid; border-color:var(--eforms-upload-accent); }
+.eforms-upload-controls {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:.4rem;
+  padding:.9rem 1rem;
+  border:1px dashed var(--eforms-upload-border);
+  border-radius:.5rem;
+  background:#f7f9fb;
+  text-align:center;
+  transition:border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.eforms-upload[data-eforms-upload-dragover="1"] .eforms-upload-controls {
+  border-style:solid;
+  border-color:var(--eforms-upload-accent);
+  background:#f3f3f3;
+  box-shadow:0 0 0 2px rgba(32,32,32,.1);
+}
 .eforms-upload-picker-enhanced,
 [data-eforms-upload-picker] { position:absolute !important; width:1px !important; height:1px !important; padding:0 !important; margin:-1px !important; overflow:hidden !important; clip:rect(0,0,0,0) !important; white-space:nowrap !important; border:0 !important; }
-.eforms-upload-controls { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem .75rem; }
-.eforms-upload-choose,
-.eforms-upload-clear { min-height:44px; }
+.eforms-upload-icon { display:grid; place-items:center; width:2rem; height:2rem; color:var(--eforms-upload-accent); }
+.eforms-upload-icon svg { width:100%; height:100%; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.eforms-upload-drop-hint { color:#25313c; font-weight:650; line-height:1.35; }
+.eforms-upload-clear { min-height:44px; font:inherit; }
+.eforms-upload-choose { position:relative; min-height:40px; margin:.35rem 0 .1rem; padding:.4rem .85rem; border:1px solid var(--eforms-upload-border); border-radius:.35rem; background:#fff; color:var(--eforms-upload-accent); font-family:inherit; font-size:.9em; font-weight:400; cursor:pointer; }
+.eforms-upload-choose::before { content:""; position:absolute; inset:-2px 0; }
+.eforms-upload-choose:hover:not(:disabled) { background:#f3f3f3; }
+.eforms-upload-choose:disabled { cursor:not-allowed; opacity:.58; }
+.eforms-upload-guidance { display:flex; justify-content:space-between; gap:.35rem 1rem; margin:.45rem .1rem 0; color:#66727e; font-size:.86em; line-height:1.4; }
+.eforms-upload-limits { text-align:right; }
+.eforms-upload-meta { display:flex; align-items:center; gap:.5rem 1rem; margin-top:.5rem; }
 .eforms-upload-clear { margin-left:auto; }
-.eforms-upload-count { margin:.5rem 0 0; }
+.eforms-upload-count { margin:0; color:#53606c; font-size:.92em; }
 .eforms-upload-count:empty { display:none; }
 .eforms-upload-field-status { margin:.5rem 0 0; color:var(--eforms-upload-error); }
 .eforms-upload-field-status:empty { display:none; }
@@ -68,9 +93,18 @@
 .eforms-upload-actions button { min-width:44px; min-height:44px; }
 .eforms-upload[data-eforms-upload-expired="1"],
 .eforms-upload[data-eforms-upload-unavailable="1"],
-.eforms-upload[data-eforms-upload-restoring="1"] { border-style:solid; }
+.eforms-upload[data-eforms-upload-restoring="1"] { opacity:.82; }
+.eforms-upload[data-eforms-upload-expired="1"] .eforms-upload-controls,
+.eforms-upload[data-eforms-upload-unavailable="1"] .eforms-upload-controls,
+.eforms-upload[data-eforms-upload-restoring="1"] .eforms-upload-controls { border-style:solid; }
 @media (max-width:48rem) {
   .eforms-upload-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .eforms-upload-drop-hint { display:none; }
+  .eforms-upload-guidance { flex-direction:column; align-items:center; text-align:center; }
+  .eforms-upload-limits { text-align:center; }
+}
+@media (max-width:30rem) {
+  .eforms-upload { padding-inline:.5rem; }
+  .eforms-upload-controls { padding:.8rem .75rem; }
 }
 @media (max-width:20rem) { .eforms-upload-grid { grid-template-columns:1fr; } }

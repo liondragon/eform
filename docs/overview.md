@@ -40,11 +40,11 @@
 
 Templates are JSON files in `/templates/forms/{form_id}.json`. Operators define form structure, validation, and email delivery here.
 
-Photo-heavy forms may set a `files` field to `upload_mode: "staged"`. The browser uploads JPEG, PNG, and WebP photos as they are selected; forms that explicitly add the `heic` accept token also allow HEIC and HEIF. It shows progress and per-photo retry/removal and submits only a private batch credential with the form. This mode requires JavaScript and enabled throttling; it never falls back to one large multipart form submission.
+Photo-heavy forms may set a `files` field to `upload_mode: "staged"`. Its `image` accept token covers JPEG, PNG, WebP, HEIC, and HEIF photos while GIF remains rejected. The browser uploads photos as they are selected, shows progress and per-photo retry/removal, and submits only a private batch credential with the form. The server replaces each accepted source with a private normalized JPEG review master and preview. This mode requires JavaScript and enabled throttling; it never falls back to one large multipart form submission.
 
-Staged-mode support is implemented and exercised by the dedicated upload fixture. The production `virtual-estimate` template remains on its synchronous 2 MiB attachment flow until the target host passes staged readiness and release review is complete; activation then moves its photos to the time-limited private gallery flow.
+The shipped `virtual-estimate` template uses the staged image flow for up to 24 source photos, 20 MiB each and 300 MiB total, with no email attachments. Deploy that template only after every target webhead passes staged readiness and release review; until then, keep the production installation on its prior synchronous template.
 
-Staged mode also requires 64-bit PHP integers; PHP `fileinfo`; image-editor support for JPEG, PNG, and WebP decode plus JPEG encode; at least 768 MiB effective PHP memory; and at least 60 seconds execution time (or unlimited resource values). A GD-backed JPEG path additionally requires PHP EXIF support so camera orientation can be normalized; Imagick performs orientation itself. HEIC/HEIF opt-in additionally requires Imagick with its HEIC delegate. PHP and web-server request limits must exceed the largest staged item plus multipart overhead. GIF remains rejected. Managed originals/previews share a fixed 50 GiB ceiling while runtime reservations preserve a separate 10 GiB free-space reserve, so the backing filesystem needs at least 60 GiB plus space for unrelated content. Batch creation and upload attempts use the existing per-IP throttle; operators should tune its request rate for multi-photo forms and shared-IP traffic.
+Staged mode also requires 64-bit PHP integers, PHP `fileinfo`, and Imagick able to decode every staged `image` format and encode JPEG. Effective PHP memory and execution time must meet the fixed staged-image readiness Anchors or be unlimited. PHP and web-server request limits must exceed the largest staged item plus multipart overhead. Only committed review masters, previews, and active derivative reservations count toward the fixed managed-capacity ceiling; free-space safety also includes a temporary source when it occupies that filesystem. Batch creation and upload attempts use the existing per-IP throttle; operators should tune its request rate for multi-photo forms and shared-IP traffic.
 
 ### Template Shape
 
@@ -396,7 +396,7 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 - Focuses error summary, then first invalid field after server rerenders with errors
 - Runs staged photo queues with additive selection, upload progress, server-processing status, retry/removal, and authenticated restoration after validation errors; restoration blocks picker interaction and submission until a complete status snapshot is applied, while transient failures retain credentials for an explicit retry
 
-**Managed photo experience:** Desktop shows three compact photo cards per row and ordinary mobile shows two. Uploading shows determinate progress; 100% changes to Processing until the server confirms the item. Failed photos retain Retry and Remove. After the form token expires, upload and submission stop with a reload instruction. A signed email link opens a private read-only gallery for 30 days; forwarded links grant the same temporary bearer access.
+**Managed photo experience:** Desktop shows three compact photo cards per row and ordinary mobile shows two. Uploading shows determinate progress; 100% changes to Processing until the server confirms the item. Failed photos retain Retry and Remove. After the form token expires, upload and submission stop with a reload instruction. A signed email link opens a private read-only gallery for the fixed review lifetime; each photo offers a **High-resolution** JPEG master. Forwarded links grant the same temporary bearer access.
 
 **Mixed-mode pages:** Each form is handled independently. Hidden-mode forms without staged fields work without JS; JS-minted forms and every staged field require it.
 
@@ -434,7 +434,7 @@ The plugin includes `forms.js` for client-side enhancements. It is required for 
 - **What:** Expired token records, ledger `.used` markers (conservative TTL + grace window), stale throttle files, old synchronous uploads, expired staged batches and finalized galleries, rotated logs
 - **When:** Operators schedule via system cron (plugin does not use WP-Cron)
 - **How:** Batch processing (time-boxed or count-boxed) to prevent timeouts; `gc.lock` prevents overlaps and persists the next family plus bounded per-family scan cursors between applying runs
-- **Operator sees:** Dry-run lists candidates and original/preview bytes by aggregate family without releasing capacity; normal mode emits deletion and released-capacity counts at `info` level
+- **Operator sees:** Dry-run lists candidates and master/preview bytes by aggregate family without releasing capacity; normal mode emits deletion and released-capacity counts at `info` level
 - **Capacity repair:** `wp eforms gc --reconcile-capacity` performs the explicit full managed-file reconciliation scan; ordinary scheduled GC stays batch-bounded
 - **Scheduling boundary:** `wp eforms doctor` proves that a GC dry-run can access storage, but PHP cannot prove that external cron is configured or running
 

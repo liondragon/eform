@@ -17,15 +17,17 @@
     "batch_id": "batch_id",
     "batch_secret": "batch_secret"
   },
-  "preview_attempts": [
-    { "edge": 1600, "quality": 82 },
-    { "edge": 1440, "quality": 78 },
-    { "edge": 1280, "quality": 74 },
-    { "edge": 1120, "quality": 70 },
-    { "edge": 960, "quality": 66 }
-  ],
+  "managed_manifest": {
+    "version": 2,
+    "aggregate_byte_fields": ["source_bytes", "managed_bytes"],
+    "item_fields": ["upload_id", "ordinal", "source_display_name", "source_bytes", "source_mime", "source_width", "source_height", "source_sha256", "master_relpath", "master_bytes", "master_width", "master_height", "master_sha256", "preview_relpath", "preview_bytes", "preview_width", "preview_height", "preview_sha256", "managed_bytes", "created_at"],
+    "tombstone_artifact_fields": ["master_relpath", "preview_relpath"],
+    "variants": ["preview", "master"],
+    "filenames": { "master": "master.jpg", "preview": "preview.jpg" }
+  },
   "production_readiness": {
-    "throttle_enable": true
+    "throttle_enable": true,
+    "staged_backend": "imagick"
   },
   "anchors": {
     "MANAGED_UPLOAD_MAX_BYTES": 53687091200,
@@ -41,6 +43,12 @@
     "STAGED_IMAGE_MAX_PIXELS": 60000000,
     "STAGED_IMAGE_MAX_EDGE": 12000,
     "STAGED_MULTIPART_OVERHEAD_BYTES": 1048576,
+    "STAGED_MASTER_MAX_EDGE": 4096,
+    "STAGED_MASTER_MAX_BYTES": 8388608,
+    "STAGED_MASTER_JPEG_QUALITY_INITIAL": 88,
+    "STAGED_MASTER_JPEG_QUALITY_STEP": 4,
+    "STAGED_MASTER_EDGE_STEP": 512,
+    "STAGED_MASTER_MAX_ATTEMPTS": 5,
     "STAGED_PREVIEW_MAX_EDGE": 1600,
     "STAGED_PREVIEW_MAX_BYTES": 2097152,
     "STAGED_PREVIEW_JPEG_QUALITY_INITIAL": 82,

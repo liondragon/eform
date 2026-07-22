@@ -283,13 +283,6 @@ if ( ! function_exists( 'is_email' ) ) {
     }
 }
 
-if ( ! function_exists( 'wp_image_editor_supports' ) ) {
-    function wp_image_editor_supports( $args = array() ) {
-        return isset( $args['mime_type'] )
-            && in_array( $args['mime_type'], array( 'image/jpeg', 'image/png', 'image/webp' ), true );
-    }
-}
-
 if ( ! function_exists( 'wp_unslash' ) ) {
     function wp_unslash( $value ) {
         if ( is_array( $value ) ) {
@@ -738,7 +731,7 @@ try {
     eforms_wp_runtime_assert( strpos( $review_page['body'], '<h1 class="page-title">Submitted Photos</h1>' ) !== false, 'The review gallery should show its stable title.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], $staged_token ) !== false && strpos( $review_page['body'], '1 photo' ) !== false, 'The review gallery should show the submission id and count.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], 'loading="lazy"' ) !== false && strpos( $review_page['body'], 'eforms_review_variant=preview' ) !== false, 'The review gallery should lazy-load only signed previews.' );
-    eforms_wp_runtime_assert( strpos( $review_page['body'], 'Open original' ) !== false && strpos( $review_page['body'], 'Download' ) !== false, 'The review gallery should expose controlled original actions.' );
+    eforms_wp_runtime_assert( strpos( $review_page['body'], 'High-resolution' ) !== false && strpos( $review_page['body'], 'Download high-resolution' ) !== false && strpos( $review_page['body'], 'eforms_review_variant=master' ) !== false, 'The review gallery should expose controlled high-resolution JPEG actions.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], $uploads_dir ) === false && strpos( $review_page['body'], $staged_secret ) === false, 'The review gallery must not disclose private paths or batch credentials.' );
     $review_items = $review_page['response']['review_page']['items'];
     $review_preview = eforms_wp_runtime_review_get( $review_items[0]['preview_url'] );
