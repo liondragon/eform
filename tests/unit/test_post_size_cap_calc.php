@@ -63,5 +63,56 @@ $config = $set_config( 3 * $mb, true );
 $cap = PostSize::effective_cap( 'multipart/form-data; boundary=abc', $config, 12 * $mb, 6 * $mb );
 eforms_test_assert( $cap === 3 * $mb, 'PostSize should honor security.max_post_bytes when it is the smallest cap.' );
 
+$_SERVER['CONTENT_LENGTH'] = '99';
+eforms_test_assert( PostSize::content_length() === 99, 'PostSize should read ambient PHP Content-Length for live requests.' );
+eforms_test_assert(
+    PostSize::content_length(
+        array(
+            'headers' => array(
+                'Content-Length' => '42',
+            ),
+        )
+    ) === 42,
+    'PostSize should read explicit request Content-Length headers.'
+);
+eforms_test_assert(
+    PostSize::content_length(
+        array(
+            'headers' => array(),
+        )
+    ) === null,
+    'PostSize should not fall back to ambient Content-Length when explicit request headers omit it.'
+);
+eforms_test_assert(
+    PostSize::content_length(
+        array(
+            'headers' => array( 'Content-Length' => '42' ),
+            'content_length' => 7,
+        )
+    ) === 7,
+    'PostSize should prefer explicit request content_length over headers.'
+);
+eforms_test_assert(
+    PostSize::request_exceeds_cap(
+        array(
+            'headers' => array( 'Content-Length' => '4' ),
+        ),
+        'application/x-www-form-urlencoded',
+        $set_config( 3, false )
+    ) === true,
+    'PostSize should own the request-exceeds-cap predicate.'
+);
+eforms_test_assert(
+    PostSize::request_exceeds_cap(
+        array(
+            'headers' => array( 'Content-Length' => '3' ),
+        ),
+        'application/x-www-form-urlencoded',
+        $set_config( 3, false )
+    ) === false,
+    'PostSize should not reject requests at the exact cap.'
+);
+unset( $_SERVER['CONTENT_LENGTH'] );
+
 eforms_test_set_filter( 'eforms_config', null );
 Config::reset_for_tests();

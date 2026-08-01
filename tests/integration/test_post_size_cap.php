@@ -40,8 +40,8 @@ $request = array(
     'files' => array(),
     'headers' => array(
         'Content-Type' => 'application/x-www-form-urlencoded',
+        'Content-Length' => 2048,
     ),
-    'content_length' => 2048,
 );
 
 $result = SubmitHandler::handle( 'demo', $request, $overrides );

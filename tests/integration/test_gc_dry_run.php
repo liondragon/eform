@@ -78,7 +78,7 @@ $private_dir = $private['path'];
 $now = time();
 $token_ttl_max = (int) Anchors::get( 'TOKEN_TTL_MAX' );
 $ledger_grace = (int) Anchors::get( 'LEDGER_GC_GRACE_SECONDS' );
-$throttle_stale_seconds = 2 * 24 * 60 * 60;
+$throttle_stale_seconds = (int) Anchors::get( 'THROTTLE_STALE_SECONDS' );
 
 $token_expired_path = $private_dir . '/tokens/aa/expired.json';
 $token_fresh_path = $private_dir . '/tokens/aa/fresh.json';

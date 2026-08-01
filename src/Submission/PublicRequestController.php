@@ -13,6 +13,7 @@ require_once __DIR__ . '/../Rendering/FormRenderer.php';
 require_once __DIR__ . '/../Rendering/TemplateContext.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
 require_once __DIR__ . '/../Security/Challenge.php';
+require_once __DIR__ . '/../Security/PostSize.php';
 require_once __DIR__ . '/../Uploads/ReviewController.php';
 require_once __DIR__ . '/SubmitHandler.php';
 
@@ -66,7 +67,7 @@ class PublicRequestController {
             'post' => $post,
             'files' => self::files_payload(),
             'headers' => self::headers_payload(),
-            'content_length' => self::content_length(),
+            'content_length' => PostSize::content_length(),
         );
 
         $enhanced_response = self::is_enhanced_response_request( $request['headers'] );
@@ -697,18 +698,6 @@ class PublicRequestController {
         return is_array( $headers )
             && isset( $headers[ FormProtocol::HEADER_ENHANCED_RESPONSE ] )
             && $headers[ FormProtocol::HEADER_ENHANCED_RESPONSE ] === FormProtocol::ENHANCED_RESPONSE_JSON;
-    }
-
-    private static function content_length() {
-        if ( isset( $_SERVER['CONTENT_LENGTH'] ) && is_numeric( $_SERVER['CONTENT_LENGTH'] ) ) {
-            return (int) $_SERVER['CONTENT_LENGTH'];
-        }
-
-        if ( isset( $_SERVER['HTTP_CONTENT_LENGTH'] ) && is_numeric( $_SERVER['HTTP_CONTENT_LENGTH'] ) ) {
-            return (int) $_SERVER['HTTP_CONTENT_LENGTH'];
-        }
-
-        return null;
     }
 
     private static function result_status( $result ) {

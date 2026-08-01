@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../Config.php';
+require_once __DIR__ . '/../Anchors.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
 if ( ! class_exists( 'Logging' ) ) {
@@ -14,7 +15,6 @@ if ( ! class_exists( 'Logging' ) ) {
 }
 
 class Throttle {
-    const WINDOW_SECONDS = 60;
     const THROTTLE_DIR = 'throttle';
     const TALLY_SUFFIX = '.tally';
     const COOLDOWN_SUFFIX = '.cooldown';
@@ -60,8 +60,9 @@ class Throttle {
         }
 
         $now = time();
-        $window_start = (int) ( floor( $now / self::WINDOW_SECONDS ) * self::WINDOW_SECONDS );
-        $window_end = $window_start + self::WINDOW_SECONDS;
+        $window_seconds = Anchors::get( 'THROTTLE_WINDOW_SECONDS' );
+        $window_start = (int) ( floor( $now / $window_seconds ) * $window_seconds );
+        $window_end = $window_start + $window_seconds;
 
         $shard_dir = PrivateDir::leased_relative_dir( $lifecycle, self::THROTTLE_DIR . '/' . Helpers::h2( $ip_hash ), true );
         if ( $shard_dir === '' ) {

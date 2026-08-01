@@ -168,6 +168,22 @@ eforms_test_assert(
     'Number normalization should accept grouped thousands.'
 );
 eforms_test_assert(
+    FieldTypes_TextLike::normalize_number( '1,2' ) === '12',
+    'Number normalization should treat comma placement as decorative.'
+);
+eforms_test_assert(
+    FieldTypes_TextLike::normalize_number( '12,,34' ) === '1234',
+    'Number normalization should strip repeated decorative commas.'
+);
+eforms_test_assert(
+    FieldTypes_TextLike::normalize_number( '1,2.3' ) === '12.3',
+    'Number normalization should preserve decimal semantics while stripping commas.'
+);
+eforms_test_assert(
+    FieldTypes_TextLike::normalize_number( '12,34a' ) === null,
+    'Number normalization should still reject non-numeric values after comma stripping.'
+);
+eforms_test_assert(
     FieldTypes_TextLike::normalize_url( 'zillow.com/homedetails/123' ) === 'https://zillow.com/homedetails/123',
     'URL normalization should accept bare listing domains.'
 );

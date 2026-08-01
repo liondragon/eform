@@ -219,7 +219,7 @@ class FieldTypes_TextLike {
             return null;
         }
 
-        if ( preg_match( '/^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/', $value ) ) {
+        if ( strpos( $value, ',' ) !== false ) {
             $value = str_replace( ',', '', $value );
         }
 

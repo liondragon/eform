@@ -348,23 +348,17 @@ class SpamSmokeDiagnostic {
                 $input = isset( $scenario['input'] ) && is_array( $scenario['input'] ) ? $scenario['input'] : array();
                 $expect = isset( $scenario['expect'] ) && is_array( $scenario['expect'] ) ? $scenario['expect'] : array();
                 $attempts = self::expect_int( $input, 'attempts', 1 );
-                $run = function () use ( $input, $attempts ) {
-                    $response = array();
-                    for ( $i = 0; $i < $attempts; $i++ ) {
-                        $response = MintEndpoint::handle(
-                            self::mint_request(
-                                self::expect_string( $input, 'ip', self::NO_ORIGIN_IP ),
-                                ! empty( $input['origin'] )
-                            )
-                        );
-                    }
-                    return $response;
-                };
-
                 $content_length = array_key_exists( 'content_length', $input ) ? (int) $input['content_length'] : null;
-                $response = $content_length === null
-                    ? $run()
-                    : self::with_content_length( $content_length, $run );
+                $response = array();
+                for ( $i = 0; $i < $attempts; $i++ ) {
+                    $response = MintEndpoint::handle(
+                        self::mint_request(
+                            self::expect_string( $input, 'ip', self::NO_ORIGIN_IP ),
+                            ! empty( $input['origin'] ),
+                            $content_length
+                        )
+                    );
+                }
 
                 $body = isset( $response['body'] ) && is_array( $response['body'] ) ? $response['body'] : array();
                 $status = isset( $response['status'] ) ? (int) $response['status'] : 0;
@@ -446,7 +440,7 @@ class SpamSmokeDiagnostic {
         );
     }
 
-    private static function mint_request( $ip, $with_origin ) {
+    private static function mint_request( $ip, $with_origin, $content_length = null ) {
         $headers = array( 'Content-Type' => 'application/x-www-form-urlencoded' );
         if ( $with_origin ) {
             $headers['Origin'] = self::site_origin();
@@ -458,7 +452,7 @@ class SpamSmokeDiagnostic {
             'params' => array( FormProtocol::MINT_FORM_PARAM => self::FORM_ID ),
             'client_ip' => $ip,
             'request_id' => self::request_id(),
-        );
+        ) + ( $content_length === null ? array() : array( 'content_length' => $content_length ) );
     }
 
     private static function submission_config( $extra = array() ) {
@@ -574,22 +568,6 @@ class SpamSmokeDiagnostic {
         }
         if ( function_exists( 'remove_filter' ) ) {
             remove_filter( 'eforms_config', $filter, PHP_INT_MAX );
-        }
-    }
-
-    private static function with_content_length( $length, $callback ) {
-        $had_content_length = array_key_exists( 'CONTENT_LENGTH', $_SERVER );
-        $old_content_length = $had_content_length ? $_SERVER['CONTENT_LENGTH'] : null;
-        $_SERVER['CONTENT_LENGTH'] = (string) $length;
-
-        try {
-            return call_user_func( $callback );
-        } finally {
-            if ( $had_content_length ) {
-                $_SERVER['CONTENT_LENGTH'] = $old_content_length;
-            } else {
-                unset( $_SERVER['CONTENT_LENGTH'] );
-            }
         }
     }
 

@@ -158,13 +158,18 @@ unset( $GLOBALS['eforms_test_home_url'] );
 // Then it rejects with a mint failure error.
 $uploads_dir = eforms_test_setup_uploads( 'eforms-mint-size' );
 eforms_test_configure_uploads( $uploads_dir, array( 'security' => array( 'max_post_bytes' => 1 ) ) );
-$_SERVER['CONTENT_LENGTH'] = '2';
+$request['content_length'] = 2;
 $request['headers']['Origin'] = 'https://example.com';
 $response = MintEndpoint::handle( $request );
 eforms_test_assert( $response['status'] === 400, 'Mint should reject oversized POST bodies.' );
 eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_MINT_FAILED', 'Mint should use mint failed for oversize.' );
 
-unset( $_SERVER['CONTENT_LENGTH'] );
+unset( $request['content_length'] );
+$request['headers']['Content-Length'] = '2';
+$response = MintEndpoint::handle( $request );
+eforms_test_assert( $response['status'] === 400, 'Mint should reject oversized request-header POST bodies.' );
+eforms_test_assert( $response['body']['error'] === 'EFORMS_ERR_MINT_FAILED', 'Mint should use mint failed for request-header oversize.' );
+unset( $request['headers']['Content-Length'] );
 eforms_test_remove_tree( $uploads_dir );
 
 // Given an unwritable uploads dir...

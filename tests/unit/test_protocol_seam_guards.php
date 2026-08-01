@@ -71,6 +71,15 @@ eforms_test_assert( strpos( $submit_handler, 'private static function is_spam_fa
 eforms_test_assert( strpos( $submit_handler, 'private static function spam_soft_fail_threshold' ) === false, 'SubmitHandler must not own soft-fail threshold normalization.' );
 eforms_test_assert( strpos( $submit_handler, 'Errors::first_code' ) !== false, 'SubmitHandler should use Errors for primary-code selection.' );
 eforms_protocol_guard_assert_protocol_owner( $submit_handler, 'RESPONSE_UPLOAD_RECOVERY', 'SubmitHandler' );
+foreach ( array(
+    'MintEndpoint' => $mint_endpoint = eforms_protocol_guard_read( 'src/Security/MintEndpoint.php' ),
+    'SubmitHandler' => $submit_handler,
+    'PublicRequestController' => $public_controller,
+    'UploadBatchEndpoint' => $upload_endpoint,
+) as $owner => $contents ) {
+    eforms_test_assert( strpos( $contents, 'PostSize::content_length' ) !== false || strpos( $contents, 'PostSize::request_exceeds_cap' ) !== false, $owner . ' should route request Content-Length through PostSize.' );
+    eforms_test_assert( strpos( $contents, 'private static function content_length' ) === false, $owner . ' must not own a local Content-Length parser.' );
+}
 
 eforms_test_assert( strpos( $public_controller, 'private static function reserved_keys' ) === false, 'PublicRequestController must not own a reserved-key map.' );
 eforms_test_assert( strpos( $public_controller, 'FormProtocol::post_detection_keys' ) !== false, 'PublicRequestController should use FormProtocol detection keys.' );

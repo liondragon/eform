@@ -53,9 +53,7 @@ class SubmitHandler {
         $config = Config::get();
 
         $content_type = self::header_value( $request, 'Content-Type' );
-        $cap = PostSize::effective_cap( $content_type, $config );
-        $length = self::content_length( $request );
-        if ( $length !== null && $length > $cap ) {
+        if ( PostSize::request_exceeds_cap( $request, $content_type, $config ) ) {
             return self::fail( 'EFORMS_ERR_TYPE', 400, $trace, $trace_on );
         }
 
@@ -1430,22 +1428,6 @@ class SubmitHandler {
 
     private static function health_ok( $health ) {
         return is_array( $health ) && ! empty( $health['ok'] );
-    }
-
-    private static function content_length( $request ) {
-        if ( is_array( $request ) && isset( $request['content_length'] ) && is_numeric( $request['content_length'] ) ) {
-            return (int) $request['content_length'];
-        }
-
-        if ( isset( $_SERVER['CONTENT_LENGTH'] ) && is_numeric( $_SERVER['CONTENT_LENGTH'] ) ) {
-            return (int) $_SERVER['CONTENT_LENGTH'];
-        }
-
-        if ( isset( $_SERVER['HTTP_CONTENT_LENGTH'] ) && is_numeric( $_SERVER['HTTP_CONTENT_LENGTH'] ) ) {
-            return (int) $_SERVER['HTTP_CONTENT_LENGTH'];
-        }
-
-        return null;
     }
 
     private static function header_value( $request, $name ) {

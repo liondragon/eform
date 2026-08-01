@@ -36,9 +36,7 @@ class MintEndpoint {
         }
 
         $config = Config::get();
-        $cap = PostSize::effective_cap( $content_type, $config );
-        $length = self::content_length();
-        if ( $length !== null && $length > $cap ) {
+        if ( PostSize::request_exceeds_cap( $request, $content_type, $config ) ) {
             return self::result( 400, $headers, array( 'error' => 'EFORMS_ERR_MINT_FAILED' ) );
         }
 
@@ -110,18 +108,6 @@ class MintEndpoint {
         }
 
         return '';
-    }
-
-    private static function content_length() {
-        if ( isset( $_SERVER['CONTENT_LENGTH'] ) && is_numeric( $_SERVER['CONTENT_LENGTH'] ) ) {
-            return (int) $_SERVER['CONTENT_LENGTH'];
-        }
-
-        if ( isset( $_SERVER['HTTP_CONTENT_LENGTH'] ) && is_numeric( $_SERVER['HTTP_CONTENT_LENGTH'] ) ) {
-            return (int) $_SERVER['HTTP_CONTENT_LENGTH'];
-        }
-
-        return null;
     }
 
     private static function header_value( $request, $name ) {

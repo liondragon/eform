@@ -508,26 +508,7 @@ class UploadBatchEndpoint {
     }
 
     private static function request_exceeds_limit( $request ) {
-        $length = self::content_length( $request );
-        if ( $length === null ) {
-            return false;
-        }
-        $cap = PostSize::effective_cap( self::header( $request, 'Content-Type' ), Config::get() );
-        return $length > $cap;
-    }
-
-    private static function content_length( $request ) {
-        if ( is_array( $request ) && isset( $request['content_length'] ) && is_numeric( $request['content_length'] ) ) {
-            return max( 0, (int) $request['content_length'] );
-        }
-        $header = self::header( $request, 'Content-Length' );
-        if ( $header !== '' && is_numeric( $header ) ) {
-            return max( 0, (int) $header );
-        }
-        if ( isset( $_SERVER['CONTENT_LENGTH'] ) && is_numeric( $_SERVER['CONTENT_LENGTH'] ) ) {
-            return max( 0, (int) $_SERVER['CONTENT_LENGTH'] );
-        }
-        return null;
+        return PostSize::request_exceeds_cap( $request, self::header( $request, 'Content-Type' ), Config::get() );
     }
 
     private static function method_failure( $allow ) {

@@ -14,4 +14,3 @@ This guide orients contributors to the eForms documentation set so you can quick
 Historical notes that are not active contract carriers:
 
 - `docs/crm.md`
-- `docs/crm.diff`

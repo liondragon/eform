@@ -31,7 +31,6 @@ class GcRunner {
     const THROTTLE_TALLY_SUFFIX = '.tally';
     const THROTTLE_COOLDOWN_SUFFIX = '.cooldown';
 
-    const THROTTLE_STALE_SECONDS = 172800; // 2 days.
     const DEFAULT_BATCH_LIMIT = 500;
 
     /**
@@ -468,7 +467,7 @@ class GcRunner {
                     return false;
                 }
 
-                return ( $now - $mtime ) > self::THROTTLE_STALE_SECONDS;
+                return ( $now - $mtime ) > Anchors::get( 'THROTTLE_STALE_SECONDS' );
             },
             $budget,
             $cursor

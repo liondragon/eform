@@ -43,6 +43,40 @@ class PostSize {
         return self::min_cap( $caps );
     }
 
+    /**
+     * Resolve request Content-Length for POST-size gates.
+     *
+     * Explicit request metadata wins over ambient PHP globals. When an object or
+     * array request exposes headers but no Content-Length, the request owns that
+     * absence and globals are not consulted.
+     *
+     * @param mixed $request Request object, request array, or null for globals.
+     * @return int|null Non-negative length, or null when unavailable.
+     */
+    public static function content_length( $request = null ) {
+        if ( is_array( $request ) && array_key_exists( 'content_length', $request ) && is_numeric( $request['content_length'] ) ) {
+            return max( 0, (int) $request['content_length'] );
+        }
+
+        $header = self::request_header( $request, 'Content-Length' );
+        if ( $header['owned'] ) {
+            return $header['value'] !== '' && is_numeric( $header['value'] )
+                ? max( 0, (int) $header['value'] )
+                : null;
+        }
+
+        return self::server_content_length();
+    }
+
+    public static function request_exceeds_cap( $request, $content_type, $config = null ) {
+        $length = self::content_length( $request );
+        if ( $length === null ) {
+            return false;
+        }
+
+        return $length > self::effective_cap( $content_type, $config );
+    }
+
     private static function is_multipart( $content_type ) {
         if ( ! is_string( $content_type ) ) {
             return false;
@@ -84,6 +118,39 @@ class PostSize {
         }
 
         return $min === null ? 0 : $min;
+    }
+
+    private static function request_header( $request, $name ) {
+        if ( is_object( $request ) && method_exists( $request, 'get_header' ) ) {
+            $value = $request->get_header( $name );
+            return array(
+                'owned' => true,
+                'value' => is_string( $value ) || is_numeric( $value ) ? trim( (string) $value ) : '',
+            );
+        }
+
+        if ( is_array( $request ) && isset( $request['headers'] ) && is_array( $request['headers'] ) ) {
+            foreach ( $request['headers'] as $key => $value ) {
+                if ( is_string( $key ) && strcasecmp( $key, $name ) === 0 && ( is_string( $value ) || is_numeric( $value ) ) ) {
+                    return array( 'owned' => true, 'value' => trim( (string) $value ) );
+                }
+            }
+            return array( 'owned' => true, 'value' => '' );
+        }
+
+        return array( 'owned' => false, 'value' => '' );
+    }
+
+    private static function server_content_length() {
+        if ( isset( $_SERVER['CONTENT_LENGTH'] ) && is_numeric( $_SERVER['CONTENT_LENGTH'] ) ) {
+            return max( 0, (int) $_SERVER['CONTENT_LENGTH'] );
+        }
+
+        if ( isset( $_SERVER['HTTP_CONTENT_LENGTH'] ) && is_numeric( $_SERVER['HTTP_CONTENT_LENGTH'] ) ) {
+            return max( 0, (int) $_SERVER['HTTP_CONTENT_LENGTH'] );
+        }
+
+        return null;
     }
 
     private static function config_int( $config, $path, $default ) {

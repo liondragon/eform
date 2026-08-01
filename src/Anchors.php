@@ -25,6 +25,8 @@ class Anchors
         'CHALLENGE_TIMEOUT_MAX' => 5,
         'THROTTLE_MAX_PER_MIN_MIN' => 1,
         'THROTTLE_MAX_PER_MIN_MAX' => 120,
+        'THROTTLE_WINDOW_SECONDS' => 60,
+        'THROTTLE_STALE_SECONDS' => 172800,
         'THROTTLE_COOLDOWN_MIN' => 0,
         'THROTTLE_COOLDOWN_MAX' => 600,
         'LOGGING_LEVEL_MIN' => 0,
