@@ -651,8 +651,6 @@ class FormRenderer {
             }
 
             $label_text = ErrorMessages::field_label_text( $field, $field_key );
-            $error_label_text = ErrorMessages::field_error_label_text( $field, $field_key );
-            $error_message = self::field_error_message( $errors, $field_key, $error_label_text, $field_type );
             $label_class = self::field_label_class( $field );
             $label = '<label for="' . EformsMarkup::escape_attr( $field_id ) . '"';
             if ( $label_class !== '' ) {
@@ -675,7 +673,6 @@ class FormRenderer {
                     $fieldset_id,
                     $error_id,
                     $has_error,
-                    $error_message,
                     $field_value
                 );
                 if ( $group === null ) {
@@ -709,7 +706,6 @@ class FormRenderer {
                     return null;
                 }
                 $parts[] = $control;
-                $parts[] = self::render_field_error_mount( $field_key, $error_id, $has_error, $error_message );
             }
 
             $after = isset( $field['after_html'] ) && is_string( $field['after_html'] ) ? $field['after_html'] : '';
@@ -743,7 +739,7 @@ class FormRenderer {
         return is_array( $field ) && isset( $field['options'] ) && is_array( $field['options'] );
     }
 
-    private static function render_choice_group( $descriptor, $field, $form_id, $fieldset_id, $error_id, $has_error, $error_message, $value ) {
+    private static function render_choice_group( $descriptor, $field, $form_id, $fieldset_id, $error_id, $has_error, $value ) {
         if ( ! is_array( $field ) ) {
             return null;
         }
@@ -797,35 +793,9 @@ class FormRenderer {
             $parts[] = '<label>' . $input . ' ' . EformsMarkup::escape_html( $label ) . '</label>';
         }
 
-        $parts[] = self::render_field_error_mount(
-            isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '',
-            $error_id,
-            $has_error,
-            $error_message
-        );
-
         $parts[] = '</fieldset>';
 
         return implode( '', $parts );
-    }
-
-    private static function render_field_error_mount( $field_key, $error_id, $has_error, $error_message ) {
-        $attrs = array(
-            'id' => $error_id,
-            'class' => 'eforms-error eforms-field-error',
-            FormProtocol::DATA_FIELD_KEY => $field_key,
-            FormProtocol::DATA_FIELD_ERROR_MOUNT => '1',
-        );
-        if ( ! $has_error || $error_message === '' ) {
-            $attrs['hidden'] = 'hidden';
-        }
-
-        $content = '';
-        if ( $has_error && $error_message !== '' ) {
-            $content = EformsMarkup::escape_html( $error_message );
-        }
-
-        return '<span ' . EformsMarkup::attributes( $attrs ) . '>' . $content . '</span>';
     }
 
     private static function render_error_summary( $context, $errors ) {
@@ -864,7 +834,14 @@ class FormRenderer {
                 $target_id = self::fieldset_id( $target_id );
             }
             $summary_text = self::field_error_message( $errors, $field_key, $label_text, $field_type );
-            $items[] = '<li><a href="#' . EformsMarkup::escape_attr( $target_id ) . '">' . EformsMarkup::escape_html( $summary_text !== '' ? $summary_text : $label_text ) . '</a></li>';
+            $error_id = self::error_id( self::field_id( $form_id, $field_key ) );
+            $items[] = '<li ' . EformsMarkup::attributes(
+                array(
+                    'id' => $error_id,
+                    FormProtocol::DATA_FIELD_KEY => $field_key,
+                    FormProtocol::DATA_FIELD_ERROR_MOUNT => '1',
+                )
+            ) . '><a href="#' . EformsMarkup::escape_attr( $target_id ) . '">' . EformsMarkup::escape_html( $summary_text !== '' ? $summary_text : $label_text ) . '</a></li>';
         }
 
         if ( empty( $items ) ) {

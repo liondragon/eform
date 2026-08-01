@@ -84,8 +84,9 @@ $html = FormRenderer::render(
     )
 );
 eforms_test_assert( strpos( $html, 'aria-invalid="true"' ) !== false, 'Upload errors should mark the file input invalid.' );
-eforms_test_assert( strpos( $html, 'aria-describedby="error-upload-test-file1"' ) !== false, 'Upload errors should describe the file input.' );
-eforms_test_assert( strpos( $html, 'id="error-upload-test-file1"' ) !== false, 'Upload errors should render an error message target.' );
+eforms_test_assert( strpos( $html, 'aria-describedby="error-upload-test-file1"' ) !== false, 'Upload errors should reference the top-summary error item.' );
+eforms_test_assert( strpos( $html, 'id="error-upload-test-file1"' ) !== false, 'Upload errors should render a summary-owned field error target.' );
+eforms_test_assert( strpos( $html, 'class="eforms-error eforms-field-error"' ) === false, 'Upload errors should not render duplicate field-adjacent text.' );
 
 // Given a multi-file descriptor...
 // Then the canonical FormRenderer control path applies multiple and [] naming.

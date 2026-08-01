@@ -101,12 +101,12 @@ class FormProtocol {
     const DATA_UPLOAD_MAX_TOTAL_BYTES = 'data-eforms-upload-max-total-bytes';
     const DATA_FIELD_KEY = 'data-eforms-field-key';
     const DATA_FIELD_CONTROL = 'data-eforms-field-control';
-    const DATA_FIELD_ERROR_MOUNT = 'data-eforms-field-error-mount';
     const DATA_PHONE_FORMAT = 'data-eforms-phone-format';
     const DATA_ZIP_FORMAT = 'data-eforms-zip-format';
     const DATA_INTEGER_FORMAT = 'data-eforms-integer-format';
     const DATA_URL_NORMALIZE = 'data-eforms-url-normalize';
     const DATA_INPUT_UNIT = 'data-eforms-input-unit';
+    const DATA_FIELD_ERROR_MOUNT = 'data-eforms-field-error-mount';
     const DATA_CHALLENGE_MOUNT = 'data-eforms-challenge-mount';
 
     const STORAGE_TOKEN_PREFIX = 'eforms:token:';
@@ -163,12 +163,12 @@ class FormProtocol {
             'token_ttl_max' => self::DATA_TOKEN_TTL_MAX,
             'field_key' => self::DATA_FIELD_KEY,
             'field_control' => self::DATA_FIELD_CONTROL,
-            'field_error_mount' => self::DATA_FIELD_ERROR_MOUNT,
             'phone_format' => self::DATA_PHONE_FORMAT,
             'zip_format' => self::DATA_ZIP_FORMAT,
             'integer_format' => self::DATA_INTEGER_FORMAT,
             'url_normalize' => self::DATA_URL_NORMALIZE,
             'input_unit' => self::DATA_INPUT_UNIT,
+            'field_error_mount' => self::DATA_FIELD_ERROR_MOUNT,
             'challenge_mount' => self::DATA_CHALLENGE_MOUNT,
         );
     }

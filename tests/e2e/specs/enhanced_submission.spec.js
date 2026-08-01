@@ -47,10 +47,10 @@ function formMarkup(options = {}) {
       ${uploadCredentials}
       <label for="name">Name</label>
       <input id="name" name="enhanced[name]" ${browserProtocol.dataAttributes.field_key}="name" ${browserProtocol.dataAttributes.field_control}="1">
-      <span id="error-name" class="eforms-error" ${browserProtocol.dataAttributes.field_key}="name" ${browserProtocol.dataAttributes.field_error_mount}="1" hidden></span>
+      <label for="email">Email address</label>
+      <input id="email" type="email" name="enhanced[email]" ${browserProtocol.dataAttributes.field_key}="email" ${browserProtocol.dataAttributes.field_control}="1">
       <label for="phone">Phone number</label>
       <input id="phone" type="tel" inputmode="tel" name="enhanced[phone]" ${browserProtocol.dataAttributes.field_key}="phone" ${browserProtocol.dataAttributes.field_control}="1" ${browserProtocol.dataAttributes.phone_format}="tel_us">
-      <span id="error-phone" class="eforms-error" ${browserProtocol.dataAttributes.field_key}="phone" ${browserProtocol.dataAttributes.field_error_mount}="1" hidden></span>
       <label for="zip">Project ZIP code</label>
       <input id="zip" type="text" inputmode="numeric" name="enhanced[zip]" ${browserProtocol.dataAttributes.field_key}="zip" ${browserProtocol.dataAttributes.field_control}="1" ${browserProtocol.dataAttributes.zip_format}="zip_us">
       <label for="area">Approximate square footage</label>
@@ -123,6 +123,21 @@ async function bootRenderedVirtualEstimate(page) {
   await expect(page.locator('form.eforms-form-virtual-estimate button[type="submit"]')).toBeEnabled();
 }
 
+async function bootRenderedQuoteRequest(page) {
+  await page.route('https://example.test/eforms/mint', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ token: 'token', instance_id: 'instance', timestamp: 1700000000, expires: Math.floor(Date.now() / 1000) + 3600 })
+  }));
+  await page.setContent(`<main id="footer_cta">${renderQuoteRequestMarkup()}</main>`);
+  await page.evaluate(({ mintEndpoint, protocol }) => {
+    window.eformsSettings = { mintEndpoint, protocol };
+  }, { mintEndpoint: 'https://example.test/eforms/mint', protocol: browserProtocol });
+  await addFormStyles(page);
+  await page.addScriptTag({ path: formsScript });
+  await page.evaluate(() => document.dispatchEvent(new Event('DOMContentLoaded')));
+}
+
 async function pasteInto(locator, text) {
   await locator.evaluate((node, value) => {
     const event = new Event('paste', { bubbles: true, cancelable: true });
@@ -134,6 +149,17 @@ async function pasteInto(locator, text) {
     }
     node.value = value;
     node.dispatchEvent(new Event('input', { bubbles: true }));
+  }, text);
+}
+
+async function enterAndBlur(locator, text) {
+  await locator.evaluate((node, value) => {
+    node.focus();
+    node.value = value;
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+    node.dispatchEvent(new Event('change', { bubbles: true }));
+    node.blur();
+    node.dispatchEvent(new Event('blur', { bubbles: true }));
   }, text);
 }
 
@@ -267,21 +293,17 @@ test('tel_us formatter rejects punctuation-only input without clearing it', asyn
   await expect(phone).toHaveValue('---');
 });
 
-test('tel_us formatter preserves server-rendered error ARIA during startup', async ({ page }) => {
+test('tel_us formatter preserves server-rendered invalid state during startup', async ({ page }) => {
   const markup = formMarkup()
     .replace(
       '<input id="phone" type="tel"',
-      '<input id="phone" type="tel" value="" aria-invalid="true" aria-describedby="error-phone"'
-    )
-    .replace(
-      `<span id="error-phone" class="eforms-error" ${browserProtocol.dataAttributes.field_key}="phone" ${browserProtocol.dataAttributes.field_error_mount}="1" hidden></span>`,
-      `<span id="error-phone" class="eforms-error" ${browserProtocol.dataAttributes.field_key}="phone" ${browserProtocol.dataAttributes.field_error_mount}="1">Phone number is required.</span>`
+      '<input id="phone" type="tel" value="" aria-invalid="true"'
     );
   await boot(page, markup);
 
   const phone = page.locator('#phone');
   await expect(phone).toHaveAttribute('aria-invalid', 'true');
-  await expect(phone).toHaveAttribute('aria-describedby', 'error-phone');
+  await expect(phone).not.toHaveAttribute('aria-describedby', /.+/);
 });
 
 test('client validation respects server-rendered novalidate', async ({ page }) => {
@@ -423,6 +445,28 @@ test('quote-request grouped inputs do not receive plugin-owned focus outlines', 
   }
 });
 
+test('rendered quote-request email uses shared native invalid icon on blur', async ({ page }) => {
+  await bootRenderedQuoteRequest(page);
+
+  const form = page.locator('form.eforms-form-quote-request');
+  const email = form.locator('#quote-request-email');
+  await enterAndBlur(email, 'bad-email');
+
+  expect(await email.evaluate(node => node.validity.valid)).toBe(false);
+  await expect(email).toHaveAttribute('aria-invalid', 'true');
+  expect(await email.evaluate(node => {
+    const style = getComputedStyle(node);
+    return {
+      backgroundImage: style.backgroundImage,
+      boxShadow: style.boxShadow
+    };
+  })).toMatchObject({
+    boxShadow: 'none'
+  });
+  expect(await email.evaluate(node => getComputedStyle(node).backgroundImage)).not.toBe('none');
+  await expect(form.locator('.eforms-error-summary')).toHaveCount(0);
+});
+
 test('tel_us fields require a complete 10-digit phone number', async ({ page }) => {
   await boot(page);
   const submit = await routeSubmit(page, route => route.fulfill({ status: 204 }));
@@ -441,6 +485,72 @@ test('tel_us fields require a complete 10-digit phone number', async ({ page }) 
   await expect(phone).toHaveJSProperty('validationMessage', 'Enter a valid 10-digit phone number.');
 });
 
+test('native email and URL fields expose shared invalid state on blur', async ({ page }) => {
+  await boot(page);
+
+  const form = page.locator('form.eforms-form-enhanced');
+  const email = form.locator('#email');
+  const listing = form.locator('#listing');
+
+  await enterAndBlur(email, 'bad-email');
+  expect(await email.evaluate(node => node.validity.valid)).toBe(false);
+  await expect(email).toHaveAttribute('aria-invalid', 'true');
+  expect(await email.evaluate(node => {
+    const style = getComputedStyle(node);
+    return {
+      backgroundImage: style.backgroundImage,
+      borderColor: style.borderColor,
+      boxShadow: style.boxShadow
+    };
+  })).toMatchObject({
+    boxShadow: 'none'
+  });
+  expect(await email.evaluate(node => getComputedStyle(node).backgroundImage)).not.toBe('none');
+  expect(await email.evaluate(node => getComputedStyle(node).borderColor)).not.toBe('rgb(196, 71, 61)');
+  await expect(form.locator('.eforms-error-summary')).toHaveCount(0);
+
+  await enterAndBlur(email, 'ada@example.test');
+  expect(await email.evaluate(node => node.validity.valid)).toBe(true);
+  await expect(email).not.toHaveAttribute('aria-invalid', /.+/);
+
+  await enterAndBlur(listing, 'not a url');
+  await expect(listing).toHaveValue('not a url');
+  expect(await listing.evaluate(node => node.validity.valid)).toBe(false);
+  await expect(listing).toHaveAttribute('aria-invalid', 'true');
+
+  await enterAndBlur(listing, 'zillow.com/homedetails/123');
+  await expect(listing).toHaveValue('https://zillow.com/homedetails/123');
+  expect(await listing.evaluate(node => node.validity.valid)).toBe(true);
+  await expect(listing).not.toHaveAttribute('aria-invalid', /.+/);
+});
+
+test('empty required native email stays invalid after blocked submit and blur', async ({ page }) => {
+  await boot(page);
+  const submit = await routeSubmit(page, route => route.fulfill({ status: 204 }));
+
+  const form = page.locator('form.eforms-form-enhanced');
+  const email = form.locator('#email');
+  await installNativeValidationProbe(form);
+  await email.evaluate(node => {
+    node.required = true;
+    node.value = '';
+  });
+
+  await form.locator('button[type="submit"]').click();
+  expect(await email.evaluate(node => node.validity.valueMissing)).toBe(true);
+  await expect(email).toHaveAttribute('aria-invalid', 'true');
+  expect((await readNativeValidationState(form)).probe.invalidIds[0]).toBe('email');
+
+  await enterAndBlur(email, '');
+  expect(await email.evaluate(node => node.validity.valueMissing)).toBe(true);
+  await expect(email).toHaveAttribute('aria-invalid', 'true');
+  expect(submit.count).toBe(0);
+
+  await enterAndBlur(email, 'ada@example.test');
+  expect(await email.evaluate(node => node.validity.valid)).toBe(true);
+  await expect(email).not.toHaveAttribute('aria-invalid', /.+/);
+});
+
 test('structured scalar fields display kindly but submit canonical values', async ({ page }) => {
   await boot(page);
   const submit = await routeSubmit(page, route => fulfillJson(route, 422, correctablePayload()));
@@ -451,6 +561,11 @@ test('structured scalar fields display kindly but submit canonical values', asyn
   const listing = form.locator('#listing');
   await pasteInto(zip, '80231-1234');
   await expect(zip).toHaveValue('80231');
+  await area.fill('');
+  await area.pressSequentially('57457474577457');
+  await expect(area).toHaveValue('57,457,474,577,457');
+  for (let i = 0; i < 12; i += 1) await area.press('Backspace');
+  await expect(area).toHaveValue('57');
   await pasteInto(area, '1200');
   await area.blur();
   await expect(area).toHaveValue('1,200');
@@ -500,13 +615,13 @@ test('malformed friendly scalar values stay invalid on enhanced submit', async (
   const form = page.locator('form.eforms-form-enhanced');
   await form.locator('#phone').evaluate(node => { node.value = '212+5551212'; });
   await form.locator('#zip').evaluate(node => { node.value = '80231 1234'; });
-  await form.locator('#area').evaluate(node => { node.value = '12,34'; });
+  await form.locator('#area').evaluate(node => { node.value = '12 34'; });
   await form.locator('button[type="submit"]').click();
 
   expect(submit.count).toBe(1);
   expect(submit.body).toContain('212+5551212');
   expect(submit.body).toContain('80231 1234');
-  expect(submit.body).toContain('12,34');
+  expect(submit.body).toContain('12 34');
 });
 
 test('tel_us autofill display syncs when native validation blocks submit', async ({ page }) => {
@@ -579,14 +694,12 @@ test('enhanced staged submission preserves uploader nodes through 422 recovery',
   await expect(form.locator('.eforms-error-summary')).toContainText('Please fix the highlighted fields.');
   await expect(form.locator('.eforms-error-summary')).toContainText('Please complete Name.');
   await expect(form.locator('.eforms-error-summary')).not.toContainText('Please complete this field.');
-  await expect(form.locator('#error-name')).toHaveText('Please complete Name.');
-  expect(await form.locator('#error-name').evaluate(node => {
-    const rect = node.getBoundingClientRect();
-    const styles = getComputedStyle(node);
-    return styles.position !== 'absolute' && rect.width > 1 && rect.height > 1;
-  })).toBeTruthy();
+  await expect(form.locator('.eforms-field-error')).toHaveCount(0);
+  await expect(form.locator('.eforms-error-summary #error-name')).toContainText('Please complete Name.');
+  await expect(form.locator('.eforms-error-summary #error-name')).toHaveAttribute(browserProtocol.dataAttributes.field_error_mount, '1');
   expect(await form.locator('#name').evaluate(node => getComputedStyle(node).backgroundImage)).toContain('data:image/svg+xml');
   await expect(form.locator('#name')).toHaveAttribute('aria-invalid', 'true');
+  await expect(form.locator('#name')).toHaveAttribute('aria-describedby', 'error-name');
   await expect(form.locator('button[type="submit"]')).toBeEnabled();
   await expect(form.locator('button[type="submit"] .eforms-spinner')).toHaveCount(0);
   await expect(form).not.toHaveAttribute('data-eforms-enhanced-pending', '1');
@@ -608,8 +721,10 @@ test('correctable 422 with null recovery keeps field errors sticky', async ({ pa
   await expect(form.locator('.eforms-error-summary')).toContainText('Please complete Name.');
   await expect(form.locator('.eforms-error-summary')).not.toContainText('Your request couldn\'t be sent.');
   await expect(form.locator('.eforms-error-summary')).not.toContainText('This request can\'t be finished from this page.');
-  await expect(form.locator('#error-name')).toHaveText('Please complete Name.');
+  await expect(form.locator('.eforms-field-error')).toHaveCount(0);
+  await expect(form.locator('.eforms-error-summary #error-name')).toContainText('Please complete Name.');
   await expect(form.locator('#name')).toHaveAttribute('aria-invalid', 'true');
+  await expect(form.locator('#name')).toHaveAttribute('aria-describedby', 'error-name');
   await expect(form.locator('button[type="submit"]')).toBeEnabled();
   await expect(form).not.toHaveAttribute('data-eforms-enhanced-pending', '1');
 });
@@ -644,13 +759,10 @@ test('enhanced field errors name the field and known concern without moving layo
   await expect(form.locator('.eforms-error-summary')).toContainText('Please fix the highlighted fields.');
   await expect(form.locator('.eforms-error-summary')).toContainText('Phone number must be a valid phone number.');
   await expect(form.locator('.eforms-error-summary')).not.toContainText('Please check this field.');
-  await expect(form.locator('#error-phone')).toHaveText('Phone number must be a valid phone number.');
-  expect(await form.locator('#error-phone').evaluate(node => {
-    const rect = node.getBoundingClientRect();
-    const styles = getComputedStyle(node);
-    return styles.position !== 'absolute' && rect.width > 1 && rect.height > 1;
-  })).toBeTruthy();
+  await expect(form.locator('.eforms-field-error')).toHaveCount(0);
+  await expect(form.locator('.eforms-error-summary #error-phone')).toContainText('Phone number must be a valid phone number.');
   expect(await phone.evaluate(node => getComputedStyle(node).backgroundImage)).toContain('data:image/svg+xml');
+  await expect(phone).toHaveAttribute('aria-describedby', 'error-phone');
   await expect(form.locator('button[type="submit"] .eforms-spinner')).toHaveCount(0);
   await expect(form).not.toHaveAttribute('data-eforms-enhanced-pending', '1');
   expect(phoneBoxAfter.width).toBe(phoneBoxBefore.width);

@@ -137,7 +137,7 @@ eforms_test_assert(
         && $protocol['dataAttributes']['integer_format'] === FormProtocol::DATA_INTEGER_FORMAT
         && $protocol['dataAttributes']['url_normalize'] === FormProtocol::DATA_URL_NORMALIZE
         && $protocol['dataAttributes']['challenge_mount'] === FormProtocol::DATA_CHALLENGE_MOUNT,
-    'Browser protocol settings should expose renderer-owned recovery mounts.'
+    'Browser protocol settings should expose renderer-owned control markers.'
 );
 $challenge_metadata = Challenge::public_metadata(
     array(

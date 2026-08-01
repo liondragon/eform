@@ -491,6 +491,30 @@
         return attr === '' ? [] : form.querySelectorAll('[' + attr + '="1"]');
     }
 
+    function nativeScalarValidityControls(form) {
+        var attr = dataAttributeName('field_control');
+        if (attr === '') {
+            return [];
+        }
+        var controls = [];
+        forEachNode(form.querySelectorAll('input[' + attr + '="1"]'), function (control) {
+            var type = typeof control.type === 'string' ? control.type.toLowerCase() : '';
+            if (type === 'email' || type === 'url') {
+                controls.push(control);
+            }
+        });
+        return controls;
+    }
+
+    function isNativeScalarValidityControl(control) {
+        if (!control || !control.getAttribute) {
+            return false;
+        }
+        var attr = dataAttributeName('field_control');
+        var type = typeof control.type === 'string' ? control.type.toLowerCase() : '';
+        return attr !== '' && control.getAttribute(attr) === '1' && (type === 'email' || type === 'url');
+    }
+
     function unitControls(form) {
         var attr = dataAttributeName('input_unit');
         return attr === '' ? [] : form.querySelectorAll('[' + attr + ']');
@@ -608,7 +632,7 @@
         }
     }
 
-    function normalizedIntegerValue(value) {
+    function integerDigits(value) {
         if (typeof value !== 'string') {
             return null;
         }
@@ -616,14 +640,46 @@
         if (value === '') {
             return '';
         }
-        if (/^\d{1,3}(,\d{3})+$/.test(value)) {
-            return value.replace(/,/g, '');
+        if (!/^[0-9,]+$/.test(value)) {
+            return null;
         }
-        return /^\d+$/.test(value) ? value : null;
+        return value.replace(/,/g, '');
+    }
+
+    function normalizedIntegerValue(value) {
+        var digits = integerDigits(value);
+        return digits === null || digits === '' || /^\d+$/.test(digits) ? digits : null;
     }
 
     function displayIntegerDigits(digits) {
         return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    function digitCountBefore(value, offset) {
+        var count = 0;
+        var text = typeof value === 'string' ? value.slice(0, Math.max(0, offset)) : '';
+        for (var i = 0; i < text.length; i += 1) {
+            if (/\d/.test(text.charAt(i))) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    function offsetAfterDigitCount(value, digitCount) {
+        if (digitCount <= 0) {
+            return 0;
+        }
+        var seen = 0;
+        for (var i = 0; i < value.length; i += 1) {
+            if (/\d/.test(value.charAt(i))) {
+                seen += 1;
+            }
+            if (seen >= digitCount) {
+                return i + 1;
+            }
+        }
+        return value.length;
     }
 
     function refreshUnitAdornment(control) {
@@ -646,10 +702,19 @@
         label.style.left = paddingLeft + measure.offsetWidth + 4 + 'px';
     }
 
-    function formatIntegerControl(control) {
+    function formatIntegerControl(control, preserveSelection) {
+        var before = control.value;
+        var start = typeof control.selectionStart === 'number' ? control.selectionStart : null;
+        var end = typeof control.selectionEnd === 'number' ? control.selectionEnd : null;
         var normalized = normalizedIntegerValue(control.value);
         if (normalized !== null) {
             control.value = displayIntegerDigits(normalized);
+            if (preserveSelection === true && document.activeElement === control && start !== null && end !== null && typeof control.setSelectionRange === 'function') {
+                control.setSelectionRange(
+                    offsetAfterDigitCount(control.value, digitCountBefore(before, start)),
+                    offsetAfterDigitCount(control.value, digitCountBefore(before, end))
+                );
+            }
         }
         refreshUnitAdornment(control);
     }
@@ -680,11 +745,55 @@
         control.value = normalizeUrlValue(control.value);
     }
 
+    function nativeScalarValid(control) {
+        if (!control) {
+            return true;
+        }
+        if (control.validity && typeof control.validity.valid === 'boolean') {
+            return control.validity.valid;
+        }
+        if (typeof control.checkValidity === 'function') {
+            return control.checkValidity();
+        }
+        return true;
+    }
+
+    function syncNativeScalarValidity(control, clearServerError) {
+        if (!control) {
+            return;
+        }
+        var value = typeof control.value === 'string' ? control.value.trim() : '';
+        var clientInvalid = control.getAttribute('data-eforms-native-client-invalid') === '1';
+        var valid = nativeScalarValid(control);
+        if (!valid && (value !== '' || clientInvalid)) {
+            control.setAttribute('data-eforms-native-client-invalid', '1');
+            control.setAttribute('aria-invalid', 'true');
+            return;
+        }
+        if (!valid) {
+            return;
+        }
+        control.removeAttribute('data-eforms-native-client-invalid');
+        if (clearServerError === true || clientInvalid) {
+            control.removeAttribute('aria-invalid');
+            control.removeAttribute('aria-describedby');
+        }
+    }
+
+    function markNativeScalarInvalid(control) {
+        if (!isNativeScalarValidityControl(control)) {
+            return;
+        }
+        control.setAttribute('data-eforms-native-client-invalid', '1');
+        control.setAttribute('aria-invalid', 'true');
+    }
+
     function syncFriendlyInputDisplay(form) {
         forEachNode(phoneControls(form), formatPhoneControl);
         forEachNode(zipControls(form), formatZipControl);
         forEachNode(integerControls(form), formatIntegerControl);
         forEachNode(urlControls(form), normalizeUrlControl);
+        forEachNode(nativeScalarValidityControls(form), syncNativeScalarValidity);
     }
 
     function scheduleFriendlyInputSync(form) {
@@ -826,7 +935,7 @@
                 }
             });
             control.addEventListener('input', function () {
-                formatIntegerControl(control);
+                formatIntegerControl(control, true);
             });
             control.addEventListener('blur', function () {
                 formatIntegerControl(control);
@@ -848,6 +957,22 @@
                 normalizeUrlControl(control);
             });
         });
+        forEachNode(nativeScalarValidityControls(form), function (control) {
+            if (control.getAttribute('data-eforms-native-validity-bound') === '1') {
+                return;
+            }
+            control.setAttribute('data-eforms-native-validity-bound', '1');
+            syncNativeScalarValidity(control);
+            control.addEventListener('input', function () {
+                syncNativeScalarValidity(control, true);
+            });
+            control.addEventListener('change', function () {
+                syncNativeScalarValidity(control, true);
+            });
+            control.addEventListener('blur', function () {
+                syncNativeScalarValidity(control, true);
+            });
+        });
         syncFriendlyInputDisplay(form);
         scheduleFriendlyInputSync(form);
         addUnitAdornments(form);
@@ -865,8 +990,9 @@
                 normalizeUrlsBeforeNativeSubmit(form);
             }
         }, true);
-        form.addEventListener('invalid', function () {
+        form.addEventListener('invalid', function (event) {
             syncFriendlyInputDisplay(form);
+            markNativeScalarInvalid(event.target);
         }, true);
         form.addEventListener('submit', function () {
             normalizeFriendlyInputSubmitValues(form);
@@ -1038,18 +1164,18 @@
         return entry[response.message];
     }
 
+    function errorIdForControl(control) {
+        return control && control.id ? 'error-' + control.id : '';
+    }
+
     function clearEnhancedErrors(form) {
         var attrs = protocol().dataAttributes || {};
-        if (!attrs.field_control || !attrs.field_error_mount) {
+        if (!attrs.field_control) {
             return;
         }
         forEachNode(form.querySelectorAll('[' + attrs.field_control + '="1"]'), function (control) {
             control.removeAttribute('aria-invalid');
             control.removeAttribute('aria-describedby');
-        });
-        forEachNode(form.querySelectorAll('[' + attrs.field_error_mount + '="1"]'), function (mount) {
-            mount.textContent = '';
-            mount.hidden = true;
         });
         var summary = form.querySelector('.eforms-error-summary');
         if (summary && summary.parentNode) {
@@ -1110,24 +1236,21 @@
             var controls = fieldNodes(form, attrs.field_key, key).filter(function (node) {
                 return node.getAttribute(attrs.field_control) === '1';
             });
-            var mounts = fieldNodes(form, attrs.field_key, key).filter(function (node) {
-                return node.getAttribute(attrs.field_error_mount) === '1';
-            });
-            if (!controls.length || !mounts.length) {
+            if (!controls.length) {
                 messages = null;
                 return;
             }
             var text = entries.map(function (entry) { return fieldEntryMessage(entry, response); }).join(' ');
-            forEachNode(mounts, function (mount) {
-                mount.classList.add('eforms-field-error');
-                mount.textContent = text;
-                mount.hidden = false;
-            });
+            var errorId = errorIdForControl(controls[0]);
+            if (!errorId) {
+                messages = null;
+                return;
+            }
             forEachNode(controls, function (control) {
                 control.setAttribute('aria-invalid', 'true');
-                control.setAttribute('aria-describedby', mounts[0].id);
+                control.setAttribute('aria-describedby', errorId);
             });
-            messages.push({ text: text, control: controls[0] });
+            messages.push({ text: text, control: controls[0], errorId: errorId, fieldKey: key });
         });
         if (!messages) {
             clearEnhancedErrors(form);
@@ -1139,6 +1262,9 @@
             if (typeof entry === 'string') {
                 item.textContent = entry;
             } else {
+                item.id = entry.errorId;
+                item.setAttribute(attrs.field_key, entry.fieldKey);
+                item.setAttribute(attrs.field_error_mount, '1');
                 var link = document.createElement('a');
                 link.textContent = entry.text;
                 if (entry.control.id) {

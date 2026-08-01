@@ -273,7 +273,7 @@ The most frequently tuned knobs with operator-facing tradeoffs:
 - On spam-fail: Stealth success or generic error; logged with `spam_decision=fail` + `soft_reasons`
 - On content-filter suspect: Email is delivered with content-filter metadata; existing soft-signal threshold math does not turn this into rejection
 - On content-filter reject: The token is consumed and the submission is blocked before uploads move or email sends
-- On validation errors: The HTML fallback rerenders with per-field messages + error summary (first invalid focused). A staged-photo form using the enhanced response keeps the current document, values, uploaded cards, and browser-local previews, then displays the same safe errors through the existing summary and inline-error regions.
+- On validation errors: The HTML fallback rerenders with the field messages in the error summary and focuses the first invalid field. A staged-photo form using the enhanced response keeps the current document, values, uploaded cards, and browser-local previews, then displays the same safe errors through the existing summary; field controls are wired to their summary item for accessibility without duplicating visible field-adjacent text.
 - **Signals collected:** `soft_reasons` array (`min_fill_time`, `age_advisory`, `honeypot_missing`, `js_missing`, `origin_soft`)
 
 #### 4. Challenge Verification (Optional; When Triggered)

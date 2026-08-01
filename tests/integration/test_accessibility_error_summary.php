@@ -59,11 +59,13 @@ eforms_test_assert(
     'Summary should show the field error text and link to the invalid control.'
 );
 eforms_test_assert(
-    strpos( $output, '<span id="error-quote-request-name" class="eforms-error eforms-field-error" data-eforms-field-key="name" data-eforms-field-error-mount="1">Please complete Your Name.</span>' ) !== false
+    strpos( $output, 'id="error-quote-request-name"' ) !== false
+        && strpos( $output, FormProtocol::DATA_FIELD_ERROR_MOUNT . '="1"' ) !== false
+        && strpos( $output, 'class="eforms-error eforms-field-error"' ) === false
         && strpos( $output, '<span class="screen-reader-text">Please complete Your Name.</span>' ) === false
         && strpos( $output, 'eforms-error-icon' ) === false
         && strpos( $output, 'data-eforms-field-error-icon' ) === false,
-    'Required field mount should expose visible accessible copy without duplicate screen-reader-only copy or dead icon markers.'
+    'Field errors should use the summary item as the accessibility mount, without duplicate field text or dead icon markers.'
 );
 eforms_test_assert(
     strpos( $output, '<a href="#quote-request-email">Email address must be a valid email address.</a>' ) !== false
@@ -71,22 +73,17 @@ eforms_test_assert(
     'Invalid field summary should identify the field and known concern without generic fallback copy.'
 );
 eforms_test_assert(
-    strpos( $output, 'id="error-quote-request-name"' ) !== false,
-    'Field error span should be rendered.'
-);
-eforms_test_assert(
     strpos( $output, 'aria-invalid="true"' ) !== false,
     'Invalid field should include aria-invalid="true".'
 );
 eforms_test_assert(
     strpos( $output, 'aria-describedby="error-quote-request-name"' ) !== false,
-    'Invalid field should reference its error via aria-describedby.'
+    'Invalid field should reference the top-summary error item.'
 );
 eforms_test_assert(
     strpos( $output, FormProtocol::DATA_FIELD_KEY . '="name"' ) !== false
-        && strpos( $output, FormProtocol::DATA_FIELD_CONTROL . '="1"' ) !== false
-        && strpos( $output, FormProtocol::DATA_FIELD_ERROR_MOUNT . '="1"' ) !== false,
-    'Renderer should expose protocol-named field, control, and error mounts without reconstructing identifiers.'
+        && strpos( $output, FormProtocol::DATA_FIELD_CONTROL . '="1"' ) !== false,
+    'Renderer should expose protocol-named field and control markers without reconstructing identifiers.'
 );
 eforms_test_assert(
     strpos( $output, 'for="quote-request-name"' ) !== false,
@@ -100,6 +97,6 @@ eforms_test_assert(
 FormRenderer::reset_for_tests();
 $clean_output = FormRenderer::render( 'quote-request', array( 'cacheable' => true ) );
 eforms_test_assert(
-    preg_match( '/<input[^>]*' . preg_quote( FormProtocol::DATA_FIELD_CONTROL, '/' ) . '="1"[^>]*>\s*<span[^>]*' . preg_quote( FormProtocol::DATA_FIELD_ERROR_MOUNT, '/' ) . '="1"[^>]*hidden="hidden"/', $clean_output ) === 1,
-    'Fresh renders should keep one initially hidden error mount as the control sibling without a layout wrapper.'
+    strpos( $clean_output, 'data-eforms-field-error-mount' ) === false,
+    'Fresh renders should not keep unused field error mounts.'
 );
