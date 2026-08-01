@@ -18,15 +18,15 @@ class GcCommand {
 
         $dry_run = self::flag( $assoc_args, 'dry-run' ) || self::flag( $assoc_args, 'dry_run' );
         $reconcile_capacity = self::flag( $assoc_args, 'reconcile-capacity' ) || self::flag( $assoc_args, 'reconcile_capacity' );
-        $limit = self::positive_int( $assoc_args, 'limit', GcRunner::DEFAULT_BATCH_LIMIT );
-
-        $result = GcRunner::run(
-            array(
-                'dry_run' => $dry_run,
-                'limit' => $limit,
-                'reconcile_capacity' => $reconcile_capacity,
-            )
+        $options = array(
+            'dry_run' => $dry_run,
+            'reconcile_capacity' => $reconcile_capacity,
         );
+        if ( array_key_exists( 'limit', $assoc_args ) ) {
+            $options['limit'] = $assoc_args['limit'];
+        }
+
+        $result = GcRunner::run( $options );
 
         self::emit_cli_output( $result );
         if ( empty( $result['ok'] ) && empty( $result['locked'] ) && class_exists( 'WP_CLI' ) && method_exists( 'WP_CLI', 'halt' ) ) {
@@ -105,19 +105,4 @@ class GcCommand {
         return true;
     }
 
-    private static function positive_int( $assoc_args, $key, $default ) {
-        if ( ! is_array( $assoc_args ) || ! array_key_exists( $key, $assoc_args ) ) {
-            return (int) $default;
-        }
-
-        $value = $assoc_args[ $key ];
-        if ( is_numeric( $value ) ) {
-            $value = (int) $value;
-            if ( $value > 0 ) {
-                return $value;
-            }
-        }
-
-        return (int) $default;
-    }
 }

@@ -30,6 +30,9 @@ class UploadBatchEndpoint {
         if ( ! self::content_type_is( $request, 'application/x-www-form-urlencoded' ) ) {
             return self::error( 400, 'EFORMS_ERR_TYPE' );
         }
+        if ( self::request_exceeds_limit( $request ) ) {
+            return self::error( 413, 'EFORMS_ERR_UPLOAD_TYPE' );
+        }
         $composition = WorkerClient::composition();
         if ( $composition === null ) {
             return self::error( 503, 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
@@ -117,6 +120,9 @@ class UploadBatchEndpoint {
             return $gate;
         }
         if ( self::content_type_is( $request, 'application/x-www-form-urlencoded' ) ) {
+            if ( self::request_exceeds_limit( $request ) ) {
+                return self::error( 413, 'EFORMS_ERR_UPLOAD_TYPE' );
+            }
             if ( self::body_param( $request, FormProtocol::UPLOAD_RECEIPT_PARAM ) !== '' ) {
                 return self::complete_worker_upload( $request );
             }

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Anchors.php';
 require_once __DIR__ . '/../Config.php';
 require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Rendering/TemplateLoader.php';
+require_once __DIR__ . '/../Security/Entropy.php';
 require_once __DIR__ . '/../Security/MintEndpoint.php';
 require_once __DIR__ . '/../Security/Security.php';
 require_once __DIR__ . '/../Spam/ContentFilter.php';
@@ -507,7 +508,8 @@ class SpamSmokeDiagnostic {
     }
 
     private static function request_id() {
-        return self::REQUEST_PREFIX . str_replace( '-', '_', uniqid( '', true ) );
+        $suffix = Entropy::hex( Anchors::get( 'SPAM_SMOKE_REQUEST_ID_ENTROPY_BYTES' ) );
+        return self::REQUEST_PREFIX . ( $suffix !== '' ? $suffix : 'entropy_unavailable' );
     }
 
     private static function stable_min_fill_seconds() {

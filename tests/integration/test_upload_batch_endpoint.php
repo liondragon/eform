@@ -146,6 +146,10 @@ $cross_origin_bad_create = $create_request;
 $cross_origin_bad_create['headers']['Origin'] = 'https://evil.example';
 $cross_origin_bad_create['headers']['Content-Type'] = 'text/plain';
 eforms_test_assert( UploadBatchEndpoint::create( $cross_origin_bad_create )['status'] === 403, 'Create must reject cross-origin requests before exposing content-type validation.' );
+$oversized_create_request = $create_request;
+$oversized_create_request['headers']['Content-Length'] = (string) PHP_INT_MAX;
+eforms_test_assert( UploadBatchEndpoint::create( $oversized_create_request )['status'] === 413, 'Oversized form-encoded create requests should return the upload size error before mutation.' );
+eforms_test_assert( ! is_dir( $uploads_dir . '/eforms-private/staged' ), 'Oversized create rejection should precede managed batch mutation.' );
 $created = UploadBatchEndpoint::create( $create_request );
 eforms_test_assert( $created['status'] === 200 && isset( $created['body']['batch_id'] ), 'Create should return the deterministic batch contract.' );
 eforms_test_assert( $created['headers']['Cache-Control'] === 'no-store, max-age=0', 'Every JSON batch response should be no-store.' );
@@ -265,6 +269,11 @@ $authorize_request = eforms_test_upload_endpoint_request(
     ),
     $secret
 );
+$oversized_authorization = $authorize_request;
+$oversized_authorization['headers']['Content-Length'] = (string) PHP_INT_MAX;
+eforms_test_assert( UploadBatchEndpoint::upload( $oversized_authorization )['status'] === 413, 'Oversized form-encoded authorization requests should return the upload size error before intent mutation.' );
+$oversized_authorization_status = UploadBatchEndpoint::status( $status_request );
+eforms_test_assert( empty( $oversized_authorization_status['body']['intents'] ), 'Oversized authorization rejection should not persist an upload intent.' );
 $authorized = UploadBatchEndpoint::upload( $authorize_request );
 eforms_test_assert(
     $authorized['status'] === 200

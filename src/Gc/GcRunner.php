@@ -31,8 +31,6 @@ class GcRunner {
     const THROTTLE_TALLY_SUFFIX = '.tally';
     const THROTTLE_COOLDOWN_SUFFIX = '.cooldown';
 
-    const DEFAULT_BATCH_LIMIT = 500;
-
     /**
      * Run one GC batch.
      *
@@ -91,10 +89,11 @@ class GcRunner {
 
     private static function summary_template( $options ) {
         $dry_run = self::option_bool( $options, 'dry_run', false );
-        $limit = self::option_int( $options, 'limit', self::DEFAULT_BATCH_LIMIT );
+        $default_limit = Anchors::get( 'GC_DEFAULT_BATCH_LIMIT' );
+        $limit = self::option_int( $options, 'limit', $default_limit );
         $now = self::option_int( $options, 'now', time() );
         if ( $limit < 1 ) {
-            $limit = self::DEFAULT_BATCH_LIMIT;
+            $limit = $default_limit;
         }
 
         return array(

@@ -160,6 +160,15 @@ $completion_request = eforms_test_worker_endpoint_request(
     array( 'batch_id' => $batch_id, 'upload_id' => 'remote_photo', FormProtocol::UPLOAD_RECEIPT_PARAM => $receipt ),
     $secret
 );
+$oversized_completion = $completion_request;
+$oversized_completion['headers']['Content-Length'] = (string) PHP_INT_MAX;
+eforms_test_assert( UploadBatchEndpoint::upload( $oversized_completion )['status'] === 413, 'Oversized form-encoded Worker receipt requests should return the upload size error before receipt verification.' );
+$manifest_after_oversized_completion = json_decode( file_get_contents( $manifest_path ), true );
+eforms_test_assert(
+    isset( $manifest_after_oversized_completion['intents']['remote_photo'] )
+        && empty( $manifest_after_oversized_completion['items']['remote_photo'] ),
+    'Oversized Worker receipt rejection should leave the unresolved intent uncommitted.'
+);
 $completed = UploadBatchEndpoint::upload( $completion_request );
 eforms_test_assert( $completed['status'] === 200 && $completed['body']['upload_id'] === 'remote_photo', 'A valid receipt should commit without PHP receiving artifact bytes.' );
 eforms_test_assert( UploadBatchEndpoint::upload( $completion_request )['body'] === $completed['body'], 'A lost completion response should converge to the same item.' );

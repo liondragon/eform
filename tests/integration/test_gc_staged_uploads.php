@@ -361,7 +361,7 @@ $capacity_with_stale['reservations']['stale_gc_reservation'] = array(
 file_put_contents( $capacity_path, json_encode( $capacity_with_stale ) );
 chmod( $capacity_path, 0600 );
 
-$dry_run = GcRunner::run( array( 'dry_run' => true, 'now' => $run_now, 'limit' => 500 ) );
+$dry_run = GcRunner::run( array( 'dry_run' => true, 'now' => $run_now ) );
 eforms_test_assert( $dry_run['ok'] === true, 'Managed aggregate dry-run should succeed: ' . json_encode( $dry_run ) );
 eforms_test_assert( $dry_run['by_type']['staged_batches']['candidates'] === 1, 'Dry-run should find one expired staged aggregate.' );
 eforms_test_assert( $dry_run['by_type']['finalized_submissions']['candidates'] === 1, 'Dry-run should find one expired finalized aggregate.' );
@@ -373,7 +373,7 @@ eforms_test_assert( is_dir( $expired_staged['path'] ) && is_dir( $expired_final[
 $capacity_after_dry_run = eforms_test_managed_capacity_record( $uploads_dir );
 eforms_test_assert( $capacity_after_dry_run === $capacity_with_stale, 'Dry-run should preserve capacity accounting and stale reservations.' );
 
-$apply = GcRunner::run( array( 'now' => $run_now, 'limit' => 500, 'reconcile_capacity' => true ) );
+$apply = GcRunner::run( array( 'now' => $run_now, 'reconcile_capacity' => true ) );
 $expected_release = $expired_staged['managed_bytes'] + $expired_final['managed_bytes'];
 eforms_test_assert( $apply['ok'] === true && $apply['deleted'] === 3, 'Managed GC should delete both eligible aggregate families and the expired preview fence.' );
 eforms_test_assert( $apply['capacity_reconciled'] === true && $apply['stale_reservations_removed'] === 1, 'Applying GC should reconcile one stale reservation before aggregate deletion.' );
@@ -396,7 +396,7 @@ eforms_test_assert(
 $capacity_after_apply = eforms_test_managed_capacity_record( $uploads_dir );
 eforms_test_assert( $capacity_after_apply['total_bytes'] === $capacity_before['total_bytes'] - $expected_release, 'Apply should release aggregate capacity exactly once.' );
 
-$idempotent = GcRunner::run( array( 'now' => $run_now, 'limit' => 500 ) );
+$idempotent = GcRunner::run( array( 'now' => $run_now ) );
 eforms_test_assert( $idempotent['ok'] === true && $idempotent['candidates'] === 0 && $idempotent['deleted'] === 0, 'A repeated managed GC run should be idempotent.' );
 $capacity_after_retry = eforms_test_managed_capacity_record( $uploads_dir );
 eforms_test_assert( $capacity_after_retry['total_bytes'] === $capacity_after_apply['total_bytes'], 'An idempotent GC retry should not release capacity twice.' );
@@ -511,10 +511,10 @@ unset( $renamed_manifest['finalized_at'], $renamed_manifest['email_attempted_at'
 file_put_contents( $renamed_manifest_path, json_encode( $renamed_manifest ) );
 chmod( $renamed_manifest_path, 0600 );
 $renamed_capacity_before = eforms_test_managed_capacity_record( $renamed_finalizing_dir );
-$renamed_dry_run = GcRunner::run( array( 'dry_run' => true, 'now' => $renamed_finalizing['staged_delete_after'], 'limit' => 500 ) );
+$renamed_dry_run = GcRunner::run( array( 'dry_run' => true, 'now' => $renamed_finalizing['staged_delete_after'] ) );
 eforms_test_assert( $renamed_dry_run['by_type']['finalized_submissions']['candidates'] === 1, 'Dry-run should find a post-rename finalizing aggregate at its staged deadline.' );
 eforms_test_assert( is_dir( $renamed_finalizing['path'] ), 'Dry-run should preserve the post-rename finalizing aggregate.' );
-$renamed_apply = GcRunner::run( array( 'now' => $renamed_finalizing['staged_delete_after'], 'limit' => 500 ) );
+$renamed_apply = GcRunner::run( array( 'now' => $renamed_finalizing['staged_delete_after'] ) );
 eforms_test_assert( $renamed_apply['ok'] === true && $renamed_apply['by_type']['finalized_submissions']['deleted'] === 1, 'GC should delete an expired post-rename finalizing aggregate.' );
 eforms_test_assert( $renamed_apply['by_type']['finalized_submissions']['released_bytes'] === $renamed_finalizing['managed_bytes'], 'Post-rename finalizing GC should release exact managed capacity.' );
 eforms_test_assert( ! is_dir( $renamed_finalizing['path'] ), 'GC should remove the expired post-rename finalizing directory.' );
@@ -687,7 +687,7 @@ $corrupt_manifest_dir = eforms_test_setup_uploads( 'eforms-gc-corrupt-manifest' 
 eforms_test_gc_managed_configure( $corrupt_manifest_dir );
 $corrupt_manifest = eforms_test_gc_managed_fixture( $corrupt_manifest_dir, 'corrupt-manifest', $base, $base + 10 );
 file_put_contents( $corrupt_manifest['path'] . '/' . UploadBatchStore::MANIFEST_FILENAME, '{invalid' );
-$manifest_failure = GcRunner::run( array( 'now' => $run_now, 'limit' => 500 ) );
+$manifest_failure = GcRunner::run( array( 'now' => $run_now ) );
 eforms_test_assert( $manifest_failure['ok'] === false && strpos( $manifest_failure['reason'], 'manifest_invalid' ) !== false, 'A corrupt managed manifest should fail closed with an observable reason.' );
 eforms_test_assert( is_dir( $corrupt_manifest['path'] ), 'A corrupt managed manifest should preserve its aggregate.' );
 eforms_test_remove_tree( $corrupt_manifest_dir );
@@ -699,7 +699,7 @@ $unknown_schema_path = $unknown_schema['path'] . '/' . UploadBatchStore::MANIFES
 $unknown_schema_manifest = json_decode( file_get_contents( $unknown_schema_path ), true );
 $unknown_schema_manifest['processing_state'] = 'pending';
 file_put_contents( $unknown_schema_path, json_encode( $unknown_schema_manifest ) );
-$unknown_schema_failure = GcRunner::run( array( 'now' => $run_now, 'limit' => 500 ) );
+$unknown_schema_failure = GcRunner::run( array( 'now' => $run_now ) );
 eforms_test_assert( $unknown_schema_failure['ok'] === false && strpos( $unknown_schema_failure['reason'], 'manifest_invalid' ) !== false, 'GC should reject a version-4 manifest with an unknown lifecycle field.' );
 eforms_test_assert( is_dir( $unknown_schema['path'] ), 'GC should preserve an aggregate whose manifest schema is not exact.' );
 eforms_test_remove_tree( $unknown_schema_dir );
@@ -708,7 +708,7 @@ $corrupt_capacity_dir = eforms_test_setup_uploads( 'eforms-gc-corrupt-capacity' 
 eforms_test_gc_managed_configure( $corrupt_capacity_dir );
 $corrupt_capacity = eforms_test_gc_managed_fixture( $corrupt_capacity_dir, 'corrupt-capacity', $base, $base + 10 );
 file_put_contents( $corrupt_capacity_dir . '/eforms-private/' . UploadBatchStore::CAPACITY_FILENAME, '{invalid' );
-$capacity_failure = GcRunner::run( array( 'now' => $run_now, 'limit' => 500 ) );
+$capacity_failure = GcRunner::run( array( 'now' => $run_now ) );
 eforms_test_assert( $capacity_failure['ok'] === false && strpos( $capacity_failure['reason'], 'capacity_invalid' ) !== false, 'A corrupt managed capacity record should fail closed with an observable reason.' );
 eforms_test_assert( is_dir( $corrupt_capacity['path'] ), 'Corrupt capacity accounting should preserve the aggregate.' );
 
@@ -999,7 +999,7 @@ eforms_test_assert( is_array( $invalid_worker_preview_paths ) && count( $invalid
 touch( $invalid_worker_preview_paths[0], $remote_base - Anchors::get( 'MANAGED_ORPHAN_CLEANUP_GRACE_SECONDS' ) );
 $invalid_worker_lease->release();
 define( 'EFORMS_UPLOAD_COMPOSITION', 'unsupported-composition' );
-$invalid_worker_gc = GcRunner::run( array( 'now' => $invalid_worker_remote['delete_after'], 'limit' => 500 ) );
+$invalid_worker_gc = GcRunner::run( array( 'now' => $invalid_worker_remote['delete_after'] ) );
 eforms_test_assert(
     empty( $invalid_worker_gc['ok'] )
         && strpos( $invalid_worker_gc['reason'], 'remote_delete_failed' ) !== false
@@ -1019,7 +1019,7 @@ $remote_reconcile_tokens = PrivateDir::leased_subdir( $remote_reconcile_lease, G
 $remote_reconcile_token = $remote_reconcile_tokens . '/expired.json';
 file_put_contents( $remote_reconcile_token, json_encode( array( 'expires' => $remote_base ) ) );
 $remote_reconcile_lease->release();
-$remote_reconcile_gc = GcRunner::run( array( 'now' => $remote_base + 700, 'limit' => 500, 'reconcile_capacity' => true ) );
+$remote_reconcile_gc = GcRunner::run( array( 'now' => $remote_base + 700, 'reconcile_capacity' => true ) );
 eforms_test_assert(
     ! empty( $remote_reconcile_gc['ok'] )
         && $remote_reconcile_gc['capacity_reconciled'] === true

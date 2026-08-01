@@ -134,7 +134,6 @@ $dry_run = GcRunner::run(
     array(
         'dry_run' => true,
         'now' => $now,
-        'limit' => 500,
     )
 );
 
@@ -160,7 +159,6 @@ eforms_test_assert( file_exists( $declined_expired_path ), 'Dry-run must keep ex
 $apply = GcRunner::run(
     array(
         'now' => $now,
-        'limit' => 500,
     )
 );
 
@@ -189,7 +187,6 @@ eforms_test_assert( file_exists( $declined_fresh_path ), 'Fresh declined-review 
 $idempotent = GcRunner::run(
     array(
         'now' => $now,
-        'limit' => 500,
     )
 );
 
@@ -217,7 +214,6 @@ $locked = GcRunner::run(
     array(
         'dry_run' => true,
         'now' => $now,
-        'limit' => 500,
     )
 );
 
@@ -234,7 +230,6 @@ if ( function_exists( 'symlink' ) ) {
         array(
             'dry_run' => true,
             'now' => $now,
-            'limit' => 500,
         )
     );
     eforms_test_assert( $linked_lock['ok'] === false && $linked_lock['reason'] === 'gc_lock_open_failed', 'GC should fail closed on a symlinked lock file.' );
@@ -271,9 +266,9 @@ eforms_test_gc_write_file( $recovery_fresh, 'fresh-recovery', $now - $recovery_t
 eforms_test_gc_finalize_submission( $zero_retention_uploads, $protected_submission, 'protected', $now );
 eforms_test_gc_write_file( $recovery_protected, 'protected-recovery', $now - $recovery_ttl - 1 );
 eforms_test_gc_write_file( $ordinary_zero_retention, 'ordinary', $now - $recovery_ttl - 1 );
-$zero_dry = GcRunner::run( array( 'dry_run' => true, 'now' => $now, 'limit' => 500 ) );
+$zero_dry = GcRunner::run( array( 'dry_run' => true, 'now' => $now ) );
 eforms_test_assert( ! empty( $zero_dry['ok'] ) && $zero_dry['by_type']['uploads']['candidates'] === 1, 'Zero-retention GC should still discover one abandoned staged recovery file.' );
-$zero_apply = GcRunner::run( array( 'now' => $now, 'limit' => 500 ) );
+$zero_apply = GcRunner::run( array( 'now' => $now ) );
 eforms_test_assert( ! empty( $zero_apply['ok'] ) && ! is_file( $recovery_old ), 'Zero-retention GC should reclaim an abandoned staged recovery file after the finalized TTL.' );
 eforms_test_assert( is_file( $recovery_fresh ) && is_file( $ordinary_zero_retention ), 'Zero-retention GC should preserve fresh recovery files and ordinary immediate-retention files.' );
 eforms_test_assert( is_file( $recovery_protected ), 'GC should preserve recovery files while their finalized submission aggregate exists.' );
