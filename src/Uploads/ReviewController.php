@@ -17,10 +17,8 @@ require_once __DIR__ . '/WorkerClient.php';
 
 class ReviewController {
     const DOMAIN = 'eforms-managed-review';
-    const VERSION = '3';
-    const QUERY_SUBMISSION = 'eforms_review';
-    const QUERY_UPLOAD = 'eforms_review_upload';
-    const QUERY_PREVIEW = 'eforms_review_preview';
+    const VERSION = '4';
+    const ROUTE = 'review';
     private const ACTION_FIELD = 'eforms_review_action';
     private const DELETE_ACTION = 'delete_submission';
     private const DELETE_NONCE_FIELD = '_eforms_review_delete_nonce';
@@ -39,26 +37,32 @@ class ReviewController {
         if ( empty( $parsed['matched'] ) ) {
             return self::not_handled();
         }
-        $query = $parsed['query'];
-        $signature = isset( $query['signature'] ) && is_string( $query['signature'] ) ? $query['signature'] : '';
+        if ( ! self::clean_routes_available() ) {
+            return self::unavailable();
+        }
         $salt = self::salt( $overrides );
         $now = isset( $overrides['now'] ) && is_numeric( $overrides['now'] ) ? (int) $overrides['now'] : time();
         $uploads_dir = self::uploads_dir( $overrides );
         if ( $salt === '' || $uploads_dir === '' ) {
             return self::unavailable();
         }
+        $grant = isset( $parsed['token'] )
+            ? self::verify_token( $parsed['action'], $parsed['token'], $salt )
+            : null;
+        if ( ! is_array( $grant ) ) {
+            return self::unavailable();
+        }
+        $submission_id = $grant['submission_id'];
+        $upload_id = $grant['upload_id'];
 
         if ( $parsed['action'] === 'gallery' ) {
-            if ( ! self::verify( 'gallery', $parsed['submission_id'], '', $signature, $salt ) ) {
-                return self::unavailable();
-            }
             if ( $method === 'POST' ) {
-                return self::operator_post_response( $parsed['submission_id'], $uploads_dir, $now, $salt, $overrides );
+                return self::operator_post_response( $submission_id, $uploads_dir, $now, $salt, $overrides );
             }
             if ( $method !== 'GET' ) {
                 return self::unavailable();
             }
-            return self::gallery_response( $parsed['submission_id'], $uploads_dir, $now, $salt, $overrides );
+            return self::gallery_response( $submission_id, $uploads_dir, $now, $salt, $overrides );
         }
 
         if ( $method !== 'GET' ) {
@@ -66,24 +70,18 @@ class ReviewController {
         }
 
         if ( $parsed['action'] === 'file' ) {
-            if ( ! self::verify( 'file', $parsed['submission_id'], $parsed['upload_id'], $signature, $salt ) ) {
-                return self::unavailable();
-            }
             return self::file_response(
-                $parsed['submission_id'],
-                $parsed['upload_id'],
+                $submission_id,
+                $upload_id,
                 $uploads_dir,
                 $now
             );
         }
 
         if ( $parsed['action'] === 'preview' ) {
-            if ( ! self::verify( 'preview', $parsed['submission_id'], $parsed['upload_id'], $signature, $salt ) ) {
-                return self::unavailable();
-            }
             return self::preview_response(
-                $parsed['submission_id'],
-                $parsed['upload_id'],
+                $submission_id,
+                $upload_id,
                 $uploads_dir,
                 $now,
                 $overrides
@@ -94,18 +92,15 @@ class ReviewController {
     }
 
     public static function gallery_url( $submission_id, $base_url = null, $salt = null ) {
-        if ( ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() ) ) {
-            return '';
-        }
         $salt = is_string( $salt ) ? $salt : self::wordpress_salt();
         if ( $salt === '' ) {
             return '';
         }
-        $signature = self::signature( 'gallery', $submission_id, '', $salt );
-        if ( $signature === '' ) {
+        $token = self::token( 'gallery', $submission_id, '', $salt );
+        if ( $token === '' ) {
             return '';
         }
-        return self::review_url( 'gallery', $submission_id, '', $signature, $base_url );
+        return self::review_url( 'gallery', $token, $base_url );
     }
 
     public static function email_gallery_reference( $submission_id, $expected_upload_ids, $uploads_dir, $base_url = null, $salt = null, $now = null ) {
@@ -160,32 +155,23 @@ class ReviewController {
         return self::$current_gallery_lightbox_enabled ? true : $enabled;
     }
 
-    public static function signature( $action, $submission_id, $upload_id, $salt ) {
-        if ( ! in_array( $action, array( 'gallery', 'file', 'preview' ), true )
-            || ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
-            || ! is_string( $upload_id )
-            || ! is_string( $salt )
-            || $salt === ''
-        ) {
-            return '';
-        }
-        if ( $action === 'gallery' && $upload_id !== '' ) {
-            return '';
-        }
-        if ( in_array( $action, array( 'file', 'preview' ), true ) && ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() ) ) {
-            return '';
-        }
-
-        $message = UploadBatchStore::encode_parts(
+    public static function prevent_canonical_redirect( $redirect_url, $requested_url = '' ) {
+        $uri = is_string( $requested_url ) && $requested_url !== ''
+            ? $requested_url
+            : ( isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '' );
+        $parsed = self::parse_request(
             array(
-                self::DOMAIN,
-                self::VERSION,
-                $action,
-                $submission_id,
-                $upload_id,
+                'uri' => $uri,
+                'query' => isset( $_GET ) && is_array( $_GET ) ? $_GET : array(),
             )
         );
-        return $message === '' ? '' : self::base64url( hash_hmac( 'sha256', $message, $salt, true ) );
+        return empty( $parsed['matched'] ) ? $redirect_url : false;
+    }
+
+    public static function register_rewrite_rule() {
+        if ( function_exists( 'add_rewrite_rule' ) ) {
+            add_rewrite_rule( '^' . self::ROUTE . '/(?:(?:file|preview)/)?[A-Za-z0-9_-]{1,' . self::maximum_token_chars() . '}$', 'index.php', 'top' );
+        }
     }
 
     public static function emit_headers( $response ) {
@@ -245,7 +231,6 @@ class ReviewController {
                 return self::unavailable();
             }
             $preview_url = '';
-            $download_url = '';
             $download_url = self::file_url( $submission_id, $item['upload_id'], $base_url, $salt );
             if ( $artifact_store === FormProtocol::UPLOAD_TRANSPORT_WORKER || $provider === 'local' ) {
                 $preview_url = self::preview_url( $submission_id, $item['upload_id'], $base_url, $salt );
@@ -256,6 +241,8 @@ class ReviewController {
             $review_item = array(
                 'download_url' => $download_url,
                 'preview_url' => $preview_url,
+                'original_inline_available' => $artifact_store === FormProtocol::UPLOAD_TRANSPORT_LOCAL
+                    && UploadPolicy::staged_mime_has_browser_fallback( isset( $item['mime'] ) ? $item['mime'] : '' ),
             );
             if ( $preview_url !== '' ) {
                 $preview_dimensions = self::preview_dimensions(
@@ -457,20 +444,15 @@ class ReviewController {
     }
 
     private static function member_url( $action, $submission_id, $upload_id, $base_url, $salt ) {
-        if ( ! self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
-            || ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() )
-        ) {
-            return '';
-        }
         $salt = is_string( $salt ) ? $salt : self::wordpress_salt();
         if ( $salt === '' ) {
             return '';
         }
-        $signature = self::signature( $action, $submission_id, $upload_id, $salt );
-        if ( $signature === '' ) {
+        $token = self::token( $action, $submission_id, $upload_id, $salt );
+        if ( $token === '' ) {
             return '';
         }
-        return self::review_url( $action, $submission_id, $upload_id, $signature, $base_url );
+        return self::review_url( $action, $token, $base_url );
     }
 
     private static function operator_post_response( $submission_id, $uploads_dir, $now, $salt, $overrides ) {
@@ -671,69 +653,29 @@ class ReviewController {
         $path = is_string( $path ) ? $path : '';
         $home_path = function_exists( 'home_url' ) ? parse_url( (string) home_url(), PHP_URL_PATH ) : '';
         $home_path = is_string( $home_path ) ? rtrim( $home_path, '/' ) : '';
-        $query = isset( $request['query'] ) && is_array( $request['query'] ) ? $request['query'] : array();
-        if ( empty( $query ) ) {
-            $query_string = parse_url( $uri, PHP_URL_QUERY );
-            if ( is_string( $query_string ) ) {
-                parse_str( $query_string, $query );
-            } elseif ( isset( $_GET ) && is_array( $_GET ) ) {
-                $query = $_GET;
-            }
+        $route = $home_path . '/' . self::ROUTE;
+        if ( $path !== $route && strpos( $path, $route . '/' ) !== 0 ) {
+            return array( 'matched' => false );
         }
-        if ( array_key_exists( self::QUERY_SUBMISSION, $query ) ) {
-            if ( rtrim( $path, '/' ) !== $home_path ) {
-                return array( 'matched' => true, 'action' => 'invalid', 'query' => $query );
-            }
-            $submission_id = $query[ self::QUERY_SUBMISSION ];
-            $has_upload = array_key_exists( self::QUERY_UPLOAD, $query );
-            $has_preview = array_key_exists( self::QUERY_PREVIEW, $query );
-            $unknown = array_diff(
-                array_keys( $query ),
-                array( self::QUERY_SUBMISSION, self::QUERY_UPLOAD, self::QUERY_PREVIEW, 'signature' )
-            );
-            if ( ! $has_upload && ! $has_preview && empty( $unknown ) && self::valid_id( $submission_id, FormProtocol::managed_id_pattern() ) ) {
-                return array( 'matched' => true, 'action' => 'gallery', 'submission_id' => $submission_id, 'query' => $query );
-            }
-            if ( $has_upload
-                && ! $has_preview
-                && empty( $unknown )
-                && self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
-                && self::valid_id( $query[ self::QUERY_UPLOAD ], FormProtocol::managed_id_pattern() )
-            ) {
-                return array(
-                    'matched' => true,
-                    'action' => 'file',
-                    'submission_id' => $submission_id,
-                    'upload_id' => $query[ self::QUERY_UPLOAD ],
-                    'query' => $query,
-                );
-            }
-            if ( $has_preview
-                && ! $has_upload
-                && empty( $unknown )
-                && self::valid_id( $submission_id, FormProtocol::managed_id_pattern() )
-                && self::valid_id( $query[ self::QUERY_PREVIEW ], FormProtocol::managed_id_pattern() )
-            ) {
-                return array(
-                    'matched' => true,
-                    'action' => 'preview',
-                    'submission_id' => $submission_id,
-                    'upload_id' => $query[ self::QUERY_PREVIEW ],
-                    'query' => $query,
-                );
-            }
-            return array( 'matched' => true, 'action' => 'invalid', 'query' => $query );
+        $query_string = parse_url( $uri, PHP_URL_QUERY );
+        $query = isset( $request['query'] ) && is_array( $request['query'] )
+            ? $request['query']
+            : ( isset( $_GET ) && is_array( $_GET ) ? $_GET : array() );
+        if ( is_string( $query_string ) || ! empty( $query ) ) {
+            return array( 'matched' => true, 'action' => 'invalid' );
         }
-
-        return array( 'matched' => false );
-    }
-
-    private static function verify( $action, $submission_id, $upload_id, $provided, $salt ) {
-        if ( ! is_string( $provided ) ) {
-            return false;
+        $relative = substr( $path, strlen( $home_path ) );
+        $prefix = preg_quote( '/' . self::ROUTE, '#' );
+        if ( strlen( $relative ) > strlen( '/' . self::ROUTE . '/preview/' ) + self::maximum_token_chars() ) {
+            return array( 'matched' => true, 'action' => 'invalid' );
         }
-        $expected = self::signature( $action, $submission_id, $upload_id, $salt );
-        return $expected !== '' && hash_equals( $expected, $provided );
+        if ( preg_match( '#^' . $prefix . '/([A-Za-z0-9_-]+)$#D', $relative, $matches ) === 1 ) {
+            return array( 'matched' => true, 'action' => 'gallery', 'token' => $matches[1] );
+        }
+        if ( preg_match( '#^' . $prefix . '/(file|preview)/([A-Za-z0-9_-]+)$#D', $relative, $matches ) === 1 ) {
+            return array( 'matched' => true, 'action' => $matches[1], 'token' => $matches[2] );
+        }
+        return array( 'matched' => true, 'action' => 'invalid' );
     }
 
     private static function private_headers( $content_type ) {
@@ -789,21 +731,27 @@ class ReviewController {
         return function_exists( 'home_url' ) ? rtrim( (string) home_url(), '/' ) : '';
     }
 
-    private static function review_url( $action, $submission_id, $upload_id, $signature, $base_url ) {
+    private static function review_url( $action, $token, $base_url ) {
         $base = self::base_url( $base_url );
-        if ( $base === '' ) {
+        if ( $base === ''
+            || ! self::clean_routes_available()
+            || ! in_array( $action, array( 'gallery', 'file', 'preview' ), true )
+            || ! is_string( $token )
+            || $token === ''
+        ) {
             return '';
         }
-        $query = array_merge(
-            array( self::QUERY_SUBMISSION => $submission_id ),
-            $action === 'file'
-                ? array( self::QUERY_UPLOAD => $upload_id )
-                : ( $action === 'preview' ? array( self::QUERY_PREVIEW => $upload_id ) : array() ),
-            array(
-                'signature' => $signature,
-            )
-        );
-        return $base . '/?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 );
+        $member = $action === 'gallery' ? '' : '/' . $action;
+        return $base . '/' . self::ROUTE . $member . '/' . $token;
+    }
+
+    public static function clean_routes_available() {
+        if ( ! function_exists( 'get_option' ) ) {
+            return false;
+        }
+        $structure = get_option( 'permalink_structure', '' );
+        $structure = is_string( $structure ) ? ltrim( $structure, '/' ) : '';
+        return $structure !== '' && $structure !== 'index.php' && strpos( $structure, 'index.php/' ) !== 0;
     }
 
     private static function server_method() {
@@ -981,7 +929,145 @@ class ReviewController {
         );
     }
 
+    private static function token( $action, $submission_id, $upload_id, $salt ) {
+        if ( ! in_array( $action, array( 'gallery', 'file', 'preview' ), true )
+            || ! is_string( $salt )
+            || $salt === ''
+        ) {
+            return '';
+        }
+        $uuid = self::uuid_bytes( $submission_id );
+        if ( $uuid === '' ) {
+            return '';
+        }
+        $body = chr( (int) self::VERSION ) . $uuid;
+        if ( $action === 'gallery' ) {
+            if ( $upload_id !== '' ) {
+                return '';
+            }
+        } elseif ( ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() ) ) {
+            return '';
+        } else {
+            $body .= chr( strlen( $upload_id ) ) . $upload_id;
+        }
+        $tag = self::token_tag( $action, $body, $salt );
+        return $tag === '' ? '' : self::base64url( $body . $tag );
+    }
+
+    private static function verify_token( $action, $token, $salt ) {
+        if ( ! in_array( $action, array( 'gallery', 'file', 'preview' ), true )
+            || ! is_string( $salt )
+            || $salt === ''
+            || ! self::token_length_allowed( $action, $token )
+        ) {
+            return null;
+        }
+        $decoded = self::base64url_decode( $token );
+        $tag_bytes = Anchors::get( 'MANAGED_REVIEW_TAG_BYTES' );
+        $uuid_bytes = Anchors::get( 'MANAGED_SUBMISSION_UUID_BYTES' );
+        $minimum = 1 + $uuid_bytes + $tag_bytes;
+        if ( $decoded === '' || strlen( $decoded ) < $minimum ) {
+            return null;
+        }
+        $body = substr( $decoded, 0, -$tag_bytes );
+        $provided = substr( $decoded, -$tag_bytes );
+        $expected = self::token_tag( $action, $body, $salt );
+        if ( $expected === '' || ! hash_equals( $expected, $provided ) || ord( $body[0] ) !== (int) self::VERSION ) {
+            return null;
+        }
+        $submission_id = self::uuid_from_bytes( substr( $body, 1, $uuid_bytes ) );
+        if ( $submission_id === '' ) {
+            return null;
+        }
+        $offset = 1 + $uuid_bytes;
+        if ( $action === 'gallery' ) {
+            return strlen( $body ) === $offset
+                ? array( 'submission_id' => $submission_id, 'upload_id' => '' )
+                : null;
+        }
+        if ( strlen( $body ) <= $offset ) {
+            return null;
+        }
+        $length = ord( $body[ $offset ] );
+        $upload_id = substr( $body, $offset + 1 );
+        if ( $length < 1
+            || strlen( $upload_id ) !== $length
+            || ! self::valid_id( $upload_id, FormProtocol::managed_id_pattern() )
+        ) {
+            return null;
+        }
+        return array( 'submission_id' => $submission_id, 'upload_id' => $upload_id );
+    }
+
+    private static function token_length_allowed( $action, $token ) {
+        if ( ! is_string( $token ) ) {
+            return false;
+        }
+        $tag_bytes = Anchors::get( 'MANAGED_REVIEW_TAG_BYTES' );
+        $uuid_bytes = Anchors::get( 'MANAGED_SUBMISSION_UUID_BYTES' );
+        $gallery_chars = self::base64url_length( 1 + $uuid_bytes + $tag_bytes );
+        if ( $action === 'gallery' ) {
+            return strlen( $token ) === $gallery_chars;
+        }
+        $minimum_chars = self::base64url_length( 1 + $uuid_bytes + 1 + 1 + $tag_bytes );
+        return strlen( $token ) >= $minimum_chars && strlen( $token ) <= self::maximum_token_chars();
+    }
+
+    private static function maximum_token_chars() {
+        return self::base64url_length(
+            1
+            + Anchors::get( 'MANAGED_SUBMISSION_UUID_BYTES' )
+            + 1
+            + Anchors::get( 'MANAGED_ID_MAX_CHARS' )
+            + Anchors::get( 'MANAGED_REVIEW_TAG_BYTES' )
+        );
+    }
+
+    private static function base64url_length( $bytes ) {
+        return is_int( $bytes ) && $bytes > 0 ? intdiv( $bytes * 8 + 5, 6 ) : 0;
+    }
+
+    private static function token_tag( $action, $body, $salt ) {
+        $tag_bytes = Anchors::get( 'MANAGED_REVIEW_TAG_BYTES' );
+        if ( ! is_int( $tag_bytes ) || $tag_bytes < 1 || $tag_bytes > 32 ) {
+            return '';
+        }
+        $message = UploadBatchStore::encode_parts( array( self::DOMAIN, self::VERSION, $action, $body ) );
+        return $message === '' ? '' : substr( hash_hmac( 'sha256', $message, $salt, true ), 0, $tag_bytes );
+    }
+
+    private static function uuid_bytes( $submission_id ) {
+        if ( ! is_string( $submission_id )
+            || preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/D', $submission_id ) !== 1
+        ) {
+            return '';
+        }
+        $bytes = hex2bin( str_replace( '-', '', $submission_id ) );
+        return is_string( $bytes ) && strlen( $bytes ) === Anchors::get( 'MANAGED_SUBMISSION_UUID_BYTES' ) ? $bytes : '';
+    }
+
+    private static function uuid_from_bytes( $bytes ) {
+        if ( ! is_string( $bytes ) || strlen( $bytes ) !== Anchors::get( 'MANAGED_SUBMISSION_UUID_BYTES' ) ) {
+            return '';
+        }
+        $hex = bin2hex( $bytes );
+        return substr( $hex, 0, 8 )
+            . '-' . substr( $hex, 8, 4 )
+            . '-' . substr( $hex, 12, 4 )
+            . '-' . substr( $hex, 16, 4 )
+            . '-' . substr( $hex, 20, 12 );
+    }
+
     private static function base64url( $bytes ) {
         return rtrim( strtr( base64_encode( $bytes ), '+/', '-_' ), '=' );
+    }
+
+    private static function base64url_decode( $encoded ) {
+        if ( ! is_string( $encoded ) || preg_match( '/^[A-Za-z0-9_-]+$/D', $encoded ) !== 1 ) {
+            return '';
+        }
+        $padding = ( 4 - strlen( $encoded ) % 4 ) % 4;
+        $decoded = base64_decode( strtr( $encoded, '-_', '+/' ) . str_repeat( '=', $padding ), true );
+        return is_string( $decoded ) && self::base64url( $decoded ) === $encoded ? $decoded : '';
     }
 }

@@ -52,6 +52,9 @@ eforms_test_assert( $decoded['expires'] === $expires, 'Token record expires shou
 $record_perms = fileperms( $record_path ) & 0777;
 eforms_test_assert( $record_perms === 0600, 'Token record should be 0600.' );
 
+$private_root_perms = fileperms( $uploads_dir . '/eforms-private' ) & 0777;
+eforms_test_assert( $private_root_perms === PrivateDir::REVIEW_DIRECTORY_MODE, 'Private storage root should allow traversal by the trusted runtime group.' );
+
 $shard_perms = fileperms( dirname( $record_path ) ) & 0777;
 eforms_test_assert( $shard_perms === 0700, 'Token shard dir should be 0700.' );
 

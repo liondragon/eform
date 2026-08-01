@@ -25,6 +25,7 @@ const EXTENSION_BY_MIME = Object.freeze({
   'image/heic': 'heic',
   'image/heif': 'heif',
 });
+const SUPPORTED_EXTENSIONS = new Set(Object.values(EXTENSION_BY_MIME));
 
 export const MIME_PATTERN = /^image\/(?:jpeg|png|webp|heic|heif)$/;
 
@@ -35,6 +36,10 @@ export function detectedMime(format) {
 
 export function extensionForMime(mime) {
   return EXTENSION_BY_MIME[mime] || '';
+}
+
+export function supportedExtension(extension) {
+  return typeof extension === 'string' && SUPPORTED_EXTENSIONS.has(extension);
 }
 
 export function supportedMime(mime) {

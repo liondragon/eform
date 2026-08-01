@@ -1,5 +1,5 @@
 {
-  "version": "1",
+  "version": "2",
   "environment": "production-fixture",
   "active_key_id": "key-2026-07",
   "active_key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
@@ -10,7 +10,7 @@
       "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "upload_id": "upload_fixture_01",
       "ordinal": 2,
-      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
       "declared_bytes": 1234,
       "declared_mime": "image/png",
       "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -28,7 +28,7 @@
       "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "upload_id": "upload_fixture_01",
       "ordinal": 2,
-      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
       "object_version": "0123456789abcdef0123456789abcdef",
       "etag": "abcdefabcdefabcdefabcdefabcdefab",
       "bytes": 1234,
@@ -41,7 +41,7 @@
     "review_grant": {
       "submission_id": "submission_fixture_01",
       "upload_id": "upload_fixture_01",
-      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
       "object_version": "0123456789abcdef0123456789abcdef",
       "action": "preview",
       "recipe_version": "review-jpeg-v1",
@@ -49,14 +49,14 @@
     },
     "object_request": {
       "request_id": "object_fixture_01",
-      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
       "object_version": "0123456789abcdef0123456789abcdef",
       "action": "delete",
       "expires_at": 2000000060
     },
     "object_result": {
       "request_id": "object_fixture_01",
-      "object_key": "artifacts/ab/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
       "object_version": "0123456789abcdef0123456789abcdef",
       "status": "absent",
       "expires_at": 2000000060
@@ -74,13 +74,13 @@
     }
   },
   "vectors": {
-    "upload_grant": { "payload_sha256": "f820328683e9a5a3cbb1dafed3f9aa92f02dcd382fc464c08e7d6f621cd6da84", "signature_b64": "B3Tlo3nMH5Ko3uULtNLlrHj-VEFNF5dPS7q2Hn0ukzY" },
-    "upload_receipt": { "payload_sha256": "27f690369a3b31359b14c6313e57d0920d535735caaea1d6677496d7f269c20a", "signature_b64": "uvs6Ticz4mABNwC1DHQMgODrbGvFZaOUU1l-waXYvmA" },
-    "review_grant": { "payload_sha256": "636890919779a215de38a93b72613d5126bccae410c809f276f6ab345b55ae87", "signature_b64": "Y3ZMqunHSRgWIYwNE4-dnsnviA7Pj94jpQmhsrgtT9U" },
-    "object_request": { "payload_sha256": "0ca50a6bc477ab8e4f77bcc558cc588969f14ac5b044516383ab4211a2a8bb3f", "signature_b64": "OOyI7yg4xlaIt2N5oOcM4EuVmCbB8V28odmiIz-UFSc" },
-    "object_result": { "payload_sha256": "2a6d3bc33abded19898c7f71b9466065a3bf80f5f712337ff81f1c8b98481c0d", "signature_b64": "KsoWAyiovzQe8C2p4fQjYm-_7Dl18bZQTmO44P53GQo" },
-    "health_request": { "payload_sha256": "8027cc39660edb44844a39d9333061d6835f155069fc2215dd4d3c30f3d8c830", "signature_b64": "-CsGNJn_dKVdT5IELL6-hElFyNhetTDdA_GjB0uCfTc" },
-    "health_result": { "payload_sha256": "3e825e3f72d3168365c9ef27af022408dfed834b5378ad9369fb1aacb556095a", "signature_b64": "-RJ_TJfELA7QmTWmMaFK1aoWl7cBP7Mz2UU2JxqNWBI" },
-    "declared_over_limit_grant": { "payload_sha256": "2ee53e825d64e457d800db5a131ecb455488c266a96d1535301cae1b68daffc5", "signature_b64": "OtJBhT3OuX6DM9dnL2K6hF_AR0v0ORXifJUUCou4Zs4" }
+    "upload_grant": { "payload_sha256": "d364017c07e8d7ed84038724935933d4f5e5892359b997cdc6ecb125a0f9a850", "signature_b64": "c5CdWxzBzM783RcUgj-UFTUeq7BJxShEifMMEf3hdHU" },
+    "upload_receipt": { "payload_sha256": "acaefb4989fb7b351f7728ceb869b156b6cc0080a32e525e2db28007ec9dffa8", "signature_b64": "VGZBdHg1SINaJGVtcdvQ8B-gRrSeUB1ZzuhpgGfpgLA" },
+    "review_grant": { "payload_sha256": "6295aea96a6969a4756e18113335051651f9400b3704b56733eb8c8516aa245b", "signature_b64": "SAIbdiRuHgGLsThNX3QJPyqBV6xYdGk_WKMtpCS9ypE" },
+    "object_request": { "payload_sha256": "80782c343849e89de11650883ccf6459e2a07dc4f379af596323039b035217cd", "signature_b64": "sib6IVfNkSmgKx6wmUvz0Sbq0TbpWzYOq2_BpyTnK-s" },
+    "object_result": { "payload_sha256": "dedd7179e154fee538d2a65fd6f1d8b8699dad204f2fea123c394a1c014d3cc5", "signature_b64": "Lf-TXgUa6plH1k3wQNkcSehb4OzNJhmCiclu1FvdBVo" },
+    "health_request": { "payload_sha256": "2c158a26b13bf9638f4b7bc7b006d624d965fe4bbcec33710860d8b4a7624667", "signature_b64": "knZDDvvhDVlZ8EzN6bzF1wx8XjTp5R5B0h_xKX5iBuY" },
+    "health_result": { "payload_sha256": "5a43121723b13d6dd81910987a513d5ec4e23884f8572ebd80a4d8a893963677", "signature_b64": "PYe9Fu7OPW9Hx_DTtA-UpU_k6DTDFUbkvsXEOSp3bJA" },
+    "declared_over_limit_grant": { "payload_sha256": "e6cc5a5349ec2be9041855c03690aa8a591ccd3ec1a6806f5226e90b1927e2aa", "signature_b64": "2uqZ9ACyNVVxY_BvnMq7mtCF3ZEVHG1IaJG6X62ac8U" }
   }
 }

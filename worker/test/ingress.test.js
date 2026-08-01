@@ -7,6 +7,7 @@ import {
   decodeIntegrationKey, signObjectResult, signReviewGrant, signUploadGrant, signUploadReceipt,
 } from '../src/protocol.js';
 import { inspectHeif } from '../src/heif.js';
+import { createManagedArtifactKey } from '../src/managed-artifact-key.js';
 import { fixture, fixtureToken, tokens } from './fixture.js';
 const now = fixture.verification_now;
 
@@ -123,6 +124,21 @@ test('over-limit grants fail before the request body or object store is used', a
   const response = await handleRequest(uploadRequest(pngBody(), {}, grant), env, clock());
   assert.equal(response.status, 413);
   assert.deepEqual(env.ARTIFACTS.calls, []);
+});
+
+test('a signed upload grant cannot redirect an intent outside its canonical MIME key', async () => {
+  const claims = {
+    ...fixture.claims.upload_grant,
+    declared_mime: 'image/webp',
+  };
+  const grant = await signUploadGrant(
+    claims, fixture.active_key_id, decodeIntegrationKey(fixture.active_key_b64), fixture.environment,
+  );
+  const env = environment();
+  const response = await handleRequest(uploadRequest(webpBody(), {}, grant, 'image/webp'), env, clock());
+  assert.equal(response.status, 400);
+  assert.deepEqual(env.ARTIFACTS.calls, []);
+  assert.equal(env.IMAGES.calls, 0);
 });
 
 test('an initial R2 lookup failure returns a controlled CORS response', async () => {
@@ -263,6 +279,9 @@ test('bounded PNG and WebP scans cancel their exact-object streams on every earl
       ...fixture.claims.upload_grant,
       declared_mime: scenario.mime,
     };
+    claims.object_key = await createManagedArtifactKey(
+      claims.batch_id, claims.ordinal, claims.intent_id, claims.declared_mime,
+    );
     const grant = await signUploadGrant(
       claims, fixture.active_key_id, decodeIntegrationKey(fixture.active_key_b64), fixture.environment,
     );
@@ -500,6 +519,9 @@ test('HEIF receipts require the bounded still-image container policy', async () 
     declared_bytes: bytes.byteLength,
     declared_mime: 'image/heic',
   };
+  claims.object_key = await createManagedArtifactKey(
+    claims.batch_id, claims.ordinal, claims.intent_id, claims.declared_mime,
+  );
   const grant = await signUploadGrant(
     claims, fixture.active_key_id, decodeIntegrationKey(fixture.active_key_b64), fixture.environment,
   );
@@ -515,8 +537,10 @@ test('HEIF receipts require the bounded still-image container policy', async () 
     ...claims,
     intent_id: claims.intent_id.replace(/.$/, claims.intent_id.endsWith('A') ? 'B' : 'A'),
     upload_id: 'heif_protected',
-    object_key: claims.object_key.replace(/.$/, claims.object_key.endsWith('a') ? 'b' : 'a'),
   };
+  protectedClaims.object_key = await createManagedArtifactKey(
+    protectedClaims.batch_id, protectedClaims.ordinal, protectedClaims.intent_id, protectedClaims.declared_mime,
+  );
   const protectedGrant = await signUploadGrant(
     protectedClaims, fixture.active_key_id, decodeIntegrationKey(fixture.active_key_b64), fixture.environment,
   );

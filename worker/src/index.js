@@ -19,6 +19,7 @@ import {
 } from './anchors.js';
 import { inspectArtifact } from './media.js';
 import { extensionForMime, mimeMatches, supportedMime } from './media-policy.js';
+import { createManagedArtifactKey } from './managed-artifact-key.js';
 
 const UPLOAD_PATH = '/v1/upload';
 const HEALTH_PATH = '/v1/health';
@@ -70,6 +71,9 @@ async function upload(request, env, runtime) {
   const verified = await verifyUploadGrant(grantToken, configuration.keys, configuration.environment, admittedAt);
   if (!verified.ok) return corsError(403, origin);
   const claims = verified.claims;
+  if (claims.object_key !== await createManagedArtifactKey(
+    claims.batch_id, claims.ordinal, claims.intent_id, claims.declared_mime,
+  )) return corsError(400, origin);
   if (claims.declared_mime !== contentType || claims.declared_bytes !== contentLength
     || claims.declared_bytes > claims.max_bytes || claims.intent_expires_at < admittedAt) {
     return corsError(claims.declared_bytes > claims.max_bytes ? 413 : 400, origin);

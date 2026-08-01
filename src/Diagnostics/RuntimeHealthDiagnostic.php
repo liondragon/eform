@@ -20,6 +20,7 @@ require_once __DIR__ . '/../Uploads/UploadBatchStore.php';
 require_once __DIR__ . '/../Uploads/UploadPolicy.php';
 require_once __DIR__ . '/../Uploads/LocalPreviewProvider.php';
 require_once __DIR__ . '/../Uploads/PrivateDir.php';
+require_once __DIR__ . '/../Uploads/ReviewController.php';
 require_once __DIR__ . '/../Uploads/WorkerClient.php';
 
 class RuntimeHealthDiagnostic {
@@ -44,6 +45,7 @@ class RuntimeHealthDiagnostic {
             self::check_private_storage( $private_lease ),
             self::check_runtime_dirs( $private_lease ),
             self::check_staged_artifact_readiness( $observations, $composition, $artifact_stores, $artifact_store_identities ),
+            self::check_review_route_readiness(),
             self::check_review_preview_readiness( $observations ),
             self::check_managed_capacity( $observations, $capacity_health, $artifact_stores ),
             self::check_managed_upload_dirs( $private_lease, $artifact_stores ),
@@ -237,16 +239,28 @@ class RuntimeHealthDiagnostic {
             return self::check( 'review-preview-readiness', 'WARN', 'provider configuration invalid', 'optional provider disabled or ready', 'artifact upload remains available; repair the optional preview composition' );
         }
         $concurrency = WorkerClient::local_preview_concurrency();
-        $readiness = LocalPreviewProvider::readiness(
-            $concurrency,
-            array_key_exists( 'local_preview_imagick', $observations )
-                ? array( 'imagick' => (bool) $observations['local_preview_imagick'] )
-                : array()
-        );
+        $preview_observations = array();
+        if ( array_key_exists( 'local_preview_imagick', $observations ) ) {
+            $preview_observations['imagick'] = (bool) $observations['local_preview_imagick'];
+        }
+        if ( array_key_exists( 'memory_limit', $observations ) ) {
+            $preview_observations['memory_limit'] = $observations['memory_limit'];
+        }
+        if ( array_key_exists( 'execution_limit', $observations ) ) {
+            $preview_observations['execution_limit'] = $observations['execution_limit'];
+        }
+        $readiness = LocalPreviewProvider::readiness( $concurrency, $preview_observations );
         if ( ! empty( $readiness['ok'] ) ) {
             return self::check( 'review-preview-readiness', 'PASS', 'local provider ready at concurrency ' . $concurrency, 'optional provider disabled or ready', 'preview work is presentation-only and globally bounded' );
         }
         return self::check( 'review-preview-readiness', 'WARN', isset( $readiness['reason'] ) ? $readiness['reason'] : 'provider unavailable', 'optional provider disabled or ready', 'artifact upload remains available; submitted-image download is the fallback' );
+    }
+
+    private static function check_review_route_readiness() {
+        if ( ReviewController::clean_routes_available() ) {
+            return self::check( 'review-route-readiness', 'PASS', 'rewrite-based clean routing available', 'rewrite-based clean review routing available', 'gallery links can route through the WordPress front controller' );
+        }
+        return self::check( 'review-route-readiness', 'FAIL', 'unsupported permalink structure', 'rewrite-based clean review routing available', 'select a rewrite-based permalink structure; Plain and index.php PATHINFO modes cannot serve managed review links' );
     }
 
     private static function check_managed_capacity( $observations, $health, $artifact_stores ) {
@@ -426,7 +440,10 @@ class RuntimeHealthDiagnostic {
     }
 
     private static function dir_usable( $private_lease, $name, $with_protection = false ) {
-        $dir = PrivateDir::leased_subdir( $private_lease, $name, true, $with_protection );
+        $review_root = in_array( $name, array( UploadBatchStore::SUBMISSIONS_DIR, UploadBatchStore::ARTIFACTS_DIR ), true );
+        $dir = $with_protection && $review_root
+            ? PrivateDir::leased_review_subdir( $private_lease, $name, true, true )
+            : PrivateDir::leased_subdir( $private_lease, $name, true, $with_protection );
         if ( $dir === '' ) {
             return false;
         }
@@ -447,7 +464,7 @@ class RuntimeHealthDiagnostic {
         $written = @fwrite( $handle, 'ok' );
         $flushed = ! function_exists( 'fflush' ) || @fflush( $handle );
         fclose( $handle );
-        if ( $written !== 2 || ! $flushed || ! @chmod( $probe, 0600 ) || is_link( $probe ) ) {
+        if ( $written !== 2 || ! $flushed || ! @chmod( $probe, PrivateDir::FILE_MODE ) || is_link( $probe ) ) {
             @unlink( $probe );
             return false;
         }

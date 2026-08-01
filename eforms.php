@@ -23,5 +23,8 @@ require_once __DIR__ . '/src/bootstrap.php';
 if ( function_exists( 'register_activation_hook' ) ) {
     register_activation_hook( __FILE__, 'eforms_activate' );
 }
+if ( function_exists( 'register_deactivation_hook' ) ) {
+    register_deactivation_hook( __FILE__, 'eforms_deactivate' );
+}
 
 eforms_bootstrap();

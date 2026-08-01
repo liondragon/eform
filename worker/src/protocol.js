@@ -6,11 +6,12 @@ import {
   WORKER_INTEGRATION_KEY_BYTES,
 } from './anchors.js';
 import { MIME_PATTERN } from './media-policy.js';
+import { validManagedArtifactKey, validManagedDigest } from './managed-artifact-key.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
-export const VERSION = '1';
+export const VERSION = '2';
 export const REVIEW_RECIPE_VERSION = 'review-jpeg-v1';
 export const ENVELOPE_MAX_CHARS = WORKER_ENVELOPE_MAX_CHARS;
 export const DOMAINS = Object.freeze({
@@ -87,9 +88,7 @@ const schemas = Object.freeze({
 });
 
 const patterns = Object.freeze({
-  digest: /^[A-Za-z0-9_-]{43}$/,
   managedId: new RegExp(`^[A-Za-z0-9_-]{1,${MANAGED_ID_MAX_CHARS}}$`),
-  objectKey: /^artifacts\/[0-9a-f]{2}\/[0-9a-f]{64}$/,
   opaque: new RegExp(`^[A-Za-z0-9._:-]{1,${WORKER_OPAQUE_MAX_CHARS}}$`),
   hexDigest: /^[0-9a-f]{64}$/,
   mime: MIME_PATTERN,
@@ -190,7 +189,7 @@ async function sign(schemaName, claims, keyId, secret, environment) {
     || !(secret instanceof Uint8Array) || secret.byteLength !== WORKER_INTEGRATION_KEY_BYTES) {
     return '';
   }
-  const normalized = normalizeClaims(claims, schema.fields);
+  const normalized = await normalizeClaims(claims, schema.fields);
   if (!normalized) return '';
   const parts = [schema.domain, VERSION, keyId, environment];
   for (const field of Object.keys(schema.fields)) parts.push(normalized[field]);
@@ -220,7 +219,7 @@ async function verify(schemaName, token, keys, environment, now) {
   const claims = {};
   let index = 4;
   for (const [field, type] of Object.entries(schema.fields)) {
-    const value = canonicalValue(parts[index], type);
+    const value = await canonicalValue(parts[index], type);
     if (value === null) return failure;
     claims[field] = typedValue(value, type);
     index += 1;
@@ -233,21 +232,23 @@ async function verify(schemaName, token, keys, environment, now) {
   return { ok: true, key_id: parts[2], claims };
 }
 
-function normalizeClaims(claims, fields) {
+async function normalizeClaims(claims, fields) {
   if (!claims || typeof claims !== 'object' || Array.isArray(claims)) return null;
   const actual = Object.keys(claims).sort();
   const expected = Object.keys(fields).sort();
   if (actual.length !== expected.length || actual.some((field, index) => field !== expected[index])) return null;
   const normalized = {};
   for (const [field, type] of Object.entries(fields)) {
-    const value = canonicalValue(claims[field], type);
+    const value = await canonicalValue(claims[field], type);
     if (value === null) return null;
     normalized[field] = value;
   }
   return normalized;
 }
 
-function canonicalValue(input, type) {
+async function canonicalValue(input, type) {
+  if (type === 'objectKey') return await validManagedArtifactKey(input) ? input : null;
+  if (type === 'digest') return validManagedDigest(input) ? input : null;
   if (type === 'uint' || type === 'positiveInt') {
     const value = typeof input === 'number' && Number.isSafeInteger(input) ? String(input) : input;
     if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]*)$/.test(value)) return null;

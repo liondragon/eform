@@ -149,6 +149,19 @@ class UploadPolicy {
     }
 
     /**
+     * Whether a staged image MIME is part of the browser-native image policy.
+     * HEIC/HEIF remain valid staged uploads but require a generated preview.
+     */
+    public static function staged_mime_has_browser_fallback( $mime ) {
+        if ( ! is_string( $mime ) || $mime === '' ) {
+            return false;
+        }
+        $staged = self::policy_for_tokens( array( 'image' ), 'staged' );
+        $browser = self::policy_for_tokens( array( 'image' ), 'synchronous' );
+        return in_array( $mime, $staged['mimes'], true ) && in_array( $mime, $browser['mimes'], true );
+    }
+
+    /**
      * Project the authoritative staged extension policy to the browser. Where
      * a container has MIME aliases, prefer its same-named image MIME.
      */
@@ -168,6 +181,19 @@ class UploadPolicy {
         return is_string( $mime ) && isset( self::STAGED_CANONICAL_EXTENSION_BY_MIME[ $mime ] )
             ? self::STAGED_CANONICAL_EXTENSION_BY_MIME[ $mime ]
             : '';
+    }
+
+    public static function staged_extension_supported( $extension ) {
+        return is_string( $extension )
+            && in_array( $extension, self::STAGED_CANONICAL_EXTENSION_BY_MIME, true );
+    }
+
+    public static function staged_mime_matches_extension( $mime, $extension ) {
+        return self::mime_allowed(
+            $mime,
+            $extension,
+            self::policy_for_tokens( array( 'image' ), 'staged' )
+        );
     }
 
     public static function effective_staged_limits( $field ) {

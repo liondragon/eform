@@ -9,6 +9,7 @@
 require_once __DIR__ . '/../Anchors.php';
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Security/Entropy.php';
+require_once __DIR__ . '/ManagedArtifactKey.php';
 require_once __DIR__ . '/PrivateDir.php';
 require_once __DIR__ . '/UploadPolicy.php';
 require_once __DIR__ . '/WorkerProtocol.php';
@@ -81,7 +82,7 @@ final class LocalPreviewProvider {
             if ( ! $generated
                 || self::deleted( $directory )
                 || ! @rename( $temporary, $destination )
-                || ! @chmod( $destination, 0600 )
+                || ! @chmod( $destination, PrivateDir::FILE_MODE )
             ) {
                 @unlink( $temporary );
                 @unlink( $destination );
@@ -353,7 +354,7 @@ final class LocalPreviewProvider {
             @flock( $handle, LOCK_UN );
             fclose( $handle );
         }
-        return $ok && @chmod( $path, 0600 );
+        return $ok && @chmod( $path, PrivateDir::FILE_MODE );
     }
 
     private static function object_directory( $root, $artifact, $create ) {
@@ -364,10 +365,10 @@ final class LocalPreviewProvider {
             if ( is_link( $directory ) || ( file_exists( $directory ) && ! is_dir( $directory ) ) ) {
                 return '';
             }
-            if ( ! is_dir( $directory ) && ( ! $create || ! @mkdir( $directory, 0700 ) ) ) {
+            if ( ! is_dir( $directory ) && ( ! $create || ! @mkdir( $directory, PrivateDir::DIRECTORY_MODE ) ) ) {
                 return '';
             }
-            if ( is_link( $directory ) || ! is_dir( $directory ) || ! @chmod( $directory, 0700 ) ) {
+            if ( is_link( $directory ) || ! is_dir( $directory ) || ! @chmod( $directory, PrivateDir::DIRECTORY_MODE ) ) {
                 return '';
             }
             $path = $directory;
@@ -413,10 +414,10 @@ final class LocalPreviewProvider {
         if ( is_link( $directory ) || ( file_exists( $directory ) && ! is_dir( $directory ) ) ) {
             return false;
         }
-        if ( ! is_dir( $directory ) && ! @mkdir( $directory, 0700 ) ) {
+        if ( ! is_dir( $directory ) && ! @mkdir( $directory, PrivateDir::DIRECTORY_MODE ) ) {
             return false;
         }
-        if ( is_link( $directory ) || ! @chmod( $directory, 0700 ) ) {
+        if ( is_link( $directory ) || ! @chmod( $directory, PrivateDir::DIRECTORY_MODE ) ) {
             return false;
         }
         for ( $index = 0; $index < $concurrency; $index++ ) {
@@ -434,7 +435,7 @@ final class LocalPreviewProvider {
         }
         $handle = @fopen( $path, 'c+b' );
         $operation = LOCK_EX | ( $nonblocking ? LOCK_NB : 0 );
-        if ( $handle === false || is_link( $path ) || ! @chmod( $path, 0600 ) || ! @flock( $handle, $operation ) ) {
+        if ( $handle === false || is_link( $path ) || ! @chmod( $path, PrivateDir::FILE_MODE ) || ! @flock( $handle, $operation ) ) {
             if ( is_resource( $handle ) ) {
                 fclose( $handle );
             }
@@ -484,10 +485,10 @@ final class LocalPreviewProvider {
             return false;
         }
         if ( is_file( $path ) ) {
-            return @chmod( $path, 0600 );
+            return @chmod( $path, PrivateDir::FILE_MODE );
         }
         $written = @file_put_contents( $path, "deleted\n", LOCK_EX );
-        return $written === 8 && @chmod( $path, 0600 );
+        return $written === 8 && @chmod( $path, PrivateDir::FILE_MODE );
     }
 
     private static function deleted_fence_candidate( $directory, $now ) {
@@ -552,13 +553,10 @@ final class LocalPreviewProvider {
         ) {
             return false;
         }
-        if ( ! is_string( $artifact['object_key'] )
-            || preg_match( '#^artifacts/([0-9a-f]{2})/([0-9a-f]{64})$#D', $artifact['object_key'], $matches ) !== 1
-        ) {
+        if ( ! ManagedArtifactKey::valid( $artifact['object_key'] ) ) {
             return false;
         }
-        return Helpers::h2( $matches[2] ) === $matches[1]
-            && is_string( $artifact['object_version'] )
+        return is_string( $artifact['object_version'] )
             && preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', $artifact['object_version'] ) === 1
             && in_array( $artifact['mime'], UploadPolicy::staged_mimes(), true );
     }

@@ -31,6 +31,11 @@ function renderReviewTemplate(context) {
 }
 
 test('review preview failure reveals the unavailable state without removing download access', async ({ page }) => {
+  await page.route('https://example.test/original', route => route.fulfill({
+    status: 200,
+    contentType: 'image/png',
+    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
+  }));
   await page.setContent(`
     <style>${formsCss}</style>
     <article class="eforms-review-page" data-eforms-review="gallery" data-eforms-review-preview-timeout-ms="1000">
@@ -38,11 +43,12 @@ test('review preview failure reveals the unavailable state without removing down
         <span hidden aria-hidden="true" data-eforms-review-fallback>
           <span>Preview unavailable</span>
           <button type="button" class="eforms-review-button eforms-review-button--compact" data-eforms-review-retry>Retry preview</button>
+          <button type="button" class="eforms-review-button eforms-review-button--compact" data-eforms-review-original data-eforms-review-original-src="https://example.test/original">Load original</button>
         </span>
         <a class="eforms-review-preview-link ta-gallery__link" data-lbwps-width="1600" data-lbwps-height="900" aria-label="Open Photo 1">
           <img hidden data-eforms-review-src="data:image/jpeg;base64,invalid" alt="Photo 1 preview" data-eforms-review-preview>
         </a>
-        <a class="eforms-review-download-overlay" href="/submitted-image" aria-label="Download Photo 1">
+        <a class="eforms-review-download-overlay" href="https://example.test/original" aria-label="Download Photo 1">
           <span class="screen-reader-text">Download photo</span>
         </a>
       </div>
@@ -67,7 +73,15 @@ test('review preview failure reveals the unavailable state without removing down
   await expect.poll(() => page.evaluate(() => window.__eformsBrokenPreviewClicked === true)).toBe(false);
   await expect(fallback).not.toHaveAttribute('aria-hidden');
   await expect(page.getByRole('button', { name: 'Retry preview' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load original' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Download Photo 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'Load original' }).click();
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute('alt', 'Photo 1 original');
+  await expect(previewLink).toHaveAttribute('href', /^blob:/);
+  await expect(previewLink).toHaveAttribute('data-lbwps-width', '1');
+  await expect(previewLink).toHaveAttribute('data-lbwps-height', '1');
+  await expect(fallback).toBeHidden();
 });
 
 test('no-preview cards expose fallback image text without swallowing download access', async ({ page }) => {
@@ -85,6 +99,250 @@ test('no-preview cards expose fallback image text without swallowing download ac
   const download = page.getByRole('link', { name: 'Download Photo 1' });
   await expect(download).toBeVisible();
   await expect.poll(() => download.evaluate(link => Boolean(link.closest('[role="img"]')))).toBe(false);
+});
+
+test('download-only cards fetch a full original only after explicit viewer action', async ({ page }) => {
+  let originalRequests = 0;
+  await page.route('https://example.test/download-only-original', route => {
+    originalRequests += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
+    });
+  });
+  await page.setContent(`
+    <style>${formsCss}</style>
+    <article class="eforms-review-page" data-eforms-review="gallery" data-eforms-review-preview-timeout-ms="1000">
+      <div class="eforms-review-preview eforms-review-preview-with-image eforms-review-preview-unavailable">
+        <span aria-live="polite" data-eforms-review-fallback>
+          <span data-eforms-review-fallback-status>Preview unavailable</span>
+          <button type="button" data-eforms-review-original data-eforms-review-original-src="https://example.test/download-only-original">Load original</button>
+        </span>
+        <a class="eforms-review-preview-link ta-gallery__link" aria-label="Open Photo 1">
+          <img hidden data-eforms-review-src="" alt="Photo 1 preview" data-eforms-review-preview>
+        </a>
+        <a class="eforms-review-download-overlay" href="https://example.test/download-only-original" aria-label="Download Photo 1">Download</a>
+      </div>
+    </article>
+  `);
+  await page.addScriptTag({ content: previewRuntime });
+
+  expect(originalRequests).toBe(0);
+  await expect(page.getByText('Preview unavailable')).toBeVisible();
+  await page.getByRole('button', { name: 'Load original' }).click();
+  await expect(page.locator('[data-eforms-review-preview]')).toBeVisible();
+  await expect(page.locator('[data-eforms-review-preview]')).toHaveAttribute('alt', 'Photo 1 original');
+  await expect(page.getByRole('link', { name: 'Open Photo 1' })).toHaveAttribute('href', /^blob:/);
+  await expect(page.getByText('Preview unavailable')).toBeHidden();
+  await expect(page.getByRole('link', { name: 'Download Photo 1' })).toBeVisible();
+  const objectUrl = await page.getByRole('link', { name: 'Open Photo 1' }).getAttribute('href');
+  expect(await page.evaluate(url => fetch(url).then(response => response.ok, () => false), objectUrl)).toBe(true);
+  await page.evaluate(() => {
+    const event = new Event('pagehide');
+    Object.defineProperty(event, 'persisted', { value: true });
+    window.dispatchEvent(event);
+  });
+  expect(await page.evaluate(url => fetch(url).then(response => response.ok, () => false), objectUrl)).toBe(true);
+  await page.evaluate(() => {
+    const event = new Event('pagehide');
+    Object.defineProperty(event, 'persisted', { value: false });
+    window.dispatchEvent(event);
+  });
+  await expect.poll(() => page.locator('[data-eforms-review-preview]').evaluate(image => image.__eformsReviewObjectUrl)).toBe('');
+  expect(await page.evaluate(url => fetch(url).then(response => response.ok, () => false), objectUrl)).toBe(false);
+  expect(originalRequests).toBe(1);
+});
+
+test('original fallback times out without AbortController support', async ({ page }) => {
+  await page.setContent(`
+    <article class="eforms-review-page" data-eforms-review="gallery" data-eforms-review-preview-timeout-ms="250">
+      <div class="eforms-review-preview eforms-review-preview-with-image eforms-review-preview-unavailable">
+        <span data-eforms-review-fallback>
+          <span data-eforms-review-fallback-status>Preview unavailable</span>
+          <button type="button" data-eforms-review-original data-eforms-review-original-src="https://example.test/hanging-original">Load original</button>
+        </span>
+        <a class="eforms-review-preview-link" aria-label="Open Photo 1">
+          <img hidden data-eforms-review-src="" alt="Photo 1 preview" data-eforms-review-preview>
+        </a>
+      </div>
+    </article>
+  `);
+  await page.evaluate(() => {
+    window.AbortController = undefined;
+    window.fetch = () => new Promise(() => {});
+  });
+  await page.addScriptTag({ content: previewRuntime });
+
+  const image = page.locator('[data-eforms-review-preview]');
+  const original = page.getByRole('button', { name: 'Load original' });
+  await original.click();
+  await expect.poll(() => image.evaluate(node => node.__eformsReviewOriginalLoading)).toBe(true);
+  await expect.poll(() => image.evaluate(node => node.__eformsReviewOriginalLoading)).toBe(false);
+  await expect(page.getByText('Preview unavailable')).toBeVisible();
+  await expect(original).toBeEnabled();
+});
+
+test('non-persisted pagehide invalidates a late original fetch without AbortController', async ({ page }) => {
+  await page.setContent(`
+    <article class="eforms-review-page" data-eforms-review="gallery" data-eforms-review-preview-timeout-ms="1000">
+      <div class="eforms-review-preview eforms-review-preview-with-image eforms-review-preview-unavailable">
+        <span data-eforms-review-fallback>
+          <span data-eforms-review-fallback-status>Preview unavailable</span>
+          <button type="button" data-eforms-review-original data-eforms-review-original-src="https://example.test/late-pagehide-original">Load original</button>
+        </span>
+        <a class="eforms-review-preview-link" aria-label="Open Photo 1">
+          <img hidden data-eforms-review-src="" alt="Photo 1 preview" data-eforms-review-preview>
+        </a>
+      </div>
+    </article>
+  `);
+  await page.evaluate(() => {
+    window.AbortController = undefined;
+    window.fetch = () => new Promise(resolve => {
+      window.__eformsLatePagehideResolve = resolve;
+    });
+  });
+  await page.addScriptTag({ content: previewRuntime });
+
+  const image = page.locator('[data-eforms-review-preview]');
+  await page.getByRole('button', { name: 'Load original' }).click();
+  await expect.poll(() => image.evaluate(node => node.__eformsReviewOriginalLoading)).toBe(true);
+  await page.evaluate(() => {
+    const event = new Event('pagehide');
+    Object.defineProperty(event, 'persisted', { value: false });
+    window.dispatchEvent(event);
+    const body = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), character => character.charCodeAt(0));
+    window.__eformsLatePagehideResolve(new Response(body, { status: 200, headers: { 'Content-Type': 'image/png' } }));
+  });
+  await page.waitForTimeout(50);
+  await expect.poll(() => image.evaluate(node => ({
+    loading: node.__eformsReviewOriginalLoading,
+    objectUrl: node.__eformsReviewObjectUrl,
+    loader: node.__eformsReviewOriginalLoader
+  }))).toEqual({ loading: false, objectUrl: '', loader: null });
+  await expect(page.locator('a[aria-label="Open Photo 1"]')).toHaveAttribute('aria-disabled', 'true');
+});
+
+test('non-persisted pagehide detaches a queued original decoder callback', async ({ page }) => {
+  await page.setContent(`
+    <article class="eforms-review-page" data-eforms-review="gallery" data-eforms-review-preview-timeout-ms="1000">
+      <div class="eforms-review-preview eforms-review-preview-with-image eforms-review-preview-unavailable">
+        <span data-eforms-review-fallback>
+          <span data-eforms-review-fallback-status>Preview unavailable</span>
+          <button type="button" data-eforms-review-original data-eforms-review-original-src="https://example.test/decoder-pagehide-original">Load original</button>
+        </span>
+        <a class="eforms-review-preview-link" aria-label="Open Photo 1">
+          <img hidden data-eforms-review-src="" alt="Photo 1 preview" data-eforms-review-preview>
+        </a>
+      </div>
+    </article>
+  `);
+  await page.evaluate(() => {
+    window.Image = function () {
+      window.__eformsPagehideLoader = this;
+    };
+    const body = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), character => character.charCodeAt(0));
+    window.fetch = () => Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'image/png' } }));
+  });
+  await page.addScriptTag({ content: previewRuntime });
+
+  const image = page.locator('[data-eforms-review-preview]');
+  await page.getByRole('button', { name: 'Load original' }).click();
+  await expect.poll(() => page.evaluate(() => Boolean(window.__eformsPagehideLoader && window.__eformsPagehideLoader.onload))).toBe(true);
+  await page.evaluate(() => {
+    const lateOnload = window.__eformsPagehideLoader.onload;
+    const event = new Event('pagehide');
+    Object.defineProperty(event, 'persisted', { value: false });
+    window.dispatchEvent(event);
+    lateOnload();
+  });
+  await expect.poll(() => image.evaluate(node => ({
+    loading: node.__eformsReviewOriginalLoading,
+    objectUrl: node.__eformsReviewObjectUrl,
+    loader: node.__eformsReviewOriginalLoader
+  }))).toEqual({ loading: false, objectUrl: '', loader: null });
+  await expect(page.locator('a[aria-label="Open Photo 1"]')).toHaveAttribute('aria-disabled', 'true');
+});
+
+test('a late original response cannot complete a newer retry', async ({ page }) => {
+  await page.setContent(`
+    <article class="eforms-review-page" data-eforms-review="gallery" data-eforms-review-preview-timeout-ms="400">
+      <div class="eforms-review-preview eforms-review-preview-with-image eforms-review-preview-unavailable">
+        <span data-eforms-review-fallback>
+          <span data-eforms-review-fallback-status>Preview unavailable</span>
+          <button type="button" data-eforms-review-original data-eforms-review-original-src="https://example.test/retry-original">Load original</button>
+        </span>
+        <a class="eforms-review-preview-link" aria-label="Open Photo 1">
+          <img hidden data-eforms-review-src="" alt="Photo 1 preview" data-eforms-review-preview>
+        </a>
+      </div>
+    </article>
+  `);
+  await page.evaluate(() => {
+    window.AbortController = undefined;
+    window.__eformsOriginalResolvers = [];
+    window.fetch = () => new Promise(resolve => window.__eformsOriginalResolvers.push(resolve));
+  });
+  await page.addScriptTag({ content: previewRuntime });
+
+  const image = page.locator('[data-eforms-review-preview]');
+  const original = page.getByRole('button', { name: 'Load original' });
+  await original.click();
+  await expect.poll(() => image.evaluate(node => node.__eformsReviewOriginalLoading)).toBe(false);
+  await original.click();
+  await expect.poll(() => page.evaluate(() => window.__eformsOriginalResolvers.length)).toBe(2);
+
+  await page.evaluate(() => {
+    const body = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), character => character.charCodeAt(0));
+    window.__eformsOriginalResolvers[0](new Response(body, { status: 200, headers: { 'Content-Type': 'image/png' } }));
+  });
+  await expect.poll(() => image.evaluate(node => node.__eformsReviewOriginalLoading)).toBe(true);
+  await expect(page.getByText('Loading original...')).toBeVisible();
+
+  await page.evaluate(() => {
+    const body = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), character => character.charCodeAt(0));
+    window.__eformsOriginalResolvers[1](new Response(body, { status: 200, headers: { 'Content-Type': 'image/png' } }));
+  });
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute('alt', 'Photo 1 original');
+});
+
+test('a stale preview event cannot complete an in-flight original render', async ({ page }) => {
+  await page.setContent(`
+    <article class="eforms-review-page" data-eforms-review="gallery" data-eforms-review-preview-timeout-ms="1000">
+      <div class="eforms-review-preview eforms-review-preview-with-image eforms-review-preview-unavailable">
+        <span data-eforms-review-fallback>
+          <span data-eforms-review-fallback-status>Preview unavailable</span>
+          <button type="button" data-eforms-review-original data-eforms-review-original-src="https://example.test/stale-event-original">Load original</button>
+        </span>
+        <a class="eforms-review-preview-link" aria-label="Open Photo 1">
+          <img hidden data-eforms-review-src="" alt="Photo 1 preview" data-eforms-review-preview>
+        </a>
+      </div>
+    </article>
+  `);
+  await page.evaluate(() => {
+    window.__eformsOriginalLoader = null;
+    window.Image = function () {
+      window.__eformsOriginalLoader = this;
+    };
+    const body = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), character => character.charCodeAt(0));
+    window.fetch = () => Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'image/png' } }));
+  });
+  await page.addScriptTag({ content: previewRuntime });
+
+  const image = page.locator('[data-eforms-review-preview]');
+  await page.getByRole('button', { name: 'Load original' }).click();
+  await expect.poll(() => page.evaluate(() => Boolean(window.__eformsOriginalLoader))).toBe(true);
+  await image.dispatchEvent('load');
+  await expect.poll(() => image.evaluate(node => node.__eformsReviewOriginalLoading)).toBe(true);
+  await expect(page.getByText('Loading original...')).toBeVisible();
+
+  await page.evaluate(() => window.__eformsOriginalLoader.onload());
+  await expect.poll(() => image.evaluate(node => node.__eformsReviewOriginalLoading)).toBe(false);
+  await expect(image).toHaveAttribute('alt', 'Photo 1 original');
+  await expect(page.locator('a[aria-label="Open Photo 1"]')).toHaveAttribute('href', /^blob:/);
 });
 
 test('download overlays stay secondary until review image hover or focus', async ({ page }) => {
@@ -141,12 +399,16 @@ test('download overlays stay secondary until review image hover or focus', async
 
 test('operator can retry a transient review preview failure without losing the download', async ({ page }) => {
   let attempts = 0;
+  let releaseRetry;
   await page.route('https://example.test/preview', async route => {
     attempts += 1;
     if (attempts === 1) {
       await route.fulfill({ status: 503, body: 'busy' });
       return;
     }
+    await new Promise(resolve => {
+      releaseRetry = resolve;
+    });
     await route.fulfill({
       status: 200,
       contentType: 'image/png',
@@ -158,8 +420,9 @@ test('operator can retry a transient review preview failure without losing the d
     <article class="eforms-review-page" data-eforms-review="gallery" data-eforms-review-preview-timeout-ms="1000">
       <div class="eforms-review-preview eforms-review-preview-with-image">
         <span hidden aria-hidden="true" data-eforms-review-fallback>
-          <span>Preview unavailable</span>
+          <span data-eforms-review-fallback-status>Preview unavailable</span>
           <button type="button" class="eforms-review-button eforms-review-button--compact" data-eforms-review-retry>Retry preview</button>
+          <button type="button" class="eforms-review-button eforms-review-button--compact" data-eforms-review-original data-eforms-review-original-src="https://example.test/original">Load original</button>
         </span>
         <a class="eforms-review-preview-link ta-gallery__link" data-lbwps-width="1600" data-lbwps-height="900" aria-label="Open Photo 1">
           <img hidden data-eforms-review-src="https://example.test/preview" alt="Photo 1 preview" data-eforms-review-preview>
@@ -173,10 +436,14 @@ test('operator can retry a transient review preview failure without losing the d
   await page.addScriptTag({ content: previewRuntime });
 
   const retry = page.getByRole('button', { name: 'Retry preview' });
+  const original = page.locator('[data-eforms-review-original]');
   const previewLink = page.locator('a[aria-label="Open Photo 1"]');
   await expect(retry).toBeVisible();
   await expect(previewLink).toHaveAttribute('aria-disabled', 'true');
   await retry.click();
+  await expect.poll(() => attempts).toBe(2);
+  await expect(original).toBeDisabled();
+  releaseRetry();
   await expect(page.locator('[data-eforms-review-preview]')).toBeVisible();
   await expect(page.locator('[data-eforms-review-preview]')).toHaveAttribute('alt', 'Photo 1 preview');
   await expect(previewLink).not.toHaveAttribute('aria-disabled');
@@ -185,6 +452,7 @@ test('operator can retry a transient review preview failure without losing the d
   await expect(previewLink).toHaveAttribute('data-lbwps-srcsmall', 'https://example.test/preview');
   await expect(page.getByRole('link', { name: 'Open Photo 1' })).toBeVisible();
   await expect(page.getByText('Preview unavailable').first()).toBeHidden();
+  await expect(original).toBeEnabled();
   await expect(page.getByRole('link', { name: 'Download Photo 1' })).toBeVisible();
   expect(attempts).toBe(2);
 });

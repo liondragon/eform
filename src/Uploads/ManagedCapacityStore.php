@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/../FormProtocol.php';
 require_once __DIR__ . '/../Security/Entropy.php';
+require_once __DIR__ . '/PrivateDir.php';
 
 final class ManagedCapacityStore {
     private const JSON_TEMP_ENTROPY_BYTES = 8;
@@ -24,7 +25,7 @@ final class ManagedCapacityStore {
         if ( $nonblocking ) {
             $operation |= LOCK_NB;
         }
-        if ( ( ! $existing_only && ! @chmod( $path, 0600 ) ) || ! @flock( $handle, $operation ) ) {
+        if ( ( ! $existing_only && ! @chmod( $path, PrivateDir::FILE_MODE ) ) || ! @flock( $handle, $operation ) ) {
             fclose( $handle );
             return false;
         }
@@ -125,11 +126,11 @@ final class ManagedCapacityStore {
         }
         $ok = $offset === $length && ( ! function_exists( 'fflush' ) || @fflush( $handle ) );
         fclose( $handle );
-        if ( ! $ok || ! @chmod( $temp, 0600 ) || ! @rename( $temp, $path ) ) {
+        if ( ! $ok || ! @chmod( $temp, PrivateDir::FILE_MODE ) || ! @rename( $temp, $path ) ) {
             @unlink( $temp );
             return false;
         }
-        return @chmod( $path, 0600 );
+        return @chmod( $path, PrivateDir::FILE_MODE );
     }
 
     public static function reserve( $record, $reservation_id, $intent_id, $object_key, $batch_id, $upload_id, $bytes, $free_bytes, $minimum_free_bytes, $maximum_bytes, $transient_bytes, $now, $artifact_store, $artifact_store_identity, $materialized_transient_bytes = 0 ) {

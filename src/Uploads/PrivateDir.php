@@ -39,6 +39,10 @@ class PrivateDirLease {
 
 class PrivateDir {
     const DIR_NAME = 'eforms-private';
+    const DIRECTORY_MODE = 0700;
+    const FILE_MODE = 0600;
+    const REVIEW_DIRECTORY_MODE = 0750;
+    const REVIEW_FILE_MODE = 0640;
     const LIFECYCLE_LOCK_FILENAME = 'upload-lifecycle.lock';
     const PURGE_MARKER_FILENAME = 'managed-purged';
 
@@ -93,6 +97,10 @@ class PrivateDir {
         return self::subdir_path( $uploads_dir, $name, $create, true );
     }
 
+    public static function protected_review_subdir( $uploads_dir, $name, $create = true ) {
+        return self::subdir_path( $uploads_dir, $name, $create, true, self::REVIEW_DIRECTORY_MODE );
+    }
+
     public static function existing_protected_subdir( $uploads_dir, $name ) {
         if ( ! is_string( $name ) || $name === '' || preg_match( '/[\\\\\\/]/', $name ) === 1 ) {
             return '';
@@ -107,6 +115,40 @@ class PrivateDir {
         return ! is_link( $path ) && is_dir( $path ) && self::has_deny_files( $path ) ? $path : '';
     }
 
+    public static function existing_protected_review_subdir( $uploads_dir, $name ) {
+        $path = self::existing_protected_subdir( $uploads_dir, $name );
+        $private_path = self::path( $uploads_dir );
+        return $path !== ''
+            && self::ensure_existing_review_directory( $private_path )
+            && self::ensure_existing_review_directory( $path )
+            ? $path
+            : '';
+    }
+
+    public static function ensure_existing_review_directory( $path ) {
+        return is_string( $path )
+            && $path !== ''
+            && ! is_link( $path )
+            && is_dir( $path )
+            && self::ensure_permissions( $path, self::REVIEW_DIRECTORY_MODE );
+    }
+
+    public static function ensure_existing_private_directory( $path ) {
+        return is_string( $path )
+            && $path !== ''
+            && ! is_link( $path )
+            && is_dir( $path )
+            && self::ensure_permissions( $path, self::DIRECTORY_MODE );
+    }
+
+    public static function ensure_existing_review_file( $path ) {
+        return self::ensure_existing_file_mode( $path, self::REVIEW_FILE_MODE );
+    }
+
+    public static function ensure_existing_private_file( $path ) {
+        return self::ensure_existing_file_mode( $path, self::FILE_MODE );
+    }
+
     public static function leased_subdir( $lease, $name, $create = true, $with_protection = false ) {
         if ( ! $lease instanceof PrivateDirLease ) {
             return '';
@@ -115,7 +157,19 @@ class PrivateDir {
         return self::subdir_at_private_path( $lease->private_dir(), $name, $create, $with_protection );
     }
 
+    public static function leased_review_subdir( $lease, $name, $create = true, $with_protection = false ) {
+        if ( ! $lease instanceof PrivateDirLease ) {
+            return '';
+        }
+
+        return self::subdir_at_private_path( $lease->private_dir(), $name, $create, $with_protection, self::REVIEW_DIRECTORY_MODE );
+    }
+
     public static function leased_relative_dir( $lease, $relative, $create = true ) {
+        return self::leased_relative_dir_with_mode( $lease, $relative, $create, self::DIRECTORY_MODE );
+    }
+
+    private static function leased_relative_dir_with_mode( $lease, $relative, $create, $mode ) {
         if ( ! $lease instanceof PrivateDirLease || ! is_string( $relative ) || $relative === '' || strpos( $relative, '\\' ) !== false || $relative[0] === '/' ) {
             return '';
         }
@@ -134,12 +188,12 @@ class PrivateDir {
                 return '';
             }
             if ( is_dir( $path ) ) {
-                if ( ! self::ensure_permissions( $path, 0700 ) ) {
+                if ( ! self::ensure_permissions( $path, $mode ) ) {
                     return '';
                 }
                 continue;
             }
-            if ( ! $create || file_exists( $path ) || ! @mkdir( $path, 0700 ) || is_link( $path ) || ! is_dir( $path ) || ! self::ensure_permissions( $path, 0700 ) ) {
+            if ( ! $create || file_exists( $path ) || ! @mkdir( $path, $mode ) || is_link( $path ) || ! is_dir( $path ) || ! self::ensure_permissions( $path, $mode ) ) {
                 return '';
             }
         }
@@ -153,6 +207,14 @@ class PrivateDir {
      * reported separately so callers can fail closed.
      */
     public static function leased_existing_relative_dir_result( $lease, $relative ) {
+        return self::leased_existing_relative_dir_result_with_mode( $lease, $relative, self::DIRECTORY_MODE );
+    }
+
+    public static function leased_existing_review_relative_dir_result( $lease, $relative ) {
+        return self::leased_existing_relative_dir_result_with_mode( $lease, $relative, self::REVIEW_DIRECTORY_MODE );
+    }
+
+    private static function leased_existing_relative_dir_result_with_mode( $lease, $relative, $mode ) {
         if ( ! $lease instanceof PrivateDirLease || ! is_string( $relative ) || $relative === '' || strpos( $relative, '\\' ) !== false || $relative[0] === '/' ) {
             return array( 'ok' => false, 'exists' => false, 'path' => '' );
         }
@@ -173,7 +235,7 @@ class PrivateDir {
             if ( ! file_exists( $path ) ) {
                 return array( 'ok' => true, 'exists' => false, 'path' => '' );
             }
-            if ( ! self::ensure_permissions( $path, 0700 ) ) {
+            if ( ! self::ensure_permissions( $path, $mode ) ) {
                 return array( 'ok' => false, 'exists' => false, 'path' => '' );
             }
         }
@@ -181,7 +243,7 @@ class PrivateDir {
         return array( 'ok' => true, 'exists' => true, 'path' => $path );
     }
 
-    private static function subdir_path( $uploads_dir, $name, $create, $with_protection ) {
+    private static function subdir_path( $uploads_dir, $name, $create, $with_protection, $mode = self::DIRECTORY_MODE ) {
         if ( ! is_string( $name ) || $name === '' || preg_match( '/[\\\\\\/]/', $name ) === 1 ) {
             return '';
         }
@@ -204,10 +266,10 @@ class PrivateDir {
             }
         }
 
-        return self::subdir_at_private_path( $private_path, $name, $create, $with_protection );
+        return self::subdir_at_private_path( $private_path, $name, $create, $with_protection, $mode );
     }
 
-    private static function subdir_at_private_path( $private_path, $name, $create, $with_protection ) {
+    private static function subdir_at_private_path( $private_path, $name, $create, $with_protection, $mode = self::DIRECTORY_MODE ) {
         if ( ! is_string( $name ) || $name === '' || preg_match( '/[\\\\\\/]/', $name ) === 1 ) {
             return '';
         }
@@ -221,7 +283,7 @@ class PrivateDir {
         }
 
         if ( is_dir( $path ) ) {
-            if ( ! self::ensure_permissions( $path, 0700 ) ) {
+            if ( ! self::ensure_permissions( $path, $mode ) ) {
                 return '';
             }
             if ( $with_protection && ! self::ensure_deny_files( $path ) ) {
@@ -234,7 +296,7 @@ class PrivateDir {
             return '';
         }
 
-        if ( ! self::ensure_dir( $path ) ) {
+        if ( ! self::ensure_dir( $path, $mode ) ) {
             return '';
         }
 
@@ -301,7 +363,7 @@ class PrivateDir {
             return false;
         }
         $handle = @fopen( $path, 'c+b' );
-        if ( $handle === false || ! @chmod( $path, 0600 ) || ! @ftruncate( $handle, 0 ) ) {
+        if ( $handle === false || ! @chmod( $path, self::FILE_MODE ) || ! @ftruncate( $handle, 0 ) ) {
             if ( is_resource( $handle ) ) {
                 fclose( $handle );
             }
@@ -339,16 +401,29 @@ class PrivateDir {
     }
 
     private static function acquire_lifecycle_lease( $uploads_dir, $exclusive, $nonblocking, $allow_purged ) {
-        $private = self::ensure_root( $uploads_dir );
+        $private_path = self::path( $uploads_dir );
+        $base = is_string( $uploads_dir ) ? rtrim( $uploads_dir, '/\\' ) : '';
+        if ( $private_path === '' || $base === '' || ! is_dir( $base ) || ! is_writable( $base ) || is_link( $private_path ) ) {
+            return false;
+        }
+        if ( is_dir( $private_path ) ) {
+            $private = self::result( true, $private_path, '' );
+        } else {
+            if ( file_exists( $private_path ) ) {
+                return false;
+            }
+            $private = self::ensure_root( $uploads_dir );
+        }
         if ( ! is_array( $private ) || empty( $private['ok'] ) || empty( $private['path'] ) ) {
             return false;
         }
+
         $lock_path = rtrim( $private['path'], '/\\' ) . '/' . self::LIFECYCLE_LOCK_FILENAME;
         if ( is_link( $lock_path ) || ( file_exists( $lock_path ) && ! is_file( $lock_path ) ) ) {
             return false;
         }
         $handle = @fopen( $lock_path, 'c+b' );
-        if ( $handle === false || ! @chmod( $lock_path, 0600 ) ) {
+        if ( $handle === false ) {
             if ( is_resource( $handle ) ) {
                 fclose( $handle );
             }
@@ -359,6 +434,11 @@ class PrivateDir {
             $operation |= LOCK_NB;
         }
         if ( ! @flock( $handle, $operation ) ) {
+            fclose( $handle );
+            return false;
+        }
+        if ( ! self::ensure_existing_review_directory( $private['path'] ) || ! @chmod( $lock_path, self::FILE_MODE ) ) {
+            @flock( $handle, LOCK_UN );
             fclose( $handle );
             return false;
         }
@@ -388,28 +468,28 @@ class PrivateDir {
             return self::result( false, $path, 'uploads_dir_unwritable' );
         }
 
-        if ( ! self::ensure_dir( $path ) ) {
+        if ( ! self::ensure_dir( $path, self::REVIEW_DIRECTORY_MODE ) ) {
             return self::result( false, $path, 'private_dir_unavailable' );
         }
 
         return self::result( true, $path, '' );
     }
 
-    private static function ensure_dir( $path ) {
+    private static function ensure_dir( $path, $mode = self::DIRECTORY_MODE ) {
         if ( is_link( $path ) ) {
             return false;
         }
 
         if ( is_dir( $path ) ) {
-            return self::ensure_permissions( $path, 0700 );
+            return self::ensure_permissions( $path, $mode );
         }
 
-        $created = @mkdir( $path, 0700, true );
+        $created = @mkdir( $path, $mode, true );
         if ( ! $created && ! is_dir( $path ) ) {
             return false;
         }
 
-        return self::ensure_permissions( $path, 0700 );
+        return self::ensure_permissions( $path, $mode );
     }
 
     private static function ensure_file( $path, $content ) {
@@ -426,7 +506,7 @@ class PrivateDir {
                 return false;
             }
 
-            return self::ensure_permissions( $path, 0600 );
+            return self::ensure_permissions( $path, self::FILE_MODE );
         }
 
         // Use exclusive-create to avoid overwriting existing files.
@@ -442,7 +522,7 @@ class PrivateDir {
             return false;
         }
 
-        return self::ensure_permissions( $path, 0600 );
+        return self::ensure_permissions( $path, self::FILE_MODE );
     }
 
     private static function rewrite_file( $path, $content ) {
@@ -515,6 +595,14 @@ class PrivateDir {
         }
 
         return false;
+    }
+
+    private static function ensure_existing_file_mode( $path, $mode ) {
+        return is_string( $path )
+            && $path !== ''
+            && ! is_link( $path )
+            && is_file( $path )
+            && self::ensure_permissions( $path, $mode );
     }
 
     private static function result( $ok, $path, $error ) {

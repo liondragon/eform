@@ -65,6 +65,9 @@ eforms_test_assert(
     dirname( $stored_path ) === $uploads_dir . '/eforms-private/uploads/' . Helpers::h2( $submission_id ) . '/' . $submission_id,
     'Synchronous recovery should address only its stable per-submission directory.'
 );
+eforms_test_assert( ( fileperms( $uploads_dir . '/eforms-private/uploads' ) & 0777 ) === PrivateDir::DIRECTORY_MODE, 'Ordinary submitted-upload roots should remain owner-private.' );
+eforms_test_assert( ( fileperms( dirname( $stored_path ) ) & 0777 ) === PrivateDir::DIRECTORY_MODE, 'Ordinary submitted-upload directories should remain owner-private.' );
+eforms_test_assert( ( fileperms( $stored_path ) & 0777 ) === PrivateDir::FILE_MODE, 'Ordinary submitted-upload files should remain owner-private.' );
 foreach ( array( PrivateDir::INDEX_FILENAME, PrivateDir::HTACCESS_FILENAME, PrivateDir::WEBCONFIG_FILENAME ) as $file ) {
     eforms_test_assert( is_file( $uploads_dir . '/eforms-private/' . UploadStore::UPLOADS_DIR . '/' . $file ), 'Synchronous upload storage should protect uploads root: ' . $file );
 }
@@ -351,6 +354,11 @@ $partial_omitted_retry = UploadStore::move_staged_after_ledger(
 );
 eforms_test_assert( ! empty( $partial_omitted_retry['ok'] ) && $partial_omitted_retry['stored'][0]['path'] === $partial_second_path, 'A successful retry should reuse the retained item that is still present.' );
 eforms_test_assert( ! is_file( $partial_preserved_path ), 'A successful retry should delete a previously preserved recovery file that the corrected request omits.' );
+
+$empty_cleanup = UploadStore::move_staged_after_ledger( $context, array(), $partial_submission, $uploads_dir );
+$empty_cleanup_dir = $uploads_dir . '/eforms-private/uploads/' . Helpers::h2( $partial_submission ) . '/' . $partial_submission;
+eforms_test_assert( ! empty( $empty_cleanup['ok'] ), 'An empty corrected recovery should clean omitted ordinary attachments.' );
+eforms_test_assert( ( fileperms( $empty_cleanup_dir ) & 0777 ) === PrivateDir::DIRECTORY_MODE, 'Empty recovery cleanup should preserve owner-private ordinary-upload directories.' );
 
 eforms_test_remove_tree( $uploads_dir );
 echo "All upload store recovery tests passed.\n";

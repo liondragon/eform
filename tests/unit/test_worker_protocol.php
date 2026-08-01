@@ -41,7 +41,7 @@ $receipt_parts = array_merge(
     array_map( 'strval', array_values( $fixture['claims']['upload_receipt'] ) )
 );
 $invalid_receipts = array(
-    'unknown_version' => array_replace( $receipt_parts, array( 1 => '2' ) ),
+    'unknown_version' => array_replace( $receipt_parts, array( 1 => '1' ) ),
     'wrong_domain' => array_replace( $receipt_parts, array( 0 => WorkerProtocol::UPLOAD_GRANT_DOMAIN ) ),
     'unknown_key' => array_replace( $receipt_parts, array( 2 => 'unknown-key' ) ),
     'reordered_fields' => array_merge( array_slice( $receipt_parts, 0, -2 ), array( $receipt_parts[ count( $receipt_parts ) - 1 ], $receipt_parts[ count( $receipt_parts ) - 2 ] ) ),
@@ -68,6 +68,12 @@ $missing_claim = $fixture['claims']['upload_grant'];
 unset( $missing_claim['object_key'] );
 eforms_test_assert( WorkerProtocol::sign_upload_grant( $missing_claim, $fixture['active_key_id'], $secret, $fixture['environment'] ) === '', 'WordPress should not sign an incomplete grant.' );
 eforms_test_assert( WorkerProtocol::sign_upload_grant( $fixture['claims']['upload_grant'], 'unknown key', $secret, $fixture['environment'] ) === '', 'Invalid key identifiers should not produce a grant.' );
+
+$old_opaque_identity = hash( 'sha256', $fixture['claims']['upload_grant']['batch_id'] . "\0" . $fixture['claims']['upload_grant']['intent_id'] );
+$old_opaque_key = 'artifacts/' . Helpers::h2( $old_opaque_identity ) . '/' . $old_opaque_identity;
+eforms_test_assert( WorkerProtocol::sign_upload_grant( array_replace( $fixture['claims']['upload_grant'], array( 'object_key' => $old_opaque_key ) ), $fixture['active_key_id'], $secret, $fixture['environment'] ) === '', 'Upload grants must reject old opaque object keys.' );
+eforms_test_assert( WorkerProtocol::sign_review_grant( array_replace( $fixture['claims']['review_grant'], array( 'object_key' => $old_opaque_key ) ), $fixture['active_key_id'], $secret, $fixture['environment'] ) === '', 'Review grants must reject old opaque object keys.' );
+eforms_test_assert( WorkerProtocol::sign_object_request( array_replace( $fixture['claims']['object_request'], array( 'object_key' => $old_opaque_key ) ), $fixture['active_key_id'], $secret, $fixture['environment'] ) === '', 'Object cleanup requests must reject old opaque object keys.' );
 
 echo "Worker protocol PHP tests passed.\n";
 

@@ -271,6 +271,9 @@ if ( ! function_exists( 'get_option' ) ) {
         if ( $name === 'admin_email' ) {
             return 'admin@example.test';
         }
+        if ( $name === 'permalink_structure' ) {
+            return '/%postname%/';
+        }
 
         return $default;
     }
@@ -576,7 +579,28 @@ try {
     $template_redirect = $GLOBALS['eforms_wp_runtime_hooks']['action']['template_redirect'][0];
     eforms_wp_runtime_assert( $template_redirect['priority'] === 0, 'Public POST controller should run at template_redirect priority 0.' );
     eforms_wp_runtime_assert( $template_redirect['callback'] === array( 'PublicRequestController', 'handle_template_redirect' ), 'template_redirect should register PublicRequestController only.' );
-    eforms_wp_runtime_assert( ! empty( $GLOBALS['eforms_wp_runtime_hooks']['rewrite'] ), 'Rewrite rules should be registered through init.' );
+    eforms_wp_runtime_assert(
+        in_array( array( '^eforms/mint/?$', 'index.php?rest_route=/eforms/mint', 'top' ), $GLOBALS['eforms_wp_runtime_hooks']['rewrite'], true )
+            && in_array(
+                array(
+                    '^review/(?:(?:file|preview)/)?[A-Za-z0-9_-]{1,' . intdiv( ( 1 + Anchors::get( 'MANAGED_SUBMISSION_UUID_BYTES' ) + 1 + Anchors::get( 'MANAGED_ID_MAX_CHARS' ) + Anchors::get( 'MANAGED_REVIEW_TAG_BYTES' ) ) * 8 + 5, 6 ) . '}$',
+                    'index.php',
+                    'top',
+                ),
+                $GLOBALS['eforms_wp_runtime_hooks']['rewrite'],
+                true
+            ),
+        'Canonical mint and review rewrite rules should be registered through init.'
+    );
+    $canonical_filters = isset( $GLOBALS['eforms_wp_runtime_hooks']['filter']['redirect_canonical'] )
+        ? $GLOBALS['eforms_wp_runtime_hooks']['filter']['redirect_canonical']
+        : array();
+    eforms_wp_runtime_assert(
+        count( $canonical_filters ) === 1
+            && $canonical_filters[0]['callback'] === array( 'ReviewController', 'prevent_canonical_redirect' )
+            && $canonical_filters[0]['args'] === 2,
+        'Review routes should suppress WordPress canonical redirects that would change an opaque token path.'
+    );
     eforms_wp_runtime_assert( ! empty( $GLOBALS['eforms_wp_runtime_hooks']['rest'] ), 'REST routes should be registered through rest_api_init.' );
     $submissions_pages = array_filter(
         $GLOBALS['eforms_wp_runtime_management_pages'],
@@ -797,8 +821,8 @@ try {
     eforms_wp_runtime_assert( ! empty( $staged_submission['ok'] ), 'The staged aggregate should be available under the submission id after finalization.' );
     eforms_wp_runtime_assert( $staged_submission['submission']['email_attempted_at'] !== null, 'The durable email-attempt marker should precede the staged mail call.' );
     $staged_mail = $GLOBALS['eforms_wp_runtime_mail'][ $mail_before_staged ];
-    eforms_wp_runtime_assert( substr_count( $staged_mail['message'], 'eforms_review=' . $staged_token ) === 1 && strpos( $staged_mail['message'], 'expires' . '=' ) === false, 'The staged runtime email should contain exactly one expiration-free signed gallery URL under plain permalinks.' );
-    eforms_wp_runtime_assert( $staged_mail['attachments'] === array() && strpos( $staged_mail['message'], 'eforms_review_upload=' ) === false, 'The staged runtime email should contain neither managed attachments nor individual file links.' );
+    eforms_wp_runtime_assert( preg_match_all( '#https://example\.test/review/[A-Za-z0-9_-]{44}#', $staged_mail['message'] ) === 1 && strpos( $staged_mail['message'], 'expires' . '=' ) === false, 'The staged runtime email should contain exactly one expiration-free opaque gallery URL.' );
+    eforms_wp_runtime_assert( $staged_mail['attachments'] === array() && strpos( $staged_mail['message'], '/review/file/' ) === false, 'The staged runtime email should contain neither managed attachments nor individual file links.' );
     $staged_former_path = UploadBatchStore::status( $staged_batch['batch']['batch_id'], $staged_secret, $uploads_dir );
     eforms_wp_runtime_assert( empty( $staged_former_path['ok'] ) && ! empty( $staged_former_path['gone'] ), 'The former batch endpoint path should return its generic terminal state after rename.' );
 
@@ -810,8 +834,13 @@ try {
     eforms_wp_runtime_assert( strpos( $review_page['body'], 'Theme Header' ) !== false && strpos( $review_page['body'], 'Theme Footer' ) !== false, 'The review gallery should use the canonical theme shell.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], '<h1 class="page-title">Submitted Photos</h1>' ) !== false, 'The review gallery should show its stable title.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], 'eforms-review-actions' ) === false && strpos( $review_page['body'], '1 photo' ) === false && strpos( $review_page['body'], 'Available until ' ) === false && strpos( $review_page['body'], 'eforms-review-submitted' ) === false, 'Anonymous review galleries should omit operator management metadata.' );
-    eforms_wp_runtime_assert( strpos( $review_page['body'], '<img' ) === false && strpos( $review_page['body'], 'Preview unavailable' ) !== false, 'A local no-preview gallery should not embed authoritative artifacts.' );
-    eforms_wp_runtime_assert( strpos( $review_page['body'], 'eforms-review-download-overlay' ) !== false && substr_count( $review_page['body'], 'eforms_review_upload=' ) === 1, 'The no-preview card should expose exactly one signed authoritative-artifact download control.' );
+    eforms_wp_runtime_assert( preg_match( '/<img[^>]+\ssrc=/', $review_page['body'] ) !== 1 && strpos( $review_page['body'], 'Preview unavailable' ) !== false, 'A local no-preview gallery should not eagerly load authoritative artifacts.' );
+    eforms_wp_runtime_assert(
+        strpos( $review_page['body'], 'eforms-review-download-overlay' ) !== false
+            && isset( $review_page['response']['review_page']['items'][0]['download_url'] )
+            && strpos( $review_page['response']['review_page']['items'][0]['download_url'], '/review/file/' ) !== false,
+        'The no-preview card should expose exactly one opaque authoritative-artifact download control.'
+    );
     eforms_wp_runtime_assert( strpos( $review_page['body'], '>Download submitted image</a>' ) === false, 'The review gallery should not duplicate the icon download with a caption text action.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], 'data-eforms-review-delete-open' ) === false, 'Anonymous review galleries should not expose operator deletion controls.' );
     eforms_wp_runtime_assert( strpos( $review_page['body'], $uploads_dir ) === false && strpos( $review_page['body'], $staged_secret ) === false, 'The review gallery must not disclose private paths or batch credentials.' );
@@ -821,7 +850,7 @@ try {
     eforms_wp_runtime_assert( file_put_contents( $review_download_path, $review_download['body'] ) !== false, 'The runtime review test should capture its artifact response.' );
     eforms_wp_runtime_assert( $review_download['status'] === 200 && UploadPolicy::detect_mime( $review_download_path ) === 'image/png', 'The public controller should stream the exact signed authoritative artifact (status ' . $review_download['status'] . ', template ' . basename( $review_download['template'] ) . ', render ' . $review_download['response']['render'] . ', mime ' . UploadPolicy::detect_mime( $review_download_path ) . ', bytes ' . strlen( $review_download['body'] ) . ', prefix ' . bin2hex( substr( $review_download['body'], 0, 16 ) ) . ').' );
 
-    $invalid_review_url = preg_replace( '/signature=[A-Za-z0-9_-]{43}/', 'signature=' . str_repeat( 'A', 43 ), $review_url );
+    $invalid_review_url = substr( $review_url, 0, -1 ) . ( substr( $review_url, -1 ) === 'A' ? 'B' : 'A' );
     $invalid_review = eforms_wp_runtime_review_get( $invalid_review_url );
     eforms_wp_runtime_assert( $invalid_review['status'] === 404 && strpos( $invalid_review['body'], 'Review unavailable.' ) !== false, 'Invalid gallery grants should render the generic private not-found response.' );
     eforms_wp_runtime_assert( strpos( $invalid_review['body'], $staged_token ) === false && strpos( $invalid_review['body'], $uploads_dir ) === false, 'Invalid gallery output should reveal no submission or path facts.' );

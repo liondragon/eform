@@ -11,6 +11,13 @@ require_once __DIR__ . '/FormProtocol.php';
 require_once __DIR__ . '/Compat.php';
 require_once __DIR__ . '/Uploads/PrivateDir.php';
 
+if ( ! defined( 'EFORMS_REWRITE_RULES_OPTION' ) ) {
+    define( 'EFORMS_REWRITE_RULES_OPTION', 'eforms_rewrite_rules_version' );
+}
+if ( ! defined( 'EFORMS_REWRITE_RULES_VERSION' ) ) {
+    define( 'EFORMS_REWRITE_RULES_VERSION', 1 );
+}
+
 if ( ! function_exists( 'eforms_register_autoloader' ) ) {
     /**
      * Register a minimal autoloader for src/ classes.
@@ -107,7 +114,7 @@ if ( ! function_exists( 'eforms_shortcode' ) ) {
 
 if ( ! function_exists( 'eforms_register_rewrite_rule' ) ) {
     /**
-     * Register the /eforms/mint path to the REST route (requires permalinks).
+     * Register public eForms paths (requires permalinks).
      */
     function eforms_register_rewrite_rule() {
         if ( ! function_exists( 'add_rewrite_rule' ) ) {
@@ -115,6 +122,10 @@ if ( ! function_exists( 'eforms_register_rewrite_rule' ) ) {
         }
 
         add_rewrite_rule( '^eforms/mint/?$', 'index.php?rest_route=/eforms/mint', 'top' );
+        if ( ! class_exists( 'ReviewController' ) ) {
+            require_once __DIR__ . '/Uploads/ReviewController.php';
+        }
+        ReviewController::register_rewrite_rule();
     }
 }
 
@@ -144,6 +155,46 @@ if ( ! function_exists( 'eforms_activate' ) ) {
                     throw new RuntimeException( $message );
                 }
             }
+        }
+        eforms_refresh_rewrite_rules( true );
+        return true;
+    }
+}
+
+if ( ! function_exists( 'eforms_refresh_rewrite_rules' ) ) {
+    /**
+     * Persist new public routes once after an in-place plugin update.
+     */
+    function eforms_refresh_rewrite_rules( $force = false ) {
+        if ( ! function_exists( 'flush_rewrite_rules' ) ) {
+            return false;
+        }
+        if ( ! $force ) {
+            if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) ) {
+                return false;
+            }
+            if ( (int) get_option( EFORMS_REWRITE_RULES_OPTION, 0 ) >= EFORMS_REWRITE_RULES_VERSION ) {
+                return false;
+            }
+        }
+
+        eforms_register_rewrite_rule();
+        flush_rewrite_rules( false );
+        if ( function_exists( 'update_option' ) ) {
+            update_option( EFORMS_REWRITE_RULES_OPTION, EFORMS_REWRITE_RULES_VERSION, false );
+        }
+        return true;
+    }
+}
+
+if ( ! function_exists( 'eforms_deactivate' ) ) {
+    /**
+     * Invalidate persisted routes so WordPress regenerates them without eForms.
+     */
+    function eforms_deactivate() {
+        if ( function_exists( 'delete_option' ) ) {
+            delete_option( EFORMS_REWRITE_RULES_OPTION );
+            delete_option( 'rewrite_rules' );
         }
         return true;
     }
@@ -450,6 +501,7 @@ if ( ! function_exists( 'eforms_register_hooks' ) ) {
 
         if ( function_exists( 'add_action' ) ) {
             add_action( 'init', 'eforms_register_rewrite_rule' );
+            add_action( 'init', 'eforms_refresh_rewrite_rules', 20 );
             add_action( 'rest_api_init', 'eforms_register_rest_routes' );
             if ( ! class_exists( 'PublicRequestController' ) ) {
                 require_once __DIR__ . '/Submission/PublicRequestController.php';
@@ -462,6 +514,7 @@ if ( ! function_exists( 'eforms_register_hooks' ) ) {
         if ( function_exists( 'add_filter' ) ) {
             add_filter( 'rest_pre_dispatch', 'eforms_rest_pre_dispatch', 5, 3 );
             add_filter( 'rest_pre_serve_request', 'eforms_rest_strip_cors_headers', 15, 3 );
+            add_filter( 'redirect_canonical', array( 'ReviewController', 'prevent_canonical_redirect' ), 10, 2 );
             add_filter( 'lbwps_enabled', array( 'ReviewController', 'enable_lightbox_for_current_review' ), 99, 2 );
         }
     }

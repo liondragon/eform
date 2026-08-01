@@ -129,7 +129,7 @@ eforms_test_assert( ! empty( $completed['ok'] ), 'Restore drill should commit im
 $unknown_delete = UploadBatchStore::delete_item( $batch_id, $secret, 'never_authorized', $uploads_dir, $created_at + 2 );
 eforms_test_assert( ! empty( $unknown_delete['ok'] ), 'A zero-byte terminal ID should not create phantom remote capacity.' );
 $resolved = UploadBatchStore::resolve_open( $batch_id, $secret, $binding, $field, $uploads_dir, $created_at + 3 );
-$submission_id = 'restore-submission';
+$submission_id = eforms_test_uuid( 'restore-submission' );
 $claimed = UploadBatchStore::claim_finalization( $batch_id, $secret, $binding, $field, $resolved['items'], $submission_id, $uploads_dir, $created_at + 3 );
 $finalized = ! empty( $claimed['ok'] )
     ? UploadBatchStore::finalize( $batch_id, $submission_id, $uploads_dir, $created_at + 4 )
@@ -224,8 +224,8 @@ $gallery = ReviewController::dispatch_current_request(
 );
 $review_item = $gallery['review_page']['items'][0];
 eforms_test_assert(
-    strpos( $review_item['preview_url'], 'eforms_review_preview=' . $upload_id ) !== false
-        && strpos( $review_item['download_url'], 'eforms_review_upload=' . $upload_id ) !== false
+    strpos( $review_item['preview_url'], '/review/preview/' ) !== false
+        && strpos( $review_item['download_url'], '/review/file/' ) !== false
         && strpos( json_encode( $review_item ), 'media.example.test' ) === false,
     'The gallery should retain WordPress-owned member URLs and never embed an expiring Worker grant.'
 );

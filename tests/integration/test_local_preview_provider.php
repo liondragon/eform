@@ -389,7 +389,7 @@ echo "Local preview provider tests passed.\n";
 
 function eforms_test_local_preview_artifact( $lease, $uploads_dir, $batch_id, $upload_id, $fixture = 'staged-landscape.png', $mime = 'image/png' ) {
     $source = eforms_test_write_file( $uploads_dir, $upload_id . '.source', eforms_test_fixture_bytes( $fixture ) );
-    $key = LocalArtifactStore::object_key( $batch_id, $upload_id );
+    $key = ManagedArtifactKey::create( eforms_test_digest( $batch_id ), 0, eforms_test_digest( $upload_id ), $mime );
     $stored = LocalArtifactStore::write( $lease, $key, $source, filesize( $source ) );
     eforms_test_assert( ! empty( $stored['ok'] ), 'The preview fixture should persist one authoritative local artifact.' );
     return array(

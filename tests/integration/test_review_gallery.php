@@ -62,12 +62,6 @@ function eforms_test_review_request( $url, $uploads_dir, $salt, $now, $overrides
     );
 }
 
-function eforms_test_review_query( $url ) {
-    $query = array();
-    parse_str( (string) parse_url( $url, PHP_URL_QUERY ), $query );
-    return $query;
-}
-
 function eforms_test_review_snapshot( $submission_id, $submitted_at, $listing_url = '' ) {
     $operator_rows = array(
         array( 'key' => 'email', 'label' => 'Email', 'value' => 'ada@example.test', 'type' => 'email' ),
@@ -207,7 +201,7 @@ eforms_test_assert(
     ! empty( $email_reference['ok'] )
         && $email_reference['count'] === 1
         && $email_reference['available_label'] === gmdate( 'F j, Y \a\t g:i a', $delete_after )
-        && strpos( $email_reference['url'], 'https://example.test/?eforms_review=' . rawurlencode( $submission_id ) ) === 0
+        && preg_match( '#^https://example\.test/review/[A-Za-z0-9_-]{44}$#', $email_reference['url'] ) === 1
         && strpos( $email_reference['url'], 'expires' . '=' ) === false,
     'The review owner should return a validated, signed email gallery reference.'
 );
@@ -220,12 +214,52 @@ $mismatched_email_reference = ReviewController::email_gallery_reference(
     $now + 30
 );
 eforms_test_assert( empty( $mismatched_email_reference['ok'] ), 'Email gallery references should fail closed when staged item identities differ.' );
+$legacy_submission_path = $private_dir . '/' . UploadBatchStore::SUBMISSIONS_DIR . '/' . Helpers::h2( $submission_id ) . '/' . $submission_id;
+$legacy_manifest_path = $legacy_submission_path . '/' . UploadBatchStore::MANIFEST_FILENAME;
+$legacy_manifest = json_decode( file_get_contents( $legacy_manifest_path ), true );
+$legacy_item = $legacy_manifest['items']['review_photo'];
+$legacy_artifact_path = LocalArtifactStore::locate( $uploads_dir, $legacy_item['object_key'], $legacy_item['object_version'] );
+$direct_locate_purge_lease = PrivateDir::acquire_purge_lease( $uploads_dir );
+eforms_test_assert( $direct_locate_purge_lease instanceof PrivateDirLease, 'Direct artifact lookup should release its internally owned shared lifecycle lease.' );
+$direct_locate_purge_lease->release();
+$legacy_submission_directories = array( dirname( $legacy_submission_path ), $legacy_submission_path );
+$legacy_submission_control_files = array( $legacy_manifest_path, $legacy_submission_path . '/' . UploadBatchStore::LOCK_FILENAME );
+$legacy_submission_review_files = array( $legacy_submission_path . '/' . UploadBatchStore::REVIEW_SNAPSHOT_FILENAME );
+$legacy_artifact_root = $private_dir . '/' . LocalArtifactStore::ROOT_DIR;
+$legacy_artifact_directories = array();
+$legacy_artifact_cursor = dirname( $legacy_artifact_path );
+while ( $legacy_artifact_cursor !== $legacy_artifact_root ) {
+    array_unshift( $legacy_artifact_directories, $legacy_artifact_cursor );
+    $legacy_artifact_cursor = dirname( $legacy_artifact_cursor );
+}
+foreach ( array_merge( $legacy_submission_control_files, $legacy_submission_review_files ) as $legacy_file ) {
+    chmod( $legacy_file, PrivateDir::FILE_MODE );
+}
+foreach ( array_merge( $legacy_submission_directories, $legacy_artifact_directories ) as $legacy_directory ) {
+    chmod( $legacy_directory, PrivateDir::DIRECTORY_MODE );
+}
+chmod( $private_dir, PrivateDir::DIRECTORY_MODE );
+chmod( dirname( $legacy_artifact_path ) . '/' . LocalArtifactStore::LOCK_FILENAME, PrivateDir::FILE_MODE );
+chmod( $legacy_artifact_path, PrivateDir::FILE_MODE );
 $gallery_url = ReviewController::gallery_url( $submission_id, 'https://example.test', $salt );
-eforms_test_assert( strpos( $gallery_url, 'https://example.test/?eforms_review=' . rawurlencode( $submission_id ) ) === 0, 'Gallery URL generation should use the controlled home query route.' );
+eforms_test_assert( preg_match( '#^https://example\.test/review/[A-Za-z0-9_-]{44}$#', $gallery_url ) === 1, 'Gallery URL generation should use one compact opaque bearer segment.' );
 $GLOBALS['eforms_test_styles'] = array();
 $GLOBALS['eforms_test_scripts'] = array();
 $gallery = eforms_test_review_request( $gallery_url, $uploads_dir, $salt, $now + 30 );
 eforms_test_assert( $gallery['status'] === 200 && $gallery['render'] === 'review_gallery', 'A valid gallery bearer grant should render the review page.' );
+$gallery_purge_lease = PrivateDir::acquire_purge_lease( $uploads_dir );
+eforms_test_assert( $gallery_purge_lease instanceof PrivateDirLease, 'Review reads should release their shared lifecycle lease after permission migration.' );
+$gallery_purge_lease->release();
+eforms_test_assert( ( fileperms( $private_dir ) & 0777 ) === PrivateDir::REVIEW_DIRECTORY_MODE, 'An existing private root should migrate to trusted-group traversal when resolved for review.' );
+foreach ( $legacy_submission_directories as $legacy_directory ) {
+    eforms_test_assert( ( fileperms( $legacy_directory ) & 0777 ) === PrivateDir::REVIEW_DIRECTORY_MODE, 'An existing managed submission path should migrate to group traversal when locked for review.' );
+}
+foreach ( $legacy_submission_control_files as $legacy_file ) {
+    eforms_test_assert( ( fileperms( $legacy_file ) & 0777 ) === PrivateDir::FILE_MODE, 'Managed submission control files should remain owner-private during review.' );
+}
+foreach ( $legacy_submission_review_files as $legacy_file ) {
+    eforms_test_assert( ( fileperms( $legacy_file ) & 0777 ) === PrivateDir::REVIEW_FILE_MODE, 'The operator review snapshot should migrate to trusted-group readability.' );
+}
 eforms_test_assert(
     array_column( $GLOBALS['eforms_test_styles'], 'handle' ) === array( 'eforms', 'eforms-review-gallery' )
         && $GLOBALS['eforms_test_styles'][1]['deps'] === array( 'eforms' ),
@@ -260,8 +294,15 @@ eforms_test_assert(
     'Anonymous public review context should contain only approved non-contact project rows.'
 );
 $review_item = $gallery['review_page']['items'][0];
-eforms_test_assert( strpos( $review_item['download_url'], 'eforms_review_upload=review_photo' ) !== false, 'The gallery should expose one signed authoritative-artifact download.' );
-eforms_test_assert( array_keys( $review_item ) === array( 'download_url', 'preview_url' ) && $review_item['preview_url'] === '', 'The no-preview gallery item should expose only the current artifact and optional-preview contract.' );
+eforms_test_assert( preg_match( '#^https://example\.test/review/file/[A-Za-z0-9_-]+$#', $review_item['download_url'] ) === 1, 'The gallery should expose one opaque authoritative-artifact download bearer.' );
+eforms_test_assert( array_keys( $review_item ) === array( 'download_url', 'preview_url', 'original_inline_available' ) && $review_item['preview_url'] === '' && $review_item['original_inline_available'] === true, 'The no-preview gallery item should expose the current artifact, optional preview, and browser-fallback capability.' );
+$no_preview_html = eforms_test_render_review_template( $gallery['review_page'] );
+eforms_test_assert( strpos( $no_preview_html, 'data-eforms-review-original-src="' ) !== false && strpos( $no_preview_html, '>Load original</button>' ) !== false, 'A download-only gallery should offer an explicit browser-side original-image fallback without starting the request in markup.' );
+eforms_test_assert( preg_match( '/<img[^>]+\ssrc=/', $no_preview_html ) !== 1, 'The original fallback must not load full submitted files until the viewer explicitly requests one.' );
+$non_browser_review_page = $gallery['review_page'];
+$non_browser_review_page['items'][0]['original_inline_available'] = false;
+$non_browser_html = eforms_test_render_review_template( $non_browser_review_page );
+eforms_test_assert( strpos( $non_browser_html, '>Load original</button>' ) === false && strpos( $non_browser_html, 'eforms-review-download-overlay' ) !== false, 'A non-browser-renderable or remotely owned original should remain downloadable without advertising an unsupported inline fallback.' );
 eforms_test_assert( strpos( json_encode( $gallery['review_page'] ), $uploads_dir ) === false, 'Gallery context must not disclose private paths.' );
 
 eforms_test_set_filter( 'eforms_config', function ( $config ) {
@@ -297,12 +338,13 @@ $local_preview_overrides = array(
 );
 $local_preview_gallery = eforms_test_review_request( $gallery_url, $uploads_dir, $salt, $now + 30, $local_preview_overrides );
 $local_preview_url = $local_preview_gallery['review_page']['items'][0]['preview_url'];
-eforms_test_assert( strpos( $local_preview_url, 'eforms_review_preview=review_photo' ) !== false, 'The optional local composition should mint a distinct signed preview URL after gallery authorization.' );
+eforms_test_assert( preg_match( '#^https://example\.test/review/preview/[A-Za-z0-9_-]+$#', $local_preview_url ) === 1, 'The optional local composition should mint a distinct opaque preview bearer after gallery authorization.' );
 $local_preview_html = eforms_test_render_review_template( $local_preview_gallery['review_page'] );
 eforms_test_assert( strpos( $local_preview_html, 'hidden data-eforms-review-src="' ) !== false, 'The gallery template should defer preview source assignment to its serialized browser runtime.' );
 eforms_test_assert( preg_match( '/<img[^>]+\ssrc=/', $local_preview_html ) !== 1, 'The gallery template must not start preview requests before the browser admission owner runs.' );
 eforms_test_assert( preg_match( '/<a[^>]+class="eforms-review-preview-link ta-gallery__link"[^>]+\shref=/', $local_preview_html ) !== 1 && strpos( $local_preview_html, 'data-lbwps-srcsmall=' ) === false, 'The gallery template must keep lightbox preview URLs inert until the browser admission owner has loaded the preview.' );
 eforms_test_assert( strpos( $local_preview_html, 'class="eforms-review-preview-link ta-gallery__link"' ) !== false && strpos( $local_preview_html, 'data-lbwps-width="' ) !== false && strpos( $local_preview_html, 'data-eforms-review-lightbox' ) === false && strpos( $local_preview_html, 'data-eforms-review-download' ) === false && strpos( $local_preview_html, 'eforms-review-download-overlay' ) !== false, 'Preview-capable gallery items should expose a PhotoSwipe-compatible trigger without retaining the removed eForms modal contract.' );
+eforms_test_assert( strpos( $local_preview_html, 'data-eforms-review-original-src="' ) !== false && strpos( $local_preview_html, '>Load original</button>' ) !== false, 'Preview-capable cards should retain an explicit signed-original fallback after preview failure.' );
 eforms_test_assert( strpos( $local_preview_html, 'Customer &lt;Photo&gt;' ) === false && strpos( $local_preview_html, 'Open Photo 1' ) !== false && strpos( $local_preview_html, 'Download Photo 1' ) !== false, 'Review gallery UI should use ordinal photo labels instead of exposing upload filenames.' );
 eforms_test_assert( strpos( $local_preview_html, 'data-eforms-review-delete-open' ) === false && strpos( $local_preview_html, 'data-eforms-review-availability-open' ) === false && strpos( $local_preview_html, 'eforms_review_availability' ) === false, 'Anonymous gallery renders should not expose operator-only deletion or availability controls.' );
 eforms_test_assert( strpos( $local_preview_html, 'eforms-review-actions' ) === false && strpos( $local_preview_html, 'Available until ' ) === false && strpos( $local_preview_html, 'eforms-review-submitted' ) === false && strpos( $local_preview_html, 'ID: <strong>' ) === false, 'Anonymous gallery renders should omit operator management metadata.' );
@@ -321,6 +363,14 @@ eforms_test_assert(
 eforms_test_assert( strpos( $local_preview_html, 'data-eforms-review-preview-timeout-ms="' . Anchors::get( 'REVIEW_PREVIEW_LOAD_TIMEOUT_MS' ) . '"' ) !== false, 'The gallery template should pass the code-owned preview deadline to its serialized browser runtime.' );
 eforms_test_assert( ReviewController::enable_lightbox_for_current_review( false, 0 ) === true, 'The review gallery should override theme lightbox suppression for its signed gallery route.' );
 $member_request = eforms_test_review_request( $review_item['download_url'], $uploads_dir, $salt, $now + 30 );
+foreach ( $legacy_artifact_directories as $legacy_directory ) {
+    eforms_test_assert( ( fileperms( $legacy_directory ) & 0777 ) === PrivateDir::REVIEW_DIRECTORY_MODE, 'An existing local artifact path should migrate to group traversal when resolved for review.' );
+}
+eforms_test_assert(
+    ( fileperms( dirname( $legacy_artifact_path ) . '/' . LocalArtifactStore::LOCK_FILENAME ) & 0777 ) === PrivateDir::FILE_MODE
+        && ( fileperms( $legacy_artifact_path ) & 0777 ) === PrivateDir::REVIEW_FILE_MODE,
+    'Resolving a local artifact should migrate its content while keeping the object lock owner-private.'
+);
 if ( isset( $member_request['stream'] ) && is_resource( $member_request['stream'] ) ) {
     fclose( $member_request['stream'] );
 }
@@ -333,35 +383,52 @@ if ( isset( $local_preview['stream'] ) && is_resource( $local_preview['stream'] 
 eforms_test_assert( $local_preview['status'] === 200 && $local_preview['headers']['Content-Type'] === 'image/jpeg' && $local_preview_bytes === "\xff\xd8\xff\xd9", 'The signed local preview route should return only the optional browser-compatible representation.' );
 eforms_test_assert( $local_preview['headers']['Cache-Control'] === 'private, no-store, max-age=0' && $local_preview['headers']['Referrer-Policy'] === 'no-referrer', 'Local previews should preserve private bearer-link response headers.' );
 
-foreach ( array( '', '/index.php/%postname%/', '/%postname%/' ) as $permalink_structure ) {
+foreach ( array( '', '/index.php/%postname%/' ) as $unsupported_permalink_structure ) {
+    update_option( 'permalink_structure', $unsupported_permalink_structure );
+    eforms_test_assert( ReviewController::gallery_url( $submission_id, 'https://example.test', $salt ) === '', 'Permalink modes without rewrite-based clean routing should not mint a review URL.' );
+    $unsupported_direct_request = eforms_test_review_request( $gallery_url, $uploads_dir, $salt, $now + 30 );
+    eforms_test_assert( $unsupported_direct_request['status'] === 404, 'Direct review requests should fail closed when the configured permalink mode cannot route the compact URL.' );
+    $unsupported_email_reference = ReviewController::email_gallery_reference(
+        $submission_id,
+        array( 'review_photo' ),
+        $uploads_dir,
+        'https://example.test',
+        $salt,
+        $now + 30
+    );
+    eforms_test_assert( empty( $unsupported_email_reference['ok'] ), 'Email review references should fail closed when the configured permalink mode cannot route the compact URL.' );
+}
+
+foreach ( array( '/%postname%/', '/%year%/%postname%/' ) as $permalink_structure ) {
     update_option( 'permalink_structure', $permalink_structure );
     $fallback_url = ReviewController::gallery_url( $submission_id, 'https://example.test', $salt );
-    eforms_test_assert( $fallback_url === $gallery_url, 'Every permalink mode should use the same WordPress home query route.' );
+    eforms_test_assert( $fallback_url === $gallery_url, 'Front-controller permalink modes should use the same clean review route.' );
     $fallback_gallery = eforms_test_review_request( $fallback_url, $uploads_dir, $salt, $now + 30 );
-    eforms_test_assert( $fallback_gallery['status'] === 200 && $fallback_gallery['render'] === 'review_gallery', 'The permalink-independent gallery URL should dispatch through the review controller.' );
+    eforms_test_assert( $fallback_gallery['status'] === 200 && $fallback_gallery['render'] === 'review_gallery', 'The clean gallery URL should dispatch through the review controller.' );
     $fallback_download_url = $fallback_gallery['review_page']['items'][0]['download_url'];
-    eforms_test_assert( strpos( $fallback_download_url, 'eforms_review_upload=review_photo' ) !== false, 'Artifact downloads should use the same permalink-independent query route.' );
+    eforms_test_assert( strpos( $fallback_download_url, '/review/file/' ) !== false, 'Artifact downloads should use the same clean route.' );
     $fallback_download = eforms_test_review_request( $fallback_download_url, $uploads_dir, $salt, $now + 30 );
-    eforms_test_assert( $fallback_download['status'] === 200 && $fallback_download['headers']['Content-Type'] === 'image/png', 'The permalink-independent file URL should stream its signed manifest member.' );
+    eforms_test_assert( $fallback_download['status'] === 200 && $fallback_download['headers']['Content-Type'] === 'image/png', 'The clean file URL should stream its signed manifest member.' );
     if ( isset( $fallback_download['stream'] ) && is_resource( $fallback_download['stream'] ) ) {
         fclose( $fallback_download['stream'] );
     }
 }
 
+eforms_test_assert( ReviewController::prevent_canonical_redirect( 'https://example.test/review/example/', $gallery_url ) === false, 'Canonical redirects should not append a slash to an opaque review URL.' );
+eforms_test_assert( ReviewController::prevent_canonical_redirect( 'https://example.test/contact/', 'https://example.test/contact' ) === 'https://example.test/contact/', 'Canonical redirects outside the review route should remain unchanged.' );
+
 $plain_url = ReviewController::gallery_url( $submission_id, 'https://example.test', $salt );
-$plain_query = eforms_test_review_query( $plain_url );
 $query_alias = eforms_test_review_request(
-    str_replace( 'https://example.test/?', 'https://example.test/unrelated?', $plain_url ),
+    str_replace( 'https://example.test/review/', 'https://example.test/unrelated/review/', $plain_url ),
     $uploads_dir,
     $salt,
     $now + 30
 );
-eforms_test_assert( ! empty( $query_alias['handled'] ) && $query_alias['status'] === 404, 'A bearer query on an unrelated path should be privately rejected instead of becoming a route alias.' );
-eforms_test_assert( $query_alias['headers']['Cache-Control'] === 'private, no-store, max-age=0', 'Rejected bearer-query aliases should remain non-cacheable.' );
+eforms_test_assert( empty( $query_alias['handled'] ), 'A bearer-like segment outside the canonical review path should not become a route alias.' );
 foreach ( array( 'HEAD', 'POST', 'PUT' ) as $review_method ) {
     $_SERVER['REQUEST_METHOD'] = $review_method;
-    $_SERVER['REQUEST_URI'] = (string) parse_url( $plain_url, PHP_URL_PATH ) . '?' . (string) parse_url( $plain_url, PHP_URL_QUERY );
-    $_GET = $plain_query;
+    $_SERVER['REQUEST_URI'] = (string) parse_url( $plain_url, PHP_URL_PATH );
+    $_GET = array();
     $method_denied = PublicRequestController::dispatch_current_request();
     eforms_test_assert( ! empty( $method_denied['handled'] ) && $method_denied['status'] === 404, 'Unsupported or unauthorized review methods should be handled by the private rejection path.' );
     eforms_test_assert( $method_denied['headers']['Cache-Control'] === 'private, no-store, max-age=0' && $method_denied['headers']['X-Robots-Tag'] === 'noindex, nofollow', 'Rejected review methods should retain private no-store/noindex headers.' );
@@ -595,7 +662,7 @@ eforms_test_assert(
         && strpos( $expired_operator_html, 'data-eforms-review-availability-open' ) === false
         && strpos( $expired_operator_html, 'eforms-review-grid' ) === false
         && strpos( $expired_operator_html, 'eforms-review-download-overlay' ) === false
-        && strpos( $expired_operator_html, 'eforms_review_upload' ) === false,
+        && strpos( $expired_operator_html, '/review/file/' ) === false,
     'Expired operator management renders status and whole-submission deletion without photos, member links, or availability updates.'
 );
 $expired_delete_time = $expired_seed_now + 2;
@@ -640,9 +707,9 @@ $v2_delete_url = 'https://example.test/?' . http_build_query(
 );
 $v2_delete_get = eforms_test_review_request( $v2_delete_url, $uploads_dir, $salt, $now + 60 );
 eforms_test_assert(
-    $v2_delete_get['status'] === 404
+    empty( $v2_delete_get['handled'] )
         && ! empty( UploadBatchStore::submission( $delete_submission_id, $uploads_dir, $now + 60 )['ok'] ),
-    'Version-2 expiry-shaped review URLs should not view the submission after the v3 cutover.'
+    'Superseded query-shaped review URLs should not be review routes after the compact-token cutover.'
 );
 $GLOBALS['eforms_test_can_manage'] = false;
 $anonymous_delete = eforms_test_review_request(
@@ -829,39 +896,32 @@ eforms_test_assert(
 );
 unset( $GLOBALS['eforms_test_can_manage'] );
 
-$gallery_query = eforms_test_review_query( $gallery_url );
+$tampered_gallery_url = substr( $gallery_url, 0, -1 ) . ( substr( $gallery_url, -1 ) === 'A' ? 'B' : 'A' );
 $generic = eforms_test_review_unavailable_shape(
-    eforms_test_review_request(
-        'https://example.test/?' . http_build_query(
-            array(
-                'eforms_review' => $submission_id,
-                'expires' => $delete_after,
-                'signature' => str_repeat( 'A', 43 ),
-            ),
-            '',
-            '&',
-            PHP_QUERY_RFC3986
-        ),
-        $uploads_dir,
-        $salt,
-        $now + 30
-    )
+    eforms_test_review_request( $tampered_gallery_url, $uploads_dir, $salt, $now + 30 )
 );
 eforms_test_assert( $generic['status'] === 404, 'Invalid review requests should return a generic not-found response.' );
 
-$unknown_query = $review_item['download_url'] . '&unexpected=1';
+$unknown_query = $review_item['download_url'] . '?unexpected=1';
+$gallery_token = basename( (string) parse_url( $gallery_url, PHP_URL_PATH ) );
+$action_confusion = eforms_test_review_request( 'https://example.test/review/file/' . $gallery_token, $uploads_dir, $salt, $now + 30 );
+$wrong_salt = eforms_test_review_request( $gallery_url, $uploads_dir, 'rotated-review-auth-salt', $now + 30 );
+$noncanonical_token = eforms_test_review_request( $gallery_url . '=', $uploads_dir, $salt, $now + 30 );
+$trailing_slash_alias = eforms_test_review_request( $gallery_url . '/', $uploads_dir, $salt, $now + 30 );
+$maximum_review_token_chars = intdiv( ( 1 + Anchors::get( 'MANAGED_SUBMISSION_UUID_BYTES' ) + 1 + Anchors::get( 'MANAGED_ID_MAX_CHARS' ) + Anchors::get( 'MANAGED_REVIEW_TAG_BYTES' ) ) * 8 + 5, 6 );
+$oversized_token = eforms_test_review_request( 'https://example.test/review/' . str_repeat( 'A', $maximum_review_token_chars + 1 ), $uploads_dir, $salt, $now + 30 );
 $expired_anonymous = eforms_test_review_request( $gallery_url, $uploads_dir, $salt, $delete_after );
 $foreign_upload_url = ReviewController::file_url( $submission_id, 'foreign_photo', 'https://example.test', $salt );
 $foreign = eforms_test_review_request( $foreign_upload_url, $uploads_dir, $salt, $now + 30 );
 $traversal = eforms_test_review_request(
-    'https://example.test/?eforms_review=' . rawurlencode( $submission_id ) . '&eforms_review_upload=..&signature=' . $gallery_query['signature'],
+    'https://example.test/review/file/..',
     $uploads_dir,
     $salt,
     $now + 30
 );
-foreach ( array( $unknown_query, $expired_anonymous, $foreign, $traversal ) as $denied ) {
+foreach ( array( $unknown_query, $action_confusion, $wrong_salt, $noncanonical_token, $trailing_slash_alias, $oversized_token, $expired_anonymous, $foreign, $traversal ) as $denied ) {
     $response = is_string( $denied ) ? eforms_test_review_request( $denied, $uploads_dir, $salt, $now + 30 ) : $denied;
-    eforms_test_assert( eforms_test_review_unavailable_shape( $response ) === $generic, 'Unknown-query, expired, foreign, and path-like grants should be indistinguishable.' );
+    eforms_test_assert( eforms_test_review_unavailable_shape( $response ) === $generic, 'Malformed, confused, expired, foreign, and path-like grants should be indistinguishable.' );
 }
 
 $submission_path = $uploads_dir . '/eforms-private/submissions/' . Helpers::h2( $submission_id ) . '/' . $submission_id;

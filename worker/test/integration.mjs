@@ -14,6 +14,7 @@ import {
   verifyObjectResult,
   verifyUploadReceipt,
 } from '../src/protocol.js';
+import { createManagedArtifactKey } from '../src/managed-artifact-key.js';
 
 if (process.env.EFORMS_CF_INTEGRATION !== '1') {
   process.stdout.write('Cloudflare integration lane skipped; set EFORMS_CF_INTEGRATION=1.\n');
@@ -80,7 +81,7 @@ if (process.env.EFORMS_CF_ROTATION_MATRIX === '1') {
 }
 
 async function uploadInspectDelete([label, mime, bytes]) {
-  const claims = uploadClaims(label, mime, bytes);
+  const claims = await uploadClaims(label, mime, bytes);
   const objectKey = claims.object_key;
   const grant = await signUploadGrant(claims, keyId, secret, environment);
   let version = '';
@@ -106,7 +107,7 @@ async function uploadInspectDelete([label, mime, bytes]) {
 }
 
 async function assertRejectedMedia([label, mime, bytes]) {
-  const claims = uploadClaims(label, mime, bytes);
+  const claims = await uploadClaims(label, mime, bytes);
   const grant = await signUploadGrant(claims, keyId, secret, environment);
   try {
     const response = await uploadRequest(mime, bytes, grant, siteOrigin);
@@ -117,7 +118,7 @@ async function assertRejectedMedia([label, mime, bytes]) {
 }
 
 async function assertDiscardedResponseBodyRetry([, mime, bytes]) {
-  const claims = uploadClaims('discarded-response-body', mime, bytes);
+  const claims = await uploadClaims('discarded-response-body', mime, bytes);
   const grant = await signUploadGrant(claims, keyId, secret, environment);
   let version = '';
   try {
@@ -136,7 +137,7 @@ async function assertDiscardedResponseBodyRetry([, mime, bytes]) {
 }
 
 async function assertVersionMismatchIsolation([, mime, bytes]) {
-  const claims = uploadClaims('review-delete-failure', mime, bytes);
+  const claims = await uploadClaims('review-delete-failure', mime, bytes);
   const grant = await signUploadGrant(claims, keyId, secret, environment);
   let version = '';
   try {
@@ -172,7 +173,7 @@ async function assertControlledProviderFailures([, mime, bytes]) {
   assert.ok(command && isAbsolute(command), 'EFORMS_CF_FAULT_COMMAND must be an absolute executable path.');
   accessSync(command, fsConstants.X_OK);
   const evidence = [];
-  const claims = uploadClaims('controlled-provider-failures', mime, bytes);
+  const claims = await uploadClaims('controlled-provider-failures', mime, bytes);
   const grant = await signUploadGrant(claims, keyId, secret, environment);
   let version = '';
   let primaryError = null;
@@ -232,7 +233,7 @@ async function assertRotationDrill([, mime, bytes]) {
   assert.equal(new Set([keyId, secondaryId, emergencyId]).size, 3, 'Rotation key IDs must be distinct.');
   const rotationKeys = { [keyId]: secret, [secondaryId]: secondary, [emergencyId]: emergency };
   const evidence = [];
-  const claims = uploadClaims('rotation-retained-object', mime, bytes);
+  const claims = await uploadClaims('rotation-retained-object', mime, bytes);
   const grant = await signUploadGrant(claims, keyId, secret, environment);
   let version = '';
   let primaryError = null;
@@ -433,7 +434,7 @@ function reviewGrantFor(submissionId, uploadId, objectKey, objectVersion, action
 }
 
 async function assertRejectedGrant([label, mime, bytes]) {
-  const claims = uploadClaims(`rejected-${label}`, mime, bytes);
+  const claims = await uploadClaims(`rejected-${label}`, mime, bytes);
   const grant = await signUploadGrant(claims, keyId, secret, environment);
   const [payload, signature] = grant.split('.');
   const tampered = `${payload}.${signature.startsWith('A') ? 'B' : 'A'}${signature.slice(1)}`;
@@ -442,12 +443,12 @@ async function assertRejectedGrant([label, mime, bytes]) {
 }
 
 async function assertOriginAndEnvironmentMismatch([label, mime, bytes]) {
-  const originClaims = uploadClaims(`wrong-origin-${label}`, mime, bytes);
+  const originClaims = await uploadClaims(`wrong-origin-${label}`, mime, bytes);
   const originGrant = await signUploadGrant(originClaims, keyId, secret, environment);
   const wrongOrigin = await uploadRequest(mime, bytes, originGrant, 'https://wrong-origin.invalid');
   assert.equal(wrongOrigin.status, 403, 'Wrong-origin upload must fail before provider mutation.');
 
-  const environmentClaims = uploadClaims(`wrong-environment-${label}`, mime, bytes);
+  const environmentClaims = await uploadClaims(`wrong-environment-${label}`, mime, bytes);
   const environmentGrant = await signUploadGrant(environmentClaims, keyId, secret, 'wrong-environment');
   const wrongEnvironment = await uploadRequest(mime, bytes, environmentGrant, siteOrigin);
   assert.equal(wrongEnvironment.status, 403, 'Cross-environment upload grant must be rejected.');
@@ -496,15 +497,16 @@ async function rawObjectOperation(objectKey, objectVersion, action, signingId = 
   return { response, claims };
 }
 
-function uploadClaims(label, mime, bytes) {
+async function uploadClaims(label, mime, bytes) {
   const now = Math.floor(Date.now() / 1000);
-  const identity = hexDigest(`${runId}:${label}`);
+  const intentId = digest(`intent:${runId}:${label}`);
+  const batchId = digest(`batch:${runId}:${label}`);
   return {
-    intent_id: digest(`intent:${runId}:${label}`),
-    batch_id: digest(`batch:${runId}:${label}`),
+    intent_id: intentId,
+    batch_id: batchId,
     upload_id: `integration_${label.replace(/[^a-z0-9_-]/g, '_')}`,
     ordinal: 0,
-    object_key: `artifacts/${identity.slice(0, 2)}/${identity}`,
+    object_key: await createManagedArtifactKey(batchId, 0, intentId, mime),
     declared_bytes: bytes.byteLength,
     declared_mime: mime,
     policy_fingerprint: hexDigest(`policy:${label}`),

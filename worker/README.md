@@ -9,6 +9,10 @@ as an attachment or produce the fixed private JPEG preview. Neither path can
 mutate a WordPress batch or submission.
 
 `src/protocol.js` owns Worker-side envelope verification and signing.
+`src/managed-artifact-key.js` owns the Worker peer of the canonical
+`artifacts/{h2(batch_id)}/{batch_id}/{ordinal}-{intent_id}.{ext}` R2 key. The
+extension comes from the signed, validated MIME and every item in one batch
+shares the same namespace; finalization never copies or renames an R2 object.
 `src/anchors.js` is generated from the Worker-owned subset of
 `src/Anchors.php`; `worker/scripts/sync-anchors.php --check` keeps those fixed
 bounds synchronized without creating a second authority. Upload, object, and

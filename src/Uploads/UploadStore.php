@@ -203,7 +203,7 @@ class UploadStore {
                     return self::error_result( 'upload_write_failed' );
                 }
 
-                if ( ! self::ensure_permissions( $tmp_path, 0600 ) ) {
+                if ( ! self::ensure_permissions( $tmp_path, PrivateDir::FILE_MODE ) ) {
                     @unlink( $tmp_path );
                     self::rollback_created( $created, $allow_existing );
                     return self::error_result( 'upload_write_failed' );
@@ -223,7 +223,7 @@ class UploadStore {
                     return self::error_result( 'upload_rename_failed' );
                 }
 
-                if ( ! self::ensure_permissions( $final, 0600 ) ) {
+                if ( ! self::ensure_permissions( $final, PrivateDir::FILE_MODE ) ) {
                     @unlink( $final );
                     self::rollback_created( $created, $allow_existing );
                     return self::error_result( 'upload_chmod_failed' );

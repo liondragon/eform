@@ -90,6 +90,40 @@ ambiguous outage behavior. A backend change requires a retention drain or an
 explicit migration. Optional browser JPEG preparation remains capability-gated,
 defaults off, and does not change stored manifest semantics.
 
+### Adopted: Batch-scoped artifact keys with canonical extensions
+
+Managed artifacts use one storage namespace per upload batch:
+`artifacts/{h2(batch_id)}/{batch_id}/{ordinal}-{intent_id}.{ext}`. The extension
+is derived from validated MIME instead of the client filename. The sanitized
+original filename remains manifest metadata for operator display and local
+authorized-download naming. R2 stores the object at that exact key; local storage maps the same
+key to a versioned immutable file. Submission finalization associates the batch
+namespace with the submission manifest without copying or renaming bytes.
+
+This replaced content-only opaque keys in greenfield mode. Schema 6 manifests,
+schema 6 capacity records, and Worker protocol 2 reject the old object-key shape
+instead of carrying a migration reader. Original client filenames in provider
+keys were rejected because collision, path-safety, Unicode-normalization, and
+later rename semantics would make lifecycle cleanup less deterministic without
+improving operator presentation.
+
+### Adopted: One stateless opaque review URL token
+
+Managed gallery links use `/review/{token}`. Version 4 packs the submission UUID
+and a 128-bit action-bound HMAC tag into one canonical unpadded base64url token;
+gallery tokens are 44 characters. File and preview routes use the same codec and
+add their manifest-owned upload ID inside the authenticated token. The token
+therefore locates and authorizes its target without a database, token index,
+directory scan, visible submission ID, or separate signature parameter.
+
+The split `/?eforms_review={submission_id}&signature={signature}` route and its
+member query parameters were removed rather than retained as aliases. A short
+random identifier like a public image host would require a durable reverse
+index and would provide weaker authorization if shortened for aesthetics. A
+route-only rewrite would preserve the old credential model. The self-contained
+codec keeps the existing salt-rotation invalidation and manifest availability
+authority while producing the cleanest customer-facing URL.
+
 An owner review retained `UploadBatchStore` as the public aggregate facade even
 though it exceeds the original line-count signal. Its remaining size is active
 aggregate traversal, intent/tombstone/finalization coordination, remote purge,

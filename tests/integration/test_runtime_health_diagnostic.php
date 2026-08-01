@@ -37,17 +37,17 @@ $rows = RuntimeHealthDiagnostic::rows( $result );
 
 eforms_test_assert( $result['ok'] === true, 'Runtime health should pass with warnings in the default test runtime.' );
 eforms_test_assert( $result['exit_code'] === 0, 'Warn-only runtime health should expose exit_code=0.' );
-eforms_test_assert( count( $result['checks'] ) === 15, 'Runtime health should run the focused readiness check set.' );
+eforms_test_assert( count( $result['checks'] ) === 16, 'Runtime health should run the focused readiness check set.' );
 eforms_test_assert( $command_result['checks'] === $result['checks'], 'CLI adapter should expose the shared runtime health result without its own check implementation.' );
 eforms_test_assert( function_exists( 'eforms_cli_doctor' ), 'Bootstrap should expose the wp eforms doctor handler.' );
-eforms_test_assert( RuntimeHealthDiagnostic::summary_line( $result ) === '14 passed, 1 warning, 0 failed', 'Runtime health should summarize pass/warn/fail counts.' );
+eforms_test_assert( RuntimeHealthDiagnostic::summary_line( $result ) === '15 passed, 1 warning, 0 failed', 'Runtime health should summarize pass/warn/fail counts.' );
 
 $checks = array();
 foreach ( $result['checks'] as $check ) {
     $checks[ $check['name'] ] = $check;
 }
 
-foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'managed-upload-dirs', 'staged-artifact-readiness', 'review-preview-readiness', 'managed-capacity', 'staged-request-limits', 'staged-throttle', 'templates', 'mail-format', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
+foreach ( array( 'uploads-base', 'private-storage', 'runtime-dirs', 'managed-upload-dirs', 'staged-artifact-readiness', 'review-route-readiness', 'review-preview-readiness', 'managed-capacity', 'staged-request-limits', 'staged-throttle', 'templates', 'mail-format', 'gc-readiness', 'cli-bootstrap', 'config-sources', 'challenge-config' ) as $name ) {
     eforms_test_assert( isset( $checks[ $name ] ), 'Missing runtime health check: ' . $name );
     eforms_test_assert( isset( $checks[ $name ]['observed'] ) && $checks[ $name ]['observed'] !== '', 'Runtime health should report observed result: ' . $name );
     eforms_test_assert( isset( $checks[ $name ]['expected'] ) && $checks[ $name ]['expected'] !== '', 'Runtime health should report expected result: ' . $name );
@@ -61,10 +61,20 @@ eforms_test_assert( $checks['challenge-config']['result'] === 'PASS', 'Challenge
 eforms_test_assert( $checks['config-sources']['observed'] === 'provenance available; client preparation off recipe v1', 'Runtime health should report the configured browser preparation mode and fixed recipe version.' );
 eforms_test_assert( $checks['managed-upload-dirs']['result'] === 'PASS', 'Protected writable managed directories should pass.' );
 eforms_test_assert( $checks['staged-artifact-readiness']['result'] === 'PASS', 'Valid fileinfo and bounded image inspection should pass.' );
+eforms_test_assert( $checks['review-route-readiness']['result'] === 'PASS', 'Rewrite-based pretty permalinks should pass managed review route readiness.' );
 eforms_test_assert( $checks['review-preview-readiness']['result'] === 'PASS' && $checks['review-preview-readiness']['observed'] === 'disabled', 'Default local no-processing should keep optional review previews disabled.' );
 eforms_test_assert( $checks['managed-capacity']['result'] === 'PASS', 'Consistent accounting on a provisioned filesystem should pass.' );
 eforms_test_assert( $checks['staged-request-limits']['result'] === 'PASS', 'PHP request limits above the largest staged field should pass.' );
 eforms_test_assert( $checks['staged-throttle']['result'] === 'PASS', 'Enabled valid per-IP throttle settings should pass staged readiness.' );
+
+update_option( 'permalink_structure', '' );
+$plain_permalink_failure = RuntimeHealthDiagnostic::run( $observations );
+$plain_permalink_checks = array();
+foreach ( $plain_permalink_failure['checks'] as $check ) {
+    $plain_permalink_checks[ $check['name'] ] = $check;
+}
+eforms_test_assert( $plain_permalink_failure['ok'] === false && $plain_permalink_checks['review-route-readiness']['result'] === 'FAIL', 'Plain permalinks should fail readiness before managed review links can be emailed.' );
+update_option( 'permalink_structure', '/%postname%/' );
 
 $capacity_now = time();
 $capacity_secret = rtrim( strtr( base64_encode( str_repeat( "\x62", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
@@ -159,7 +169,9 @@ foreach ( array( 'tokens', 'ledger', 'logs', 'throttle', 'staged', 'submissions'
     eforms_test_assert( is_dir( $private_dir . '/' . $dir ), 'Runtime health should leave usable runtime dir: ' . $dir );
     eforms_test_assert( glob( $private_dir . '/' . $dir . '/' . RuntimeHealthDiagnostic::PROBE_FILENAME . '-*' ) === array(), 'Runtime health should remove its unique probe file for: ' . $dir );
 }
-foreach ( array( UploadBatchStore::STAGED_DIR, UploadBatchStore::SUBMISSIONS_DIR, UploadBatchStore::ARTIFACTS_DIR ) as $dir ) {
+eforms_test_assert( ( fileperms( $private_dir . '/' . UploadBatchStore::STAGED_DIR ) & 0777 ) === PrivateDir::DIRECTORY_MODE, 'Runtime health should keep the open staged root owner-private.' );
+foreach ( array( UploadBatchStore::SUBMISSIONS_DIR, UploadBatchStore::ARTIFACTS_DIR ) as $dir ) {
+    eforms_test_assert( ( fileperms( $private_dir . '/' . $dir ) & 0777 ) === PrivateDir::REVIEW_DIRECTORY_MODE, 'Runtime health should preserve group traversal on managed review dir: ' . $dir );
     foreach ( array( PrivateDir::INDEX_FILENAME, PrivateDir::HTACCESS_FILENAME, PrivateDir::WEBCONFIG_FILENAME ) as $file ) {
         eforms_test_assert( is_file( $private_dir . '/' . $dir . '/' . $file ), 'Managed upload dir should keep deny-rule file: ' . $dir . '/' . $file );
     }

@@ -38,6 +38,20 @@ eforms_test_assert(
 eforms_test_assert( UploadPolicy::staged_tokens_allowed( array( 'image' ) ) === true, 'Staged fields should accept the sole image token.' );
 eforms_test_assert( UploadPolicy::staged_tokens_allowed( array( 'image', 'heic' ) ) === false, 'Staged fields should reject the removed HEIC opt-in token.' );
 eforms_test_assert( UploadPolicy::resolve_tokens( array( 'heic' ), false, 'synchronous' ) === array(), 'HEIC should remain unavailable to synchronous upload fields.' );
+eforms_test_assert(
+    UploadPolicy::staged_extension_supported( 'heif' )
+        && ! UploadPolicy::staged_extension_supported( 'gif' ),
+    'Canonical staged extension membership should come from the MIME projection owner.'
+);
+eforms_test_assert(
+    UploadPolicy::staged_mime_has_browser_fallback( 'image/jpeg' )
+        && UploadPolicy::staged_mime_has_browser_fallback( 'image/png' )
+        && UploadPolicy::staged_mime_has_browser_fallback( 'image/webp' )
+        && ! UploadPolicy::staged_mime_has_browser_fallback( 'image/heic' )
+        && ! UploadPolicy::staged_mime_has_browser_fallback( 'image/heif' )
+        && ! UploadPolicy::staged_mime_has_browser_fallback( 'image/gif' ),
+    'Only staged formats covered by the browser-native image policy should offer an inline original fallback.'
+);
 
 eforms_test_assert(
     UploadPolicy::mime_allowed( 'application/octet-stream', 'pdf', $pdf_policy ) === false,

@@ -327,7 +327,7 @@ eforms_test_assert(
 
 $preview_fence_lease = PrivateDir::acquire_write_lease( $uploads_dir );
 eforms_test_assert( $preview_fence_lease instanceof PrivateDirLease, 'The preview-fence GC fixture should acquire the lifecycle lease.' );
-$preview_fence_key = LocalArtifactStore::object_key( 'preview-fence-gc-batch', 'preview-fence-gc-item' );
+$preview_fence_key = ManagedArtifactKey::create( eforms_test_digest( 'preview-fence-gc-batch' ), 0, eforms_test_digest( 'preview-fence-gc-item' ), 'image/png' );
 $preview_fence_version = '11111111-1111-4111-8111-111111111111';
 eforms_test_assert(
     LocalPreviewProvider::delete_cache( $preview_fence_lease, $preview_fence_key, $preview_fence_version ),
@@ -355,7 +355,7 @@ $capacity_with_stale['reservations']['stale_gc_reservation'] = array(
     'artifact_store' => FormProtocol::UPLOAD_TRANSPORT_LOCAL,
     'artifact_store_identity' => UploadBatchStore::LOCAL_ARTIFACT_STORE_IDENTITY,
     'cleanup_started' => false,
-    'object_key' => LocalArtifactStore::object_key( $expired_staged['batch_id'], 'stale-gc-reservation' ),
+    'object_key' => ManagedArtifactKey::create( $expired_staged['batch_id'], 0, eforms_test_digest( 'stale-gc-reservation' ), 'image/png' ),
     'created_at' => $run_now - Anchors::get( 'MANAGED_RESERVATION_STALE_SECONDS' ),
 );
 file_put_contents( $capacity_path, json_encode( $capacity_with_stale ) );
@@ -827,7 +827,12 @@ $remote_expired_capacity['reservations'][ $reservation_only_id ] = array(
     'cleanup_started' => true,
     'created_at' => $remote_base + 201,
     'intent_id' => str_repeat( 'r', 43 ),
-    'object_key' => 'artifacts/' . substr( hash( 'sha256', 'reservation-only' ), 0, 2 ) . '/' . hash( 'sha256', 'reservation-only' ),
+    'object_key' => ManagedArtifactKey::create(
+        $remote_expired['batch_id'],
+        99,
+        str_repeat( 'r', 43 ),
+        'image/png'
+    ),
 );
 $remote_expired_capacity['total_bytes'] += $reservation_only_bytes;
 $remote_expired_release = ManagedCapacityStore::release_remote_aggregate_once(
@@ -983,7 +988,7 @@ $invalid_worker_lease = PrivateDir::acquire_write_lease( $invalid_worker_dir );
 $invalid_worker_tokens = PrivateDir::leased_subdir( $invalid_worker_lease, GcRunner::TOKENS_DIR, true, true );
 $invalid_worker_token = $invalid_worker_tokens . '/expired.json';
 file_put_contents( $invalid_worker_token, json_encode( array( 'expires' => $remote_base ) ) );
-$invalid_worker_preview_key = LocalArtifactStore::object_key( 'invalid-worker-preview', 'invalid-worker-preview-item' );
+$invalid_worker_preview_key = ManagedArtifactKey::create( eforms_test_digest( 'invalid-worker-preview' ), 0, eforms_test_digest( 'invalid-worker-preview-item' ), 'image/png' );
 eforms_test_assert(
     LocalPreviewProvider::delete_cache( $invalid_worker_lease, $invalid_worker_preview_key, '22222222-2222-4222-8222-222222222222' ),
     'The invalid-Worker fixture should persist a later local preview cleanup candidate.'

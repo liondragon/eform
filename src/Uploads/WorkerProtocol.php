@@ -7,9 +7,10 @@
  */
 
 require_once __DIR__ . '/../Anchors.php';
+require_once __DIR__ . '/ManagedArtifactKey.php';
 
 final class WorkerProtocol {
-    const VERSION = '1';
+    const VERSION = '2';
     const REVIEW_RECIPE_VERSION = 'review-jpeg-v1';
     const UPLOAD_GRANT_DOMAIN = 'eforms-worker-upload-grant';
     const UPLOAD_RECEIPT_DOMAIN = 'eforms-worker-upload-receipt';
@@ -301,10 +302,14 @@ final class WorkerProtocol {
         if ( ! is_string( $value ) || preg_match( '//u', $value ) !== 1 ) {
             return null;
         }
+        if ( $type === 'object_key' ) {
+            return ManagedArtifactKey::valid( $value ) ? $value : null;
+        }
+        if ( $type === 'digest' ) {
+            return ManagedArtifactKey::valid_digest( $value ) ? $value : null;
+        }
         $patterns = array(
-            'digest' => '/^[A-Za-z0-9_-]{43}$/D',
             'managed_id' => '/^[A-Za-z0-9_-]{1,' . Anchors::get( 'MANAGED_ID_MAX_CHARS' ) . '}$/D',
-            'object_key' => '#^artifacts/[0-9a-f]{2}/[0-9a-f]{64}$#D',
             'opaque' => '/^[A-Za-z0-9._:-]{1,' . Anchors::get( 'WORKER_OPAQUE_MAX_CHARS' ) . '}$/D',
             'hex_digest' => '/^[0-9a-f]{64}$/D',
             'mime' => '#^image/(?:jpeg|png|webp|heic|heif)$#D',

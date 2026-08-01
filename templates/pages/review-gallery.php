@@ -125,22 +125,24 @@ if ( function_exists( 'get_header' ) ) {
                             $photo_label = 'Photo ' . ( (int) $index + 1 );
                             $download_url = isset( $item['download_url'] ) ? (string) $item['download_url'] : '';
                             $preview_url = isset( $item['preview_url'] ) ? (string) $item['preview_url'] : '';
+                            $original_inline_available = ! empty( $item['original_inline_available'] );
                             $preview_width = isset( $item['preview_width'] ) ? (int) $item['preview_width'] : 0;
                             $preview_height = isset( $item['preview_height'] ) ? (int) $item['preview_height'] : 0;
                             ?>
                             <figure class="eforms-review-item" role="listitem">
                                 <div class="eforms-review-preview eforms-review-preview-with-image<?php echo $preview_url === '' ? ' eforms-review-preview-unavailable' : ''; ?>">
-                                    <?php if ( $preview_url !== '' ) : ?>
-                                        <span hidden aria-hidden="true" data-eforms-review-fallback>
-                                            <span>Preview unavailable</span>
+                                    <span<?php echo $preview_url !== '' ? ' hidden aria-hidden="true"' : ''; ?> aria-live="polite" data-eforms-review-fallback>
+                                        <span data-eforms-review-fallback-status>Preview unavailable</span>
+                                        <?php if ( $preview_url !== '' ) : ?>
                                             <button type="button" class="eforms-review-button eforms-review-button--compact" data-eforms-review-retry>Retry preview</button>
-                                        </span>
-                                        <a class="eforms-review-preview-link ta-gallery__link" data-lbwps-width="<?php echo $escape_attr( $preview_width ); ?>" data-lbwps-height="<?php echo $escape_attr( $preview_height ); ?>" aria-label="<?php echo $escape_attr( 'Open ' . $photo_label ); ?>">
-                                            <img hidden data-eforms-review-src="<?php echo $escape_url( $preview_url ); ?>" alt="<?php echo $escape_attr( $photo_label . ' preview' ); ?>" decoding="async" data-eforms-review-preview>
-                                        </a>
-                                    <?php else : ?>
-                                        <span role="img" aria-label="<?php echo $escape_attr( 'Preview unavailable for ' . $photo_label ); ?>">Preview unavailable</span>
-                                    <?php endif; ?>
+                                        <?php endif; ?>
+                                        <?php if ( $original_inline_available ) : ?>
+                                            <button type="button" class="eforms-review-button eforms-review-button--compact" data-eforms-review-original data-eforms-review-original-src="<?php echo $escape_url( $download_url ); ?>">Load original</button>
+                                        <?php endif; ?>
+                                    </span>
+                                    <a class="eforms-review-preview-link ta-gallery__link"<?php echo $preview_width > 0 && $preview_height > 0 ? ' data-lbwps-width="' . $escape_attr( $preview_width ) . '" data-lbwps-height="' . $escape_attr( $preview_height ) . '"' : ''; ?> aria-label="<?php echo $escape_attr( 'Open ' . $photo_label ); ?>">
+                                        <img hidden data-eforms-review-src="<?php echo $escape_url( $preview_url ); ?>" alt="<?php echo $escape_attr( $photo_label . ' preview' ); ?>" decoding="async" data-eforms-review-preview>
+                                    </a>
                                     <a class="eforms-review-download-overlay" href="<?php echo $escape_url( $download_url ); ?>" aria-label="<?php echo $escape_attr( 'Download ' . $photo_label ); ?>">
                                         <span class="screen-reader-text">Download photo</span>
                                     </a>

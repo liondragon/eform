@@ -115,7 +115,7 @@ function eforms_test_submissions_admin_fixture( $uploads_dir, $name, $now ) {
     );
     eforms_test_assert( ! empty( $put['ok'] ), 'Submissions admin fixture should commit an image.' );
 
-    $submission_id = 'submission-' . substr( hash( 'sha256', $name ), 0, 16 );
+    $submission_id = eforms_test_uuid( 'submission-' . $name );
     $resolved = UploadBatchStore::resolve_open( $created['batch']['batch_id'], $secret, $binding, $field, $uploads_dir, $now + 1 );
     $claimed = UploadBatchStore::claim_finalization( $created['batch']['batch_id'], $secret, $binding, $field, $resolved['items'], $submission_id, $uploads_dir, $now + 2 );
     eforms_test_assert( ! empty( $claimed['ok'] ), 'Submissions admin fixture should claim finalization.' );
@@ -125,6 +125,11 @@ function eforms_test_submissions_admin_fixture( $uploads_dir, $name, $now ) {
     $path = $uploads_dir . '/eforms-private/submissions/' . Helpers::h2( $submission_id ) . '/' . $submission_id;
     return array(
         'submission_id' => $submission_id,
+        'root_path' => $uploads_dir . '/eforms-private/submissions',
+        'shard_path' => dirname( $path ),
+        'submission_path' => $path,
+        'lock_path' => $path . '/' . UploadBatchStore::LOCK_FILENAME,
+        'manifest_path' => $path . '/' . UploadBatchStore::MANIFEST_FILENAME,
         'review_snapshot_path' => $path . '/' . UploadBatchStore::REVIEW_SNAPSHOT_FILENAME,
     );
 }
@@ -149,7 +154,7 @@ function eforms_test_submissions_admin_empty_fixture( $uploads_dir, $name, $now 
     $created = UploadBatchStore::create_batch( $binding, $secret, $field, $uploads_dir, $now );
     eforms_test_assert( ! empty( $created['ok'] ), 'Submissions admin empty fixture should create a batch.' );
 
-    $submission_id = 'submission-' . substr( hash( 'sha256', $name ), 0, 16 );
+    $submission_id = eforms_test_uuid( 'submission-' . $name );
     $resolved = UploadBatchStore::resolve_open( $created['batch']['batch_id'], $secret, $binding, $field, $uploads_dir, $now + 1 );
     eforms_test_assert( ! empty( $resolved['ok'] ) && $resolved['items'] === array(), 'Submissions admin empty fixture should resolve no retained photos.' );
     $claimed = UploadBatchStore::claim_finalization( $created['batch']['batch_id'], $secret, $binding, $field, $resolved['items'], $submission_id, $uploads_dir, $now + 2 );
@@ -161,7 +166,7 @@ function eforms_test_submissions_admin_empty_fixture( $uploads_dir, $name, $now 
 }
 
 function eforms_test_submissions_admin_order_key( $name ) {
-    $submission_id = 'submission-' . substr( hash( 'sha256', $name ), 0, 16 );
+    $submission_id = eforms_test_uuid( 'submission-' . $name );
     return Helpers::h2( $submission_id ) . '/' . $submission_id;
 }
 
@@ -227,6 +232,12 @@ $denied_html = SubmissionsAdmin::render_html( array(), Config::get(), $now + 40 
 eforms_test_assert( $denied_html === '', 'Submissions admin should not render rows for non-capable users.' );
 
 $GLOBALS['eforms_test_can_manage'] = true;
+foreach ( array( $retained['root_path'], $retained['shard_path'], $retained['submission_path'] ) as $legacy_directory ) {
+    chmod( $legacy_directory, PrivateDir::DIRECTORY_MODE );
+}
+foreach ( array( $retained['lock_path'], $retained['manifest_path'], $retained['review_snapshot_path'] ) as $legacy_file ) {
+    chmod( $legacy_file, PrivateDir::FILE_MODE );
+}
 $limited = UploadBatchStore::retained_photo_submissions( $uploads_dir, $now + 40, 1 );
 eforms_test_assert(
     ! empty( $limited['ok'] )
@@ -238,12 +249,22 @@ eforms_test_assert(
         && $limited['cursor'] === array(),
     'Retained listing should scan past an earlier mismatched sidecar without advertising an empty next page.'
 );
+clearstatcache();
+foreach ( array( $retained['root_path'], $retained['shard_path'], $retained['submission_path'] ) as $migrated_directory ) {
+    eforms_test_assert( ( fileperms( $migrated_directory ) & 0777 ) === PrivateDir::REVIEW_DIRECTORY_MODE, 'Retained listing should migrate known submission directories to trusted-operator readability.' );
+}
+eforms_test_assert(
+    ( fileperms( $retained['lock_path'] ) & 0777 ) === PrivateDir::FILE_MODE
+        && ( fileperms( $retained['manifest_path'] ) & 0777 ) === PrivateDir::FILE_MODE,
+    'Retained listing should keep aggregate control files owner-private.'
+);
+eforms_test_assert( ( fileperms( $retained['review_snapshot_path'] ) & 0777 ) === PrivateDir::REVIEW_FILE_MODE, 'Retained listing should migrate the operator review snapshot to trusted-group readability.' );
 $html = SubmissionsAdmin::render_html( array(), Config::get(), $now + 40 );
 eforms_test_assert( strpos( $html, '<h1>eForms Submissions</h1>' ) !== false, 'Submissions admin should render its page title.' );
 eforms_test_assert( strpos( $html, 'Ada Lovelace / 80202' ) !== false, 'Submissions admin should show name and ZIP summary.' );
 eforms_test_assert( strpos( $html, 'Kitchen remodel photos' ) !== false, 'Submissions admin should show the compact project summary.' );
 eforms_test_assert( strpos( $html, '1 photo' ) !== false, 'Submissions admin should show the photo count.' );
-eforms_test_assert( strpos( $html, 'View / Manage' ) !== false && strpos( $html, 'eforms_review=' . $retained['submission_id'] ) !== false, 'Submissions admin should link to the existing signed review detail page.' );
+eforms_test_assert( strpos( $html, 'View / Manage' ) !== false && preg_match( '#href="https://example\.test/review/[A-Za-z0-9_-]{44}"#', $html ) === 1, 'Submissions admin should link to the compact opaque review detail URL.' );
 eforms_test_assert( strpos( $html, $corrupt['submission_id'] ) === false, 'Submissions admin should omit mismatched review sidecars.' );
 eforms_test_assert( strpos( $html, $empty_submission['submission_id'] ) === false, 'Submissions admin should omit finalized aggregates with no retained photos.' );
 eforms_test_assert( strpos( $html, 'ada@example.test' ) === false, 'Submissions admin list should keep email on the detail page.' );
@@ -295,7 +316,7 @@ eforms_test_assert( ! empty( $scan_next_match[1] ), 'Submissions admin should ex
 $scan_next_query = array();
 parse_str( (string) parse_url( html_entity_decode( $scan_next_match[1], ENT_QUOTES, 'UTF-8' ), PHP_URL_QUERY ), $scan_next_query );
 $scan_page_two = SubmissionsAdmin::render_html( $scan_next_query, Config::get(), $now + 400 );
-eforms_test_assert( strpos( $scan_page_two, $scan_valid['submission_id'] ) !== false, 'Submissions admin next-page URL should render the later retained submission.' );
+eforms_test_assert( strpos( $scan_page_two, 'View / Manage' ) !== false && strpos( $scan_page_two, '/review/' ) !== false, 'Submissions admin next-page URL should render the later retained submission without exposing its identifier.' );
 eforms_test_assert( strpos( $scan_page_two, 'first-page button' ) !== false, 'Submissions admin should keep a WordPress-styled first-page control on the final cursor page.' );
 eforms_test_assert( strpos( $scan_page_two, 'next-page button' ) === false, 'Submissions admin should not render an active next-page link after the cursor is exhausted.' );
 

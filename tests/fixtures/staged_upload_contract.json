@@ -18,7 +18,7 @@
     "batch_secret": "batch_secret"
   },
   "managed_manifest": {
-    "version": 5,
+    "version": 6,
     "artifact_store_field": "artifact_store",
     "artifact_store_identity_field": "artifact_store_identity",
     "aggregate_byte_fields": ["artifact_bytes"],

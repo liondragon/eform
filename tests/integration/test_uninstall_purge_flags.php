@@ -74,6 +74,12 @@ if ( ! function_exists( 'eforms_test_uninstall_seed_runtime' ) ) {
         eforms_test_assert( ! empty( $finalized['ok'] ), 'Test setup should finalize one valid retained submission aggregate.' );
         $staged_id = $staged['batch']['batch_id'];
 
+        $purge_artifact_key = ManagedArtifactKey::create(
+            eforms_test_digest( 'uninstall-purge-batch' ),
+            0,
+            eforms_test_digest( 'uninstall-purge-intent' ),
+            'image/png'
+        );
         $paths = array(
             'token' => $private_dir . '/tokens/aa/token.json',
             'ledger' => $private_dir . '/ledger/contact/aa/submission.used',
@@ -86,8 +92,8 @@ if ( ! function_exists( 'eforms_test_uninstall_seed_runtime' ) ) {
             ),
             'final_manifest' => $private_dir . '/submissions/' . Helpers::h2( $submission_id ) . '/' . $submission_id . '/manifest.json',
             'final_lock' => $private_dir . '/submissions/' . Helpers::h2( $submission_id ) . '/' . $submission_id . '/' . UploadBatchStore::LOCK_FILENAME,
-            'artifact' => $private_dir . '/' . UploadBatchStore::ARTIFACTS_DIR . '/cc/object-id/version.artifact',
-            'artifact_temp' => $private_dir . '/' . UploadBatchStore::ARTIFACTS_DIR . '/cc/object-id/.version.tmp',
+            'artifact' => $private_dir . '/' . $purge_artifact_key . '/version.png',
+            'artifact_temp' => $private_dir . '/' . $purge_artifact_key . '/.version.tmp',
             'preview_cache' => $private_dir . '/' . UploadBatchStore::PREVIEW_CACHE_DIR . '/cc/cache-id/preview.jpg',
             'capacity' => $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME,
             'capacity_lock' => $private_dir . '/' . UploadBatchStore::CAPACITY_LOCK_FILENAME,

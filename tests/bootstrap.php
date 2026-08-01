@@ -30,6 +30,24 @@ if ( ! function_exists( 'eforms_test_fixture_bytes' ) ) {
     }
 }
 
+if ( ! function_exists( 'eforms_test_digest' ) ) {
+function eforms_test_digest( $label ) {
+        if ( ! is_string( $label ) || $label === '' ) {
+            throw new RuntimeException( 'Invalid digest fixture label.' );
+        }
+        return rtrim( strtr( base64_encode( hash( 'sha256', $label, true ) ), '+/', '-_' ), '=' );
+    }
+}
+
+function eforms_test_uuid( $label ) {
+    $hex = substr( hash( 'sha256', (string) $label ), 0, 32 );
+    return substr( $hex, 0, 8 )
+        . '-' . substr( $hex, 8, 4 )
+        . '-' . substr( $hex, 12, 4 )
+        . '-' . substr( $hex, 16, 4 )
+        . '-' . substr( $hex, 20, 12 );
+}
+
 if ( ! function_exists( 'eforms_test_tmp_root' ) ) {
     function eforms_test_tmp_root( $prefix ) {
         $base = rtrim( sys_get_temp_dir(), '/\\' );
@@ -334,7 +352,7 @@ if ( ! function_exists( 'wp_die' ) ) {
 
 if ( ! function_exists( 'eforms_test_reset_options' ) ) {
     function eforms_test_reset_options() {
-        $GLOBALS['eforms_test_options'] = array();
+        $GLOBALS['eforms_test_options'] = array( 'permalink_structure' => '/%postname%/' );
         $GLOBALS['eforms_test_option_autoload'] = array();
     }
 }
@@ -463,6 +481,7 @@ if ( ! isset( $GLOBALS['eforms_test_hooks'] ) || ! is_array( $GLOBALS['eforms_te
     $GLOBALS['eforms_test_hooks'] = array(
         'action'    => array(),
         'activation' => array(),
+        'deactivation' => array(),
         'shortcode' => array(),
         'filter'    => array(),
         'rewrite'   => array(),
@@ -566,6 +585,13 @@ if ( ! function_exists( 'add_rewrite_rule' ) ) {
 if ( ! function_exists( 'register_activation_hook' ) ) {
     function register_activation_hook( $file, $callback ) {
         $GLOBALS['eforms_test_hooks']['activation'][ $file ] = $callback;
+        return true;
+    }
+}
+
+if ( ! function_exists( 'register_deactivation_hook' ) ) {
+    function register_deactivation_hook( $file, $callback ) {
+        $GLOBALS['eforms_test_hooks']['deactivation'][ $file ] = $callback;
         return true;
     }
 }

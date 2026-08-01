@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import test from 'node:test';
 import {
   decodeIntegrationKey,
@@ -13,7 +13,7 @@ import {
   verifyUploadGrant,
 } from '../src/protocol.js';
 import { WORKER_CLOCK_SKEW_SECONDS } from '../src/anchors.js';
-import { detectedMime, extensionForMime, mimeMatches, supportedMime } from '../src/media-policy.js';
+import { detectedMime, extensionForMime, mimeMatches, supportedExtension, supportedMime } from '../src/media-policy.js';
 import { fixture, tokens } from './fixture.js';
 
 const secret = decodeIntegrationKey(fixture.active_key_b64);
@@ -28,6 +28,8 @@ test('Worker media policy owns format aliases, accepted MIME values, and downloa
   assert.equal(mimeMatches('image/png', 'image/jpeg'), false);
   assert.equal(extensionForMime('image/jpeg'), 'jpg');
   assert.equal(extensionForMime('image/heif'), 'heif');
+  assert.equal(supportedExtension('heif'), true);
+  assert.equal(supportedExtension('gif'), false);
 });
 
 test('Worker consumes and produces the canonical cross-language vectors', async () => {
@@ -71,15 +73,46 @@ test('Worker rejects validly signed grants with the wrong schema identity or sha
   const reordered = [...base];
   [reordered[9], reordered[10]] = [reordered[10], reordered[9]];
   const variants = {
-    unknown_version: base.with(1, '2'),
+    unknown_version: base.with(1, '1'),
     wrong_domain: base.with(0, 'eforms-worker-upload-receipt'),
     unknown_key: base.with(2, 'unknown-key'),
+    wrong_object_shard: base.with(8, wrongShardKey(fixture.claims.upload_grant.object_key)),
     reordered_fields: reordered,
     missing_field: base.slice(0, -1),
   };
   for (const [name, parts] of Object.entries(variants)) {
     const verified = await verifyUploadGrant(signedParts(parts), keys, fixture.environment, fixture.verification_now);
     assert.equal(verified.ok, false, name);
+  }
+});
+
+test('Worker rejects old opaque object keys on signed object surfaces', async () => {
+  const oldKey = oldOpaqueObjectKey(fixture.claims.upload_grant.batch_id, fixture.claims.upload_grant.intent_id);
+  const checks = [
+    [
+      verifyUploadGrant,
+      'eforms-worker-upload-grant',
+      { ...fixture.claims.upload_grant, object_key: oldKey },
+    ],
+    [
+      verifyReviewGrant,
+      'eforms-worker-review-grant',
+      { ...fixture.claims.review_grant, object_key: oldKey },
+    ],
+    [
+      verifyObjectRequest,
+      'eforms-worker-object-request',
+      { ...fixture.claims.object_request, object_key: oldKey },
+    ],
+  ];
+  for (const [verifySurface, domain, claims] of checks) {
+    const verified = await verifySurface(
+      signedParts([domain, fixture.version, fixture.active_key_id, fixture.environment, ...Object.values(claims).map(String)]),
+      keys,
+      fixture.environment,
+      fixture.verification_now,
+    );
+    assert.equal(verified.ok, false, domain);
   }
 });
 
@@ -108,4 +141,13 @@ function signedParts(parts) {
     offset += part.byteLength;
   }
   return `${payload.toString('base64url')}.${createHmac('sha256', Buffer.from(secret)).update(payload).digest('base64url')}`;
+}
+
+function wrongShardKey(objectKey) {
+  return objectKey.replace(/^artifacts\/([0-9a-f]{2})\//, (_match, shard) => `artifacts/${shard === '00' ? '01' : '00'}/`);
+}
+
+function oldOpaqueObjectKey(batchId, intentId) {
+  const identity = createHash('sha256').update(`${batchId}\0${intentId}`).digest('hex');
+  return `artifacts/${createHash('sha256').update(identity).digest('hex').slice(0, 2)}/${identity}`;
 }

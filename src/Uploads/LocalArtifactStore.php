@@ -3,25 +3,18 @@
  * Private write-once local artifact persistence.
  *
  * Aggregate authority stays in UploadBatchStore. This owner only maps one
- * opaque object key and immutable local version to private bytes.
+ * canonical object key and immutable local version to private bytes.
  */
 
 require_once __DIR__ . '/../Helpers.php';
 require_once __DIR__ . '/../Security/Entropy.php';
+require_once __DIR__ . '/ManagedArtifactKey.php';
 require_once __DIR__ . '/PrivateDir.php';
 
 final class LocalArtifactStore {
-    const ROOT_DIR = 'artifacts';
+    const ROOT_DIR = ManagedArtifactKey::ROOT_DIR;
     const LOCK_FILENAME = '.lock';
     const DELETED_FILENAME = '.deleted';
-
-    public static function object_key( $batch_id, $upload_id ) {
-        if ( ! is_string( $batch_id ) || $batch_id === '' || ! is_string( $upload_id ) || $upload_id === '' ) {
-            return '';
-        }
-        $identity = hash( 'sha256', $batch_id . "\0" . $upload_id );
-        return self::ROOT_DIR . '/' . Helpers::h2( $identity ) . '/' . $identity;
-    }
 
     public static function write( $lifecycle, $object_key, $source_path, $expected_bytes ) {
         if ( ! $lifecycle instanceof PrivateDirLease
@@ -52,7 +45,7 @@ final class LocalArtifactStore {
             return self::failure( 'artifact_lock_failed' );
         }
 
-        $summary = self::directory_summary( $directory );
+        $summary = self::directory_summary( $directory, $parts );
         if ( $summary === false ) {
             self::release_object_lock( $lock );
             return self::failure( 'artifact_layout_invalid' );
@@ -80,7 +73,7 @@ final class LocalArtifactStore {
             return self::failure( 'artifact_version_failed' );
         }
         $temp = $directory . '/.' . $version . '.tmp';
-        $destination = $directory . '/' . $version . '.artifact';
+        $destination = $directory . '/' . $version . '.' . $parts['extension'];
         $input = @fopen( $source_path, 'rb' );
         $output = @fopen( $temp, 'xb' );
         if ( $input === false || $output === false ) {
@@ -125,7 +118,7 @@ final class LocalArtifactStore {
         $ok = $ok && $written === $expected_bytes && ( ! function_exists( 'fflush' ) || @fflush( $output ) );
         fclose( $input );
         fclose( $output );
-        if ( ! $ok || ! @chmod( $temp, 0600 ) || ! @rename( $temp, $destination ) || ! @chmod( $destination, 0600 ) ) {
+        if ( ! $ok || ! @chmod( $temp, PrivateDir::FILE_MODE ) || ! @rename( $temp, $destination ) || ! @chmod( $destination, PrivateDir::FILE_MODE ) ) {
             @unlink( $temp );
             @unlink( $destination );
             self::release_object_lock( $lock );
@@ -145,23 +138,51 @@ final class LocalArtifactStore {
         return $result;
     }
 
-    public static function locate( $uploads_dir, $object_key, $object_version ) {
+    public static function locate( $uploads_dir, $object_key, $object_version, $lifecycle = null ) {
         $parts = self::key_parts( $object_key );
         if ( $parts === null || ! self::valid_version( $object_version ) ) {
             return '';
         }
-        $root_result = self::root_result( $uploads_dir );
-        if ( $root_result === null || empty( $root_result['exists'] ) ) {
+        $owns_lifecycle = false;
+        if ( $lifecycle === null ) {
+            $lifecycle = PrivateDir::acquire_write_lease( $uploads_dir );
+            $owns_lifecycle = true;
+        }
+        if ( ! $lifecycle instanceof PrivateDirLease
+            || rtrim( $lifecycle->private_dir(), '/\\' ) !== rtrim( PrivateDir::path( $uploads_dir ), '/\\' )
+        ) {
+            if ( $owns_lifecycle && $lifecycle instanceof PrivateDirLease ) {
+                $lifecycle->release();
+            }
             return '';
         }
-        $root = $root_result['path'];
-        $shard = $root . '/' . $parts['shard'];
-        $directory = $shard . '/' . $parts['identity'];
-        $path = $directory . '/' . $object_version . '.artifact';
-        if ( is_link( $shard ) || ! is_dir( $shard ) || is_link( $directory ) || is_link( $path ) || ! is_dir( $directory ) || ! is_file( $path ) ) {
-            return '';
+        try {
+            $root_result = self::root_result( $uploads_dir );
+            if ( $root_result === null || empty( $root_result['exists'] ) ) {
+                return '';
+            }
+            $root = $root_result['path'];
+            $directory = self::object_directory( $root, $parts );
+            $path = $directory . '/' . $object_version . '.' . $parts['extension'];
+            if ( ! self::object_path_valid( $root, $parts ) || is_link( $path ) || ! is_file( $path ) ) {
+                return '';
+            }
+            foreach ( self::review_directories( $root, $parts ) as $review_directory ) {
+                if ( ! PrivateDir::ensure_existing_review_directory( $review_directory ) ) {
+                    return '';
+                }
+            }
+            if ( ! PrivateDir::ensure_existing_private_file( $directory . '/' . self::LOCK_FILENAME )
+                || ! PrivateDir::ensure_existing_review_file( $path )
+            ) {
+                return '';
+            }
+            return $path;
+        } finally {
+            if ( $owns_lifecycle ) {
+                $lifecycle->release();
+            }
         }
-        return $path;
     }
 
     public static function delete( $lifecycle, $object_key, $object_version = '' ) {
@@ -181,9 +202,8 @@ final class LocalArtifactStore {
             return false;
         }
         $root = $root_result['path'];
-        $shard = $root . '/' . $parts['shard'];
-        $directory = $shard . '/' . $parts['identity'];
-        if ( is_link( $shard ) || ( file_exists( $shard ) && ! is_dir( $shard ) ) || is_link( $directory ) ) {
+        $directory = self::object_directory( $root, $parts );
+        if ( ! self::object_parent_valid_for_create( $root, $parts ) || is_link( $directory ) ) {
             return false;
         }
         if ( ! file_exists( $directory ) ) {
@@ -240,12 +260,11 @@ final class LocalArtifactStore {
             return 0;
         }
         $root = $root_result['path'];
-        $shard = $root . '/' . $parts['shard'];
-        $directory = $shard . '/' . $parts['identity'];
-        if ( is_link( $shard ) || ( file_exists( $shard ) && ! is_dir( $shard ) ) || is_link( $directory ) ) {
+        $directory = self::object_directory( $root, $parts );
+        if ( ! self::object_parent_valid_for_create( $root, $parts ) || is_link( $directory ) ) {
             return null;
         }
-        if ( ! is_dir( $shard ) ) {
+        if ( ! is_dir( rtrim( $root, '/\\' ) . '/' . $parts['shard'] ) ) {
             return 0;
         }
         if ( ! file_exists( $directory ) ) {
@@ -254,7 +273,7 @@ final class LocalArtifactStore {
         if ( ! is_dir( $directory ) ) {
             return null;
         }
-        $summary = self::directory_summary( $directory );
+        $summary = self::directory_summary( $directory, $parts );
         if ( $summary === false || ( $summary['bytes'] === 0 && $summary['has_temp'] ) ) {
             return null;
         }
@@ -301,19 +320,19 @@ final class LocalArtifactStore {
         if ( ! file_exists( $path ) ) {
             return array( 'exists' => false, 'path' => '' );
         }
-        $protected = PrivateDir::existing_protected_subdir( $uploads_dir, self::ROOT_DIR );
+        $protected = PrivateDir::existing_protected_review_subdir( $uploads_dir, self::ROOT_DIR );
         return $protected === '' ? null : array( 'exists' => true, 'path' => $protected );
     }
 
     private static function leased_root_result( $lifecycle, $create ) {
-        $existing = PrivateDir::leased_existing_relative_dir_result( $lifecycle, self::ROOT_DIR );
+        $existing = PrivateDir::leased_existing_review_relative_dir_result( $lifecycle, self::ROOT_DIR );
         if ( empty( $existing['ok'] ) ) {
             return null;
         }
         if ( empty( $existing['exists'] ) && ! $create ) {
             return array( 'exists' => false, 'path' => '' );
         }
-        $path = PrivateDir::leased_subdir( $lifecycle, self::ROOT_DIR, (bool) $create, true );
+        $path = PrivateDir::leased_review_subdir( $lifecycle, self::ROOT_DIR, (bool) $create, true );
         return $path === '' ? null : array( 'exists' => true, 'path' => $path );
     }
 
@@ -322,20 +341,26 @@ final class LocalArtifactStore {
         if ( is_link( $shard ) || ( file_exists( $shard ) && ! is_dir( $shard ) ) ) {
             return '';
         }
-        if ( ! is_dir( $shard ) && ! @mkdir( $shard, 0700 ) && ! is_dir( $shard ) ) {
+        if ( ! is_dir( $shard ) && ! @mkdir( $shard, PrivateDir::DIRECTORY_MODE ) && ! is_dir( $shard ) ) {
             return '';
         }
-        if ( is_link( $shard ) || ! is_dir( $shard ) || ! @chmod( $shard, 0700 ) ) {
+        if ( is_link( $shard ) || ! is_dir( $shard ) || ! @chmod( $shard, PrivateDir::DIRECTORY_MODE ) ) {
             return '';
         }
-        $directory = $shard . '/' . $parts['identity'];
-        if ( is_link( $directory ) || ( file_exists( $directory ) && ! is_dir( $directory ) ) ) {
-            return '';
+        $directory = $shard;
+        foreach ( array( $parts['namespace'], $parts['filename'] ) as $entry ) {
+            $directory .= '/' . $entry;
+            if ( is_link( $directory ) || ( file_exists( $directory ) && ! is_dir( $directory ) ) ) {
+                return '';
+            }
+            if ( ! is_dir( $directory ) && ! @mkdir( $directory, PrivateDir::DIRECTORY_MODE ) && ! is_dir( $directory ) ) {
+                return '';
+            }
+            if ( is_link( $directory ) || ! is_dir( $directory ) || ! @chmod( $directory, PrivateDir::DIRECTORY_MODE ) ) {
+                return '';
+            }
         }
-        if ( ! is_dir( $directory ) && ! @mkdir( $directory, 0700 ) && ! is_dir( $directory ) ) {
-            return '';
-        }
-        return ! is_link( $directory ) && is_dir( $directory ) && @chmod( $directory, 0700 ) ? $directory : '';
+        return $directory;
     }
 
     private static function remove_temps( $directory, $stale_before = null ) {
@@ -368,7 +393,7 @@ final class LocalArtifactStore {
             return false;
         }
         if ( is_file( $path ) ) {
-            return @chmod( $path, 0600 );
+            return @chmod( $path, PrivateDir::FILE_MODE );
         }
         $handle = @fopen( $path, 'xb' );
         if ( $handle === false ) {
@@ -377,7 +402,7 @@ final class LocalArtifactStore {
         $written = @fwrite( $handle, "deleted\n" );
         $flushed = ! function_exists( 'fflush' ) || @fflush( $handle );
         fclose( $handle );
-        if ( $written !== 8 || ! $flushed || ! @chmod( $path, 0600 ) ) {
+        if ( $written !== 8 || ! $flushed || ! @chmod( $path, PrivateDir::FILE_MODE ) ) {
             @unlink( $path );
             return false;
         }
@@ -391,7 +416,7 @@ final class LocalArtifactStore {
         }
         $handle = @fopen( $path, 'c+b' );
         $operation = LOCK_EX | ( $nonblocking ? LOCK_NB : 0 );
-        if ( $handle === false || is_link( $path ) || ! @chmod( $path, 0600 ) || ! @flock( $handle, $operation ) ) {
+        if ( $handle === false || is_link( $path ) || ! @chmod( $path, PrivateDir::FILE_MODE ) || ! @flock( $handle, $operation ) ) {
             if ( is_resource( $handle ) ) {
                 fclose( $handle );
             }
@@ -427,52 +452,89 @@ final class LocalArtifactStore {
                 closedir( $shards );
                 return null;
             }
-            $identities = @opendir( $shard_path );
-            if ( $identities === false ) {
+            $namespaces = @opendir( $shard_path );
+            if ( $namespaces === false ) {
                 closedir( $shards );
                 return null;
             }
-            while ( ( $identity = readdir( $identities ) ) !== false ) {
-                if ( $identity === '.' || $identity === '..' ) {
+            while ( ( $namespace = readdir( $namespaces ) ) !== false ) {
+                if ( $namespace === '.' || $namespace === '..' ) {
                     continue;
                 }
-                $directory = $shard_path . '/' . $identity;
-                if ( preg_match( '/^[0-9a-f]{64}$/D', $identity ) !== 1
-                    || Helpers::h2( $identity ) !== $shard
-                    || is_link( $directory )
-                    || ! is_dir( $directory )
-                ) {
-                    closedir( $identities );
+                $namespace_path = $shard_path . '/' . $namespace;
+                if ( is_link( $namespace_path ) || ! is_dir( $namespace_path ) ) {
+                    closedir( $namespaces );
                     closedir( $shards );
                     return null;
                 }
-                $lock = null;
-                if ( $stale_before !== null ) {
-                    $lock = self::acquire_object_lock( $directory, true );
-                    if ( $lock === false || ! self::remove_temps( $directory, $stale_before ) ) {
-                        self::release_object_lock( $lock );
-                        closedir( $identities );
+                if ( ! ManagedArtifactKey::valid_digest( $namespace ) || Helpers::h2( $namespace ) !== $shard ) {
+                    closedir( $namespaces );
+                    closedir( $shards );
+                    return null;
+                }
+                $objects = @opendir( $namespace_path );
+                if ( $objects === false ) {
+                    closedir( $namespaces );
+                    closedir( $shards );
+                    return null;
+                }
+                while ( ( $filename = readdir( $objects ) ) !== false ) {
+                    if ( $filename === '.' || $filename === '..' ) {
+                        continue;
+                    }
+                    $object_key = self::ROOT_DIR . '/' . $shard . '/' . $namespace . '/' . $filename;
+                    $directory = $namespace_path . '/' . $filename;
+                    $parts = ManagedArtifactKey::parse( $object_key );
+                    if ( $parts === null || is_link( $directory ) || ! is_dir( $directory ) ) {
+                        closedir( $objects );
+                        closedir( $namespaces );
                         closedir( $shards );
                         return null;
                     }
+                    $summary = self::scan_one_directory( $directory, $parts, $stale_before );
+                    if ( $summary === null || $total > PHP_INT_MAX - $summary ) {
+                        closedir( $objects );
+                        closedir( $namespaces );
+                        closedir( $shards );
+                        return null;
+                    }
+                    $total += $summary;
                 }
-                $summary = self::directory_summary( $directory );
-                self::release_object_lock( $lock );
-                if ( $summary === false || $total > PHP_INT_MAX - $summary['bytes'] ) {
-                    closedir( $identities );
-                    closedir( $shards );
-                    return null;
-                }
-                $total += $summary['bytes'];
+                closedir( $objects );
             }
-            closedir( $identities );
+            closedir( $namespaces );
         }
         closedir( $shards );
         return $total;
     }
 
-    private static function directory_summary( $directory ) {
+    private static function scan_one_directory( $directory, $parts, $stale_before ) {
+        $lock = null;
+        if ( $stale_before !== null ) {
+            $lock = self::acquire_object_lock( $directory, true );
+            if ( $lock === false || ! self::remove_temps( $directory, $stale_before ) ) {
+                self::release_object_lock( $lock );
+                return null;
+            }
+        }
+        $summary = self::directory_summary( $directory, $parts );
+        self::release_object_lock( $lock );
+        return $summary === false ? null : $summary['bytes'];
+    }
+
+    private static function directory_summary( $directory, $parts = null ) {
         if ( is_link( $directory ) || ! is_dir( $directory ) ) {
+            return false;
+        }
+        $parts = $parts === null
+            ? ManagedArtifactKey::parse(
+                self::ROOT_DIR
+                . '/' . basename( dirname( dirname( $directory ) ) )
+                . '/' . basename( dirname( $directory ) )
+                . '/' . basename( $directory )
+            )
+            : $parts;
+        if ( $parts === null ) {
             return false;
         }
         $handle = @opendir( $directory );
@@ -504,7 +566,7 @@ final class LocalArtifactStore {
                 continue;
             }
             $temp_version = self::temp_version( $entry );
-            $artifact_version = self::artifact_version( $entry );
+            $artifact_version = self::artifact_version_for_extension( $entry, $parts['extension'] );
             if ( $temp_version === '' && $artifact_version === '' ) {
                 closedir( $handle );
                 return false;
@@ -543,21 +605,46 @@ final class LocalArtifactStore {
                 : '';
     }
 
-    private static function artifact_version( $entry ) {
+    private static function artifact_version_for_extension( $entry, $extension ) {
         return is_string( $entry )
-            && preg_match( '/^([0-9a-f-]+)\.artifact$/D', $entry, $matches ) === 1
+            && is_string( $extension )
+            && preg_match( '/^([0-9a-f-]+)\.' . preg_quote( $extension, '/' ) . '$/D', $entry, $matches ) === 1
             && self::valid_version( $matches[1] )
                 ? $matches[1]
                 : '';
     }
 
     private static function key_parts( $object_key ) {
-        if ( ! is_string( $object_key ) || preg_match( '#^artifacts/([0-9a-f]{2})/([0-9a-f]{64})$#D', $object_key, $matches ) !== 1 ) {
-            return null;
+        return ManagedArtifactKey::parse( $object_key );
+    }
+
+    private static function object_directory( $root, $parts ) {
+        $shard = rtrim( $root, '/\\' ) . '/' . $parts['shard'];
+        return $shard . '/' . $parts['namespace'] . '/' . $parts['filename'];
+    }
+
+    private static function review_directories( $root, $parts ) {
+        $shard = rtrim( $root, '/\\' ) . '/' . $parts['shard'];
+        $namespace = $shard . '/' . $parts['namespace'];
+        return array( $root, $shard, $namespace, $namespace . '/' . $parts['filename'] );
+    }
+
+    private static function object_path_valid( $root, $parts ) {
+        foreach ( self::review_directories( $root, $parts ) as $directory ) {
+            if ( is_link( $directory ) || ! is_dir( $directory ) ) {
+                return false;
+            }
         }
-        return Helpers::h2( $matches[2] ) === $matches[1]
-            ? array( 'shard' => $matches[1], 'identity' => $matches[2] )
-            : null;
+        return true;
+    }
+
+    private static function object_parent_valid_for_create( $root, $parts ) {
+        $shard = rtrim( $root, '/\\' ) . '/' . $parts['shard'];
+        if ( is_link( $shard ) || ( file_exists( $shard ) && ! is_dir( $shard ) ) ) {
+            return false;
+        }
+        $namespace = $shard . '/' . $parts['namespace'];
+        return ! is_link( $namespace ) && ( ! file_exists( $namespace ) || is_dir( $namespace ) );
     }
 
     private static function valid_version( $version ) {

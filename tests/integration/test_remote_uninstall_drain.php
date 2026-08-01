@@ -256,6 +256,7 @@ $private_dir = $uploads_dir . '/eforms-private';
 $record_path = $private_dir . '/' . UploadBatchStore::REMOTE_PURGE_FILENAME;
 $marker_path = $private_dir . '/' . PrivateDir::PURGE_MARKER_FILENAME;
 eforms_test_assert( is_file( $record_path ) && is_file( $marker_path ), 'The initial attempt should persist one drain record and the authoritative barrier.' );
+eforms_test_assert( ( fileperms( $record_path ) & 0777 ) === PrivateDir::FILE_MODE, 'The remote drain control record should remain owner-private.' );
 $record = json_decode( file_get_contents( $record_path ), true );
 eforms_test_assert( is_array( $record ) && $record['phase'] === 'draining', 'The persisted record should begin in draining phase.' );
 eforms_test_assert( strpos( file_get_contents( $record_path ), $intent['object_key'] ) === false, 'The drain record must not persist object keys.' );

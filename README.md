@@ -4,7 +4,7 @@ Lightweight PHP form handler for WordPress.
 
 ## Installation
 
-Requirements: PHP 8.1+ and WordPress 5.8+.
+Requirements: PHP 8.1+ and WordPress 5.8+. Managed photo review links also require rewrite-based pretty permalinks—not Plain or an `index.php` PATHINFO structure—so `/review/{token}` reaches the front controller.
 
 1. Place this repository root inside `wp-content/plugins/eforms/` so `eforms.php` is directly inside the plugin directory.
 2. (Optional for contributors) Run `composer install` from the repository root to set up the development-only tooling used for local testing; the packaged plugin ships with no runtime Composer dependencies.
@@ -145,9 +145,9 @@ Logging modes: `off`, `minimal`, `jsonl`. See `Config` for options.
 
 ### Uploads
 
-Uploads are stored in `wp-content/uploads/eforms-private` with strict perms.
+Uploads are stored in `wp-content/uploads/eforms-private` with deny rules and strict permissions. Finalized managed-photo paths and operator review snapshots use scoped `0750`/`0640` access so trusted server accounts in the web-runtime group can inspect review data. Ordinary attachments, open uploads, manifests, locks, fences, and other control data remain owner-private. These group permissions do not make upload paths web-accessible.
 
-Staged photo fields require 64-bit PHP integers. The sole staged `image` token covers JPEG, PNG, WebP, HEIC, and HEIF; GIF and animated or multi-image containers remain rejected, and synchronous upload behavior is unchanged. Synchronous uploads and local staged artifacts require PHP `fileinfo` and bounded image-header inspection; local artifact storage also requires protected writable storage plus PHP and web-server request limits above one item and its multipart overhead. Worker/R2 staged artifacts are inspected by the bound Worker/Cloudflare owner and require the explicit Worker endpoint, environment, and signing-key deployment constants. Imagick is optional and is used only when the local preview provider is enabled; preview availability never determines upload success.
+Staged photo fields require 64-bit PHP integers. The sole staged `image` token covers JPEG, PNG, WebP, HEIC, and HEIF; GIF and animated or multi-image containers remain rejected, and synchronous upload behavior is unchanged. Synchronous uploads and local staged artifacts require PHP `fileinfo` and bounded image-header inspection; local artifact storage also requires protected writable storage plus PHP and web-server request limits above one item and its multipart overhead. Worker/R2 staged artifacts are inspected by the bound Worker/Cloudflare owner and require the explicit Worker endpoint, environment, and signing-key deployment constants. Imagick is optional and is used only when the local preview provider is enabled; preview availability never determines upload success. When a local preview is unavailable, the gallery can load a browser-native JPEG, PNG, or WebP original on explicit request through the existing same-origin signed route; it never eagerly loads all full-size originals. HEIC and HEIF remain downloadable when no generated preview is available.
 
 The accepted artifact is retained as submitted or as the one browser-prepared
 JPEG selected before upload. An unchanged artifact may retain EXIF, GPS, color

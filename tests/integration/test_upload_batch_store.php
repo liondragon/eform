@@ -98,6 +98,20 @@ if ( function_exists( 'posix_mkfifo' ) ) {
     );
     unlink( $capacity_shape_path );
 }
+$unsupported_capacity_record = array(
+    'version' => 5,
+    'total_bytes' => 0,
+    'reservations' => array(),
+    'releases' => array(),
+    'updated_at' => $now,
+);
+file_put_contents( $capacity_shape_path, json_encode( $unsupported_capacity_record ) );
+chmod( $capacity_shape_path, PrivateDir::FILE_MODE );
+$unsupported_capacity = ManagedCapacityStore::read( $capacity_shape_path, UploadBatchStore::CAPACITY_VERSION, $now );
+eforms_test_assert(
+    $unsupported_capacity === null,
+    'A non-current managed-capacity record should fail closed without a compatibility reader.'
+);
 eforms_test_remove_tree( $capacity_shape_uploads );
 $field = array(
     'type' => 'files',
@@ -387,13 +401,14 @@ $manifest = json_decode( $manifest_json, true );
 eforms_test_assert( strpos( $manifest_json, $binding['raw_token'] ) === false && strpos( $manifest_json, $secret ) === false, 'The manifest must not store raw token or batch-secret credentials.' );
 eforms_test_assert( $manifest['binding']['token_digest'] === hash( 'sha256', $binding['raw_token'] ), 'The manifest should store only the token digest.' );
 eforms_test_assert( $manifest['batch_secret_digest'] === hash( 'sha256', str_repeat( "\x11", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), 'The manifest should store only the decoded secret digest.' );
-eforms_test_assert( ( fileperms( $batch_path ) & 0777 ) === 0700, 'Managed aggregate directories should be private.' );
-eforms_test_assert( ( fileperms( $manifest_path ) & 0777 ) === 0600, 'Managed manifests should be private.' );
-$legacy_manifest = $manifest;
-$legacy_manifest['version'] = 2;
-file_put_contents( $manifest_path, json_encode( $legacy_manifest ) );
-$legacy_status = UploadBatchStore::status( $batch_id, $secret, $uploads_dir, $now );
-eforms_test_assert( empty( $legacy_status['ok'] ) && $legacy_status['reason'] === 'manifest_invalid', 'The target store should reject a version-2 manifest without a compatibility reader.' );
+eforms_test_assert( ( fileperms( $private_dir . '/staged' ) & 0777 ) === PrivateDir::DIRECTORY_MODE, 'Open managed staged roots should remain owner-private.' );
+eforms_test_assert( ( fileperms( $batch_path ) & 0777 ) === PrivateDir::DIRECTORY_MODE, 'Open managed aggregate directories should remain owner-private.' );
+eforms_test_assert( ( fileperms( $manifest_path ) & 0777 ) === PrivateDir::FILE_MODE, 'Managed control manifests should remain owner-private.' );
+$unsupported_manifest = $manifest;
+$unsupported_manifest['version'] = 5;
+file_put_contents( $manifest_path, json_encode( $unsupported_manifest ) );
+$unsupported_status = UploadBatchStore::status( $batch_id, $secret, $uploads_dir, $now );
+eforms_test_assert( empty( $unsupported_status['ok'] ) && $unsupported_status['reason'] === 'manifest_invalid', 'The target store should reject a non-current manifest without a compatibility reader.' );
 file_put_contents( $manifest_path, $manifest_json );
 
 $unknown_manifest_fields = array();
@@ -799,7 +814,7 @@ if ( function_exists( 'symlink' ) ) {
         empty( $unsafe_reconcile['ok'] )
             && $unsafe_reconcile['reason'] === 'capacity_reconcile_failed'
             && LocalArtifactStore::total_bytes( $unsafe_root_uploads ) === null
-            && LocalArtifactStore::bytes_for_key( $unsafe_root_uploads, LocalArtifactStore::object_key( 'unsafe-batch', 'unsafe-intent' ) ) === null,
+            && LocalArtifactStore::bytes_for_key( $unsafe_root_uploads, ManagedArtifactKey::create( eforms_test_digest( 'unsafe-batch' ), 0, eforms_test_digest( 'unsafe-intent' ), 'image/png' ) ) === null,
         'Unsafe existing artifact roots must fail reconciliation and accounting closed instead of reporting zero bytes.'
     );
     eforms_test_assert( is_file( $unsafe_target . '/preserve.artifact' ), 'Unsafe-root reconciliation must not traverse or mutate the linked target.' );
@@ -832,8 +847,10 @@ if ( function_exists( 'pcntl_fork' ) && function_exists( 'pcntl_waitpid' ) ) {
     $late_write_root = PrivateDir::leased_subdir( $late_write_setup_lease, LocalArtifactStore::ROOT_DIR, true, true );
     $late_write_parts = explode( '/', $late_write_intent['intent']['object_key'] );
     $late_write_shard = $late_write_root . '/' . $late_write_parts[1];
-    $late_write_directory = $late_write_shard . '/' . $late_write_parts[2];
+    $late_write_namespace = $late_write_shard . '/' . $late_write_parts[2];
+    $late_write_directory = $late_write_namespace . '/' . $late_write_parts[3];
     mkdir( $late_write_shard, 0700 );
+    mkdir( $late_write_namespace, 0700 );
     mkdir( $late_write_directory, 0700 );
     $late_write_setup_lease->release();
     $late_write_lock_path = $late_write_directory . '/' . LocalArtifactStore::LOCK_FILENAME;
@@ -1106,7 +1123,7 @@ if ( function_exists( 'symlink' ) ) {
     $artifact_link_uploads = eforms_test_setup_uploads( 'eforms-artifact-linked-shard' );
     $artifact_link_lease = PrivateDir::acquire_write_lease( $artifact_link_uploads );
     $artifact_link_source = eforms_test_write_file( $artifact_link_uploads, 'linked-source.png', $png_bytes );
-    $artifact_link_key = LocalArtifactStore::object_key( 'linked-batch', 'linked-intent' );
+    $artifact_link_key = ManagedArtifactKey::create( eforms_test_digest( 'linked-batch' ), 0, eforms_test_digest( 'linked-intent' ), 'image/png' );
     $artifact_link_write = LocalArtifactStore::write( $artifact_link_lease, $artifact_link_key, $artifact_link_source, strlen( $png_bytes ) );
     $artifact_link_lease->release();
     eforms_test_assert( ! empty( $artifact_link_write['ok'] ), 'The linked-shard fixture should create one local artifact.' );
@@ -1142,7 +1159,7 @@ $temp_intent = UploadBatchStore::authorize_intent(
 eforms_test_assert( ! empty( $temp_intent['ok'] ), 'The temp-only reconciliation fixture should reserve one intent.' );
 $temp_key_parts = explode( '/', $temp_intent['intent']['object_key'] );
 $temp_root = PrivateDir::protected_subdir( $uploads_dir, LocalArtifactStore::ROOT_DIR, true );
-$temp_directory = $temp_root . '/' . $temp_key_parts[1] . '/' . $temp_key_parts[2];
+$temp_directory = $temp_root . '/' . $temp_key_parts[1] . '/' . $temp_key_parts[2] . '/' . $temp_key_parts[3];
 mkdir( $temp_directory, 0700, true );
 file_put_contents( $temp_directory . '/' . LocalArtifactStore::LOCK_FILENAME, '' );
 $temp_path = $temp_directory . '/.00000000-0000-4000-8000-000000000000.tmp';
@@ -1236,14 +1253,24 @@ eforms_test_assert(
         && $manifest['intents'] === array()
         && $manifest['artifact_bytes'] === strlen( $png_bytes )
         && $stored['accepted_at'] === $now + 20,
-    'The v3 manifest should commit one artifact and assign accepted_at from the completion clock.'
+    'The managed manifest should commit one artifact and assign accepted_at from the completion clock.'
+);
+$artifact_parts = ManagedArtifactKey::parse( $stored['object_key'] );
+$private_artifact_path = $private_dir . '/' . $stored['object_key'] . '/' . $stored['object_version'] . '.' . $artifact_parts['extension'];
+eforms_test_assert(
+    ( fileperms( dirname( $private_artifact_path ) ) & 0777 ) === PrivateDir::DIRECTORY_MODE
+        && ( fileperms( dirname( $private_artifact_path ) . '/' . LocalArtifactStore::LOCK_FILENAME ) & 0777 ) === PrivateDir::FILE_MODE
+        && ( fileperms( $private_artifact_path ) & 0777 ) === PrivateDir::FILE_MODE,
+    'Unsubmitted local artifact members and their controls should remain owner-private.'
 );
 $artifact_path = LocalArtifactStore::locate( $uploads_dir, $stored['object_key'], $stored['object_version'] );
 eforms_test_assert(
     is_file( $artifact_path )
+        && ( fileperms( $private_dir . '/artifacts' ) & 0777 ) === PrivateDir::REVIEW_DIRECTORY_MODE
         && filesize( $artifact_path ) === strlen( $png_bytes )
-        && ( fileperms( $artifact_path ) & 0777 ) === 0600,
-    'The local artifact owner should durably retain exactly one private immutable member.'
+        && ( fileperms( dirname( $artifact_path ) . '/' . LocalArtifactStore::LOCK_FILENAME ) & 0777 ) === PrivateDir::FILE_MODE
+        && ( fileperms( $artifact_path ) & 0777 ) === PrivateDir::REVIEW_FILE_MODE,
+    'Resolving one exact local artifact for review should expose only its immutable bytes, not its control lock, to the trusted group.'
 );
 $committed_retry_capacity_path = $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME;
 $committed_retry_record = ManagedCapacityStore::read( $committed_retry_capacity_path, UploadBatchStore::CAPACITY_VERSION, $now + 25 );
@@ -1257,7 +1284,7 @@ $committed_retry_record['reservations'][ $committed_retry_reservation_id ] = arr
     'artifact_store_identity' => UploadBatchStore::LOCAL_ARTIFACT_STORE_IDENTITY,
     'cleanup_started' => false,
     'created_at' => $now + 10,
-    'object_key' => LocalArtifactStore::object_key( $batch_id, 'conflicting-committed-retry' ),
+    'object_key' => ManagedArtifactKey::create( $batch_id, 0, eforms_test_digest( 'conflicting-committed-retry' ), 'image/png' ),
 );
 eforms_test_assert(
     ManagedCapacityStore::write( $committed_retry_capacity_path, $committed_retry_record ),
@@ -1299,7 +1326,7 @@ $retry = UploadBatchStore::put_item(
     array( 'now' => $now + 30, 'completion_now' => $now + 30, 'free_bytes' => $options['free_bytes'] )
 );
 $retried_manifest = json_decode( file_get_contents( $manifest_path ), true );
-$artifact_members = glob( dirname( $artifact_path ) . '/*.artifact' );
+$artifact_members = glob( dirname( $artifact_path ) . '/*.png' );
 $committed_retry_after = ManagedCapacityStore::read( $committed_retry_capacity_path, UploadBatchStore::CAPACITY_VERSION, $now + 30 );
 eforms_test_assert(
     ! empty( $retry['ok'] )
@@ -1548,6 +1575,62 @@ eforms_test_assert(
         && ! empty( $receipt_status['ok'] )
         && count( $receipt_status['batch']['items'] ) === 1,
     'A valid signed fact receipt should settle an already-stored object during its bounded post-intent completion window.'
+);
+$alias_authorized = UploadBatchStore::authorize_intent(
+    $receipt_batch_id,
+    $receipt_secret,
+    'receipt_alias',
+    1,
+    'receipt-alias.heic',
+    strlen( $png_bytes ),
+    'image/heic',
+    0,
+    $receipt_uploads,
+    array(
+        'now' => $now + 1,
+        'free_bytes' => $options['free_bytes'],
+        'artifact_store' => FormProtocol::UPLOAD_TRANSPORT_WORKER,
+    )
+);
+$alias_intent = $alias_authorized['intent'];
+$alias_receipt = array(
+    'intent_id' => $alias_intent['intent_id'],
+    'batch_id' => $receipt_batch_id,
+    'upload_id' => 'receipt_alias',
+    'ordinal' => 1,
+    'object_key' => $alias_intent['object_key'],
+    'object_version' => 'remote-alias-v1',
+    'etag' => 'remote-alias-etag-v1',
+    'bytes' => strlen( $png_bytes ),
+    'mime' => 'image/heif',
+    'width' => 3,
+    'height' => 2,
+    'policy_fingerprint' => $alias_intent['policy_fingerprint'],
+    'expires_at' => $alias_intent['expires_at'] + Anchors::get( 'WORKER_RECEIPT_TTL_SECONDS' ),
+);
+$alias_completion = UploadBatchStore::complete_receipt(
+    $receipt_batch_id,
+    $receipt_secret,
+    'receipt_alias',
+    $alias_receipt,
+    $receipt_uploads,
+    $now + 2
+);
+$alias_retry = UploadBatchStore::complete_receipt(
+    $receipt_batch_id,
+    $receipt_secret,
+    'receipt_alias',
+    $alias_receipt,
+    $receipt_uploads,
+    $now + 3
+);
+$alias_status = UploadBatchStore::status( $receipt_batch_id, $receipt_secret, $receipt_uploads, $now + 4 );
+eforms_test_assert(
+    ! empty( $alias_completion['ok'] )
+        && ! empty( $alias_retry['ok'] )
+        && ! empty( $alias_status['ok'] )
+        && count( $alias_status['batch']['items'] ) === 2,
+    'A HEIC intent detected through the accepted HEIF MIME alias should remain readable and exactly retryable.'
 );
 eforms_test_remove_tree( $receipt_uploads );
 
