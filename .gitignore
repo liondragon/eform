@@ -4,3 +4,4 @@
 /.wrangler/
 /worker/.wrangler/
 /worker/wrangler.*.generated.jsonc
+agent_docs/
