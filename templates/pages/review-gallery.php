@@ -13,6 +13,7 @@ $item_count = count( $items );
 $item_label = $item_count === 1 ? 'photo' : 'photos';
 $deleted = ! empty( $page['deleted'] );
 $expired = ! $deleted && ! empty( $page['expired'] );
+$status_unavailable = ! $deleted && ! $expired && ! empty( $page['status_unavailable'] );
 $attribution_name = ! $deleted && ! $expired && isset( $page['attribution_name'] ) && is_string( $page['attribution_name'] ) ? $page['attribution_name'] : '';
 $review_facts = ! $deleted && ! $expired && isset( $page['review_facts'] ) && is_array( $page['review_facts'] ) ? $page['review_facts'] : array();
 $fact_groups = isset( $review_facts['groups'] ) && is_array( $review_facts['groups'] ) ? $review_facts['groups'] : array();
@@ -31,6 +32,7 @@ $availability_nonce_action = ! $expired && isset( $page['availability_nonce_acti
 $availability_nonce_field = ! $expired && isset( $page['availability_nonce_field'] ) && is_string( $page['availability_nonce_field'] ) ? $page['availability_nonce_field'] : '';
 $availability_choice_field = ! $expired && isset( $page['availability_choice_field'] ) && is_string( $page['availability_choice_field'] ) ? $page['availability_choice_field'] : '';
 $availability_options = ! $expired && isset( $page['availability_options'] ) && is_array( $page['availability_options'] ) ? $page['availability_options'] : array();
+$refresh_url = ! $deleted && ! $expired && isset( $page['refresh_url'] ) && is_string( $page['refresh_url'] ) ? $page['refresh_url'] : '';
 $preview_timeout_ms = (int) Anchors::get( 'REVIEW_PREVIEW_LOAD_TIMEOUT_MS' );
 $operator_post_available = $can_delete && $operator_action_url !== '' && $operator_action_field !== '' && function_exists( 'wp_nonce_field' );
 $delete_available = $operator_post_available && $delete_action !== '' && $delete_nonce_action !== '' && $delete_nonce_field !== '';
@@ -82,6 +84,11 @@ if ( function_exists( 'get_header' ) ) {
                     <p class="eforms-review-status">Submission <strong><?php echo $escape_html( $submission_id ); ?></strong> was deleted.</p>
                 <?php elseif ( $expired ) : ?>
                     <p class="eforms-review-status">This photo submission is no longer available. Available until <?php echo $escape_html( $availability_label ); ?>.</p>
+                <?php elseif ( $status_unavailable ) : ?>
+                    <p class="eforms-review-status">Gallery unavailable.</p>
+                    <?php if ( $refresh_url !== '' ) : ?>
+                        <p><a class="eforms-review-button" href="<?php echo $escape_url( $refresh_url ); ?>">Refresh gallery</a></p>
+                    <?php endif; ?>
                 <?php else : ?>
                     <?php if ( $facts_available ) : ?>
                         <section class="eforms-review-facts"<?php echo $facts_aria_label !== '' ? ' aria-label="' . $escape_attr( $facts_aria_label ) . '"' : ''; ?>>
@@ -123,6 +130,9 @@ if ( function_exists( 'get_header' ) ) {
                         <?php foreach ( $items as $index => $item ) : ?>
                             <?php
                             $photo_label = 'Photo ' . ( (int) $index + 1 );
+                            $status = isset( $item['status'] ) && is_string( $item['status'] ) ? $item['status'] : 'accepted';
+                            $accepted = $status === 'accepted';
+                            $status_label = $status === 'pending' ? 'Processing' : ( $status === 'unavailable' ? 'Photo unavailable' : 'Preview unavailable' );
                             $download_url = isset( $item['download_url'] ) ? (string) $item['download_url'] : '';
                             $preview_url = isset( $item['preview_url'] ) ? (string) $item['preview_url'] : '';
                             $original_inline_available = ! empty( $item['original_inline_available'] );
@@ -130,26 +140,31 @@ if ( function_exists( 'get_header' ) ) {
                             $preview_height = isset( $item['preview_height'] ) ? (int) $item['preview_height'] : 0;
                             ?>
                             <figure class="eforms-review-item" role="listitem">
-                                <div class="eforms-review-preview eforms-review-preview-with-image<?php echo $preview_url === '' ? ' eforms-review-preview-unavailable' : ''; ?>">
-                                    <span<?php echo $preview_url !== '' ? ' hidden aria-hidden="true"' : ''; ?> aria-live="polite" data-eforms-review-fallback>
-                                        <span data-eforms-review-fallback-status>Preview unavailable</span>
-                                        <?php if ( $preview_url !== '' ) : ?>
+                                <div class="eforms-review-preview eforms-review-preview-with-image<?php echo $preview_url === '' || ! $accepted ? ' eforms-review-preview-unavailable' : ''; ?>">
+                                    <span<?php echo $preview_url !== '' && $accepted ? ' hidden aria-hidden="true"' : ''; ?> aria-live="polite" data-eforms-review-fallback>
+                                        <span data-eforms-review-fallback-status><?php echo $escape_html( $status_label ); ?></span>
+                                        <?php if ( $preview_url !== '' && $accepted ) : ?>
                                             <button type="button" class="eforms-review-button eforms-review-button--compact" data-eforms-review-retry>Retry preview</button>
                                         <?php endif; ?>
-                                        <?php if ( $original_inline_available ) : ?>
+                                        <?php if ( $accepted && $original_inline_available ) : ?>
                                             <button type="button" class="eforms-review-button eforms-review-button--compact" data-eforms-review-original data-eforms-review-original-src="<?php echo $escape_url( $download_url ); ?>">Load original</button>
                                         <?php endif; ?>
                                     </span>
-                                    <a class="eforms-review-preview-link ta-gallery__link"<?php echo $preview_width > 0 && $preview_height > 0 ? ' data-lbwps-width="' . $escape_attr( $preview_width ) . '" data-lbwps-height="' . $escape_attr( $preview_height ) . '"' : ''; ?> aria-label="<?php echo $escape_attr( 'Open ' . $photo_label ); ?>">
-                                        <img hidden data-eforms-review-src="<?php echo $escape_url( $preview_url ); ?>" alt="<?php echo $escape_attr( $photo_label . ' preview' ); ?>" decoding="async" data-eforms-review-preview>
-                                    </a>
-                                    <a class="eforms-review-download-overlay" href="<?php echo $escape_url( $download_url ); ?>" aria-label="<?php echo $escape_attr( 'Download ' . $photo_label ); ?>">
-                                        <span class="screen-reader-text">Download photo</span>
-                                    </a>
+                                    <?php if ( $accepted ) : ?>
+                                        <a class="eforms-review-preview-link ta-gallery__link"<?php echo $preview_width > 0 && $preview_height > 0 ? ' data-lbwps-width="' . $escape_attr( $preview_width ) . '" data-lbwps-height="' . $escape_attr( $preview_height ) . '"' : ''; ?> aria-label="<?php echo $escape_attr( 'Open ' . $photo_label ); ?>">
+                                            <img hidden data-eforms-review-src="<?php echo $escape_url( $preview_url ); ?>" alt="<?php echo $escape_attr( $photo_label . ' preview' ); ?>" decoding="async" data-eforms-review-preview>
+                                        </a>
+                                        <a class="eforms-review-download-overlay" href="<?php echo $escape_url( $download_url ); ?>" aria-label="<?php echo $escape_attr( 'Download ' . $photo_label ); ?>">
+                                            <span class="screen-reader-text">Download photo</span>
+                                        </a>
+                                    <?php endif; ?>
                                 </div>
                             </figure>
                         <?php endforeach; ?>
                     </div>
+                    <?php if ( $refresh_url !== '' ) : ?>
+                        <p><a class="eforms-review-button" href="<?php echo $escape_url( $refresh_url ); ?>">Refresh gallery</a></p>
+                    <?php endif; ?>
                 <?php endif; ?>
                 <?php if ( $actions_available ) : ?>
                     <div class="eforms-review-actions">

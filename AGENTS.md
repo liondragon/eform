@@ -11,11 +11,19 @@ When the user asks for your opinion on an idea (including feedback from others),
 ## 1. Hierarchy & Authority
 - **AGENTS.md** (this file) is the root operational guide.
 - This repo no longer uses a canonical spec or implementation-plan workflow. Do not create, edit, or route through `docs/Canonical_Spec.md`, `docs/Implementation_Plan.md`, or `docs/Spec_Digest.md` unless the user explicitly asks to restore that workflow.
-- Active contracts are `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `docs/overview.md`, `docs/contracts/*`, affected code-owner docs or READMEs, source code, and tests.
-- `docs/overview.md` provides user narrative (what, not how). If it is missing, use `README.md`.
+- Active contracts are `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, `docs/contracts/*`, affected code-owner docs or READMEs, source code, and tests.
+- `README.md` provides user narrative (what, not how).
 - **docs/PAST_DECISIONS.md** records non‑normative Architecture Decision Records (ADRs); use it for rationale only, not as a source of behavior.
 - **Conflict Precedence:** safety/security invariants → active owner/routing docs → tests/code behavior → implementation notes.
-- **Standards are read‑only:** Do not modify `AGENTS.md`, `agent_docs/Documentation_Standards.md`, or `agent_docs/Coding_Guidelines.md` unless the user explicitly requests a standards or documentation update.
+- **Shared guidance:** `agent_docs/` is an untracked, independent nested Git repository that must remain visible in this workspace so users can `@` reference its files. Do not add `agent_docs/` to this parent repo's `.gitignore`, `.git/info/exclude`, sparse checkout rules, or other ignore/hide mechanisms. Never stage, commit, or publish it from this parent repo; if Git shows `agent_docs/` as untracked or as a gitlink, treat that as status noise to avoid, not as a file to add. Do not edit or publish shared guidance unless the user explicitly requests it.
+
+## 1.5 Project Lifecycle & Compatibility (Canonical)
+- **Current phase: GREENFIELD / PRE-RELEASE.** This is an explicit, human-maintained project state. It remains authoritative until the user explicitly changes it; agents MUST NOT infer a phase change from versions, branches, deployments, or elapsed time.
+- There are no production users or production data requiring migration or backward compatibility.
+- Unless the user explicitly requests otherwise, do not preserve legacy schemas, APIs, aliases, readers, writers, migration paths, dual protocols, or compatibility fallbacks. Prefer one clean replacement and remove the superseded implementation, tests, and documentation in the same task.
+- Greenfield status removes compatibility obligations; it does not remove the active-contract workflow. Existing contracts, code, and tests remain authoritative until they are deliberately updated together.
+- Greenfield status never authorizes destructive SCM/file operations, deletion of user or developer data, weaker security or correctness, bypassing confirmation gates, or ignoring dirty-worktree ownership.
+- Before the first production release or onboarding production users/data, a human MUST explicitly replace this section with the required compatibility and migration policy.
 
 ## 2. Universal Invariants (The Constitution)
 *These rules apply to ALL activities (coding, strategy, and documentation).*
@@ -55,7 +63,7 @@ When the user asks for your opinion on an idea (including feedback from others),
 ### File Safety
 - **Rule:** Never delete files, overwrite files without reading them first, or remove/replace entire file contents unless the user explicitly requests that specific destructive action for that specific file path.
 - **Refactors:** When refactoring, prefer surgical edits (small, focused patches) over full-file rewrites wherever possible.
-- **No parallel authority docs:** Do not create alternate master specs, plan ledgers, or duplicate overview files (for example `Canonical_Spec_v2.md`, `Implementation_Plan_draft.md`, `master_spec.md`, or `main_overview.md`) unless the user explicitly requests a separate document.
+- **No parallel authority docs:** Do not create alternate master specs, plan ledgers, or duplicate narrative files (for example `Canonical_Spec_v2.md`, `Implementation_Plan_draft.md`, or `master_spec.md`) unless the user explicitly requests a separate document.
 - **Prompt files:** Treat `agent_docs/prompts/*.md` as configuration prompts; do not edit them unless the user explicitly asks to change prompt behavior.
 
 ### Documentation Hygiene (Markdown)
@@ -71,18 +79,18 @@ When the user asks for your opinion on an idea (including feedback from others),
 ## 2.5 Active Contract Model
 
 - This repo uses the sidebook-style carrier model: route work through ownership maps, module/code owner docs, code, and tests.
-- When `agent_docs` guides mention canonical spec, spec digest, or implementation-plan workflows, translate that authority to this repo's active carriers: `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `docs/overview.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests.
+- When `agent_docs` guides mention canonical spec, spec digest, or implementation-plan workflows, translate that authority to this repo's active carriers: `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests.
 - Documentation changes should update the narrow carrier that owns the concern:
   - `docs/Architecture_Router.md` for subsystem boundaries, runtime centers, dependency direction, and project doctrine.
   - `docs/Owner_Index.md` for reusable owners, extension paths, forbidden local seams, and verification hooks.
-  - `docs/overview.md` for operator-facing behavior and product narrative.
+  - `README.md` for operator-facing behavior and product narrative.
   - `docs/contracts/*` for stable public surfaces, template contracts, runtime storage contracts, and machine-readable outputs.
   - Code-owner docs or READMEs for local runtime contracts when they exist.
 - Do not add plan-sync tasks as bookkeeping. Capture verification in tests, command output, and the final handoff.
 
 ### Negative Constraints
 - **Never edit system docs as a side effect:** Do not modify `AGENTS.md` or any file under `agent_docs/` (guides, standards, templates, prompts) during coding, testing, or documentation tasks unless the user's request is explicitly about updating documentation standards or guides.
-- **Never edit prompt files:** See §2 File Safety for the `agent_docs/promts/` rule.
+- **Never edit prompt files:** See §2 File Safety for the `agent_docs/prompts/` rule.
 
 ## 3. Interaction Protocol & Triggers
 *You must actively load the required guidelines for your task.*
@@ -94,16 +102,16 @@ When the user asks for your opinion on an idea (including feedback from others),
   - Only when you cannot infer a mode from the request, ask once: "Which mode should I use: coding, tests, documentation, or review?" for that top-level task.
 - **Context budget & routing (canonical):**
   - For any single LLM task or run, keep additional docs minimal: in addition to `AGENTS.md` and one primary guide or prompt, load at most one helper standards/guide doc at a time, and only when the primary explicitly calls for it; consult other specs or guides briefly on demand instead of keeping many large docs loaded at once. If you need information from a second helper doc, finish or summarize the current one before loading the next.
-  - When using a prompt under `agent_docs/promts/` (for example `agent_docs_review.md`), treat that prompt + `AGENTS.md` as your primary context; any extra standards/guide docs must still follow the same “at most one helper at a time” rule.
+  - When using a prompt under `agent_docs/prompts/` (for example `agent_docs_review.md`), treat that prompt + `AGENTS.md` as your primary context; any extra standards/guide docs must still follow the same “at most one helper at a time” rule.
   - Individual guides or prompts may impose stricter, task-specific limits (for example, reviewing at most two target docs per run) **only** to control context size or keep outputs focused, and they must state this explicitly as a narrower rule that still defers to this section.
 - **User-specified guides (`@docs` override):** If the user mentions one or more `/docs` files explicitly (for example `@agent_docs/Coding_Guidelines.md`), treat that list as the complete set of guides for the task and do not apply any routing heuristics beyond the context-budget rules in this section.
 - **Explicit user override vs heuristics:** When an explicit user request conflicts with these routing or context-budget heuristics (for example, “review all docs in `agent_docs/` in this run”), treat the user request as primary and use the heuristics only to decide *how* to fulfill it (chunking, summarizing, or warning) rather than whether to do it. Do not silently narrow scope or refuse a safe, explicit request solely because it exceeds the default heuristics. Even with an explicit override, do not try to load all large docs at once; process them in chunks and say so.
 - **Quick routing (pick your mode guide):**
   - Editing or reviewing code files (for example `*.py`, `*.ts`, `*.rs`)? → `agent_docs/Coding_Guidelines.md` (🔵)
   - Editing test files? → `agent_docs/Test_Guidelines.md` (🟡)
-  - Editing `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `docs/overview.md`, `README.md`, or other docs? → `agent_docs/Documentation_Standards.md` (🔴)
+  - Editing `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, or other docs? → `agent_docs/Documentation_Standards.md` (🔴)
   - Creating or editing guides under `agent_docs/`? → `agent_docs/Doc_Bootstrap_Guide.md`
-- Load `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `docs/overview.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests on demand when you need to verify behavior or ownership.
+- Load `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests on demand when you need to verify behavior or ownership.
 - **No mixed-mode heuristics:** For tasks that span multiple modes (for example, docs + code), rely on user-specified guides via `@agent_docs/...` or a single clarifying question instead of inferring multi-stage workflows (for example, Strategy then Coding) yourself.
 - **When to ask:** Only ask "Which mode should I use?" when the task is genuinely ambiguous (for example, "improve the system" with no file mentioned). If the user mentions specific files, infer the mode from file type per the Quick routing rules above instead of asking repeatedly.
 
@@ -112,7 +120,7 @@ When the user asks for your opinion on an idea (including feedback from others),
 - **Purpose:** Use `agent_docs/micro_beading_pattern.md` to keep multi-step, load-bearing work small and explicit. **Summary:** break large work into beads (extract current state → surface TODOs → implement → check).
 - **When to consider micro-beading (any):**
   - 4+ code files included for one feature/refactor, or
-  - 2+ active contract carriers modified for one behavior across `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `docs/overview.md`, `docs/contracts/*`, owner docs/READMEs, code, and tests, or
+  - 2+ active contract carriers modified for one behavior across `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, `docs/contracts/*`, owner docs/READMEs, code, and tests, or
   - Core subsystem/API design under Co-founder stance (see §1 in `agent_docs/Documentation_Standards.md`).
 - **Skip micro-beading when (any):**
   - ≤3 files in one area, or
@@ -124,8 +132,8 @@ When the user asks for your opinion on an idea (including feedback from others),
 - **Condition:** User asks to design features, ask "how/why", review/audit docs, process external feedback about docs, or edit them.
 - **Action:** Load **`agent_docs/Documentation_Standards.md`**.
 - **Mode:** **STRATEGY Mode** (Explore options, but do not change code yet). For `/docs` guides, also consult `agent_docs/Doc_Bootstrap_Guide.md`.
-- **For feedback-driven doc work:** Before proposing changes, apply `agent_docs/Documentation_Standards.md` §2.2.1 (Feedback Triage); output at minimum the `Category` and `Decision` for each item.
-- **For major refactors:** When changes span multiple active contract carriers or core APIs, skim **`agent_docs/Cross_Cutting_Concerns.md`** and follow §2.3 in `agent_docs/Documentation_Standards.md`.
+- **For feedback-driven doc work:** Before proposing changes, apply `agent_docs/Documentation_Standards.md` §3 (Feedback Triage and Anti-Churn); output at minimum the `Category` and `Decision` for each item.
+- **For major refactors:** When changes span multiple active contract carriers or core APIs, apply **`agent_docs/Cross_Cutting_Concerns.md`** and `agent_docs/Documentation_Standards.md` §5 (Cross-Carrier Consistency).
 - **For new or changed core subsystems/APIs (co‑founder mode):**
   - Before drafting or rewriting active contract docs for a major subsystem/API, propose at least two viable design options with trade‑offs and a clear recommendation, following the Co-founder stance rules in §1 of `agent_docs/Documentation_Standards.md`.
   - **Micro-beading:** When designing a core subsystem/API, you **SHOULD** use the **Micro-Beading (Canonical Trigger)** above to structure the design work.
@@ -138,7 +146,7 @@ When the user asks for your opinion on an idea (including feedback from others),
 - **Condition:** User asks for code or fixes, or includes tests in the same request as code.
 - **Action:** Load **`agent_docs/Coding_Guidelines.md`** as your primary guide; if it is missing, stop and surface a configuration error instead of coding without guidelines.
 - **Mode:** **EDIT Mode** (strict adherence to active owner/routing docs, code contracts, and tests).
-- **Reference:** Load `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `docs/overview.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests on demand when you need to verify behavior or ownership.
+- **Reference:** Load `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests on demand when you need to verify behavior or ownership.
 - **Micro-beading:** When a coding task meets the **Micro-Beading (Canonical Trigger)** above, you **SHOULD** use `agent_docs/micro_beading_pattern.md` (beads → questions/TODOs → implement → check).
 
 ### 🟡 Trigger: Test-Only Work

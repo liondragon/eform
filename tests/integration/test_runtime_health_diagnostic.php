@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/bootstrap.php';
 require_once __DIR__ . '/../../src/Cli/RuntimeHealthCommand.php';
@@ -77,7 +78,7 @@ eforms_test_assert( $plain_permalink_failure['ok'] === false && $plain_permalink
 update_option( 'permalink_structure', '/%postname%/' );
 
 $capacity_now = time();
-$capacity_secret = rtrim( strtr( base64_encode( str_repeat( "\x62", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
+$capacity_secret = eforms_test_managed_batch_secret( "\x62" );
 $capacity_field = array(
     'type' => 'files',
     'upload_mode' => 'staged',
@@ -133,7 +134,6 @@ $capacity_record['reservations'][ $capacity_reservation_id ] = array(
     'artifact_store' => FormProtocol::UPLOAD_TRANSPORT_LOCAL,
     'artifact_store_identity' => UploadBatchStore::LOCAL_ARTIFACT_STORE_IDENTITY,
     'cleanup_started' => false,
-    'intent_id' => 'runtime-health-settlement-recovery',
     'object_key' => $capacity_item['object_key'],
     'created_at' => $capacity_now,
 );
@@ -284,7 +284,7 @@ foreach ( $undersized_throttle['checks'] as $check ) {
     $undersized_throttle_checks[ $check['name'] ] = $check;
 }
 $required_staged_requests = Anchors::get( 'STAGED_THROTTLED_REQUESTS_PER_BATCH' )
-    + ( Anchors::get( 'STAGED_THROTTLED_REQUESTS_PER_ITEM' ) * 24 );
+    + ( Anchors::get( 'STAGED_THROTTLED_REQUESTS_PER_ITEM' ) * Anchors::get( 'MANAGED_STAGED_MAX_FILES' ) );
 eforms_test_assert( $required_staged_requests === 49, 'The diagnostic request budget should match the one-create-plus-two-per-item staged flow.' );
 eforms_test_assert( $undersized_throttle_checks['staged-throttle']['result'] === 'FAIL', 'A retained throttle limit below one complete active staged batch should fail readiness.' );
 eforms_test_assert( strpos( $undersized_throttle_checks['staged-throttle']['observed'], 'needs ' . $required_staged_requests ) !== false, 'The throttle failure should report the active staged request requirement.' );
@@ -406,10 +406,7 @@ eforms_test_set_filter(
 );
 Config::reset_snapshot();
 $retained_now = time();
-$retained_secret = rtrim(
-    strtr( base64_encode( str_repeat( "\x6b", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ),
-    '='
-);
+$retained_secret = eforms_test_managed_batch_secret( "\x6b" );
 $retained_field = array(
     'type' => 'files',
     'upload_mode' => 'staged',
@@ -443,7 +440,23 @@ foreach ( $retained_worker_failure['checks'] as $check ) {
 }
 eforms_test_assert( $retained_worker_failure_checks['staged-artifact-readiness']['result'] === 'FAIL', 'A local rollout must still require Worker readiness while Worker-owned aggregates remain.' );
 $retained_worker_wrong_identity = RuntimeHealthDiagnostic::run(
-    array_merge( $observations, array( 'worker_health' => array( 'ok' => true, 'outcome' => 'ready' ) ) )
+    array_merge(
+        $observations,
+        array(
+            'worker_health' => array(
+                'ok' => true,
+                'storage_ready' => true,
+                'inspection_ready' => true,
+                'queue_producer_ready' => true,
+                'limiter_ready' => true,
+                'keys_ready' => true,
+                'storage_identity_ready' => true,
+                'validation_contract_ready' => true,
+                'worker_ready' => true,
+                'outcome' => 'ready',
+            ),
+        )
+    )
 );
 $retained_worker_wrong_identity_checks = array();
 foreach ( $retained_worker_wrong_identity['checks'] as $check ) {
@@ -473,10 +486,7 @@ eforms_test_set_filter(
     }
 );
 Config::reset_snapshot();
-$matching_worker_secret = rtrim(
-    strtr( base64_encode( str_repeat( "\x6d", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ),
-    '='
-);
+$matching_worker_secret = eforms_test_managed_batch_secret( "\x6d" );
 $matching_worker = UploadBatchStore::create_batch(
     array(
         'raw_token' => 'matching-worker-token',
@@ -501,6 +511,12 @@ $worker_ready = RuntimeHealthDiagnostic::run(
                 'ok' => true,
                 'storage_ready' => true,
                 'inspection_ready' => true,
+                'queue_producer_ready' => true,
+                'limiter_ready' => true,
+                'keys_ready' => true,
+                'storage_identity_ready' => true,
+                'validation_contract_ready' => true,
+                'worker_ready' => true,
                 'outcome' => 'ready',
             ),
         )
@@ -514,10 +530,50 @@ eforms_test_assert( $worker_checks['staged-artifact-readiness']['result'] === 'P
 eforms_test_assert( strpos( $worker_checks['staged-artifact-readiness']['notes'], 'lifecycle configuration' ) !== false, 'Runtime health should keep provider lifecycle management outside WordPress.' );
 eforms_test_assert( $worker_checks['staged-request-limits']['result'] === 'PASS' && strpos( $worker_checks['staged-request-limits']['observed'], 'bypasses PHP' ) !== false, 'Direct Worker uploads should not be gated by PHP multipart limits.' );
 eforms_test_assert( ! is_dir( $worker_uploads . '/eforms-private/' . UploadBatchStore::ARTIFACTS_DIR ), 'Worker readiness should not provision a local authoritative-artifact root.' );
-$retained_local_secret = rtrim(
-    strtr( base64_encode( str_repeat( "\x6c", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ),
-    '='
+$worker_missing_queue = RuntimeHealthDiagnostic::run(
+    array_merge(
+        $observations,
+        array(
+            'worker_health' => array(
+                'ok' => true,
+                'storage_ready' => true,
+                'inspection_ready' => true,
+                'queue_producer_ready' => false,
+                'limiter_ready' => true,
+                'keys_ready' => true,
+                'storage_identity_ready' => true,
+                'validation_contract_ready' => true,
+                'worker_ready' => false,
+                'outcome' => 'ready',
+            ),
+        )
+    )
 );
+$worker_missing_queue_checks = array();
+foreach ( $worker_missing_queue['checks'] as $check ) {
+    $worker_missing_queue_checks[ $check['name'] ] = $check;
+}
+eforms_test_assert(
+    $worker_missing_queue_checks['staged-artifact-readiness']['result'] === 'FAIL'
+        && strpos( $worker_missing_queue_checks['staged-artifact-readiness']['observed'], 'Queue producer' ) !== false,
+    'Worker readiness should fail closed on a missing producer through the live diagnostic path.'
+);
+eforms_test_assert( ! isset( $worker_checks['worker-observability'] ), 'Runtime health should not expose an unwired Worker observability row.' );
+$worker_worker_ready = array(
+    'result' => $worker_checks['staged-artifact-readiness']['result'],
+);
+eforms_test_assert( $worker_worker_ready['result'] === 'PASS', 'Worker readiness should pass only when all signed producer/runtime dependencies are ready.' );
+$worker_worker_missing_queue = array(
+    'result' => $worker_missing_queue_checks['staged-artifact-readiness']['result'],
+    'observed' => $worker_missing_queue_checks['staged-artifact-readiness']['observed'],
+);
+eforms_test_assert(
+    $worker_worker_missing_queue['result'] === 'FAIL'
+        && strpos( $worker_worker_missing_queue['observed'], 'Queue producer' ) !== false,
+    'Worker readiness should fail closed on a missing producer.'
+);
+eforms_test_assert( ! isset( $worker_checks['candidate-worker-readiness'] ), 'Post-cutover diagnostics should not expose the retired candidate readiness ID.' );
+$retained_local_secret = eforms_test_managed_batch_secret( "\x6c" );
 $retained_local = UploadBatchStore::create_batch(
     array(
         'raw_token' => 'retained-local-token',

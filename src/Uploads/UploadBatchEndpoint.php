@@ -183,36 +183,69 @@ class UploadBatchEndpoint {
             return self::error( 400, 'EFORMS_ERR_UPLOAD_TYPE' );
         }
 
-        $result = UploadBatchStore::authorize_intent(
-            $batch_id,
-            $secret,
-            $upload_id,
-            $ordinal,
-            $display_name,
-            $declared_bytes,
-            $declared_mime,
-            $artifact_store === FormProtocol::UPLOAD_TRANSPORT_LOCAL ? $declared_bytes : 0,
-            self::uploads_dir(),
-            array( 'artifact_store' => $artifact_store )
-        );
+        if ( $artifact_store === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+            $grants_ready = self::worker_grants_ready( $request );
+            $options = self::worker_authorization_options( $owner['batch'], $owner['artifact_store_identity'], ! $grants_ready );
+            if ( $options === null ) {
+                return self::error( 409, 'EFORMS_ERR_TOKEN' );
+            }
+            $worker_options = $grants_ready ? $options : array_replace( $options, array( 'committed_only' => true ) );
+            $result = UploadBatchStore::worker_authorize_intent(
+                $batch_id,
+                $secret,
+                $upload_id,
+                $ordinal,
+                $display_name,
+                $declared_bytes,
+                $declared_mime,
+                self::uploads_dir(),
+                $worker_options
+            );
+            if ( ! $grants_ready ) {
+                return ! empty( $result['ok'] ) && ! empty( $result['committed'] )
+                    ? self::json( 200, self::authorization_response( $result ) )
+                    : self::error( 503, 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
+            }
+        } else {
+            $result = UploadBatchStore::authorize_intent(
+                $batch_id,
+                $secret,
+                $upload_id,
+                $ordinal,
+                $display_name,
+                $declared_bytes,
+                $declared_mime,
+                $declared_bytes,
+                self::uploads_dir()
+            );
+        }
         if ( empty( $result['ok'] ) ) {
             return self::store_error( $result );
         }
+        $response = self::authorization_response( $result, $artifact_store, $batch_id, $worker );
+        if ( $response === null ) {
+            return self::error( 503, 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
+        }
+        return self::json( 200, $response );
+    }
+
+    private static function authorization_response( $result, $artifact_store = '', $batch_id = '', $worker = null ) {
         $response = array(
             FormProtocol::UPLOAD_RESPONSE_AUTHORIZED => true,
             FormProtocol::UPLOAD_RESPONSE_COMMITTED => ! empty( $result['committed'] ),
         );
         if ( ! empty( $result['committed'] ) && isset( $result['item'] ) ) {
-            $response = array_merge( $response, self::item_response( $result['item'] ) );
+            return array_merge( $response, self::item_response( $result['item'] ) );
         } elseif ( isset( $result['intent'] ) && is_array( $result['intent'] ) ) {
             $response[ FormProtocol::UPLOAD_RESPONSE_TRANSPORT ] = $artifact_store === FormProtocol::UPLOAD_TRANSPORT_LOCAL
                 ? array( FormProtocol::UPLOAD_RESPONSE_TRANSPORT_KIND => FormProtocol::UPLOAD_TRANSPORT_LOCAL )
                 : self::worker_transport( $result['intent'], $batch_id, $worker );
             if ( $response[ FormProtocol::UPLOAD_RESPONSE_TRANSPORT ] === null ) {
-                return self::error( 503, 'EFORMS_ERR_STORAGE_UNAVAILABLE' );
+                return null;
             }
+            return $response;
         }
-        return self::json( 200, $response );
+        return null;
     }
 
     private static function complete_worker_upload( $request ) {
@@ -230,11 +263,11 @@ class UploadBatchEndpoint {
         if ( $worker === null || $token === '' || strlen( $token ) > Anchors::get( 'WORKER_ENVELOPE_MAX_CHARS' ) ) {
             return self::error( $worker === null ? 503 : 409, $worker === null ? 'EFORMS_ERR_STORAGE_UNAVAILABLE' : 'EFORMS_ERR_TOKEN' );
         }
-        $verified = WorkerProtocol::verify_upload_receipt( $token, $worker['keys'], $worker['environment'] );
+        $verified = WorkerProtocol::verify_worker_stored_receipt( $token, $worker['keys'], $worker['environment'] );
         if ( empty( $verified['ok'] ) || ! isset( $verified['claims'] ) ) {
             return self::error( 409, 'EFORMS_ERR_TOKEN' );
         }
-        $result = UploadBatchStore::complete_receipt(
+        $result = UploadBatchStore::worker_complete_stored_receipt(
             $batch_id,
             $secret,
             self::route_param( $request, FormProtocol::UPLOAD_ITEM_PARAM ),
@@ -253,12 +286,25 @@ class UploadBatchEndpoint {
             return $gate;
         }
         $upload_id = self::route_param( $request, FormProtocol::UPLOAD_ITEM_PARAM );
-        $result = UploadBatchStore::delete_item(
-            self::route_param( $request, FormProtocol::UPLOAD_BATCH_PARAM ),
-            self::header( $request, FormProtocol::HEADER_BATCH_SECRET ),
-            $upload_id,
-            self::uploads_dir()
-        );
+        $batch_id = self::route_param( $request, FormProtocol::UPLOAD_BATCH_PARAM );
+        $secret = self::header( $request, FormProtocol::HEADER_BATCH_SECRET );
+        $owner = self::batch_owner( $batch_id, $secret );
+        if ( empty( $owner['ok'] ) ) {
+            return self::store_error( $owner );
+        }
+        $result = $owner['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER
+            ? UploadBatchStore::worker_delete_item(
+                $batch_id,
+                $secret,
+                $upload_id,
+                self::uploads_dir()
+            )
+            : UploadBatchStore::delete_item(
+                $batch_id,
+                $secret,
+                $upload_id,
+                self::uploads_dir()
+            );
         return empty( $result['ok'] )
             ? self::store_error( $result )
             : self::json( 200, array( FormProtocol::UPLOAD_RESPONSE_DELETED => true, FormProtocol::UPLOAD_RESPONSE_UPLOAD_ID => $upload_id ) );
@@ -334,11 +380,12 @@ class UploadBatchEndpoint {
         }
         $intents = array();
         foreach ( isset( $batch['intents'] ) && is_array( $batch['intents'] ) ? $batch['intents'] : array() as $intent ) {
+            $intent_bytes = isset( $intent['bytes'] ) ? (int) $intent['bytes'] : ( isset( $intent['declared_bytes'] ) ? (int) $intent['declared_bytes'] : 0 );
             $intents[] = array(
                 FormProtocol::UPLOAD_RESPONSE_UPLOAD_ID => isset( $intent['upload_id'] ) ? $intent['upload_id'] : '',
                 FormProtocol::UPLOAD_RESPONSE_ORDINAL => isset( $intent['ordinal'] ) ? (int) $intent['ordinal'] : 0,
                 FormProtocol::UPLOAD_RESPONSE_DISPLAY_NAME => isset( $intent['display_name'] ) ? $intent['display_name'] : '',
-                FormProtocol::UPLOAD_RESPONSE_BYTES => isset( $intent['bytes'] ) ? (int) $intent['bytes'] : 0,
+                FormProtocol::UPLOAD_RESPONSE_BYTES => $intent_bytes,
             );
         }
         $limits = isset( $batch['limits'] ) && is_array( $batch['limits'] ) ? $batch['limits'] : array();
@@ -407,21 +454,22 @@ class UploadBatchEndpoint {
         ) {
             return array( 'ok' => false, 'code' => 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'reason' => 'artifact_store_invalid' );
         }
-        return array( 'ok' => true, 'artifact_store' => $artifact_store, 'artifact_store_identity' => $artifact_store_identity );
+        return array( 'ok' => true, 'artifact_store' => $artifact_store, 'artifact_store_identity' => $artifact_store_identity, 'batch' => $status['batch'] );
     }
 
     private static function worker_transport( $intent, $batch_id, $worker ) {
-        $now = time();
-        $grant_expires = min( (int) $intent['expires_at'], $now + Anchors::get( 'WORKER_UPLOAD_GRANT_TTL_SECONDS' ) );
-        if ( $grant_expires <= $now ) {
+        $upload_until = isset( $intent['upload_until'] ) ? (int) $intent['upload_until'] : 0;
+        if ( $upload_until <= time() ) {
             return null;
         }
-        $grant = WorkerProtocol::sign_upload_grant(
+        $grant = WorkerProtocol::sign_worker_upload_grant(
             array(
                 'intent_id' => $intent['intent_id'],
                 'batch_id' => $batch_id,
                 'upload_id' => $intent['upload_id'],
                 'ordinal' => $intent['ordinal'],
+                'storage_identity' => $intent['storage_identity'],
+                'validation_contract_version' => $intent['validation_contract_version'],
                 'object_key' => $intent['object_key'],
                 'declared_bytes' => $intent['declared_bytes'],
                 'declared_mime' => $intent['declared_mime'],
@@ -430,10 +478,11 @@ class UploadBatchEndpoint {
                 'max_edge' => Anchors::get( 'MANAGED_ARTIFACT_MAX_EDGE' ),
                 'max_pixels' => Anchors::get( 'MANAGED_ARTIFACT_MAX_PIXELS' ),
                 'container_entry_limit' => Anchors::get( 'MANAGED_HEIF_MAX_ASSOCIATION_ENTRIES' ),
-                'intent_expires_at' => $intent['expires_at'],
-                'grant_expires_at' => $grant_expires,
-                'upload_max_seconds' => Anchors::get( 'WORKER_UPLOAD_MAX_SECONDS' ),
-                'receipt_ttl_seconds' => Anchors::get( 'WORKER_RECEIPT_TTL_SECONDS' ),
+                'upload_until' => $upload_until,
+                'accept_until' => $intent['accept_until'],
+                'validation_until' => $intent['validation_until'],
+                'staged_delete_after' => $intent['staged_delete_after'],
+                'grant_expires_at' => $upload_until,
             ),
             $worker['active_id'],
             $worker['active'],
@@ -444,6 +493,44 @@ class UploadBatchEndpoint {
             FormProtocol::UPLOAD_RESPONSE_TRANSPORT_URL => $worker['origin'] . '/v1/upload',
             FormProtocol::UPLOAD_RESPONSE_TRANSPORT_GRANT => $grant,
             FormProtocol::UPLOAD_RESPONSE_TRANSPORT_MIME => $intent['declared_mime'],
+        );
+    }
+
+    private static function worker_grants_ready( $request ) {
+        $health = WorkerClient::health( null, self::worker_requester( $request ), 'upload_grant_readiness' );
+        return ! empty( $health['ok'] ) && ! empty( $health['worker_ready'] );
+    }
+
+    private static function worker_requester( $request ) {
+        return is_array( $request ) && isset( $request['worker_requester'] ) && is_callable( $request['worker_requester'] )
+            ? $request['worker_requester']
+            : null;
+    }
+
+    private static function worker_authorization_options( $batch, $artifact_store_identity, $committed_only = false ) {
+        if ( ! is_array( $batch ) ) {
+            return null;
+        }
+        $now = time();
+        $accept_until = isset( $batch['accept_until'] ) ? (int) $batch['accept_until'] : 0;
+        $staged_delete_after = isset( $batch['delete_after'] ) ? (int) $batch['delete_after'] : 0;
+        $upload_until = min( $accept_until - 1, $now + Anchors::get( 'WORKER_UPLOAD_GRANT_TTL_SECONDS' ) );
+        $validation_until = min( $staged_delete_after - 1, $accept_until + Anchors::get( 'MANAGED_ORPHAN_CLEANUP_GRACE_SECONDS' ) );
+        if ( ( empty( $committed_only ) && $upload_until <= $now )
+            || ( ! empty( $committed_only ) && $now >= $accept_until )
+            || $upload_until >= $accept_until
+            || $upload_until >= $validation_until
+            || $validation_until >= $staged_delete_after
+        ) {
+            return null;
+        }
+        return array(
+            'storage_identity' => $artifact_store_identity,
+            'validation_contract_version' => WorkerProtocol::WORKER_VALIDATION_CONTRACT_VERSION,
+            'upload_until' => $upload_until,
+            'accept_until' => $accept_until,
+            'validation_until' => $validation_until,
+            'staged_delete_after' => $staged_delete_after,
         );
     }
 

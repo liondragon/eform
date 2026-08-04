@@ -45,7 +45,13 @@ class FileSink {
             return false;
         }
 
-        $handle = @fopen( $path, 'ab' );
+        if ( ! self::existing_path_is_regular_file( $path ) ) {
+            return false;
+        }
+
+        $old_umask = umask( 0177 );
+        $handle = @fopen( $path, 'c+b' );
+        umask( $old_umask );
         if ( $handle === false ) {
             return false;
         }
@@ -55,9 +61,18 @@ class FileSink {
             return false;
         }
 
-        clearstatcache( true, $path );
-        $size = @filesize( $path );
-        $size = is_numeric( $size ) ? (int) $size : 0;
+        if ( ! self::opened_regular_path( $handle, $path ) ) {
+            flock( $handle, LOCK_UN );
+            fclose( $handle );
+            return false;
+        }
+        if ( ! self::enforce_open_file_mode( $handle ) ) {
+            flock( $handle, LOCK_UN );
+            fclose( $handle );
+            return false;
+        }
+        $stat = @fstat( $handle );
+        $size = is_array( $stat ) && isset( $stat['size'] ) && is_numeric( $stat['size'] ) ? (int) $stat['size'] : 0;
 
         if ( $size >= $max_bytes ) {
             flock( $handle, LOCK_UN );
@@ -71,15 +86,60 @@ class FileSink {
             return self::append_with_rotation( $rotated, $line, $max_bytes, $next_path_callback, $depth + 1 );
         }
 
+        if ( @fseek( $handle, 0, SEEK_END ) !== 0 ) {
+            flock( $handle, LOCK_UN );
+            fclose( $handle );
+            return false;
+        }
+
         $written = @fwrite( $handle, $line );
         if ( function_exists( 'fflush' ) ) {
             @fflush( $handle );
         }
-        @chmod( $path, 0600 );
         flock( $handle, LOCK_UN );
         fclose( $handle );
 
         return is_int( $written ) && $written === strlen( $line );
+    }
+
+    private static function opened_regular_path( $handle, $path ) {
+        clearstatcache( true, $path );
+        if ( is_link( $path ) ) {
+            return false;
+        }
+        $path_stat = @stat( $path );
+        $open_stat = @fstat( $handle );
+        if ( ! is_array( $path_stat ) || ! is_array( $open_stat ) ) {
+            return false;
+        }
+        if ( isset( $open_stat['mode'] ) && ( (int) $open_stat['mode'] & 0170000 ) !== 0100000 ) {
+            return false;
+        }
+        foreach ( array( 'dev', 'ino' ) as $key ) {
+            if ( isset( $path_stat[ $key ], $open_stat[ $key ] ) && (string) $path_stat[ $key ] !== (string) $open_stat[ $key ] ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static function existing_path_is_regular_file( $path ) {
+        clearstatcache( true, $path );
+        $stat = @lstat( $path );
+        if ( ! is_array( $stat ) ) {
+            return ! file_exists( $path ) && ! is_link( $path );
+        }
+        return isset( $stat['mode'] ) && ( (int) $stat['mode'] & 0170000 ) === 0100000;
+    }
+
+    private static function enforce_open_file_mode( $handle ) {
+        if ( function_exists( 'fchmod' ) && ! @fchmod( $handle, 0600 ) ) {
+            return false;
+        }
+        $stat = @fstat( $handle );
+        return is_array( $stat )
+            && isset( $stat['mode'] )
+            && ( (int) $stat['mode'] & 0777 ) === 0600;
     }
 
     public static function prune_old_files( $dir, $retention_days, $match_callback ) {

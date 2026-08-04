@@ -350,6 +350,10 @@ class PrivateDir {
         return self::acquire_lifecycle_lease( $uploads_dir, false, false, false );
     }
 
+    public static function acquire_exclusive_lease( $uploads_dir ) {
+        return self::acquire_lifecycle_lease( $uploads_dir, true, false, false );
+    }
+
     public static function acquire_purge_lease( $uploads_dir ) {
         return self::acquire_lifecycle_lease( $uploads_dir, true, true, true );
     }

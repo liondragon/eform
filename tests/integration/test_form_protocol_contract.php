@@ -13,6 +13,12 @@ require_once __DIR__ . '/../../src/FormProtocol.php';
 require_once __DIR__ . '/../../src/Rendering/FormRenderer.php';
 require_once __DIR__ . '/../../src/Security/MintEndpoint.php';
 
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return 'https://example.com';
+    }
+}
+
 if ( ! function_exists( 'wp_enqueue_script' ) ) {
     function wp_enqueue_script( $handle, $src, $deps = array(), $ver = false, $in_footer = false ) {
         if ( ! isset( $GLOBALS['eforms_test_scripts'] ) ) {
@@ -160,7 +166,9 @@ eforms_test_assert(
     $protocol['upload']['runtime'] === FormProtocol::upload_runtime()
         && $protocol['upload']['runtime']['batchSecretBytes'] === Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' )
         && $protocol['upload']['runtime']['uploadIdBytes'] === Anchors::get( 'MANAGED_UPLOAD_ID_BYTES' )
-        && $protocol['upload']['runtime']['concurrency'] === Anchors::get( 'MANAGED_UPLOAD_CONCURRENCY' ),
+        && $protocol['upload']['runtime']['transferConcurrency'] === Anchors::get( 'MANAGED_UPLOAD_TRANSFER_CONCURRENCY' )
+        && $protocol['upload']['runtime']['workerPipelineConcurrency'] === Anchors::get( 'MANAGED_UPLOAD_WORKER_PIPELINE_CONCURRENCY' )
+        && $protocol['upload']['runtime']['localPipelineConcurrency'] === Anchors::get( 'MANAGED_UPLOAD_LOCAL_PIPELINE_CONCURRENCY' ),
     'Browser upload runtime bounds should come from Anchors through FormProtocol.'
 );
 eforms_test_assert(

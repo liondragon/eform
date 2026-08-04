@@ -62,6 +62,9 @@ class ReviewController {
             if ( $method !== 'GET' ) {
                 return self::unavailable();
             }
+            if ( self::worker_submission_context( $submission_id, $uploads_dir, $now ) !== null ) {
+                return self::worker_gallery_response( $submission_id, $uploads_dir, $now, $salt, $overrides );
+            }
             return self::gallery_response( $submission_id, $uploads_dir, $now, $salt, $overrides );
         }
 
@@ -70,6 +73,15 @@ class ReviewController {
         }
 
         if ( $parsed['action'] === 'file' ) {
+            if ( self::worker_submission_context( $submission_id, $uploads_dir, $now ) !== null ) {
+                return self::worker_file_response(
+                    $submission_id,
+                    $upload_id,
+                    $uploads_dir,
+                    $now,
+                    $overrides
+                );
+            }
             return self::file_response(
                 $submission_id,
                 $upload_id,
@@ -79,6 +91,15 @@ class ReviewController {
         }
 
         if ( $parsed['action'] === 'preview' ) {
+            if ( self::worker_submission_context( $submission_id, $uploads_dir, $now ) !== null ) {
+                return self::worker_preview_response(
+                    $submission_id,
+                    $upload_id,
+                    $uploads_dir,
+                    $now,
+                    $overrides
+                );
+            }
             return self::preview_response(
                 $submission_id,
                 $upload_id,
@@ -113,8 +134,16 @@ class ReviewController {
         }
 
         $now = is_numeric( $now ) ? (int) $now : time();
-        $loaded = UploadBatchStore::submission( $submission_id, $uploads_dir, $now );
+        $loaded = UploadBatchStore::worker_submission( $submission_id, $uploads_dir, $now );
+        if ( empty( $loaded['ok'] ) ) {
+            $loaded = UploadBatchStore::submission( $submission_id, $uploads_dir, $now );
+        }
         if ( empty( $loaded['ok'] ) || ! isset( $loaded['submission']['items'] ) || ! array_key_exists( 'delete_after', $loaded['submission'] ) ) {
+            return array( 'ok' => false );
+        }
+        $artifact_store = isset( $loaded['submission']['artifact_store'] ) ? $loaded['submission']['artifact_store'] : '';
+        $artifact_store_identity = isset( $loaded['submission']['artifact_store_identity'] ) ? $loaded['submission']['artifact_store_identity'] : '';
+        if ( $artifact_store === FormProtocol::UPLOAD_TRANSPORT_WORKER && ! WorkerClient::composition_matches( $artifact_store_identity ) ) {
             return array( 'ok' => false );
         }
         $items = is_array( $loaded['submission']['items'] ) ? $loaded['submission']['items'] : array();
@@ -153,6 +182,80 @@ class ReviewController {
 
     public static function enable_lightbox_for_current_review( $enabled, $id = null ) {
         return self::$current_gallery_lightbox_enabled ? true : $enabled;
+    }
+
+    public static function worker_gallery_response( $submission_id, $uploads_dir, $now, $salt, $overrides = array() ) {
+        $loaded = self::worker_submission_context( $submission_id, $uploads_dir, $now );
+        if ( ! is_array( $loaded ) ) {
+            return self::unavailable();
+        }
+        $submission = $loaded['submission'];
+        $artifact_store_identity = $loaded['artifact_store_identity'];
+        $gallery_items = self::worker_gallery_items( $submission['items'], $artifact_store_identity );
+        if ( $gallery_items === null ) {
+            return self::unavailable();
+        }
+
+        $status_client = isset( $overrides['worker_gallery_status'] ) && is_callable( $overrides['worker_gallery_status'] )
+            ? $overrides['worker_gallery_status']
+            : function ( $worker_submission_id, $storage_identity, $items, $expected_identity, $worker_now ) {
+                return WorkerClient::worker_gallery_status( $worker_submission_id, $storage_identity, $items, $expected_identity, $worker_now );
+            };
+        $status = call_user_func(
+            $status_client,
+            $submission_id,
+            $artifact_store_identity,
+            $gallery_items,
+            $artifact_store_identity,
+            $now
+        );
+        $statuses = ! empty( $status['ok'] ) && isset( $status['statuses'] )
+            ? WorkerProtocol::normalize_worker_gallery_statuses( $status['statuses'], $gallery_items )
+            : null;
+        if ( $statuses === null ) {
+            return self::worker_gallery_status_unavailable_response( $submission, $submission_id, $uploads_dir, $now, $salt, $overrides );
+        }
+
+        $base_url = isset( $overrides['base_url'] ) && is_string( $overrides['base_url'] ) ? $overrides['base_url'] : null;
+        $items = array();
+        $has_pending = false;
+        foreach ( $statuses as $item_status ) {
+            $review_item = array( 'status' => $item_status['status'] );
+            if ( $item_status['status'] === 'pending' ) {
+                $has_pending = true;
+            }
+            if ( $item_status['status'] === 'accepted' ) {
+                $download_url = self::file_url( $submission_id, $item_status['upload_id'], $base_url, $salt );
+                $preview_url = self::preview_url( $submission_id, $item_status['upload_id'], $base_url, $salt );
+                if ( $download_url === '' || $preview_url === '' ) {
+                    return self::unavailable();
+                }
+                $preview_dimensions = self::preview_dimensions(
+                    (int) $item_status['width'],
+                    (int) $item_status['height']
+                );
+                $review_item['download_url'] = $download_url;
+                $review_item['preview_url'] = $preview_url;
+                $review_item['preview_width'] = $preview_dimensions['width'];
+                $review_item['preview_height'] = $preview_dimensions['height'];
+                $review_item['original_inline_available'] = false;
+            }
+            $items[] = $review_item;
+        }
+
+        $response = self::worker_gallery_page_response( $submission, $submission_id, $uploads_dir, $now, $salt, $items, $overrides, 200 );
+        if ( $has_pending ) {
+            $response['review_page']['refresh_url'] = self::gallery_url( $submission_id, $base_url, $salt );
+        }
+        return $response;
+    }
+
+    public static function worker_file_response( $submission_id, $upload_id, $uploads_dir, $now, $overrides = array() ) {
+        return self::worker_member_response( $submission_id, $upload_id, $uploads_dir, $now, $overrides, 'download' );
+    }
+
+    public static function worker_preview_response( $submission_id, $upload_id, $uploads_dir, $now, $overrides = array() ) {
+        return self::worker_member_response( $submission_id, $upload_id, $uploads_dir, $now, $overrides, 'preview' );
     }
 
     public static function prevent_canonical_redirect( $redirect_url, $requested_url = '' ) {
@@ -479,16 +582,17 @@ class ReviewController {
         if ( ! self::verify_nonce( $nonce, self::delete_nonce_action( $submission_id ) ) ) {
             return self::unavailable();
         }
+        if ( ! self::review_submission_matches_current_composition( $submission_id, $uploads_dir, $now ) ) {
+            return self::unavailable();
+        }
         $remote_delete = isset( $overrides['remote_delete'] ) && is_callable( $overrides['remote_delete'] )
             ? $overrides['remote_delete']
-            : function ( $object_key, $object_version, $artifact_store_identity ) use ( $now ) {
-                return WorkerClient::delete_object(
-                    $object_key,
-                    $object_version,
-                    $artifact_store_identity,
+            : function ( $authority ) use ( $now ) {
+                return WorkerClient::worker_delete_object(
+                    $authority,
                     $now,
                     null,
-                    'operator_review_delete'
+                    'operator_delete'
                 );
             };
         $deleted = UploadBatchStore::delete_finalized_submission( $submission_id, $uploads_dir, $now, $remote_delete );
@@ -512,7 +616,11 @@ class ReviewController {
                 'deleted' => true,
                 'template' => dirname( __DIR__, 2 ) . '/templates/pages/review-gallery.php',
             ),
-            'result' => array( 'ok' => true, 'deleted' => true ),
+            'result' => array(
+                'ok' => true,
+                'deleted' => true,
+                'physical_delete_pending' => ! empty( $deleted['physical_delete_pending'] ),
+            ),
         );
     }
 
@@ -530,12 +638,34 @@ class ReviewController {
         if ( $delete_after === false ) {
             return self::unavailable();
         }
+        if ( ! self::review_submission_matches_current_composition( $submission_id, $uploads_dir, $now ) ) {
+            return self::unavailable();
+        }
         $updated = UploadBatchStore::update_finalized_availability( $submission_id, $uploads_dir, $delete_after, $now );
         if ( empty( $updated['ok'] ) ) {
             return self::unavailable();
         }
         $overrides['availability_selected_choice'] = $choice;
+        if ( self::worker_submission_context( $submission_id, $uploads_dir, $now ) !== null ) {
+            return self::worker_gallery_response( $submission_id, $uploads_dir, $now, $salt, $overrides );
+        }
         return self::gallery_response( $submission_id, $uploads_dir, $now, $salt, $overrides );
+    }
+
+    private static function review_submission_matches_current_composition( $submission_id, $uploads_dir, $now ) {
+        $loaded = UploadBatchStore::submission_management_status( $submission_id, $uploads_dir, $now );
+        if ( empty( $loaded['ok'] ) || ! isset( $loaded['submission'] ) || ! is_array( $loaded['submission'] ) ) {
+            return false;
+        }
+        if ( ! isset( $loaded['submission']['artifact_store'] )
+            || $loaded['submission']['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+        ) {
+            return true;
+        }
+        $identity = isset( $loaded['submission']['artifact_store_identity'] ) && is_string( $loaded['submission']['artifact_store_identity'] )
+            ? $loaded['submission']['artifact_store_identity']
+            : '';
+        return WorkerClient::composition_matches( $identity );
     }
 
     private static function preview_dimensions( $width, $height ) {
@@ -555,6 +685,207 @@ class ReviewController {
         );
     }
 
+    private static function worker_submission_context( $submission_id, $uploads_dir, $now ) {
+        $loaded = UploadBatchStore::worker_submission( $submission_id, $uploads_dir, $now );
+        $submission = ! empty( $loaded['ok'] ) && isset( $loaded['submission'] ) && is_array( $loaded['submission'] )
+            ? $loaded['submission']
+            : null;
+        if ( ! is_array( $submission )
+            || ! isset( $submission['artifact_store'], $submission['artifact_store_identity'], $submission['items'] )
+            || $submission['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || ! is_string( $submission['artifact_store_identity'] )
+            || ! WorkerClient::composition_matches( $submission['artifact_store_identity'] )
+            || ! is_array( $submission['items'] )
+        ) {
+            return null;
+        }
+        return array(
+            'submission' => $submission,
+            'artifact_store_identity' => $submission['artifact_store_identity'],
+        );
+    }
+
+    private static function worker_gallery_items( $items, $artifact_store_identity ) {
+        if ( ! is_array( $items ) || ! is_string( $artifact_store_identity ) ) {
+            return null;
+        }
+        $gallery_items = array();
+        foreach ( $items as $item ) {
+            if ( ! is_array( $item )
+                || ! isset(
+                    $item['upload_id'],
+                    $item['ordinal'],
+                    $item['validation_contract_version'],
+                    $item['object_key'],
+                    $item['object_version'],
+                    $item['etag'],
+                    $item['bytes'],
+                    $item['policy_fingerprint'],
+                    $item['storage_identity'],
+                    $item['validation_until']
+                )
+                || ! is_string( $item['storage_identity'] )
+                || ! hash_equals( $artifact_store_identity, $item['storage_identity'] )
+            ) {
+                return null;
+            }
+            $gallery_items[] = array(
+                'upload_id' => $item['upload_id'],
+                'ordinal' => (int) $item['ordinal'],
+                'validation_contract_version' => $item['validation_contract_version'],
+                'object_key' => $item['object_key'],
+                'object_version' => $item['object_version'],
+                'etag' => $item['etag'],
+                'bytes' => (int) $item['bytes'],
+                'policy_fingerprint' => $item['policy_fingerprint'],
+                'validation_until' => (int) $item['validation_until'],
+            );
+        }
+        return WorkerProtocol::normalize_worker_gallery_items( $gallery_items );
+    }
+
+    private static function worker_gallery_status_unavailable_response( $submission, $submission_id, $uploads_dir, $now, $salt, $overrides ) {
+        $base_url = isset( $overrides['base_url'] ) && is_string( $overrides['base_url'] ) ? $overrides['base_url'] : null;
+        $response = self::worker_gallery_page_response( $submission, $submission_id, $uploads_dir, $now, $salt, array(), $overrides, 503 );
+        $response['review_page']['status_unavailable'] = true;
+        $response['review_page']['refresh_url'] = self::gallery_url( $submission_id, $base_url, $salt );
+        $response['result'] = array( 'ok' => false, 'status_unavailable' => true );
+        return $response;
+    }
+
+    private static function worker_gallery_page_response( $submission, $submission_id, $uploads_dir, $now, $salt, $items, $overrides, $status ) {
+        self::enqueue_assets();
+        self::$current_gallery_lightbox_enabled = self::worker_gallery_has_preview_cards( $items );
+        $base_url = isset( $overrides['base_url'] ) && is_string( $overrides['base_url'] ) ? $overrides['base_url'] : null;
+        $can_manage = self::can_delete_review();
+        $review_page = array(
+            'title' => 'Submitted Photos',
+            'submission_id' => $submission_id,
+            'items' => $items,
+            'submitted_label' => self::submitted_label( isset( $submission['finalized_at'] ) ? $submission['finalized_at'] : null ),
+            'availability_label' => self::availability_label( array_key_exists( 'delete_after', $submission ) ? $submission['delete_after'] : null ),
+            'can_delete' => $can_manage,
+            'template' => dirname( __DIR__, 2 ) . '/templates/pages/review-gallery.php',
+        );
+        if ( $can_manage ) {
+            self::add_operator_lead_review( $review_page, $submission_id, $uploads_dir );
+        } else {
+            self::add_public_project_summary( $review_page, $submission_id, $uploads_dir );
+        }
+        if ( ! empty( $review_page['can_delete'] ) ) {
+            $selected_choice = isset( $overrides['availability_selected_choice'] ) && is_string( $overrides['availability_selected_choice'] )
+                ? $overrides['availability_selected_choice']
+                : '';
+            self::add_operator_actions( $review_page, $submission_id, $base_url, $salt, true, array_key_exists( 'delete_after', $submission ) ? $submission['delete_after'] : null, $selected_choice );
+        }
+        return array(
+            'handled' => true,
+            'render' => 'review_gallery',
+            'status' => $status,
+            'location' => '',
+            'body' => '',
+            'headers' => self::private_headers( 'text/html; charset=UTF-8' ),
+            'review_page' => $review_page,
+            'result' => array( 'ok' => $status === 200 ),
+        );
+    }
+
+    private static function worker_gallery_has_preview_cards( $items ) {
+        foreach ( is_array( $items ) ? $items : array() as $item ) {
+            if ( is_array( $item )
+                && isset( $item['status'], $item['preview_url'] )
+                && $item['status'] === 'accepted'
+                && is_string( $item['preview_url'] )
+                && $item['preview_url'] !== ''
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function worker_member_response( $submission_id, $upload_id, $uploads_dir, $now, $overrides, $action ) {
+        $loaded = self::worker_submission_context( $submission_id, $uploads_dir, $now );
+        if ( ! is_array( $loaded ) ) {
+            return self::unavailable();
+        }
+        $submission = $loaded['submission'];
+        $artifact_store_identity = $loaded['artifact_store_identity'];
+        $item = self::worker_submission_item( $submission['items'], $upload_id, $artifact_store_identity );
+        if ( ! is_array( $item ) ) {
+            return self::unavailable();
+        }
+
+        $expires_at = (int) $now + Anchors::get( 'WORKER_REVIEW_GRANT_TTL_SECONDS' );
+        if ( array_key_exists( 'delete_after', $submission ) && is_numeric( $submission['delete_after'] ) ) {
+            $expires_at = min( $expires_at, (int) $submission['delete_after'] );
+        }
+        if ( $expires_at <= (int) $now ) {
+            return self::unavailable();
+        }
+
+        $claims = array(
+            'submission_id' => $submission_id,
+            'upload_id' => $upload_id,
+            'storage_identity' => $item['storage_identity'],
+            'validation_contract_version' => $item['validation_contract_version'],
+            'object_key' => $item['object_key'],
+            'object_version' => $item['object_version'],
+            'etag' => $item['etag'],
+            'bytes' => (int) $item['bytes'],
+            'policy_fingerprint' => $item['policy_fingerprint'],
+            'validation_until' => (int) $item['validation_until'],
+            'action' => $action,
+            'recipe_version' => WorkerProtocol::REVIEW_RECIPE_VERSION,
+            'expires_at' => $expires_at,
+        );
+        $review_url = isset( $overrides['worker_review_url'] ) && is_callable( $overrides['worker_review_url'] )
+            ? call_user_func( $overrides['worker_review_url'], $claims, $artifact_store_identity, $now )
+            : WorkerClient::worker_review_url( $claims, $artifact_store_identity, $now );
+        if ( ! is_string( $review_url ) || $review_url === '' ) {
+            return self::unavailable();
+        }
+        return array(
+            'handled' => true,
+            'render' => 'review_file',
+            'status' => 302,
+            'location' => $review_url,
+            'redirect_origin' => WorkerClient::origin(),
+            'body' => '',
+            'headers' => self::private_headers( 'text/html; charset=UTF-8' ),
+            'result' => array( 'ok' => true ),
+        );
+    }
+
+    private static function worker_submission_item( $items, $upload_id, $artifact_store_identity ) {
+        if ( ! is_array( $items ) || ! is_string( $upload_id ) || ! is_string( $artifact_store_identity ) ) {
+            return null;
+        }
+        foreach ( $items as $item ) {
+            if ( ! is_array( $item ) || ! isset( $item['upload_id'] ) || $item['upload_id'] !== $upload_id ) {
+                continue;
+            }
+            if ( ! isset(
+                $item['storage_identity'],
+                $item['validation_contract_version'],
+                $item['object_key'],
+                $item['object_version'],
+                $item['etag'],
+                $item['bytes'],
+                $item['policy_fingerprint'],
+                $item['validation_until']
+            )
+                || ! is_string( $item['storage_identity'] )
+                || ! hash_equals( $artifact_store_identity, $item['storage_identity'] )
+                || ! is_numeric( $item['validation_until'] )
+            ) {
+                return null;
+            }
+            return $item;
+        }
+        return null;
+    }
+
     private static function file_response( $submission_id, $upload_id, $uploads_dir, $now ) {
         $loaded = UploadBatchStore::submission_file( $submission_id, $upload_id, $uploads_dir, $now );
         $artifact = ! empty( $loaded['ok'] ) && isset( $loaded['artifact'] ) && is_array( $loaded['artifact'] )
@@ -562,9 +893,6 @@ class ReviewController {
             : null;
         if ( ! is_array( $artifact ) ) {
             return self::unavailable();
-        }
-        if ( $artifact['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
-            return self::worker_redirect( $submission_id, $upload_id, $artifact, 'download', $now );
         }
         if ( ! isset( $artifact['stream'], $artifact['mime'], $artifact['bytes'] )
             || ! is_resource( $artifact['stream'] )
@@ -601,9 +929,6 @@ class ReviewController {
             : null;
         if ( ! is_array( $artifact ) ) {
             return self::unavailable();
-        }
-        if ( $artifact['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
-            return self::worker_redirect( $submission_id, $upload_id, $artifact, 'preview', $now );
         }
         if ( self::review_provider( $overrides ) !== 'local' ) {
             return self::unavailable();
@@ -890,43 +1215,6 @@ class ReviewController {
             return $overrides['review_provider'];
         }
         return WorkerClient::review_provider();
-    }
-
-    private static function worker_review_claims( $submission_id, $upload_id, $artifact, $action, $expires_at ) {
-        return array(
-            'submission_id' => $submission_id,
-            'upload_id' => $upload_id,
-            'object_key' => $artifact['object_key'],
-            'object_version' => $artifact['object_version'],
-            'action' => $action,
-            'recipe_version' => WorkerProtocol::REVIEW_RECIPE_VERSION,
-            'expires_at' => $expires_at,
-        );
-    }
-
-    private static function worker_redirect( $submission_id, $upload_id, $artifact, $action, $now ) {
-        $grant_expiry = (int) $now + Anchors::get( 'WORKER_REVIEW_GRANT_TTL_SECONDS' );
-        if ( array_key_exists( 'delete_after', $artifact ) && $artifact['delete_after'] !== null ) {
-            $grant_expiry = min( (int) $artifact['delete_after'], $grant_expiry );
-        }
-        $url = WorkerClient::review_url(
-            self::worker_review_claims( $submission_id, $upload_id, $artifact, $action, $grant_expiry ),
-            $artifact['artifact_store_identity'],
-            $now
-        );
-        if ( $url === '' ) {
-            return self::unavailable();
-        }
-        return array(
-            'handled' => true,
-            'render' => 'review_file',
-            'status' => 302,
-            'location' => $url,
-            'redirect_origin' => WorkerClient::origin(),
-            'body' => '',
-            'headers' => self::private_headers( 'text/html; charset=UTF-8' ),
-            'result' => array( 'ok' => true ),
-        );
     }
 
     private static function token( $action, $submission_id, $upload_id, $salt ) {

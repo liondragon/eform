@@ -575,7 +575,8 @@ test('runtime expiry cancels active and queued preparation and ignores late Work
   }))).toEqual({ constructed: 1, terminated: 1 });
   await page.evaluate(() => window.__expiryPreparation.late());
   await page.waitForTimeout(50);
-  await expect(held).toHaveAttribute('data-eforms-upload-state', 'preparing');
+  await expect(held).toHaveAttribute('data-eforms-upload-state', 'failed');
+  await expect(held).toContainText('Form expired');
   expect(await page.evaluate(() => window.__expiryPreparation.constructed)).toBe(1);
 });
 
@@ -1316,7 +1317,7 @@ test('long filenames preserve their extension and moving a form keeps its upload
   })).toBeTruthy();
 });
 
-test('staged queue authorizes first, uses one retry-safe secret, and caps concurrency at three', async ({ page }) => {
+test('local scheduler caps transfers at three and overlaps one Processing tail', async ({ page }) => {
   const secrets = [];
   const authorizations = [];
   const itemIds = [];
@@ -1407,12 +1408,17 @@ test('staged queue authorizes first, uses one retry-safe secret, and caps concur
       item.xhr.upload.onprogress({ lengthComputable: true, loaded: item.bytes, total: item.bytes });
     });
   });
-  await expect(mount.locator('[data-eforms-upload-state="verifying"]')).toHaveCount(3);
+  await expect(mount.locator('[data-eforms-upload-state="processing"]')).toHaveCount(3);
+  await expect.poll(() => pending.length).toBe(4);
+  expect(maxActive).toBe(4);
+  expect(authorizations).toHaveLength(4);
   await expect(mount.locator('.eforms-upload-progress').first()).toHaveAttribute('aria-valuenow', '100');
   await expect(mount.locator('.eforms-upload-progress').first()).toHaveText('100%');
-  await expect(mount.locator('.eforms-upload-status').first()).toHaveText('Finishing upload...');
-  await Promise.all(pending.splice(0, 3).map(release => release()));
-  await expect.poll(() => pending.length).toBe(2);
+  await expect(mount.locator('.eforms-upload-progress').first()).toBeHidden();
+  await expect(mount.locator('.eforms-upload-status').first()).toHaveText('Processing');
+  await pending.shift()();
+  await expect.poll(() => pending.length).toBe(4);
+  expect(authorizations).toHaveLength(5);
   await Promise.all(pending.splice(0).map(release => release()));
   await expect(mount.locator('[data-eforms-upload-state="uploaded"]')).toHaveCount(5);
   expect(authorizations).toHaveLength(5);
@@ -1428,7 +1434,7 @@ test('staged queue authorizes first, uses one retry-safe secret, and caps concur
   await expect(mount.locator('.eforms-upload-field-status')).toContainText('allowed type');
 });
 
-test('ambiguous authorization and transfer retain their admission slots through reconciliation', async ({ page }) => {
+test('ambiguous authorization and transfer retain four pipeline permits through reconciliation', async ({ page }) => {
   const pendingStatuses = [];
   let authorizationRequests = 0;
   let transferRequests = 0;
@@ -1476,40 +1482,36 @@ test('ambiguous authorization and transfer retain their admission slots through 
   const form = page.locator('form.eforms-form-ambiguous-admission-demo');
   const mount = form.locator(uploadSelector('mount'));
   await form.locator(uploadSelector('picker')).setInputFiles(
-    Array.from({ length: 4 }, (_, index) => imagePayload(`ambiguous-${index}.png`, index + 1))
+    Array.from({ length: 5 }, (_, index) => imagePayload(`ambiguous-${index}.png`, index + 1))
   );
 
-  await expect.poll(() => pendingStatuses.length).toBe(3);
+  await expect.poll(() => pendingStatuses.length).toBe(4);
   await page.waitForTimeout(50);
-  expect(authorizationRequests).toBe(3);
-  expect(transferRequests).toBe(1);
-  expect(activeStatuses).toBe(3);
-  expect(maxActiveStatuses).toBe(3);
+  expect(authorizationRequests).toBe(4);
+  expect(transferRequests).toBe(2);
+  expect(activeStatuses).toBe(4);
+  expect(maxActiveStatuses).toBe(4);
   expect(await mount.evaluate(node => {
     const runtime = node.__eformsUploadRuntime;
-    return runtime.active + runtime.starting;
-  })).toBe(3);
+    return runtime.items.filter(item => ['authorizing', 'uploading', 'securing', 'registering'].includes(item.state)).length;
+  })).toBe(4);
 
   await pendingStatuses[0]();
-  await expect.poll(() => authorizationRequests).toBe(4);
-  await expect.poll(() => transferRequests).toBe(2);
-  await expect.poll(() => pendingStatuses.length).toBe(4);
-  expect(activeStatuses).toBe(3);
-  expect(maxActiveStatuses).toBe(3);
+  await expect.poll(() => authorizationRequests).toBe(5);
+  await expect.poll(() => transferRequests).toBe(3);
+  await expect.poll(() => pendingStatuses.length).toBe(5);
+  expect(activeStatuses).toBe(4);
+  expect(maxActiveStatuses).toBe(4);
 
   await Promise.all(pendingStatuses.slice(1).map(release => release()));
-  await expect(mount.locator('[data-eforms-upload-state="failed"]')).toHaveCount(4);
+  await expect(mount.locator('[data-eforms-upload-state="failed"]')).toHaveCount(5);
   expect(await mount.evaluate(node => {
     const runtime = node.__eformsUploadRuntime;
-    return {
-      active: runtime.active,
-      starting: runtime.starting,
-      retainedSlots: runtime.items.filter(item => item.slotActive || item.starting).length
-    };
-  })).toEqual({ active: 0, starting: 0, retainedSlots: 0 });
+    return runtime.items.filter(item => ['authorizing', 'uploading', 'securing', 'registering'].includes(item.state)).length;
+  })).toBe(0);
 });
 
-test('Worker transport keeps the existing retry and verifying flow while sending bytes without cookies', async ({ page }) => {
+test('Worker transport uses Processing through registration while sending bytes without cookies', async ({ page }) => {
   const workerUrl = 'https://media.example.test/v1/upload';
   const grant = 'signed-worker-grant';
   const receipt = 'signed-worker-receipt';
@@ -1607,10 +1609,11 @@ test('Worker transport keeps the existing retry and verifying flow while sending
     const item = node.__eformsUploadRuntime.items[0];
     item.xhr.upload.onprogress({ lengthComputable: true, loaded: item.bytes, total: item.bytes });
   });
-  await expect(mount.locator('[data-eforms-upload-state="verifying"]')).toHaveCount(1);
+  await expect(mount.locator('[data-eforms-upload-state="processing"]')).toHaveCount(1);
   await releaseWorker();
   await expect.poll(() => completionReceived).toBe(true);
-  await expect(mount.locator('.eforms-upload-status')).toHaveText('Finishing upload...');
+  await expect(mount.locator('.eforms-upload-status')).toHaveText('Processing');
+  expect(await mount.evaluate(node => node.__eformsUploadRuntime.items[0].state)).toBe('registering');
   await releaseCompletion();
   await expect(mount.locator('[data-eforms-upload-state="uploaded"]')).toHaveCount(1);
   await expect(mount.locator('.eforms-upload-name')).toHaveText('worker-canonical.png');
@@ -1623,6 +1626,92 @@ test('Worker transport keeps the existing retry and verifying flow while sending
   expect(workerRequestFacts.cookie).toBeUndefined();
   expect(workerRequestFacts.contentType).toBe('image/png');
   expect(workerRequestFacts.body).toEqual(Buffer.from([137, 80, 78, 71, 1]));
+});
+
+test('Worker scheduler overlaps one Processing tail and retains registration in the pipeline bound', async ({ page }) => {
+  const workerUrl = 'https://media.example.test/v1/upload';
+  const workerReleases = [];
+  const completionReleases = [];
+  let workerRequests = 0;
+  let maxWorkerRequests = 0;
+  let activeWorkerRequests = 0;
+
+  await page.route(workerUrl, async route => {
+    workerRequests += 1;
+    activeWorkerRequests += 1;
+    maxWorkerRequests = Math.max(maxWorkerRequests, activeWorkerRequests);
+    await new Promise(resolve => {
+      workerReleases.push(async () => {
+        activeWorkerRequests -= 1;
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ [uploadNames.receiptParam]: 'scheduler-receipt' }) });
+        resolve();
+      });
+    });
+  });
+
+  await page.route('https://example.test/eforms/upload-batches**', async route => {
+    const request = route.request();
+    const kind = routeKind(request.url());
+    if (kind === 'create') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(batchResponse(batchId('S'))) });
+      return;
+    }
+    if (kind === 'item' && request.method() === 'POST') {
+      const body = new URLSearchParams(request.postData() || '');
+      if (body.has(uploadNames.receiptParam)) {
+        const id = new URL(request.url()).pathname.split('/').pop();
+        await new Promise(resolve => {
+          completionReleases.push(async () => {
+            await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(uploadItemResponse(id, 'worker-scheduled.png')) });
+            resolve();
+          });
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(authorizationResponse({
+          [uploadResponse.transport]: {
+            [uploadResponse.transportKind]: uploadNames.workerTransport,
+            [uploadResponse.transportUrl]: workerUrl,
+            [uploadResponse.transportGrant]: 'scheduler-grant',
+            [uploadResponse.transportMime]: 'image/png'
+          }
+        }))
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+  });
+
+  await boot(page, formMarkup('worker-scheduler'), { autoAuthorize: false });
+  const mount = page.locator('form.eforms-form-worker-scheduler').locator(uploadSelector('mount'));
+  await page.locator('form.eforms-form-worker-scheduler').locator(uploadSelector('picker')).setInputFiles(
+    Array.from({ length: 5 }, (_, index) => imagePayload(`worker-${index}.png`, index + 1))
+  );
+  await expect.poll(() => workerReleases.length).toBe(3);
+  await mount.evaluate(node => {
+    node.__eformsUploadRuntime.items.filter(item => item.xhr).forEach(item => {
+      item.xhr.upload.onprogress({ lengthComputable: true, loaded: item.bytes, total: item.bytes });
+    });
+  });
+  await expect.poll(() => workerReleases.length).toBe(4);
+  expect(workerRequests).toBe(4);
+  expect(maxWorkerRequests).toBe(4);
+  await workerReleases.shift()();
+  await expect.poll(() => completionReleases.length).toBe(1);
+  expect(await mount.evaluate(node => node.__eformsUploadRuntime.items.filter(item => item.state === 'registering').length)).toBe(1);
+  expect(workerRequests).toBe(4);
+  await completionReleases.shift()();
+  await expect.poll(() => workerRequests).toBe(5);
+
+  while (workerReleases.length) {
+    await workerReleases.shift()();
+    await expect.poll(() => completionReleases.length).toBeGreaterThan(0);
+    await completionReleases.shift()();
+  }
+  await expect(mount.locator('[data-eforms-upload-state="uploaded"]')).toHaveCount(5);
 });
 
 test('Worker transport rejects a same-origin destination before sending photo bytes', async ({ page }) => {
@@ -1719,7 +1808,7 @@ test('removing a stalled authorization aborts its fetch and frees the startup sl
   await mount.locator('.eforms-upload-remove').click();
   await expect(mount.locator('.eforms-upload-item')).toHaveCount(0);
   expect(await page.evaluate(() => window.__eformsStalledSignal.aborted)).toBe(true);
-  expect(await mount.evaluate(node => node.__eformsUploadRuntime.starting)).toBe(0);
+  expect(await mount.evaluate(node => node.__eformsUploadRuntime.items.length)).toBe(0);
   await stalledRoute();
 
   await picker.setInputFiles(imagePayload('replacement.png'));
@@ -1791,7 +1880,7 @@ test('removing a stalled Worker completion aborts its fetch and frees the upload
   await mount.locator('.eforms-upload-remove').click();
   await expect(mount.locator('.eforms-upload-item')).toHaveCount(0);
   expect(await page.evaluate(() => window.__eformsCompletionSignal.aborted)).toBe(true);
-  expect(await mount.evaluate(node => node.__eformsUploadRuntime.active)).toBe(0);
+  expect(await mount.evaluate(node => node.__eformsUploadRuntime.items.length)).toBe(0);
   await releaseCompletion();
 
   await picker.setInputFiles(imagePayload('after-completion.png'));
@@ -1843,7 +1932,7 @@ test('HEIC remains uploaded when its browser-local selection preview cannot rend
   await expect(mount.locator('.eforms-upload-preview')).not.toHaveAttribute('src', /.+/);
 });
 
-test('retry, removal, Clear all, stable identity, and terminal 410 stay server-authoritative', async ({ page }) => {
+test('retry, removal, stable identity, and terminal 410 stay server-authoritative', async ({ page }) => {
   const uploads = [];
   const deletes = [];
   let failUpload = true;
@@ -1930,11 +2019,6 @@ test('retry, removal, Clear all, stable identity, and terminal 410 stay server-a
   await mount.locator('.eforms-upload-remove').click();
   await expect(mount.locator('.eforms-upload-item')).toHaveCount(0);
   expect(deletes).toEqual([uploads[0]]);
-
-  await picker.setInputFiles([imagePayload('a.png', 2), imagePayload('b.png', 3)]);
-  await expect(mount.locator('[data-eforms-upload-state="uploaded"]')).toHaveCount(2);
-  await mount.locator('.eforms-upload-clear').click();
-  await expect(mount.locator('.eforms-upload-item')).toHaveCount(0);
 
   ambiguousUpload = true;
   const uploadsBeforeLoss = uploads.length;
@@ -2133,7 +2217,7 @@ test('submit blocks unresolved cards, restores the exact label, and posts only h
     const item = node.__eformsUploadRuntime.items[0];
     item.xhr.upload.onprogress({ lengthComputable: true, loaded: item.bytes, total: item.bytes });
   });
-  const unresolvedCard = page.locator('[data-eforms-upload-state="verifying"]');
+  const unresolvedCard = page.locator('[data-eforms-upload-state="processing"]');
   const restingBackground = await unresolvedCard.evaluate(node => getComputedStyle(node).backgroundColor);
   const blocked = await page.evaluate(() => {
     const form = document.querySelector('form');
@@ -2142,7 +2226,7 @@ test('submit blocks unresolved cards, restores the exact label, and posts only h
     return { allowed, activeState: document.activeElement.getAttribute('data-eforms-upload-state') };
   });
   expect(blocked.allowed).toBeFalsy();
-  expect(blocked.activeState).toBe('verifying');
+  expect(blocked.activeState).toBe('processing');
   const focusedStyle = await unresolvedCard.evaluate(node => {
     const style = getComputedStyle(node);
     return { backgroundColor: style.backgroundColor, outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
@@ -2490,19 +2574,11 @@ test('uploaded cards use quiet overlay removal while failed cards keep action te
   await expect(failed.locator('.eforms-upload-actions')).toBeVisible();
 });
 
-test('responsive uploader geometry keeps accessible targets and removes mobile drag wording', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 800 });
+test('responsive uploader keeps accessible targets and removes mobile drag wording', async ({ page }) => {
+  await page.setViewportSize({ width: 300, height: 800 });
   await boot(page, formMarkup());
   await addFormStyles(page);
-  const grid = page.locator('.eforms-upload-grid');
-  const hint = page.locator('.eforms-upload-drop-hint');
-  const columns = async () => grid.evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').filter(Boolean).length);
-  expect(await columns()).toBe(3);
-  await page.setViewportSize({ width: 600, height: 800 });
-  expect(await columns()).toBe(2);
-  await expect(hint).toBeHidden();
-  await page.setViewportSize({ width: 300, height: 800 });
-  expect(await columns()).toBe(1);
+  await expect(page.locator('.eforms-upload-drop-hint')).toBeHidden();
 
   await page.route('https://example.test/eforms/upload-batches**', async route => {
     const kind = routeKind(route.request().url());

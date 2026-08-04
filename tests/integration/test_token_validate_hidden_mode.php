@@ -82,6 +82,45 @@ $_SERVER['HTTP_HOST'] = 'example.com';
 unset( $GLOBALS['eforms_test_home_url'] );
 eforms_test_remove_tree( $uploads_dir );
 
+// Given a URL-shaped malformed Origin whose host would otherwise match...
+// When hard origin mode evaluates the request...
+// Then the canonical origin owner rejects it instead of stripping attacker-controlled URL parts.
+$uploads_dir = eforms_test_setup_uploads( 'eforms-token-validate' );
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config ) {
+        $config['security']['origin_mode'] = 'hard';
+        $config['security']['origin_missing_hard'] = false;
+        return $config;
+    }
+);
+Config::reset_for_tests();
+$GLOBALS['eforms_test_home_url'] = 'https://example.com';
+
+$mint = Security::mint_hidden_record( 'contact' );
+$post = array(
+    'eforms_token' => $mint['token'],
+    'instance_id' => $mint['instance_id'],
+    'js_ok' => '1',
+    'eforms_hp' => '',
+);
+$request = array(
+    'headers' => array( 'Origin' => 'https://attacker@example.com/form?x=1' ),
+);
+
+$result = Security::token_validate( $post, 'contact', $request );
+eforms_test_assert( $result['hard_fail'] === true, 'Malformed URL-shaped Origin should hard-fail in hard mode.' );
+eforms_test_assert( $result['error_code'] === 'EFORMS_ERR_ORIGIN_FORBIDDEN', 'Malformed Origin hard-fail should use origin forbidden code.' );
+
+$mint = Security::mint_hidden_record( 'contact' );
+$post['eforms_token'] = $mint['token'];
+$post['instance_id'] = $mint['instance_id'];
+$request['headers']['Origin'] = 'https://example.com/';
+$result = Security::token_validate( $post, 'contact', $request );
+eforms_test_assert( $result['hard_fail'] === true && $result['error_code'] === 'EFORMS_ERR_ORIGIN_FORBIDDEN', 'Origin with a trailing-slash path should hard-fail in hard mode.' );
+unset( $GLOBALS['eforms_test_home_url'] );
+eforms_test_remove_tree( $uploads_dir );
+
 // Given a fast, aged, non-JS submission with missing Origin...
 // When token_validate runs in auto challenge mode...
 // Then it emits the full soft-reason set and requires a challenge.

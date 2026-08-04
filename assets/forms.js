@@ -120,7 +120,7 @@
         var batchFields = ['root', 'batch_id', 'batch_secret'];
         var dataAttributes = ['mount', 'picker', 'pickerId', 'field', 'accept', 'maxFiles', 'maxFileBytes', 'maxTotalBytes'];
         var responseFields = ['batchId', 'state', 'acceptUntil', 'deleteAfter', 'items', 'intents', 'limits', 'maxFileBytes', 'maxFiles', 'maxTotalBytes', 'uploadId', 'ordinal', 'displayName', 'bytes', 'authorized', 'committed', 'transport', 'transportKind', 'transportUrl', 'transportGrant', 'transportMime'];
-        var runtimeValues = ['batchIdChars', 'batchSecretBytes', 'uploadIdBytes', 'uploadIdMaxChars', 'concurrency', 'displayNameMaxChars'];
+        var runtimeValues = ['batchIdChars', 'batchSecretBytes', 'uploadIdBytes', 'uploadIdMaxChars', 'transferConcurrency', 'workerPipelineConcurrency', 'localPipelineConcurrency', 'displayNameMaxChars'];
         var complete = names.every(function (key) {
             return typeof configured[key] === 'string' && configured[key] !== '';
         }) && configured.batchFields && batchFields.every(function (key) {
@@ -2145,8 +2145,8 @@
         if (item.state === 'uploading') {
             return 'Uploading';
         }
-        if (item.state === 'verifying') {
-            return 'Finishing upload...';
+        if (item.state === 'securing' || item.state === 'registering') {
+            return 'Processing';
         }
         if (item.state === 'uploaded') {
             return item.previewUnavailable ? 'Uploaded (preview unavailable)' : 'Uploaded';
@@ -2157,7 +2157,17 @@
         if (item.state === 'removing') {
             return 'Removing';
         }
-        return item.state === 'queued' ? 'Queued' : '';
+        return item.state === 'queued' || item.state === 'authorizing' ? 'Queued' : '';
+    }
+
+    function visibleItemState(item) {
+        if (item.state === 'authorizing') {
+            return 'queued';
+        }
+        if (item.state === 'securing' || item.state === 'registering') {
+            return 'processing';
+        }
+        return item.state;
     }
 
     function fieldAnnouncement(runtime, text) {
@@ -2248,7 +2258,7 @@
         }
 
         item.card.setAttribute('data-eforms-upload-id', item.id);
-        item.card.setAttribute('data-eforms-upload-state', item.state);
+        item.card.setAttribute('data-eforms-upload-state', visibleItemState(item));
         if (item.previewUnavailable) {
             item.card.setAttribute('data-eforms-upload-preview', 'unavailable');
         } else {
@@ -2264,7 +2274,7 @@
         item.progressNode.textContent = item.progress + '%';
         item.progressNode.setAttribute('aria-valuenow', String(item.progress));
         item.progressNode.style.background = 'conic-gradient(var(--eforms-upload-accent) ' + (item.progress * 3.6) + 'deg, var(--eforms-upload-track) 0)';
-        item.progressNode.hidden = item.state !== 'uploading' && item.state !== 'verifying';
+        item.progressNode.hidden = item.state !== 'uploading';
         item.retryButton.hidden = item.state !== 'failed' || runtime.frozen || runtime.expired || runtime.unavailable || (!item.file && !item.sourceFile);
         item.actionsNode.hidden = item.retryButton.hidden;
         item.removeButton.hidden = item.state === 'removed' || runtime.frozen || runtime.unavailable;
@@ -2279,7 +2289,7 @@
         item.state = state;
         item.error = typeof error === 'string' ? error.slice(0, 160) : '';
         renderItem(runtime, item);
-        if (changed && state !== 'queued') {
+        if (changed && visibleItemState(item) !== 'queued') {
             var announcement = state === 'uploading' ? 'Upload started' : stateLabel(item);
             fieldAnnouncement(runtime, item.name + ': ' + announcement);
         }
@@ -2419,6 +2429,14 @@
         runtime.mount.setAttribute('data-eforms-upload-expired', '1');
         runtime.fieldStatus.textContent = 'Form expired\u2014reload and select your photos again.';
         forEachNode(runtime.items, function (item) {
+            if (item.state !== 'uploaded' && item.state !== 'removed') {
+                setItemState(runtime, item, 'failed', 'Form expired. Reload and select this photo again.');
+            }
+            if (item.xhr) {
+                item.xhr.abort();
+            }
+            abortTransferFetch(runtime, item);
+            abortControlFetch(item);
             renderItem(runtime, item);
         });
         fieldAnnouncement(runtime, 'Form expired\u2014reload and select your photos again.');
@@ -2440,6 +2458,14 @@
         runtime.mount.setAttribute('data-eforms-upload-unavailable', '1');
         runtime.fieldStatus.textContent = 'Photos are unavailable\u2014reload and select them again.';
         forEachNode(runtime.items, function (item) {
+            if (item.state !== 'uploaded' && item.state !== 'removed') {
+                setItemState(runtime, item, 'failed', 'Upload unavailable. Reload the form.');
+            }
+            if (item.xhr) {
+                item.xhr.abort();
+            }
+            abortTransferFetch(runtime, item);
+            abortControlFetch(item);
             renderItem(runtime, item);
         });
         fieldAnnouncement(runtime, runtime.fieldStatus.textContent);
@@ -2604,12 +2630,40 @@
         });
     }
 
-    function releaseUploadSlot(runtime, item) {
-        if (item.slotActive) {
-            item.slotActive = false;
-            runtime.active = Math.max(0, runtime.active - 1);
-            scheduleUploads(runtime);
-        }
+    function itemHoldsTransferPermit(item) {
+        return item.state === 'authorizing' || item.state === 'uploading';
+    }
+
+    function itemHoldsPipelinePermit(item) {
+        return itemHoldsTransferPermit(item) || item.state === 'securing' || item.state === 'registering';
+    }
+
+    function uploadPermitCensus(runtime) {
+        var census = { transfer: 0, worker: 0, local: 0 };
+        forEachNode(runtime.items, function (item) {
+            if (itemHoldsTransferPermit(item)) {
+                census.transfer += 1;
+            }
+            if (!itemHoldsPipelinePermit(item)) {
+                return;
+            }
+            if (item.transportKind === uploadName('workerTransport')) {
+                census.worker += 1;
+            } else if (item.transportKind === uploadName('localTransport')) {
+                census.local += 1;
+            } else {
+                census.worker += 1;
+                census.local += 1;
+            }
+        });
+        return census;
+    }
+
+    function uploadPermitsAvailable(runtime) {
+        var census = uploadPermitCensus(runtime);
+        return census.transfer < uploadRuntimeValue('transferConcurrency')
+            && census.worker < uploadRuntimeValue('workerPipelineConcurrency')
+            && census.local < uploadRuntimeValue('localPipelineConcurrency');
     }
 
     function markPreviewUnavailable(runtime, item, request) {
@@ -2738,17 +2792,9 @@
         });
     }
 
-    function releaseStarting(runtime, item) {
-        if (item.starting) {
-            item.starting = false;
-            runtime.starting = Math.max(0, runtime.starting - 1);
-        }
-    }
-
     function reconcileStartingUpload(runtime, item, retireIfAbsent) {
         var operation = reconcileItem(runtime, item, false, retireIfAbsent);
         var release = function () {
-            releaseStarting(runtime, item);
             scheduleUploads(runtime);
         };
         return operation.then(release, release);
@@ -2757,7 +2803,7 @@
     function reconcileActiveUpload(runtime, item) {
         var operation = reconcileItem(runtime, item);
         var release = function () {
-            releaseUploadSlot(runtime, item);
+            scheduleUploads(runtime);
         };
         return operation.then(release, release);
     }
@@ -2780,8 +2826,7 @@
         if (controller) {
             controller.abort();
         }
-        releaseStarting(runtime, item);
-        releaseUploadSlot(runtime, item);
+        scheduleUploads(runtime);
     }
 
     function acceptCommittedItem(runtime, item, payload) {
@@ -2797,15 +2842,12 @@
     }
 
     function beginMultipartUpload(runtime, item) {
-        releaseStarting(runtime, item);
-        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || item.state !== 'queued') {
+        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || item.state !== 'authorizing') {
             scheduleUploads(runtime);
             return;
         }
         var xhr = new XMLHttpRequest();
         item.xhr = xhr;
-        item.slotActive = true;
-        runtime.active += 1;
         item.progress = 0;
         setItemState(runtime, item, 'uploading');
         var url = managedUrl('/' + encodeURIComponent(runtime.batchId) + '/items/' + encodeURIComponent(item.id));
@@ -2818,7 +2860,8 @@
             }
             item.progress = Math.max(0, Math.min(100, Math.floor((event.loaded / event.total) * 100)));
             if (item.progress >= 100) {
-                setItemState(runtime, item, 'verifying');
+                setItemState(runtime, item, 'securing');
+                scheduleUploads(runtime);
             } else {
                 renderItem(runtime, item);
             }
@@ -2826,12 +2869,13 @@
         xhr.upload.onload = function () {
             if (item.state === 'uploading') {
                 item.progress = 100;
-                setItemState(runtime, item, 'verifying');
+                setItemState(runtime, item, 'securing');
+                scheduleUploads(runtime);
             }
         };
         xhr.onload = function () {
             if (item.state === 'removed' || item.state === 'removing') {
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
                 return;
             }
             if (xhr.status === 200) {
@@ -2842,13 +2886,13 @@
                     payload = null;
                 }
                 acceptCommittedItem(runtime, item, payload);
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
                 return;
             }
             if (xhr.status === 410) {
                 unavailableRuntime(runtime);
                 setItemState(runtime, item, 'failed', 'Upload unavailable. Reload the form.');
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
                 return;
             }
             if (xhr.status === 0 || xhr.status === 409 || xhr.status >= 500) {
@@ -2856,17 +2900,17 @@
                 return;
             }
             setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
-            releaseUploadSlot(runtime, item);
+            scheduleUploads(runtime);
         };
         xhr.onerror = function () {
             if (item.state !== 'removed' && item.state !== 'removing') {
                 reconcileActiveUpload(runtime, item);
             } else {
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
             }
         };
         xhr.onabort = function () {
-            releaseUploadSlot(runtime, item);
+            scheduleUploads(runtime);
         };
         var data = new FormData();
         var declaredMime = uploadMime(item);
@@ -2879,7 +2923,7 @@
         xhr.send(data);
     }
 
-    function completeWorkerUpload(runtime, item, receipt) {
+    function registerWorkerStoredReceipt(runtime, item, receipt) {
         var body = encodeURIComponent(uploadName('receiptParam')) + '=' + encodeURIComponent(receipt);
         var headers = uploadHeaders(runtime);
         headers['Content-Type'] = 'application/x-www-form-urlencoded';
@@ -2900,18 +2944,18 @@
         }).then(function (result) {
             clearTransferFetch(item, controller);
             if (item.state === 'removed' || item.state === 'removing' || runtime.destroyed) {
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
                 return;
             }
             if (result.status === 200) {
                 acceptCommittedItem(runtime, item, result.payload);
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
                 return;
             }
             if (result.status === 410) {
                 unavailableRuntime(runtime);
                 setItemState(runtime, item, 'failed', 'Upload unavailable. Reload the form.');
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
                 return;
             }
             if (result.status === 0 || result.status === 409 || result.status >= 500) {
@@ -2919,27 +2963,24 @@
                 return;
             }
             setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
-            releaseUploadSlot(runtime, item);
+            scheduleUploads(runtime);
         }).catch(function () {
             clearTransferFetch(item, controller);
             if (item.state !== 'removed' && item.state !== 'removing') {
                 reconcileActiveUpload(runtime, item);
             } else {
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
             }
         });
     }
 
     function beginWorkerUpload(runtime, item, transport) {
-        releaseStarting(runtime, item);
-        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || item.state !== 'queued') {
+        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || item.state !== 'authorizing') {
             scheduleUploads(runtime);
             return;
         }
         var xhr = new XMLHttpRequest();
         item.xhr = xhr;
-        item.slotActive = true;
-        runtime.active += 1;
         item.progress = 0;
         setItemState(runtime, item, 'uploading');
         xhr.open('PUT', transport[uploadResponseName('transportUrl')], true);
@@ -2952,7 +2993,8 @@
             }
             item.progress = Math.max(0, Math.min(100, Math.floor((event.loaded / event.total) * 100)));
             if (item.progress >= 100) {
-                setItemState(runtime, item, 'verifying');
+                setItemState(runtime, item, 'securing');
+                scheduleUploads(runtime);
             } else {
                 renderItem(runtime, item);
             }
@@ -2960,12 +3002,13 @@
         xhr.upload.onload = function () {
             if (item.state === 'uploading') {
                 item.progress = 100;
-                setItemState(runtime, item, 'verifying');
+                setItemState(runtime, item, 'securing');
+                scheduleUploads(runtime);
             }
         };
         xhr.onload = function () {
             if (item.state === 'removed' || item.state === 'removing' || runtime.destroyed) {
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
                 return;
             }
             if (xhr.status === 200) {
@@ -2977,7 +3020,8 @@
                 }
                 var receipt = payload && payload[uploadName('receiptParam')];
                 if (typeof receipt === 'string' && receipt !== '') {
-                    completeWorkerUpload(runtime, item, receipt);
+                    setItemState(runtime, item, 'registering');
+                    registerWorkerStoredReceipt(runtime, item, receipt);
                     return;
                 }
             }
@@ -2986,17 +3030,17 @@
                 return;
             }
             setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
-            releaseUploadSlot(runtime, item);
+            scheduleUploads(runtime);
         };
         xhr.onerror = function () {
             if (item.state !== 'removed' && item.state !== 'removing') {
                 reconcileActiveUpload(runtime, item);
             } else {
-                releaseUploadSlot(runtime, item);
+                scheduleUploads(runtime);
             }
         };
         xhr.onabort = function () {
-            releaseUploadSlot(runtime, item);
+            scheduleUploads(runtime);
         };
         xhr.send(item.file);
     }
@@ -3045,12 +3089,10 @@
         }).then(function (result) {
             clearTransferFetch(item, controller);
             if (item.state === 'removed' || item.state === 'removing' || runtime.destroyed) {
-                releaseStarting(runtime, item);
                 scheduleUploads(runtime);
                 return;
             }
             if (result.status === 410) {
-                releaseStarting(runtime, item);
                 unavailableRuntime(runtime);
                 setItemState(runtime, item, 'failed', 'Upload unavailable. Reload the form.');
                 scheduleUploads(runtime);
@@ -3058,18 +3100,18 @@
             }
             if (result.status === 200 && result.payload && result.payload[uploadResponseName('authorized')] === true) {
                 if (result.payload[uploadResponseName('committed')] === true) {
-                    releaseStarting(runtime, item);
                     acceptCommittedItem(runtime, item, result.payload);
                     scheduleUploads(runtime);
                 } else {
                     var transport = result.payload[uploadResponseName('transport')];
                     var transportKind = transport && transport[uploadResponseName('transportKind')];
                     if (transportKind === uploadName('localTransport')) {
+                        item.transportKind = transportKind;
                         beginMultipartUpload(runtime, item);
                     } else if (validWorkerTransport(transport, item)) {
+                        item.transportKind = transportKind;
                         beginWorkerUpload(runtime, item, transport);
                     } else {
-                        releaseStarting(runtime, item);
                         setItemState(runtime, item, 'failed', 'Upload failed. Retry.');
                         scheduleUploads(runtime);
                     }
@@ -3077,42 +3119,40 @@
                 return;
             }
             if (result.status === 409 || result.status >= 500) {
-                setItemState(runtime, item, 'verifying');
+                setItemState(runtime, item, 'securing');
+                scheduleUploads(runtime);
                 reconcileStartingUpload(runtime, item, result.status === 409);
             } else {
-                releaseStarting(runtime, item);
                 setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
                 scheduleUploads(runtime);
             }
         }).catch(function () {
             clearTransferFetch(item, controller);
             if (item.state !== 'removed' && item.state !== 'removing') {
-                setItemState(runtime, item, 'verifying');
+                setItemState(runtime, item, 'securing');
+                scheduleUploads(runtime);
                 reconcileStartingUpload(runtime, item);
             } else {
-                releaseStarting(runtime, item);
                 scheduleUploads(runtime);
             }
         });
     }
 
     function startUpload(runtime, item) {
-        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || !item.artifactChosen || !item.file || item.state !== 'queued' || item.starting) {
+        if (runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed || !item.artifactChosen || !item.file || item.state !== 'queued') {
             return;
         }
-        item.starting = true;
-        runtime.starting += 1;
+        item.transportKind = '';
+        setItemState(runtime, item, 'authorizing');
         ensureBatch(runtime, function (ok) {
-            if (!ok || runtime.expired || runtime.unavailable || item.state !== 'queued') {
-                releaseStarting(runtime, item);
-                if (item.state === 'queued') {
+            if (!ok || runtime.expired || runtime.unavailable || item.state !== 'authorizing') {
+                if (item.state === 'authorizing') {
                     setItemState(runtime, item, 'failed', 'Upload could not start. Retry.');
                 }
                 scheduleUploads(runtime);
                 return;
             }
             if (item.bytes > runtime.maxFileBytes) {
-                releaseStarting(runtime, item);
                 setItemState(runtime, item, 'failed', 'Upload rejected. Retry or remove.');
                 scheduleUploads(runtime);
                 return;
@@ -3125,7 +3165,7 @@
         if (runtime.clearing || runtime.frozen || runtime.expired || runtime.unavailable || runtime.destroyed) {
             return;
         }
-        for (var i = 0; i < runtime.items.length && runtime.active + runtime.starting < uploadRuntimeValue('concurrency'); i += 1) {
+        for (var i = 0; i < runtime.items.length && uploadPermitsAvailable(runtime); i += 1) {
             if (runtime.items[i].state === 'queued' && runtime.items[i].artifactChosen) {
                 startUpload(runtime, runtime.items[i]);
             }
@@ -3256,8 +3296,10 @@
         if (runtime.frozen || runtime.unavailable || runtime.destroyed || item.state === 'removed' || item.state === 'removing') {
             return;
         }
-        var hasServerState = item.artifactChosen || item.starting || item.slotActive || item.controlRequest;
-        if (item.xhr && (item.state === 'uploading' || item.state === 'verifying')) {
+        var hasServerState = item.artifactChosen || item.controlRequest;
+        var abortBody = item.xhr && (item.state === 'uploading' || item.state === 'securing');
+        setItemState(runtime, item, 'removing');
+        if (abortBody) {
             item.xhr.abort();
         }
         abortPreparation(item);
@@ -3266,7 +3308,6 @@
             finishLocalRemoval(runtime, item);
             return;
         }
-        setItemState(runtime, item, 'removing');
         scheduleRemovals(runtime);
     }
 
@@ -3309,8 +3350,7 @@
                 xhr: null,
                 transferController: null,
                 controlRequest: null,
-                slotActive: false,
-                starting: false,
+                transportKind: '',
                 removalInFlight: false,
                 preparationAttempt: 0,
                 previewRequest: 0
@@ -3377,8 +3417,7 @@
                 xhr: null,
                 transferController: null,
                 controlRequest: null,
-                slotActive: false,
-                starting: false,
+                transportKind: '',
                 removalInFlight: false,
                 preparationAttempt: 0,
                 previewRequest: 0
@@ -3723,8 +3762,6 @@
                 requiredPrompted: false,
                 items: [],
                 nextOrdinal: 0,
-                active: 0,
-                starting: 0,
                 clearing: false,
                 removalActive: false,
                 batchId: '',

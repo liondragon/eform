@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Admin/SubmissionsAdmin.php';
 require_once __DIR__ . '/../../src/Uploads/UploadBatchStore.php';
@@ -21,10 +22,6 @@ if ( ! function_exists( 'wp_salt' ) ) {
     function wp_salt( $scheme = 'auth' ) {
         return 'eforms-submissions-admin-' . (string) $scheme . '-salt';
     }
-}
-
-function eforms_test_submissions_admin_secret( $byte ) {
-    return rtrim( strtr( base64_encode( str_repeat( $byte, Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
 }
 
 function eforms_test_submissions_admin_snapshot( $submission_id, $submitted_at ) {
@@ -94,7 +91,7 @@ function eforms_test_submissions_admin_fixture( $uploads_dir, $name, $now ) {
         'field_key' => 'project_photos',
         'accept_until' => $now + 3600,
     );
-    $secret = eforms_test_submissions_admin_secret( substr( hash( 'sha256', $name, true ), 0, 1 ) );
+    $secret = eforms_test_managed_batch_secret( substr( hash( 'sha256', $name, true ), 0, 1 ) );
     $created = UploadBatchStore::create_batch( $binding, $secret, $field, $uploads_dir, $now );
     eforms_test_assert( ! empty( $created['ok'] ), 'Submissions admin fixture should create a batch.' );
 
@@ -134,6 +131,94 @@ function eforms_test_submissions_admin_fixture( $uploads_dir, $name, $now ) {
     );
 }
 
+function eforms_test_submissions_admin_worker_fixture( $uploads_dir, $name, $now ) {
+    $field = array(
+        'type' => 'files',
+        'upload_mode' => 'staged',
+        'accept' => array( 'image' ),
+        'max_file_bytes' => 1048576,
+        'max_files' => 3,
+        'max_total_bytes' => 3145728,
+    );
+    $binding = array(
+        'raw_token' => 'admin-list-worker-token-' . $name,
+        'form_id' => 'virtual-quote',
+        'instance_id' => 'admin-list-worker-instance-' . $name,
+        'field_key' => 'project_photos',
+        'accept_until' => $now + 3600,
+    );
+    $secret = eforms_test_managed_batch_secret( substr( hash( 'sha256', 'worker-' . $name, true ), 0, 1 ) );
+    $identity = str_repeat( 'b', 64 );
+    $created = UploadBatchStore::create_batch(
+        $binding,
+        $secret,
+        $field,
+        $uploads_dir,
+        $now,
+        FormProtocol::UPLOAD_TRANSPORT_WORKER,
+        $identity
+    );
+    eforms_test_assert( ! empty( $created['ok'] ), 'Submissions admin Worker fixture should create a schema-7 batch.' );
+
+    $batch_id = $created['batch']['batch_id'];
+    $upload_id = 'worker_photo_' . substr( hash( 'sha256', $name ), 0, 12 );
+    $manifest_path = $uploads_dir . '/eforms-private/' . UploadBatchStore::STAGED_DIR . '/' . Helpers::h2( $batch_id ) . '/' . $batch_id . '/' . UploadBatchStore::MANIFEST_FILENAME;
+    $authorized = UploadBatchStore::worker_authorize_intent(
+        $batch_id,
+        $secret,
+        $upload_id,
+        0,
+        $name . '.png',
+        1000,
+        'image/png',
+        $uploads_dir,
+        array(
+            'now' => $now + 1,
+            'storage_identity' => $identity,
+            'validation_contract_version' => WorkerProtocol::WORKER_VALIDATION_CONTRACT_VERSION,
+            'upload_until' => $now + 120,
+            'accept_until' => $binding['accept_until'],
+            'validation_until' => $binding['accept_until'] + 120,
+            'staged_delete_after' => $binding['accept_until'] + Anchors::get( 'MANAGED_STAGED_DELETE_GRACE_SECONDS' ),
+        )
+    );
+    eforms_test_assert( ! empty( $authorized['ok'] ), 'Submissions admin Worker fixture should authorize an item.' );
+    $manifest = json_decode( file_get_contents( $manifest_path ), true );
+    $completed = UploadBatchStore::worker_complete_stored_receipt(
+        $batch_id,
+        $secret,
+        $upload_id,
+        eforms_test_worker_stored_receipt( $manifest, $upload_id, 'admin-worker-version', 'admin-worker-etag' ),
+        $uploads_dir,
+        $now + 2
+    );
+    eforms_test_assert( ! empty( $completed['ok'] ), 'Submissions admin Worker fixture should complete a stored receipt.' );
+
+    $submission_id = eforms_test_uuid( 'submission-worker-' . $name );
+    $claimed = UploadBatchStore::worker_claim_finalization(
+        $batch_id,
+        $secret,
+        $binding,
+        $field,
+        array( UploadValue::review_staged_item( $completed['item'] ) ),
+        $submission_id,
+        $uploads_dir,
+        $now + 3
+    );
+    eforms_test_assert( ! empty( $claimed['ok'] ), 'Submissions admin Worker fixture should claim finalization.' );
+    $finalized = UploadBatchStore::worker_finalize( $batch_id, $submission_id, $uploads_dir, $now + 4 );
+    eforms_test_assert( ! empty( $finalized['ok'] ), 'Submissions admin Worker fixture should finalize schema-7 submission storage.' );
+    $snapshot = UploadBatchStore::store_review_snapshot(
+        $submission_id,
+        $uploads_dir,
+        eforms_test_submissions_admin_snapshot( $submission_id, $now + 4 ),
+        FormProtocol::UPLOAD_TRANSPORT_WORKER
+    );
+    eforms_test_assert( ! empty( $snapshot['ok'] ), 'Submissions admin Worker fixture should persist the schema-7 review sidecar.' );
+
+    return $finalized['submission'];
+}
+
 function eforms_test_submissions_admin_empty_fixture( $uploads_dir, $name, $now ) {
     $field = array(
         'type' => 'files',
@@ -150,7 +235,7 @@ function eforms_test_submissions_admin_empty_fixture( $uploads_dir, $name, $now 
         'field_key' => 'project_photos',
         'accept_until' => $now + 3600,
     );
-    $secret = eforms_test_submissions_admin_secret( substr( hash( 'sha256', $name, true ), 0, 1 ) );
+    $secret = eforms_test_managed_batch_secret( substr( hash( 'sha256', $name, true ), 0, 1 ) );
     $created = UploadBatchStore::create_batch( $binding, $secret, $field, $uploads_dir, $now );
     eforms_test_assert( ! empty( $created['ok'] ), 'Submissions admin empty fixture should create a batch.' );
 
@@ -272,6 +357,28 @@ eforms_test_assert( strpos( $html, '303-555-1212' ) === false, 'Submissions admi
 eforms_test_assert( strpos( $html, 'listing.example.test' ) === false, 'Submissions admin list should keep listing URL off the list.' );
 eforms_test_assert( strpos( $html, 'manifest.json' ) === false && strpos( $html, 'review.json' ) === false && strpos( $html, 'eforms-private' ) === false, 'Submissions admin list should not expose storage paths.' );
 eforms_test_assert( strpos( $html, 'artifact_store' ) === false && strpos( $html, 'object_key' ) === false, 'Submissions admin list should not expose provider or object identity fields.' );
+
+$worker_listing_uploads_dir = eforms_test_setup_uploads( 'eforms-submissions-admin-worker' );
+eforms_test_set_filter(
+    'eforms_config',
+    function ( $config ) use ( $worker_listing_uploads_dir ) {
+        $config['uploads']['dir'] = $worker_listing_uploads_dir;
+        return $config;
+    }
+);
+Config::reset_for_tests();
+$worker_retained = eforms_test_submissions_admin_worker_fixture( $worker_listing_uploads_dir, 'worker-retained', $now + 80 );
+$worker_limited = UploadBatchStore::retained_photo_submissions( $worker_listing_uploads_dir, $now + 100, 5 );
+eforms_test_assert(
+    ! empty( $worker_limited['ok'] )
+        && count( $worker_limited['submissions'] ) === 1
+        && $worker_limited['submissions'][0]['submission_id'] === $worker_retained['submission_id']
+        && $worker_limited['submissions'][0]['photo_count'] === 1,
+    'Retained listing should include finalized schema-7 Worker submissions.'
+);
+$worker_html = SubmissionsAdmin::render_html( array(), Config::get(), $now + 100 );
+eforms_test_assert( strpos( $worker_html, 'Kitchen remodel photos' ) !== false && strpos( $worker_html, '1 photo' ) !== false, 'Submissions admin should render schema-7 Worker rows through the normal listing.' );
+eforms_test_assert( strpos( $worker_html, 'object_key' ) === false && strpos( $worker_html, 'admin-worker-version' ) === false, 'Submissions admin Worker rows should not expose provider locators or versions.' );
 
 $scan_cap_uploads_dir = eforms_test_setup_uploads( 'eforms-submissions-admin-scan-cap' );
 eforms_test_set_filter(

@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Security/Security.php';
 require_once __DIR__ . '/../../src/Uploads/UploadBatchEndpoint.php';
@@ -73,10 +74,6 @@ class EformsTestUploadEndpointRequest {
     }
 }
 
-function eforms_test_upload_endpoint_secret( $byte ) {
-    return rtrim( strtr( base64_encode( str_repeat( $byte, Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
-}
-
 function eforms_test_upload_endpoint_request( $method, $content_type, $params, $secret, $files = array(), $ip = '203.0.113.40' ) {
     $headers = array( 'Origin' => 'https://example.com' );
     if ( $content_type !== '' ) {
@@ -108,7 +105,7 @@ $disabled_master_params = array(
     FormProtocol::UPLOAD_FIELD_PARAM => 'photos',
 );
 $disabled_master_create = UploadBatchEndpoint::create(
-    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $disabled_master_params, eforms_test_upload_endpoint_secret( "\x4f" ) )
+    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $disabled_master_params, eforms_test_managed_batch_secret( "\x4f" ) )
 );
 eforms_test_assert( $disabled_master_create['status'] === 503, 'Staged creation should fail closed when the master upload switch is disabled.' );
 eforms_test_assert( ! is_dir( $disabled_master_dir . '/eforms-private/staged' ), 'Disabled-master rejection should precede managed batch mutation.' );
@@ -124,7 +121,7 @@ $disabled_params = array(
     FormProtocol::UPLOAD_FIELD_PARAM => 'photos',
 );
 $disabled_create = UploadBatchEndpoint::create(
-    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $disabled_params, eforms_test_upload_endpoint_secret( "\x50" ) )
+    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $disabled_params, eforms_test_managed_batch_secret( "\x50" ) )
 );
 eforms_test_assert( $disabled_create['status'] === 503, 'Staged creation should fail closed when the mandatory throttle capability is disabled.' );
 eforms_test_assert( ! is_dir( $disabled_uploads_dir . '/eforms-private/staged' ), 'Disabled-throttle rejection should precede managed batch mutation.' );
@@ -134,7 +131,7 @@ $uploads_dir = eforms_test_setup_uploads( 'eforms-upload-endpoint' );
 eforms_test_upload_endpoint_config( $uploads_dir );
 $mint = Security::mint_js_record( 'upload-test', $uploads_dir );
 eforms_test_assert( $mint['ok'] === true, 'The endpoint fixture should mint one persisted form token.' );
-$secret = eforms_test_upload_endpoint_secret( "\x51" );
+$secret = eforms_test_managed_batch_secret( "\x51" );
 $create_params = array(
     FormProtocol::FIELD_FORM_ID => 'upload-test',
     FormProtocol::FIELD_INSTANCE_ID => $mint['instance_id'],
@@ -155,13 +152,13 @@ eforms_test_assert( $created['status'] === 200 && isset( $created['body']['batch
 eforms_test_assert( $created['headers']['Cache-Control'] === 'no-store, max-age=0', 'Every JSON batch response should be no-store.' );
 eforms_test_assert( strpos( json_encode( $created['body'] ), $secret ) === false, 'Create must not echo the batch secret.' );
 eforms_test_assert( $created['body']['limits']['max_file_bytes'] === Anchors::get( 'MANAGED_ARTIFACT_MAX_BYTES' ), 'Create should expose the effective managed-artifact limit before transfer.' );
-eforms_test_assert( $created['body']['limits']['max_files'] === 24 && $created['body']['limits']['max_total_bytes'] === 314572800, 'Create should expose the effective batch count and aggregate limits.' );
+eforms_test_assert( $created['body']['limits']['max_files'] === Anchors::get( 'MANAGED_STAGED_MAX_FILES' ) && $created['body']['limits']['max_total_bytes'] === 314572800, 'Create should expose the effective batch count and aggregate limits.' );
 $batch_id = $created['body']['batch_id'];
 
 $retry = UploadBatchEndpoint::create( $create_request );
 eforms_test_assert( $retry['status'] === 200 && $retry['body']['batch_id'] === $batch_id, 'A lost create response should converge through the same binding and secret.' );
 $different_secret_request = $create_request;
-$different_secret_request['headers'][ FormProtocol::HEADER_BATCH_SECRET ] = eforms_test_upload_endpoint_secret( "\x52" );
+$different_secret_request['headers'][ FormProtocol::HEADER_BATCH_SECRET ] = eforms_test_managed_batch_secret( "\x52" );
 $create_conflict = UploadBatchEndpoint::create( $different_secret_request );
 eforms_test_assert( $create_conflict['status'] === 409 && $create_conflict['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'A different create secret should return a generic conflict.' );
 
@@ -175,7 +172,7 @@ $expired_params = $create_params;
 $expired_params[ FormProtocol::FIELD_INSTANCE_ID ] = $expired_mint['instance_id'];
 $expired_params[ FormProtocol::FIELD_TOKEN ] = $expired_mint['token'];
 $expired_create = UploadBatchEndpoint::create(
-    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $expired_params, eforms_test_upload_endpoint_secret( "\x53" ) )
+    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $expired_params, eforms_test_managed_batch_secret( "\x53" ) )
 );
 eforms_test_assert( $expired_create['status'] === 410 && $expired_create['body'] === array( 'error' => 'EFORMS_ERR_TOKEN' ), 'Expired initial batch credentials should return an unambiguous terminal response.' );
 
@@ -206,7 +203,7 @@ $body_denied = UploadBatchEndpoint::status( $body_secret_only );
 eforms_test_assert( $body_denied['status'] === 409, 'Endpoint credentials in body/query parameters should be ignored.' );
 
 $removed_mint = Security::mint_js_record( 'upload-test', $uploads_dir );
-$removed_secret = eforms_test_upload_endpoint_secret( "\x54" );
+$removed_secret = eforms_test_managed_batch_secret( "\x54" );
 $removed_params = $create_params;
 $removed_params[ FormProtocol::FIELD_INSTANCE_ID ] = $removed_mint['instance_id'];
 $removed_params[ FormProtocol::FIELD_TOKEN ] = $removed_mint['token'];
@@ -404,7 +401,7 @@ $throttle_create_dir = eforms_test_setup_uploads( 'eforms-upload-create-throttle
 eforms_test_upload_endpoint_config( $throttle_create_dir );
 $create_mint = Security::mint_js_record( 'upload-test', $throttle_create_dir );
 eforms_test_upload_endpoint_config( $throttle_create_dir, true, 1 );
-$throttle_secret = eforms_test_upload_endpoint_secret( "\x61" );
+$throttle_secret = eforms_test_managed_batch_secret( "\x61" );
 $throttle_params = $create_params;
 $throttle_params[ FormProtocol::FIELD_INSTANCE_ID ] = $create_mint['instance_id'];
 $throttle_params[ FormProtocol::FIELD_TOKEN ] = $create_mint['token'];
@@ -424,7 +421,7 @@ eforms_test_remove_tree( $throttle_create_dir );
 $throttle_upload_dir = eforms_test_setup_uploads( 'eforms-upload-item-throttle' );
 eforms_test_upload_endpoint_config( $throttle_upload_dir );
 $upload_mint = Security::mint_js_record( 'upload-test', $throttle_upload_dir );
-$upload_secret = eforms_test_upload_endpoint_secret( "\x62" );
+$upload_secret = eforms_test_managed_batch_secret( "\x62" );
 $upload_create_params = $create_params;
 $upload_create_params[ FormProtocol::FIELD_INSTANCE_ID ] = $upload_mint['instance_id'];
 $upload_create_params[ FormProtocol::FIELD_TOKEN ] = $upload_mint['token'];
@@ -495,7 +492,7 @@ define( 'EFORMS_WORKER_ACTIVE_KEY_B64', rtrim( strtr( base64_encode( $worker_key
 
 $remote_rollout_dir = eforms_test_setup_uploads( 'eforms-upload-owner-remote-rollout' );
 eforms_test_upload_endpoint_config( $remote_rollout_dir );
-$remote_rollout_secret = eforms_test_upload_endpoint_secret( "\x65" );
+$remote_rollout_secret = eforms_test_managed_batch_secret( "\x65" );
 $remote_rollout = UploadBatchStore::create_batch(
     array(
         'raw_token' => 'remote-rollout-token',
@@ -529,9 +526,8 @@ $remote_rollout_authorize = eforms_test_upload_endpoint_request(
 );
 $remote_rollout_authorized = UploadBatchEndpoint::upload( $remote_rollout_authorize );
 eforms_test_assert(
-    $remote_rollout_authorized['status'] === 200
-        && $remote_rollout_authorized['body']['transport']['kind'] === FormProtocol::UPLOAD_TRANSPORT_WORKER,
-    'Authorization must route a retained Worker batch through its persisted owner after a Worker-to-local composition change.'
+    $remote_rollout_authorized['status'] === 503,
+    'Authorization for a retained Worker batch must fail closed after a Worker-to-local composition change.'
 );
 $remote_rollout_source = eforms_test_write_file( $remote_rollout_dir, 'remote-rollout.png', $png );
 $remote_rollout_multipart = eforms_test_upload_endpoint_request(
@@ -546,7 +542,7 @@ eforms_test_assert( UploadBatchEndpoint::upload( $remote_rollout_multipart )['st
 
 $wrong_worker_dir = eforms_test_setup_uploads( 'eforms-upload-owner-wrong-worker' );
 eforms_test_upload_endpoint_config( $wrong_worker_dir );
-$wrong_worker_secret = eforms_test_upload_endpoint_secret( "\x67" );
+$wrong_worker_secret = eforms_test_managed_batch_secret( "\x67" );
 $wrong_worker = UploadBatchStore::create_batch(
     array(
         'raw_token' => 'wrong-worker-token',
@@ -584,7 +580,7 @@ eforms_test_assert(
 
 $local_rollout_dir = eforms_test_setup_uploads( 'eforms-upload-owner-local-rollout' );
 eforms_test_upload_endpoint_config( $local_rollout_dir );
-$local_rollout_secret = eforms_test_upload_endpoint_secret( "\x66" );
+$local_rollout_secret = eforms_test_managed_batch_secret( "\x66" );
 $local_rollout = UploadBatchStore::create_batch(
     array(
         'raw_token' => 'local-rollout-token',
@@ -648,7 +644,7 @@ $invalid_composition_params = $create_params;
 $invalid_composition_params[ FormProtocol::FIELD_INSTANCE_ID ] = $invalid_composition_mint['instance_id'];
 $invalid_composition_params[ FormProtocol::FIELD_TOKEN ] = $invalid_composition_mint['token'];
 $invalid_composition = UploadBatchEndpoint::create(
-    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $invalid_composition_params, eforms_test_upload_endpoint_secret( "\x63" ), array(), '203.0.113.65' )
+    eforms_test_upload_endpoint_request( 'POST', 'application/x-www-form-urlencoded', $invalid_composition_params, eforms_test_managed_batch_secret( "\x63" ), array(), '203.0.113.65' )
 );
 eforms_test_assert( $invalid_composition['status'] === 503 && ! is_dir( $invalid_composition_dir . '/eforms-private/staged' ), 'An invalid explicit deployment composition must fail before aggregate mutation instead of falling back locally.' );
 eforms_test_remove_tree( $invalid_composition_dir );

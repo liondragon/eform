@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Security/Security.php';
 require_once __DIR__ . '/../../src/Security/StorageHealth.php';
@@ -92,10 +93,6 @@ function eforms_test_staged_field() {
     );
 }
 
-function eforms_test_staged_secret( $byte ) {
-    return rtrim( strtr( base64_encode( str_repeat( $byte, Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
-}
-
 function eforms_test_staged_batch( $form_id, $mint, $secret, $field, $uploads_dir, $source, $upload_id ) {
     $binding = array(
         'raw_token' => $mint['token'],
@@ -121,6 +118,78 @@ function eforms_test_staged_batch( $form_id, $mint, $secret, $field, $uploads_di
     );
     eforms_test_assert( $put['ok'] === true, 'Staged submission setup should commit one photo.' );
     $resolved = UploadBatchStore::resolve_open( $created['batch']['batch_id'], $secret, $binding, $field, $uploads_dir );
+    return array( 'binding' => $binding, 'batch_id' => $created['batch']['batch_id'], 'items' => $resolved['items'] );
+}
+
+function eforms_test_worker_staged_batch( $form_id, $mint, $secret, $field, $uploads_dir, $upload_id, $bytes, $now ) {
+    if ( ! defined( 'EFORMS_UPLOAD_COMPOSITION' ) ) {
+        define( 'EFORMS_UPLOAD_COMPOSITION', WorkerClient::COMPOSITION_WORKER );
+    }
+    if ( ! defined( 'EFORMS_WORKER_URL' ) ) {
+        define( 'EFORMS_WORKER_URL', 'https://media.example.test' );
+    }
+    if ( ! defined( 'EFORMS_WORKER_ENVIRONMENT_ID' ) ) {
+        define( 'EFORMS_WORKER_ENVIRONMENT_ID', 'staged-submit-worker' );
+    }
+    if ( ! defined( 'EFORMS_WORKER_ACTIVE_KEY_ID' ) ) {
+        define( 'EFORMS_WORKER_ACTIVE_KEY_ID', 'staged-submit-key' );
+    }
+    if ( ! defined( 'EFORMS_WORKER_ACTIVE_KEY_B64' ) ) {
+        define( 'EFORMS_WORKER_ACTIVE_KEY_B64', rtrim( strtr( base64_encode( str_repeat( 'S', Anchors::get( 'WORKER_INTEGRATION_KEY_BYTES' ) ) ), '+/', '-_' ), '=' ) );
+    }
+    $binding = array(
+        'raw_token' => $mint['token'],
+        'form_id' => $form_id,
+        'instance_id' => $mint['instance_id'],
+        'field_key' => 'photos',
+        'accept_until' => $mint['expires'],
+    );
+    $identity = WorkerClient::composition_fingerprint();
+    eforms_test_assert( $identity !== '', 'Worker staged submission setup should bind a configured Worker composition.' );
+    $created = UploadBatchStore::create_batch(
+        $binding,
+        $secret,
+        $field,
+        $uploads_dir,
+        $now,
+        FormProtocol::UPLOAD_TRANSPORT_WORKER,
+        $identity
+    );
+    eforms_test_assert( $created['ok'] === true, 'Worker staged submission setup should create the batch.' );
+    $authorized = UploadBatchStore::worker_authorize_intent(
+        $created['batch']['batch_id'],
+        $secret,
+        $upload_id,
+        0,
+        'Worker Photo.png',
+        $bytes,
+        'image/png',
+        $uploads_dir,
+        array(
+            'now' => $now + 1,
+            'storage_identity' => $identity,
+            'validation_contract_version' => 'validation-v1',
+            'upload_until' => min( $now + 120, $mint['expires'] - 2 ),
+            'accept_until' => $mint['expires'],
+            'validation_until' => $mint['expires'],
+            'staged_delete_after' => $created['batch']['delete_after'],
+        )
+    );
+    eforms_test_assert( ! empty( $authorized['ok'] ), 'Worker staged submission setup should authorize one intent: ' . json_encode( $authorized ) );
+    $manifest_path = $uploads_dir . '/eforms-private/staged/' . Helpers::h2( $created['batch']['batch_id'] ) . '/' . $created['batch']['batch_id'] . '/' . UploadBatchStore::MANIFEST_FILENAME;
+    $manifest = json_decode( file_get_contents( $manifest_path ), true );
+    $receipt = eforms_test_worker_stored_receipt( $manifest, $upload_id, 'worker-submit-version', 'worker-submit-etag' );
+    $completed = UploadBatchStore::worker_complete_stored_receipt(
+        $created['batch']['batch_id'],
+        $secret,
+        $upload_id,
+        $receipt,
+        $uploads_dir,
+        $now + 2
+    );
+    eforms_test_assert( ! empty( $completed['ok'] ), 'Worker staged submission setup should register one Stored receipt: ' . json_encode( $completed ) );
+    $resolved = UploadBatchStore::resolve_open( $created['batch']['batch_id'], $secret, $binding, $field, $uploads_dir, $now + 3 );
+    eforms_test_assert( ! empty( $resolved['ok'] ), 'Worker staged submission setup should resolve the completed batch.' );
     return array( 'binding' => $binding, 'batch_id' => $created['batch']['batch_id'], 'items' => $resolved['items'] );
 }
 
@@ -259,7 +328,7 @@ eforms_test_staged_template( $template_dir, 'staged-demo' );
 eforms_test_staged_config( $uploads_dir );
 
 $required_photo_mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$required_photo_secret = eforms_test_staged_secret( "\x70" );
+$required_photo_secret = eforms_test_managed_batch_secret( "\x70" );
 $required_photo_batch = UploadBatchStore::create_batch(
     array(
         'raw_token' => $required_photo_mint['token'],
@@ -317,7 +386,7 @@ eforms_test_assert(
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x71" );
+$secret = eforms_test_managed_batch_secret( "\x71" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_one' );
 $changed_items = $batch['items'];
 $changed_items[0]['size']++;
@@ -413,7 +482,7 @@ Logging::reset_for_tests();
 eforms_test_reset_mail( false );
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x77" );
+$secret = eforms_test_managed_batch_secret( "\x77" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_mail_failure' );
 $mail_failure_request = eforms_test_staged_request( 'staged-demo', $mint, $batch['batch_id'], $secret );
 $mail_failure = SubmitHandler::handle( 'staged-demo', $mail_failure_request, array( 'template_base_dir' => $template_dir ) );
@@ -439,7 +508,7 @@ eforms_test_staged_template( $template_dir, 'staged-demo' );
 eforms_test_staged_config( $uploads_dir );
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x72" );
+$secret = eforms_test_managed_batch_secret( "\x72" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_rerender' );
 $invalid_request = eforms_test_staged_request( 'staged-demo', $mint, $batch['batch_id'], $secret, '' );
 $invalid = SubmitHandler::handle( 'staged-demo', $invalid_request, array( 'template_base_dir' => $template_dir ) );
@@ -457,7 +526,7 @@ eforms_test_assert(
 eforms_test_assert( UploadBatchStore::status( $batch['batch_id'], $secret, $uploads_dir )['batch']['state'] === 'open', 'Validation failure should not freeze the batch.' );
 
 $foreign = $invalid_request;
-$foreign['post'][ FormProtocol::FIELD_UPLOAD_BATCHES ]['photos'][ FormProtocol::UPLOAD_BATCH_SECRET ] = eforms_test_staged_secret( "\x73" );
+$foreign['post'][ FormProtocol::FIELD_UPLOAD_BATCHES ]['photos'][ FormProtocol::UPLOAD_BATCH_SECRET ] = eforms_test_managed_batch_secret( "\x73" );
 $foreign_result = SubmitHandler::handle( 'staged-demo', $foreign, array( 'template_base_dir' => $template_dir ) );
 eforms_test_assert( $foreign_result['ok'] === false && empty( $foreign_result['validated_upload_batches'] ), 'Invalid batch credentials should never be reflected into rerender state.' );
 
@@ -504,7 +573,7 @@ eforms_test_staged_template( $template_dir, 'staged-demo' );
 eforms_test_staged_config( $uploads_dir );
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x72" );
+$secret = eforms_test_managed_batch_secret( "\x72" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_preledger_validation' );
 eforms_test_assert( UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $batch['items'], $mint['token'], $uploads_dir )['ok'] === true, 'Pre-ledger validation fixture should persist the claim.' );
 $invalid_recovery = SubmitHandler::handle(
@@ -529,7 +598,7 @@ eforms_test_staged_template( $template_dir, 'staged-demo' );
 eforms_test_staged_config( $uploads_dir );
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x73" );
+$secret = eforms_test_managed_batch_secret( "\x73" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_preledger_challenge' );
 eforms_test_assert( UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $batch['items'], $mint['token'], $uploads_dir )['ok'] === true, 'Pre-ledger challenge fixture should persist the claim.' );
 $challenge_request = eforms_test_staged_request( 'staged-demo', $mint, $batch['batch_id'], $secret );
@@ -563,7 +632,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x66" );
+$secret = eforms_test_managed_batch_secret( "\x66" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_expired_preledger_validation' );
 eforms_test_assert( UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $batch['items'], $mint['token'], $uploads_dir )['ok'] === true, 'Expired pre-ledger validation fixture should persist the claim.' );
 eforms_test_expire_staged_claim_manifest( $uploads_dir, $batch['batch_id'] );
@@ -597,7 +666,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x67" );
+$secret = eforms_test_managed_batch_secret( "\x67" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_expired_preledger_challenge' );
 eforms_test_assert( UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $batch['items'], $mint['token'], $uploads_dir )['ok'] === true, 'Expired pre-ledger challenge fixture should persist the claim.' );
 eforms_test_expire_staged_claim_manifest( $uploads_dir, $batch['batch_id'] );
@@ -638,7 +707,7 @@ eforms_test_staged_template( $template_dir, 'staged-demo' );
 eforms_test_staged_config( $uploads_dir );
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x70" );
+$secret = eforms_test_managed_batch_secret( "\x70" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_used_ledger_validation' );
 eforms_test_assert( UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $batch['items'], $mint['token'], $uploads_dir )['ok'] === true, 'Used-ledger fixture should persist the claim.' );
 eforms_test_assert( Ledger::reserve( 'staged-demo', $mint['token'], $uploads_dir )['ok'] === true, 'Used-ledger fixture should persist the terminal marker.' );
@@ -663,7 +732,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x74" );
+$secret = eforms_test_managed_batch_secret( "\x74" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_recovery' );
 $claim = UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $batch['items'], $mint['token'], $uploads_dir );
 eforms_test_assert( $claim['ok'] === true, 'Crash fixture should persist the matching finalizing claim.' );
@@ -688,7 +757,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x64" );
+$secret = eforms_test_managed_batch_secret( "\x64" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_expired_recovery' );
 eforms_test_assert( UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $batch['items'], $mint['token'], $uploads_dir )['ok'] === true, 'Expired-token recovery fixture should persist the matching claim.' );
 eforms_test_assert( Ledger::reserve( 'staged-demo', $mint['token'], $uploads_dir )['ok'] === true, 'Expired-token recovery fixture should persist the ledger marker.' );
@@ -713,7 +782,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x65" );
+$secret = eforms_test_managed_batch_secret( "\x65" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_expired_open' );
 eforms_test_expire_staged_token_record( $uploads_dir, $mint['token'] );
 $expired_open = SubmitHandler::handle(
@@ -736,7 +805,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x75" );
+$secret = eforms_test_managed_batch_secret( "\x75" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_renamed' );
 eforms_test_assert( UploadBatchStore::claim_finalization( $batch['batch_id'], $secret, $batch['binding'], $field, $batch['items'], $mint['token'], $uploads_dir )['ok'] === true, 'Rename recovery fixture should persist the claim.' );
 eforms_test_assert( Ledger::reserve( 'staged-demo', $mint['token'], $uploads_dir )['ok'] === true, 'Rename recovery fixture should persist the ledger.' );
@@ -768,7 +837,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-prepare-attachment', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x77" );
+$secret = eforms_test_managed_batch_secret( "\x77" );
 $batch = eforms_test_staged_batch( 'staged-prepare-attachment', $mint, $secret, $field, $uploads_dir, $source, 'photo_prepare_failure' );
 $prepare_attachment = eforms_test_write_file( $uploads_dir, 'prepare-attachment.png', $png );
 $prepare_request = eforms_test_staged_request(
@@ -814,7 +883,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x78" );
+$secret = eforms_test_managed_batch_secret( "\x78" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_pre_marker' );
 $pre_marker_request = eforms_test_staged_request( 'staged-demo', $mint, $batch['batch_id'], $secret );
 $pre_marker_crashed = false;
@@ -866,7 +935,7 @@ $configure_retention( 0 );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'marker-loser-staged.png', $png );
 $mint = Security::mint_hidden_record( 'staged-attachment-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x7a" );
+$secret = eforms_test_managed_batch_secret( "\x7a" );
 $batch = eforms_test_staged_batch( 'staged-attachment-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_marker_loser' );
 $crash_attachment = eforms_test_write_file( $uploads_dir, 'marker-loser-crash.png', $png );
 $crash_request = eforms_test_staged_request(
@@ -944,7 +1013,7 @@ eforms_test_staged_config( $uploads_dir );
 eforms_test_reset_mail();
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x79" );
+$secret = eforms_test_managed_batch_secret( "\x79" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_post_marker' );
 $post_marker_request = eforms_test_staged_request( 'staged-demo', $mint, $batch['batch_id'], $secret );
 $post_marker_crashed = false;
@@ -980,7 +1049,7 @@ eforms_test_staged_template( $template_dir, 'staged-demo' );
 eforms_test_staged_config( $uploads_dir );
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x76" );
+$secret = eforms_test_managed_batch_secret( "\x76" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_ledger_fail' );
 $ledger_failure = SubmitHandler::handle(
     'staged-demo',
@@ -1008,7 +1077,7 @@ eforms_test_staged_template( $template_dir, 'staged-demo' );
 eforms_test_staged_config( $uploads_dir );
 $source = eforms_test_write_file( $uploads_dir, 'source.png', $png );
 $mint = Security::mint_hidden_record( 'staged-demo', $uploads_dir );
-$secret = eforms_test_staged_secret( "\x77" );
+$secret = eforms_test_managed_batch_secret( "\x77" );
 $batch = eforms_test_staged_batch( 'staged-demo', $mint, $secret, $field, $uploads_dir, $source, 'photo_ledger_marker_fail' );
 $marker_created = false;
 $marker_failure = SubmitHandler::handle(
@@ -1027,6 +1096,52 @@ eforms_test_assert( $marker_created === true, 'The ledger failure fixture should
 eforms_test_assert( $marker_failure['ok'] === false && $marker_failure['error_code'] === 'EFORMS_ERR_LEDGER_IO', 'A post-create ledger failure should retain its public IO error.' );
 $terminal = UploadBatchStore::status( $batch['batch_id'], $secret, $uploads_dir );
 eforms_test_assert( $terminal['ok'] === true && $terminal['batch']['state'] === 'finalizing', 'A durable marker must prevent a failed reservation from reopening mutation authority.' );
+
+$worker_uploads_dir = eforms_test_setup_uploads( 'eforms-worker-staged-submit' );
+$worker_template_dir = eforms_test_tmp_root( 'eforms-worker-staged-submit-template' );
+mkdir( $worker_template_dir, 0700, true );
+eforms_test_staged_template( $worker_template_dir, 'worker-staged-demo' );
+eforms_test_staged_config( $worker_uploads_dir );
+eforms_test_reset_mail();
+$worker_now = time();
+$worker_mint = Security::mint_hidden_record( 'worker-staged-demo', $worker_uploads_dir );
+$worker_secret = eforms_test_managed_batch_secret( "\x73" );
+$worker_batch = eforms_test_worker_staged_batch(
+    'worker-staged-demo',
+    $worker_mint,
+    $worker_secret,
+    $field,
+    $worker_uploads_dir,
+    'worker_photo_one',
+    strlen( $png ),
+    $worker_now
+);
+$worker_request = eforms_test_staged_request( 'worker-staged-demo', $worker_mint, $worker_batch['batch_id'], $worker_secret );
+$worker_manifest_path = $worker_uploads_dir . '/eforms-private/staged/' . Helpers::h2( $worker_batch['batch_id'] ) . '/' . $worker_batch['batch_id'] . '/' . UploadBatchStore::MANIFEST_FILENAME;
+$worker_current_manifest = json_decode( file_get_contents( $worker_manifest_path ), true );
+$worker_foreign_manifest = $worker_current_manifest;
+$worker_foreign_identity = str_repeat( 'd', 64 );
+$worker_foreign_manifest['artifact_store_identity'] = $worker_foreign_identity;
+$worker_foreign_manifest['items']['worker_photo_one']['storage_identity'] = $worker_foreign_identity;
+eforms_test_assert( file_put_contents( $worker_manifest_path, json_encode( $worker_foreign_manifest, JSON_UNESCAPED_SLASHES ) ) > 0, 'The Worker staged mismatch fixture should persist a foreign storage identity.' );
+$worker_foreign_result = SubmitHandler::handle( 'worker-staged-demo', $worker_request, array( 'template_base_dir' => $worker_template_dir ) );
+$worker_foreign_status = UploadBatchStore::status( $worker_batch['batch_id'], $worker_secret, $worker_uploads_dir );
+eforms_test_assert(
+    $worker_foreign_result['ok'] === false
+        && $worker_foreign_result['error_code'] === 'EFORMS_ERR_STORAGE_UNAVAILABLE'
+        && count( $GLOBALS['eforms_test_mail_calls'] ) === 0
+        && ! empty( $worker_foreign_status['ok'] )
+        && $worker_foreign_status['batch']['state'] === 'open',
+    'Worker composition mismatch should fail the staged submission before mail or a durable finalization claim.'
+);
+eforms_test_assert( file_put_contents( $worker_manifest_path, json_encode( $worker_current_manifest, JSON_UNESCAPED_SLASHES ) ) > 0, 'The Worker staged mismatch fixture should restore the current storage identity.' );
+$worker_result = SubmitHandler::handle( 'worker-staged-demo', $worker_request, array( 'template_base_dir' => $worker_template_dir ) );
+eforms_test_assert( $worker_result['ok'] === true, 'A complete authenticated Worker-backed staged batch should submit successfully through SubmitHandler.' );
+eforms_test_assert( UploadValue::is_review_staged_item( $worker_result['values']['photos'][0] ), 'Worker submission values should accept the canonical review-reference shape.' );
+eforms_test_assert( ! UploadValue::is_staged_item( $worker_result['values']['photos'][0] ), 'Worker submission values should not synthesize local MIME or dimension facts.' );
+eforms_test_assert( count( $GLOBALS['eforms_test_mail_calls'] ) === 1, 'The Worker staged happy path should invoke mail once.' );
+eforms_test_remove_tree( $worker_uploads_dir );
+eforms_test_remove_tree( $worker_template_dir );
 
 eforms_test_remove_tree( $uploads_dir );
 eforms_test_remove_tree( $template_dir );

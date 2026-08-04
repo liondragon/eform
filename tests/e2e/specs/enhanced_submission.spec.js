@@ -235,8 +235,8 @@ async function seedUploadedRuntimeCard(mount) {
     runtime.items.push({
       id: 'card', ordinal: 0, file: null, sourceFile: null, name: 'photo.png', bytes: 1,
       artifactChosen: true, objectUrl: '', previewUnavailable: true, state: 'uploaded', progress: 100,
-      error: '', xhr: null, transferController: null, controlRequest: null, slotActive: false,
-      starting: false, removalInFlight: false, preparationAttempt: 0, previewRequest: 0,
+      error: '', xhr: null, transferController: null, controlRequest: null, transportKind: '',
+      removalInFlight: false, preparationAttempt: 0, previewRequest: 0,
       card, image, nameNode: name, progressNode: progress, statusNode: status, actionsNode: actions, retryButton: retry, removeButton: remove
     });
     runtime.nextOrdinal = 1;

@@ -26,6 +26,12 @@
     "item_fields": ["upload_id", "ordinal", "display_name", "bytes", "mime", "width", "height", "object_key", "object_version", "accepted_at"],
     "tombstone_artifact_fields": ["object_key", "object_version", "bytes"]
   },
+  "worker_manifest": {
+    "version": 7,
+    "intent_fields": ["intent_id", "upload_id", "ordinal", "display_name", "declared_bytes", "declared_mime", "object_key", "policy_fingerprint", "storage_identity", "validation_contract_version", "created_at", "upload_until", "accept_until", "validation_until", "staged_delete_after", "reserved_bytes"],
+    "item_fields": ["upload_id", "intent_id", "ordinal", "display_name", "bytes", "object_key", "object_version", "etag", "policy_fingerprint", "storage_identity", "validation_contract_version", "validation_until", "staged_delete_after"],
+    "forbidden_item_fields": ["mime", "width", "height", "accepted_at"]
+  },
   "production_readiness": {
     "throttle_enable": true,
     "staged_backend": "authoritative-artifact"
@@ -41,7 +47,10 @@
     "MANAGED_ID_MAX_CHARS": 128,
     "MANAGED_BATCH_SECRET_BYTES": 32,
     "MANAGED_UPLOAD_ID_BYTES": 16,
-    "MANAGED_UPLOAD_CONCURRENCY": 3,
+    "MANAGED_UPLOAD_TRANSFER_CONCURRENCY": 3,
+    "MANAGED_UPLOAD_WORKER_PIPELINE_CONCURRENCY": 4,
+    "MANAGED_UPLOAD_LOCAL_PIPELINE_CONCURRENCY": 4,
+    "MANAGED_STAGED_MAX_FILES": 24,
     "MANAGED_DISPLAY_NAME_MAX_CHARS": 128,
     "MANAGED_ARTIFACT_MAX_BYTES": 18874368,
     "MANAGED_ARTIFACT_MAX_PIXELS": 60000000,
@@ -49,6 +58,8 @@
     "MANAGED_HEIF_MAX_BOXES": 4096,
     "MANAGED_HEIF_MAX_ASSOCIATION_ENTRIES": 4096,
     "MANAGED_HEIF_MAX_ASSOCIATIONS": 4096,
+    "WORKER_QUEUE_JOB_MAX_BYTES": 4096,
+    "WORKER_TERMINAL_RESULT_MAX_BYTES": 4096,
     "WORKER_SECONDARY_KEY_RETENTION_SECONDS": 3600,
     "STAGED_MULTIPART_OVERHEAD_BYTES": 1048576
   }

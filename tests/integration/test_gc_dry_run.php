@@ -8,6 +8,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Anchors.php';
 require_once __DIR__ . '/../../src/Uploads/PrivateDir.php';
@@ -28,7 +29,7 @@ if ( ! function_exists( 'eforms_test_gc_write_file' ) ) {
 
 if ( ! function_exists( 'eforms_test_gc_finalize_submission' ) ) {
     function eforms_test_gc_finalize_submission( $uploads_dir, $submission_id, $suffix, $now ) {
-        $secret = rtrim( strtr( base64_encode( str_repeat( "\x61", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
+        $secret = eforms_test_managed_batch_secret( "\x61" );
         $field = array(
             'type' => 'files',
             'upload_mode' => 'staged',

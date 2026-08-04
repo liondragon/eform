@@ -1,6 +1,6 @@
 <?php
 /**
- * Executable fixtures for the staged-upload contract before runtime owners land.
+ * Executable fixtures for the staged-upload contract and runtime owners.
  *
  * Retained Proof Owner: staged-upload fixed protocol and numeric fixtures.
  */
@@ -38,6 +38,13 @@ eforms_test_assert( preg_match( FormProtocol::managed_id_pattern(), str_repeat( 
 foreach ( $fixture['anchors'] as $name => $expected ) {
     eforms_test_assert( Anchors::get( $name ) === $expected, 'Staged-upload Anchor should match its reviewed fixture: ' . $name );
 }
+eforms_test_assert(
+    strpos(
+        file_get_contents( dirname( __DIR__, 2 ) . '/worker/src/anchors.js' ),
+        'export const MANAGED_STAGED_MAX_FILES = ' . Anchors::get( 'MANAGED_STAGED_MAX_FILES' ) . ';'
+    ) !== false,
+    'Worker generated anchors should expose the staged file ceiling from Anchors.'
+);
 
 $credentials = $fixture['credentials'];
 eforms_test_assert( $credentials === array(
@@ -61,6 +68,18 @@ eforms_test_assert(
         && in_array( 'accepted_at', $managed_manifest['item_fields'], true )
         && in_array( 'intent_id', $managed_manifest['intent_fields'], true ),
     'The manifest fixture should distinguish durable intents from committed immutable artifact facts.'
+);
+
+$worker_manifest = $fixture['worker_manifest'];
+eforms_test_assert( $worker_manifest['version'] === UploadBatchStore::WORKER_MANIFEST_VERSION, 'The Worker manifest fixture should track the code-owned schema version.' );
+eforms_test_assert(
+    in_array( 'storage_identity', $worker_manifest['intent_fields'], true )
+        && in_array( 'validation_contract_version', $worker_manifest['intent_fields'], true )
+        && in_array( 'upload_until', $worker_manifest['intent_fields'], true )
+        && in_array( 'validation_until', $worker_manifest['intent_fields'], true )
+        && in_array( 'storage_identity', $worker_manifest['item_fields'], true )
+        && count( array_intersect( $worker_manifest['forbidden_item_fields'], $worker_manifest['item_fields'] ) ) === 0,
+    'The Worker manifest fixture should persist storage/deadline facts without accepted-media item fields.'
 );
 
 $css = file_get_contents( dirname( __DIR__, 2 ) . '/assets/upload.css' );

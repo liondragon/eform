@@ -114,3 +114,17 @@ eforms_test_assert( ! isset( $staged['original_path'] ) && ! isset( $staged['pre
 eforms_test_assert( UploadValue::staged_items( $staged ) === array( $staged ), 'A singular staged value should normalize to one item.' );
 eforms_test_assert( UploadValue::staged_items( array( array( 'invalid' => true ), $staged ) ) === array( $staged ), 'Staged list shaping should retain only canonical staged items.' );
 eforms_test_assert( UploadValue::staged_item( array( 'upload_id' => 'incomplete' ) ) === array(), 'Incomplete staged manifest items should not resolve.' );
+$worker_review = UploadValue::review_staged_item(
+    array(
+        'upload_id' => 'worker-photo',
+        'ordinal' => 1,
+        'display_name' => 'Worker <Photo>.png',
+        'bytes' => 1200,
+        'object_key' => 'private-worker-key',
+    )
+);
+eforms_test_assert( UploadValue::is_review_staged_item( $worker_review ) === true, 'Worker review references should use the canonical staged-review value shape.' );
+eforms_test_assert( UploadValue::is_staged_item( $worker_review ) === false, 'Worker review references must not pretend to carry local media facts.' );
+eforms_test_assert( $worker_review['original_name_safe'] === 'Worker <Photo>.png' && ! isset( $worker_review['object_key'] ), 'Worker review references should use the shared display-name sanitizer and omit provider locators.' );
+eforms_test_assert( UploadValue::review_staged_items( array( array( 'invalid' => true ), $worker_review, $staged ) ) === array( $worker_review, $staged ), 'Review staged list shaping should retain Worker references and local staged items.' );
+eforms_test_assert( UploadValue::review_staged_items( array( 'upload_id' => 'raw', 'ordinal' => 2, 'display_name' => 'raw.png', 'bytes' => 10 ) ) === array(), 'Review list shaping must not convert raw storage summaries at a consumer boundary.' );

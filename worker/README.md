@@ -1,43 +1,78 @@
 # eForms media Worker
 
-This package owns the public edge boundary for production artifact uploads and
-authorized review delivery. It verifies one WordPress-signed item capability,
-streams bytes to a write-once R2 key, inspects the exact stored version through
-Cloudflare Images, and returns a signed receipt containing immutable object and
-media facts. A separate short-lived review grant can stream the exact artifact
-as an attachment or produce the fixed private JPEG preview. Neither path can
-mutate a WordPress batch or submission.
+This package owns the public edge boundary for production artifact uploads,
+asynchronous validation, bounded gallery status, and accepted-only review
+delivery. Ingress verifies one WordPress-signed item capability, streams bytes
+to a write-once R2 key, HEADs the exact stored version, awaits validation-Queue
+publication, and returns a signed Stored receipt containing immutable storage
+facts only. A Queue consumer inspects that exact version through Cloudflare
+Images and conditionally creates one immutable accepted or rejected terminal
+result. A separate short-lived review grant can stream or preview an artifact
+only while its exact accepted result still matches. No Worker path can mutate a
+WordPress batch or submission.
 
-`src/protocol.js` owns Worker-side envelope verification and signing.
+`src/protocol.js` owns Worker-side version `3` envelope verification and signing.
 `src/managed-artifact-key.js` owns the Worker peer of the canonical
 `artifacts/{h2(batch_id)}/{batch_id}/{ordinal}-{intent_id}.{ext}` R2 key. The
-extension comes from the signed, validated MIME and every item in one batch
+extension comes from the signed declared MIME and every item in one batch
 shares the same namespace; finalization never copies or renames an R2 object.
+`src/validation-result.js` owns terminal-result key derivation, strict JSON
+shape validation, conditional creation, and exact matching for Queue, status,
+review, and cleanup handlers. A result key is
+`{object_key}.validation-{sha256_hex(object_version)}.json`; version `1` result
+bodies and version `1` Queue jobs use the exact fields in
+`docs/contracts/Public_Contracts.md` and reject unknown fields.
 `src/anchors.js` is generated from the Worker-owned subset of
 `src/Anchors.php`; `worker/scripts/sync-anchors.php --check` keeps those fixed
-bounds synchronized without creating a second authority. Upload, object, and
-health envelopes apply the shared clock-skew allowance at expiry boundaries;
-review grants expire strictly at `expires_at`.
-`src/media.js` owns exact-version inspection plus bounded APNG and animated
+bounds synchronized without creating a second authority. Upload, status,
+object, and health envelopes apply the shared clock-skew rule only where the
+public contract permits it; `upload_until`, `accept_until`,
+`validation_until`, and review-grant expiry close at equality.
+`src/media.js` owns Queue-only exact-version inspection plus bounded APNG and animated
 WebP rejection; `src/heif.js` enforces the matching bounded still-image HEIF
-container policy without decoding pixels. `src/index.js` owns the `/v1/upload` CORS/upload boundary,
-signed `/v1/health` binding check, signed `/v1/object` exact-version
-inspect/delete operations used by restore, GC, and uninstall, and the signed
-`/v1/review` preview/download boundary. The PHP peer is
+container policy without decoding pixels. `src/index.js` owns the `/v1/upload`
+CORS/upload boundary, Queue `batch()` consumer, signed `/v1/gallery-status`,
+signed `/v1/health` binding check, signed `/v1/object` exact result/artifact
+inspect/delete operations used by restore, GC, and uninstall, and signed
+`/v1/review` accepted-only preview/download. The PHP peer is
 `src/Uploads/WorkerProtocol.php`; `tests/fixtures/worker_protocol.json` carries
 language-neutral claims and payload/signature digests.
 
-Successful inspection publishes one private zero-byte validation record whose
-key and metadata bind the exact artifact version, etag, intent, policy, and
-media facts. A second version-bound zero-byte lease admits one inspector at a
-time. Exact-etag state transitions own stale takeover and release so an old
-request cannot overwrite a successor lease; abandoned work becomes reclaimable
-only after the upload window.
-Existing-object retries may issue a receipt only from the validation record;
-an in-flight loser therefore cannot observe unvalidated bytes as successful,
-and validation failure preserves the object for WordPress-owned tombstone/GC
-cleanup. Exact deletion removes the artifact, validation record, and lease,
-while the `artifacts/` lifecycle rule remains the crash cleanup backstop.
+Ingress verifies origin, envelope, environment, storage identity, validation
+contract, deadline ordering, rate, content type, and declared length before R2
+access. It conditionally creates the deterministic key and never overwrites.
+An existing object is recoverable only when its key, size, immutable version,
+ETag, and custom metadata exactly match the signed identity and policy; the
+retry body is non-authoritative and is cancelled. Ingress HEADs the exact winner
+and calls `VALIDATION_QUEUE.send()` with one strict idempotent job. It returns a
+Stored receipt only after `send()` resolves while `upload_until` remains open.
+R2 success plus Queue failure returns a retryable error and no receipt; a later
+exact retry may republish the job while the boundary remains open.
+
+Queue delivery re-HEADs the exact object before inspection and again before
+result creation. A supported exact job that produces accepted media or a
+permanent media-policy rejection conditionally writes the first valid result;
+a result is authoritative only when its validation completion and R2
+server-recorded upload time are both strictly before `validation_until`;
+a late result is deletion-attempted and permanently acknowledged;
+a matching existing winner acknowledges, and a contradictory valid winner
+alerts then acknowledges without overwrite. Transient R2/Images failures retry
+only before `validation_until`. Unsupported validation versions acknowledge
+without provider work. Missing
+objects before that boundary retry; missing objects at or after it acknowledge
+without inspection or result creation. Malformed jobs and permanent
+identity/policy conflicts alert and acknowledge without creating a result.
+Provider exceptions never become rejected results. Queue exhaustion follows the
+configured retry policy into the deployment-owned DLQ.
+
+WordPress registration and submission never wait for Queue validation. Gallery
+status derives `accepted`, `pending`, or `unavailable` for one exact finalized
+manifest snapshot and never authorizes bytes. Review/download independently
+require the exact accepted result and exact R2 HEAD/read. Cleanup runs only after
+the WordPress-owned Queue-consumer and in-flight capability drains, deletes the
+terminal result before the artifact, confirms both absent, and returns a signed
+result before WordPress releases managed capacity. The `artifacts/` lifecycle
+rule remains a late whole-namespace crash/residue backstop.
 
 ## Bindings
 
@@ -45,12 +80,18 @@ The deployment must provide:
 
 - `ARTIFACTS`: a private R2 bucket binding;
 - `IMAGES`: a Cloudflare Images binding;
+- `VALIDATION_QUEUE`: a producer binding to the deployment-owned validation
+  Queue; the same Worker deployment owns its `batch()` consumer;
 - `UPLOAD_RATE_LIMITER`: the native intent-keyed rate-limit binding declared in
   `wrangler.jsonc`; its fixed limit and period mirror `src/Anchors.php` and are
   checked by `npm test`;
+- `EFORMS_WORKER_URL`: the exact public Worker HTTPS origin used by WordPress
+  to derive the storage identity;
 - `EFORMS_SITE_ORIGIN`: the exact WordPress origin, with no path;
 - `EFORMS_WORKER_ENVIRONMENT_ID`: the same deployment identity used by
   WordPress;
+- `EFORMS_VALIDATION_CONTRACT_VERSION`: the active validation contract the
+  Worker accepts for new grants;
 - `EFORMS_WORKER_ACTIVE_KEY_ID` and `EFORMS_WORKER_ACTIVE_KEY_B64`: the active
   integration key ID and unpadded base64url secret; and
 - optionally, matching secondary key ID/secret bindings during rotation.
@@ -60,10 +101,14 @@ Keep all key material out of committed files. The key byte bound is owned by
 Worker anchor module. Only the active key signs; the active and optional
 secondary keys verify.
 
-`wrangler.jsonc` declares the code entrypoint and binding names. Confirm the R2
-bucket name and inject the site-specific text/secret bindings in the deployment
-environment before deploying. WordPress uses `WorkerClient` for bounded signed
-data-plane calls; it never receives Cloudflare management credentials.
+`wrangler.jsonc` declares the code entrypoint, R2, Images, limiter, Queue
+producer/consumer, and DLQ bindings. Queue batch size, timeout, concurrency,
+retry, and DLQ settings are fixed by `src/Anchors.php` and synchronized through
+the existing anchor check rather than becoming operator configuration. Confirm
+the bucket, Queue, and DLQ names and inject the site-specific text/secret
+bindings in the deployment environment before deploying. WordPress uses
+`WorkerClient` for bounded signed data-plane calls; it never receives Cloudflare
+management credentials.
 
 ## Verification
 
@@ -73,10 +118,13 @@ Run:
 npm test --prefix worker
 php tests/unit/test_worker_protocol.php
 php tests/unit/test_worker_client.php
+php tests/unit/test_worker_deployment_preflight.php
 php tests/unit/test_r2_lifecycle_verifier.php
 ```
 
-The offline tests use in-memory R2 and Images fakes. A configured test Worker
+The offline tests use in-memory R2, Queue, and Images fakes. They cover upload,
+Queue acceptance/failure, duplicate delivery, result races, status, accepted-only
+review, and drained deletion without provider credentials. A configured test Worker
 and bucket can run the genuine-provider lane:
 
 ```sh
@@ -84,21 +132,31 @@ EFORMS_CF_INTEGRATION=1 \
 EFORMS_WORKER_URL=https://worker.example \
 EFORMS_SITE_ORIGIN=https://forms.example \
 EFORMS_WORKER_ENVIRONMENT_ID=integration \
+EFORMS_VALIDATION_CONTRACT_VERSION=managed-image-v1 \
 EFORMS_WORKER_ACTIVE_KEY_ID=key-integration \
 EFORMS_WORKER_ACTIVE_KEY_B64=... \
 npm run test:integration --prefix worker
 ```
 
-It uploads, genuinely inspects, previews, downloads, and deletes disposable
+It uploads, publishes, genuinely consumes and inspects, waits for the terminal
+result, previews, downloads, and deletes disposable
 JPEG, PNG, WebP, HEIC, and HEIF-alias objects. It also exercises the maximum
 accepted byte boundary, malformed/animated rejection, discarded-response retry,
-wrong-origin/environment rejection, wrong-version preview/deletion failure, and
-recovery with exact cleanup. Never point it at production customer data.
+wrong-origin/environment/validation-version rejection, Queue publication and consumption,
+wrong-version preview/deletion failure, and recovery with exact result/artifact
+cleanup. Never point it at production customer data.
 Discarding an already-received response proves idempotent application retry; it
 does not prove transport-level response loss. Phase 6 still requires controlled
 proxy/network-fault evidence for that separate failure mode.
 
-Before activation, read the actual lifecycle rule with a separate
+Before activation, run `php worker/scripts/deployment-preflight.php` against the
+deployment source to confirm the producer binding, the consumer targeting that
+same Queue, the Anchor-owned retry/batch/concurrency settings, the configured
+validation contract, and the declared DLQ. Also confirm the DLQ is observable
+by the operator in Cloudflare. This
+deployment check is required because signed health proves only non-mutating
+producer/runtime dependencies without publishing a synthetic customer-like
+message. Then read the actual lifecycle rule with a separate
 management-token process:
 
 ```sh
@@ -112,6 +170,13 @@ The command performs one read-only Cloudflare API request and never exposes the
 token to WordPress or the Worker. Production activation still requires both
 configured checks and human review.
 
+After activation, the operator release evidence must include category-level
+Worker operation coverage: transfer, registration, validation, review readiness,
+retry, DLQ, cleanup, and residue. Treat a missing category as an operations
+warning to close before release acceptance. Do not put object keys, signed
+envelopes, customer values, filenames, secret material, or provider dumps into
+the release record.
+
 ## Operational acceptance
 
 Use disposable non-customer objects and a non-production bucket for every
@@ -124,19 +189,9 @@ EFORMS_CF_INTEGRATION=1 \
 EFORMS_WORKER_URL=https://worker.example \
 EFORMS_SITE_ORIGIN=https://forms.example \
 EFORMS_WORKER_ENVIRONMENT_ID=integration \
+EFORMS_VALIDATION_CONTRACT_VERSION=managed-image-v1 \
 EFORMS_WORKER_ACTIVE_KEY_ID=key-integration \
 EFORMS_WORKER_ACTIVE_KEY_B64=... \
-EFORMS_CF_REPRESENTATIVE_MEDIA=1 \
-EFORMS_CF_REPRESENTATIVE_DIR=/secure/non-customer-phone-fixtures \
-EFORMS_CF_FAILURE_MATRIX=1 \
-EFORMS_CF_FAULT_COMMAND=/secure/path/set-disposable-worker-fault \
-EFORMS_CF_ROTATION_MATRIX=1 \
-EFORMS_CF_ROTATION_COMMAND=/secure/path/rotate-disposable-worker-keys \
-EFORMS_CF_WORDPRESS_ROTATION_PROBE_COMMAND=/secure/path/probe-disposable-wordpress-rotation \
-EFORMS_CF_SECONDARY_KEY_ID=key-next \
-EFORMS_CF_SECONDARY_KEY_B64=... \
-EFORMS_CF_EMERGENCY_KEY_ID=key-emergency \
-EFORMS_CF_EMERGENCY_KEY_B64=... \
 npm run test:integration --prefix worker
 
 EFORMS_CF_ACCOUNT_ID=... \
@@ -144,16 +199,21 @@ EFORMS_CF_BUCKET_NAME=... \
 EFORMS_CF_API_TOKEN=... \
 php worker/scripts/verify-r2-lifecycle.php
 
-php tests/integration/test_remote_restore_drill.php
 EFORMS_REMOTE_RESTORE_INTEGRATION=1 \
 EFORMS_WORKER_URL=https://worker.example \
 EFORMS_SITE_ORIGIN=https://forms.example \
 EFORMS_WORKER_ENVIRONMENT_ID=integration \
+EFORMS_VALIDATION_CONTRACT_VERSION=managed-image-v1 \
 EFORMS_WORKER_ACTIVE_KEY_ID=key-integration \
 EFORMS_WORKER_ACTIVE_KEY_B64=... \
 php tests/integration/test_remote_restore_drill.php
 EFORMS_WP_PATH=/path/to/disposable-wordpress php tests/wp-runtime/uninstall-drain.php
 ```
+
+Use the paired local WordPress runtime only for browser/provider smoke and
+doctor-style checks. A symlinked eForms checkout in that runtime is not a valid
+target for the uninstall-drain proof, because the proof creates and deletes
+fixture plugins and requires a disposable WordPress install with the sentinel.
 
 The first restore command is a deterministic control-plane drill with a signed
 test double; it does not contact R2. The explicitly gated variant uploads
@@ -165,58 +225,16 @@ an object that was actually present. Both variants restore conservative
 capacity and the remote-purge checkpoint. Both commands fail closed; only the
 gated variant supplies provider-backed restore evidence.
 
-The failure matrix is permitted only on a disposable Worker/bucket. Its
-absolute executable fault controller receives one argument:
-`preview-failure`, `delete-failure`, or `clear`. It must finish the controlled
-deployment transition, wait for readiness, and print one JSON object containing
-that `mode`, a non-sensitive `deployment_id`, and `"ready": true`. Preview mode
-must preserve R2 reads while making the genuine Images operation return the
-retryable failure; deletion mode must make the genuine R2 delete operation
-return the retryable failure without deleting the object; clear must restore the
-normal bindings. The lane proves the exact object survives both failures,
-recovers, and is finally absent. It emits sanitized `EFORMS_CF_FAULT_EVIDENCE`
-records for the access-controlled release record. The controller owns any
-Cloudflare management credentials; never expose them to the Worker or WordPress.
-
-Representative media remains outside the repository. With
-`EFORMS_CF_REPRESENTATIVE_MEDIA=1`, the absolute fixture directory must contain
-non-customer `phone.jpg`, `phone.png`, `phone.webp`, `phone.heic`, and
-`phone.heif` files captured from the approved device set. The lane sends their
-exact bytes through genuine provider inspection and cleanup; fixture provenance
-and device coverage remain in the access-controlled release record.
-
-The rotation controller is permitted only for a disposable paired Worker and
-WordPress deployment. It receives one phase: `install-secondary`,
-`promote-secondary`, `remove-old`, `emergency-cutover`, or `restore`. Each call
-must finish the corresponding transition, wait for readiness, and print only
-JSON containing that `phase`, stable non-sensitive `target_id`, current
-`deployment_id`, matching `environment_id`, and `"ready": true`. After every
-transition the separate WordPress probe command must run this repository's
-`tests/wp-runtime/rotation-probe.php` through `wp eval-file` on the paired
-disposable WordPress deployment and return its JSON unchanged. The harness
-checks the probe's non-sensitive site/Worker/environment pair fingerprint, the
-deployed WordPress active/secondary key roles, genuine `WorkerClient` health,
-stable target identity, and the active key that signs Worker results. It
-keeps one disposable object across the transitions,
-proves old/new overlap, promotion, old-key rejection after removal, emergency
-rejection of both retired keys, retained-object access with the emergency key,
-restoration, and exact cleanup. It emits sanitized
-`EFORMS_CF_ROTATION_EVIDENCE`; the controller owns deployment credentials and
-must never print key bytes, signed envelopes, or provider dumps.
-This short disposable matrix proves transition mechanics only; it does not wait
-through the normal overlap interval. Release evidence must separately retain
-the former active verifier for the code-owned
-`WORKER_SECONDARY_KEY_RETENTION_SECONDS` bound before removal and record the
-promotion/removal timestamps.
-
-Back up retained open and finalized manifests, including delete-pending
+Back up retained open and finalized manifests, including validation contract
+and deadline facts plus delete-pending
 tombstones, managed-capacity state, remote-purge state, and the deployment
-configuration that identifies the Worker and bucket. Back up integration keys
+configuration that identifies the Worker, bucket, Queue, and DLQ. Back up integration keys
 through the deployment secret system, never with the runtime tree. A restore is
-accepted only after the exact stored object version can be inspected, operator
-review can be authorized, conservative accounting is intact, open and pending
-cleanup resume against their exact keys, an interrupted purge resumes, and
-manifest-driven deletion succeeds.
+accepted only after the exact stored object version and any matching terminal
+result can be inspected, accepted-only operator review can be authorized,
+conservative accounting is intact, open and pending cleanup resume against their
+exact keys, an interrupted purge resumes, and manifest-driven result/artifact
+deletion succeeds.
 
 For normal key rotation, stage the new key as secondary on WordPress and the
 Worker, verify both runtimes, promote it to active on both, retain the old key as
@@ -226,18 +244,45 @@ compromised key on both runtimes together without the overlap, verify signed
 health, and then resume; in-flight capabilities retry or age into normal orphan
 cleanup. Record key IDs and outcomes, never key bytes or signed envelopes.
 
-Before enabling production writes, preserve the prior Worker version and the
-WordPress configuration needed to stop new grants while keeping review, GC,
-remote deletion, and old-key verification available. After the first R2 object
-exists, rollback is fail-closed repair or an explicit retained-object
-migration/expiry procedure; it is never an automatic local-storage fallback.
+For a validation-contract deployment, first begin a WordPress-owned retirement
+barrier for the old version and prove it has zero retained schema-7 references
+before changing the Worker-required validation contract. The Worker accepts only
+the configured validation contract; there is no runtime old-reader allowlist,
+provider selector, or compatibility reader for retained objects or a superseded
+Worker protocol. Unsupported jobs and unsupported validation contracts
+acknowledge without inspection before provider work.
 
-Performance acceptance uses the same device, fixture bytes, concurrency,
-network profile, region, and warm/cold classification for at least five runs of
-the baseline and candidate. Record median and worst selection-to-commit time,
-transferred bytes, WordPress request bytes/duration/peak memory, retries, and
-cleanup outcome in an access-controlled release record. Rerun when variance is
-above 20 percent. `npm run test:performance --prefix tests/e2e` owns the
-equivalent-work browser load and joins it to operator-captured WordPress metrics;
-see `tests/e2e/README.md` for its required inputs. Do not commit generated
-reports or customer/provider dumps.
+The version retirement checklist is fail-closed: begin the version-specific
+barrier, preserve review and cleanup credentials, drain ordinary Queue retries,
+inspect and classify DLQ entries without replaying customer bodies, wait
+through the old-version deadline drain, then run:
+
+```sh
+wp eforms gc --begin-validation-retirement=managed-image-v1
+wp eforms gc --verify-validation-retirement=managed-image-v1
+```
+
+The verify command requires the barrier, scans retained schema-7 manifests
+through `UploadBatchStore` under the exclusive upload-lifecycle lease, does not
+contact Worker/R2/Queue, and writes only bounded ready state to the barrier when
+`references=0`. `Validation contract retirement ready: ... references=0` means
+the deployment can switch both runtimes to the new validation contract.
+`Validation contract retirement blocked: ... references=N accepted=N ...`
+means cutover is blocked; keep the Worker configured to the retiring validation
+contract and repeat cleanup/drain until the command exits successfully. After
+both runtimes are switched and signed Worker health confirms the new contract,
+run:
+
+```sh
+wp eforms gc --complete-validation-retirement=managed-image-v1
+```
+
+Resume grants only for the active contract after completion.
+
+Before enabling replacement production writes, preserve the prior deployment
+artifact and the WordPress configuration needed to stop new grants while
+keeping review, GC, remote deletion, and retained validation-result readers
+available. Before the first replacement artifact is stored, rollback may restore
+the prior deployment. Afterward, rollback is fail-closed repair-forward or an
+explicit retained-object expiry procedure; it is never an automatic local-storage
+fallback or dual protocol.

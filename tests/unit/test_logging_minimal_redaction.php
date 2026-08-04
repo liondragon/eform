@@ -49,6 +49,7 @@ Logging::event(
         'client_ip' => '198.51.100.12',
         'unknown_meta' => 'secret-value',
         'operation' => 'delete',
+        'operation_category' => 'cleanup',
         'outcome_class' => 'dependency_unavailable',
         'latency_bucket' => 'normal',
         'retry' => 'required',
@@ -70,6 +71,7 @@ eforms_test_assert( strpos( $line, 'secret-value' ) === false, 'Minimal logging 
 eforms_test_assert( strpos( $line, 'ip=198.51.100.0' ) !== false, 'Minimal logging should retain privacy-processed IP.' );
 eforms_test_assert(
     strpos( $line, '"operation":"delete"' ) !== false
+        && strpos( $line, '"operation_category":"cleanup"' ) !== false
         && strpos( $line, '"outcome_class":"dependency_unavailable"' ) !== false
         && strpos( $line, '"latency_bucket":"normal"' ) !== false
         && strpos( $line, '"retry":"required"' ) !== false

@@ -17,6 +17,12 @@ require_once __DIR__ . '/../../src/Validation/Coercer.php';
 require_once __DIR__ . '/../../src/Validation/Normalizer.php';
 require_once __DIR__ . '/../../src/Validation/Validator.php';
 
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return 'https://example.com';
+    }
+}
+
 $uploads_dir = eforms_test_setup_uploads( 'eforms-throttle-uploads' );
 
 $template_dir = eforms_test_tmp_root( 'eforms-throttle-templates' );

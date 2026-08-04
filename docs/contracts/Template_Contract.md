@@ -1,6 +1,6 @@
 # Template Contract
 
-This file captures template authoring and runtime contracts that are too exact for `docs/overview.md`. Runtime enforcement lives in `TemplateValidator`, `TemplateContext`, registries, renderers, and tests.
+This file captures template authoring and runtime contracts that are too exact for the operator narrative in `README.md`. Runtime enforcement lives in `TemplateValidator`, `TemplateContext`, registries, renderers, and tests.
 
 ## Template Files
 
@@ -43,7 +43,7 @@ Field entries may declare:
 - upload metadata: `accept`, `max_file_bytes`, `max_files`, `max_total_bytes`, `upload_mode`, `email_attach`
 - sanitized fragments: `before_html`, `after_html`
 
-`upload_mode` defaults to `synchronous` and accepts only `synchronous` or `staged`. Staged mode is valid only for `files`, requires JavaScript and the sole `image` accept token, rejects every other token and `email_attach=true`, and counts `max_total_bytes` over accepted authoritative artifact bodies. For staged fields, `image` accepts JPEG, PNG, WebP, HEIC, and HEIF and rejects GIF; synchronous token behavior remains unchanged. At most one staged field may appear per template because its batch becomes the single atomically renamed submission aggregate; the field owner remains reusable across forms. A template may also contain synchronous upload fields: same-submission recovery must reuse an already committed synchronous file only when its deterministic field ordinal and full content hash match, and must fail closed on different bytes. `max_file_bytes`, `max_files`, and `max_total_bytes` are positive integers; `max_file_bytes * max_files` must fit in a PHP integer; and `max_total_bytes` must be at least `max_file_bytes` and no more than that product.
+`upload_mode` defaults to `synchronous` and accepts only `synchronous` or `staged`. Staged mode is valid only for `files`, requires JavaScript and the sole `image` accept token, rejects every other token and `email_attach=true`, and counts `max_total_bytes` over accepted authoritative artifact bodies. For staged fields, `image` accepts JPEG, PNG, WebP, HEIC, and HEIF and rejects GIF; synchronous token behavior remains unchanged. At most one staged field may appear per template because its batch becomes the single atomically renamed submission aggregate; the field owner remains reusable across forms. A template may also contain synchronous upload fields: same-submission recovery must reuse an already committed synchronous file only when its deterministic field ordinal and full content hash match, and must fail closed on different bytes. `max_file_bytes`, `max_files`, and `max_total_bytes` are positive integers; `max_file_bytes * max_files` must fit in a PHP integer; `max_total_bytes` must be at least `max_file_bytes` and no more than that product; and staged `max_files` must be no more than the `Anchors`-owned fixed maximum of 24 so a finalized staged manifest always fits one bounded gallery-status snapshot.
 
 The staged policy fingerprint is lowercase hexadecimal SHA-256 over whitespace-free UTF-8 JSON with keys in lexical order: `accept`, `max_file_bytes`, `max_files`, `max_total_bytes`, `upload_mode`. `accept` is the validated, deduplicated, lexically sorted token list; numeric values are JSON integers.
 

@@ -117,3 +117,21 @@ $staged_template['email']['include_fields'][] = 'photos';
 $staged_result = TemplateContext::build( $staged_template );
 eforms_test_assert( $staged_result['ok'] === true, 'TemplateContext should accept one staged field.' );
 eforms_test_assert( $staged_result['context']['staged_field']['key'] === 'photos', 'TemplateContext should expose the single validated staged field.' );
+
+$max_staged_template = $staged_template;
+$max_staged_template['fields'][1]['max_files'] = Anchors::get( 'MANAGED_STAGED_MAX_FILES' );
+$max_staged_template['fields'][1]['max_total_bytes'] = $max_staged_template['fields'][1]['max_file_bytes'] * $max_staged_template['fields'][1]['max_files'];
+$max_staged_result = TemplateContext::build( $max_staged_template );
+eforms_test_assert( $max_staged_result['ok'] === true, 'TemplateContext should accept the Anchor-owned staged file ceiling.' );
+
+$too_many_staged_template = $max_staged_template;
+$too_many_staged_template['fields'][1]['max_files'] = Anchors::get( 'MANAGED_STAGED_MAX_FILES' ) + 1;
+$too_many_staged_template['fields'][1]['max_total_bytes'] = $too_many_staged_template['fields'][1]['max_file_bytes'] * $too_many_staged_template['fields'][1]['max_files'];
+$too_many_staged_result = TemplateContext::build( $too_many_staged_template );
+$too_many_staged_errors = $too_many_staged_result['errors']->to_array();
+eforms_test_assert( $too_many_staged_result['ok'] === false, 'TemplateContext should reject staged max_files above the Anchor-owned ceiling.' );
+eforms_test_assert(
+    isset( $too_many_staged_errors['_global'][0]['message'] )
+        && $too_many_staged_errors['_global'][0]['message'] === sprintf( 'Staged upload max_files must be %d or fewer.', Anchors::get( 'MANAGED_STAGED_MAX_FILES' ) ),
+    'TemplateContext should return actionable staged max_files guidance.'
+);

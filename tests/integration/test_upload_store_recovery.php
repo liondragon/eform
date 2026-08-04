@@ -7,11 +7,12 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Uploads/UploadStore.php';
 
 function eforms_test_finalize_recovery_submission( $uploads_dir, $submission_id, $suffix ) {
     $now = time();
-    $secret = rtrim( strtr( base64_encode( str_repeat( "\x61", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
+    $secret = eforms_test_managed_batch_secret( "\x61" );
     $field = array(
         'type' => 'files',
         'upload_mode' => 'staged',

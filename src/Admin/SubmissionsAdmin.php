@@ -93,7 +93,8 @@ class SubmissionsAdmin {
     private static function render_row( $row ) {
         $summary = isset( $row['summary'] ) && is_array( $row['summary'] ) ? $row['summary'] : array();
         $availability = isset( $row['availability'] ) && is_array( $row['availability'] ) ? $row['availability'] : array();
-        $submission_id = isset( $row['view']['submission_id'] ) && is_string( $row['view']['submission_id'] ) ? $row['view']['submission_id'] : '';
+        $view = isset( $row['view'] ) && is_array( $row['view'] ) ? $row['view'] : array();
+        $submission_id = isset( $view['submission_id'] ) && is_string( $view['submission_id'] ) ? $view['submission_id'] : '';
         $view_url = $submission_id === '' ? '' : ReviewController::gallery_url( $submission_id );
 
         echo '<tr>';

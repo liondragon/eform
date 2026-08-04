@@ -82,7 +82,7 @@ foreach ( $files as $path ) {
                 && isset( $photos['max_file_bytes'] )
                 && $photos['max_file_bytes'] === 20971520
                 && isset( $photos['max_files'] )
-                && $photos['max_files'] === 24
+                && $photos['max_files'] === Anchors::get( 'MANAGED_STAGED_MAX_FILES' )
                 && isset( $photos['max_total_bytes'] )
                 && $photos['max_total_bytes'] === 314572800
                 && isset( $photos['email_attach'] )

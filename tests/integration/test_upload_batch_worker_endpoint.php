@@ -7,9 +7,11 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Anchors.php';
 
 $worker_key = str_repeat( "\x71", Anchors::get( 'WORKER_INTEGRATION_KEY_BYTES' ) );
+$GLOBALS['eforms_test_worker_endpoint_key'] = $worker_key;
 $worker_key_b64 = rtrim( strtr( base64_encode( $worker_key ), '+/', '-_' ), '=' );
 define( 'EFORMS_UPLOAD_COMPOSITION', 'worker_r2_cloudflare' );
 define( 'EFORMS_WORKER_URL', 'https://media.example.test' );
@@ -42,11 +44,7 @@ function eforms_test_worker_endpoint_config( $uploads_dir ) {
     Config::reset_for_tests();
 }
 
-function eforms_test_worker_endpoint_secret( $byte ) {
-    return rtrim( strtr( base64_encode( str_repeat( $byte, Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
-}
-
-function eforms_test_worker_endpoint_request( $method, $content_type, $params, $secret, $files = array() ) {
+function eforms_test_worker_endpoint_request( $method, $content_type, $params, $secret, $files = array(), $worker_requester = null ) {
     $headers = array( 'Origin' => 'https://example.com' );
     if ( $content_type !== '' ) {
         $headers['Content-Type'] = $content_type;
@@ -54,18 +52,48 @@ function eforms_test_worker_endpoint_request( $method, $content_type, $params, $
     if ( $secret !== null ) {
         $headers[ FormProtocol::HEADER_BATCH_SECRET ] = $secret;
     }
-    return array(
+    $request = array(
         'method' => $method,
         'headers' => $headers,
         'params' => $params,
         'files' => $files,
         'client_ip' => '203.0.113.73',
     );
+    if ( is_callable( $worker_requester ) ) {
+        $request['worker_requester'] = $worker_requester;
+    }
+    return $request;
 }
 
-function eforms_test_worker_endpoint_receipt( $claims, $secret ) {
-    $schema = WorkerProtocol::SCHEMAS['upload_receipt'];
-    $parts = array( WorkerProtocol::UPLOAD_RECEIPT_DOMAIN, WorkerProtocol::VERSION, EFORMS_WORKER_ACTIVE_KEY_ID, EFORMS_WORKER_ENVIRONMENT_ID );
+function eforms_test_worker_endpoint_health_requester( $url, $arguments ) {
+    $token = isset( $arguments['headers'][ WorkerClient::HEALTH_HEADER ] ) ? $arguments['headers'][ WorkerClient::HEALTH_HEADER ] : '';
+    $claims = eforms_test_worker_endpoint_health_claims( $token );
+    if ( $claims === null ) {
+        return array( 'status' => 403, 'body' => '{}' );
+    }
+    $result = eforms_test_worker_endpoint_sign_envelope(
+        'health_result',
+        array(
+            'request_id' => $claims['request_id'],
+            'storage_ready' => true,
+            'inspection_ready' => true,
+            'queue_producer_ready' => true,
+            'limiter_ready' => true,
+            'keys_ready' => true,
+            'storage_identity_ready' => true,
+            'validation_contract_ready' => true,
+            'storage_identity' => $claims['storage_identity'],
+            'validation_contract_version' => $claims['validation_contract_version'],
+            'checked_at' => time(),
+            'expires_at' => $claims['expires_at'],
+        )
+    );
+    return array( 'status' => 200, 'body' => json_encode( array( 'result' => $result ) ) );
+}
+
+function eforms_test_worker_endpoint_sign_envelope( $schema_name, $claims ) {
+    $schema = WorkerProtocol::SCHEMAS[ $schema_name ];
+    $parts = array( $schema['domain'], WorkerProtocol::VERSION, EFORMS_WORKER_ACTIVE_KEY_ID, EFORMS_WORKER_ENVIRONMENT_ID );
     foreach ( $schema['fields'] as $field => $type ) {
         $parts[] = (string) $claims[ $field ];
     }
@@ -76,7 +104,69 @@ function eforms_test_worker_endpoint_receipt( $claims, $secret ) {
     $encode = function ( $bytes ) {
         return rtrim( strtr( base64_encode( $bytes ), '+/', '-_' ), '=' );
     };
-    return $encode( $payload ) . '.' . $encode( hash_hmac( 'sha256', $payload, $secret, true ) );
+    return $encode( $payload ) . '.' . $encode( hash_hmac( 'sha256', $payload, $GLOBALS['eforms_test_worker_endpoint_key'], true ) );
+}
+
+function eforms_test_worker_endpoint_health_claims( $token ) {
+    if ( ! is_string( $token ) || substr_count( $token, '.' ) !== 1 ) {
+        return null;
+    }
+    list( $payload_b64, $signature_b64 ) = explode( '.', $token, 2 );
+    $decode = function ( $encoded ) {
+        $remainder = strlen( $encoded ) % 4;
+        if ( $remainder > 0 ) {
+            $encoded .= str_repeat( '=', 4 - $remainder );
+        }
+        return base64_decode( strtr( $encoded, '-_', '+/' ), true );
+    };
+    $payload = $decode( $payload_b64 );
+    $signature = $decode( $signature_b64 );
+    if ( ! is_string( $payload ) || ! is_string( $signature ) ) {
+        return null;
+    }
+    $expected = hash_hmac( 'sha256', $payload, $GLOBALS['eforms_test_worker_endpoint_key'], true );
+    if ( ! hash_equals( $expected, $signature ) ) {
+        return null;
+    }
+    $parts = array();
+    $offset = 0;
+    while ( $offset < strlen( $payload ) ) {
+        if ( $offset + 4 > strlen( $payload ) ) {
+            return null;
+        }
+        $length = unpack( 'N', substr( $payload, $offset, 4 ) )[1];
+        $offset += 4;
+        if ( $length < 0 || $offset + $length > strlen( $payload ) ) {
+            return null;
+        }
+        $parts[] = substr( $payload, $offset, $length );
+        $offset += $length;
+    }
+    $schema = WorkerProtocol::SCHEMAS['health_request'];
+    $fields = array_keys( $schema['fields'] );
+    if ( count( $parts ) !== 4 + count( $fields )
+        || $parts[0] !== WorkerProtocol::HEALTH_REQUEST_DOMAIN
+        || $parts[1] !== WorkerProtocol::VERSION
+        || $parts[2] !== EFORMS_WORKER_ACTIVE_KEY_ID
+        || $parts[3] !== EFORMS_WORKER_ENVIRONMENT_ID
+    ) {
+        return null;
+    }
+    $claims = array();
+    foreach ( $fields as $index => $field ) {
+        $value = $parts[4 + $index];
+        $claims[ $field ] = $field === 'expires_at' ? (int) $value : $value;
+    }
+    return $claims;
+}
+
+function eforms_test_worker_endpoint_receipt( $manifest, $upload_id, $object_version, $etag, $bytes ) {
+    return WorkerProtocol::sign_worker_stored_receipt(
+        eforms_test_worker_stored_receipt( $manifest, $upload_id, $object_version, $etag, array( 'bytes' => $bytes ) ),
+        EFORMS_WORKER_ACTIVE_KEY_ID,
+        $GLOBALS['eforms_test_worker_endpoint_key'],
+        EFORMS_WORKER_ENVIRONMENT_ID
+    );
 }
 
 $_SERVER['HTTP_HOST'] = 'example.com';
@@ -86,7 +176,7 @@ $_SERVER['SERVER_PORT'] = 443;
 $uploads_dir = eforms_test_setup_uploads( 'eforms-upload-worker-endpoint' );
 eforms_test_worker_endpoint_config( $uploads_dir );
 $mint = Security::mint_js_record( 'upload-test', $uploads_dir );
-$secret = eforms_test_worker_endpoint_secret( "\x73" );
+$secret = eforms_test_managed_batch_secret( "\x73" );
 $create = UploadBatchEndpoint::create(
     eforms_test_worker_endpoint_request(
         'POST',
@@ -114,7 +204,9 @@ $authorize = eforms_test_worker_endpoint_request(
         FormProtocol::UPLOAD_BYTES_PARAM => strlen( $png ),
         FormProtocol::UPLOAD_MIME_PARAM => 'image/png',
     ),
-    $secret
+    $secret,
+    array(),
+    'eforms_test_worker_endpoint_health_requester'
 );
 $authorized = UploadBatchEndpoint::upload( $authorize );
 $transport = isset( $authorized['body']['transport'] ) ? $authorized['body']['transport'] : array();
@@ -131,29 +223,21 @@ eforms_test_assert(
     'Worker authorization should return one scoped target and signed grant after durable intent creation.'
 );
 eforms_test_assert( strpos( json_encode( $authorized['body'] ), $worker_key_b64 ) === false, 'Worker authorization must not expose integration key material.' );
+$verified_grant = WorkerProtocol::verify_worker_upload_grant(
+    $transport['grant'],
+    WorkerClient::configuration()['keys'],
+    EFORMS_WORKER_ENVIRONMENT_ID,
+    time()
+);
+eforms_test_assert( ! empty( $verified_grant['ok'] ) && isset( $verified_grant['claims']['validation_until'] ), 'Worker authorization should sign the live v3 Queue-backed upload grant.' );
 $capacity = eforms_test_managed_capacity_record( $uploads_dir );
 $reservations = array_values( $capacity['reservations'] );
 eforms_test_assert( count( $reservations ) === 1 && $reservations[0]['transient_bytes'] === 0, 'Direct Worker authorization should not reserve a PHP multipart copy.' );
 
 $manifest_path = $uploads_dir . '/eforms-private/staged/' . Helpers::h2( $batch_id ) . '/' . $batch_id . '/' . UploadBatchStore::MANIFEST_FILENAME;
 $manifest = json_decode( file_get_contents( $manifest_path ), true );
-$intent = $manifest['intents']['remote_photo'];
-$claims = array(
-    'intent_id' => $intent['intent_id'],
-    'batch_id' => $batch_id,
-    'upload_id' => 'remote_photo',
-    'ordinal' => 0,
-    'object_key' => $intent['object_key'],
-    'object_version' => 'remote-v1',
-    'etag' => 'remote-etag-v1',
-    'bytes' => strlen( $png ),
-    'mime' => 'image/png',
-    'width' => 3,
-    'height' => 2,
-    'policy_fingerprint' => $intent['policy_fingerprint'],
-    'expires_at' => time() + Anchors::get( 'WORKER_RECEIPT_TTL_SECONDS' ),
-);
-$receipt = eforms_test_worker_endpoint_receipt( $claims, $worker_key );
+eforms_test_assert( $manifest['version'] === UploadBatchStore::WORKER_MANIFEST_VERSION, 'Worker batches should use the v3 candidate manifest schema at creation.' );
+$receipt = eforms_test_worker_endpoint_receipt( $manifest, 'remote_photo', 'remote-v1', 'remote-etag-v1', strlen( $png ) );
 $completion_request = eforms_test_worker_endpoint_request(
     'POST',
     'application/x-www-form-urlencoded',
@@ -171,11 +255,24 @@ eforms_test_assert(
 );
 $completed = UploadBatchEndpoint::upload( $completion_request );
 eforms_test_assert( $completed['status'] === 200 && $completed['body']['upload_id'] === 'remote_photo', 'A valid receipt should commit without PHP receiving artifact bytes.' );
+eforms_test_assert( $completed['body']['mime'] === '' && $completed['body']['width'] === 0 && $completed['body']['height'] === 0, 'Stored receipt registration must not expose accepted media facts before Queue validation.' );
 eforms_test_assert( UploadBatchEndpoint::upload( $completion_request )['body'] === $completed['body'], 'A lost completion response should converge to the same item.' );
-$changed = $claims;
-$changed['object_version'] = 'remote-v2';
+$committed_authorization_retry = $authorize;
+$committed_authorization_retry['worker_requester'] = function () {
+    return array( 'status' => 503, 'body' => '{}' );
+};
+$committed_retry_response = UploadBatchEndpoint::upload( $committed_authorization_retry );
+eforms_test_assert(
+    $committed_retry_response['status'] === 200
+        && ! empty( $committed_retry_response['body'][ FormProtocol::UPLOAD_RESPONSE_COMMITTED ] )
+        && $committed_retry_response['body']['upload_id'] === 'remote_photo'
+        && ! isset( $committed_retry_response['body']['transport'] )
+        && $committed_retry_response['body']['bytes'] === $completed['body']['bytes']
+        && $committed_retry_response['body']['display_name'] === $completed['body']['display_name'],
+    'Worker endpoint authorization retries should converge to the committed item when fresh grants are unavailable.'
+);
 $changed_request = $completion_request;
-$changed_request['params'][ FormProtocol::UPLOAD_RECEIPT_PARAM ] = eforms_test_worker_endpoint_receipt( $changed, $worker_key );
+$changed_request['params'][ FormProtocol::UPLOAD_RECEIPT_PARAM ] = eforms_test_worker_endpoint_receipt( $manifest, 'remote_photo', 'remote-v2', 'remote-etag-v1', strlen( $png ) );
 eforms_test_assert( UploadBatchEndpoint::upload( $changed_request )['status'] === 409, 'Changed immutable facts should fail generically.' );
 
 $cancel_authorize = $authorize;
@@ -190,20 +287,17 @@ $deleted_manifest = json_decode( file_get_contents( $manifest_path ), true );
 $deleted_capacity = eforms_test_managed_capacity_record( $uploads_dir );
 $deleted_reservation_id = hash( 'sha256', $batch_id . "\0remote_cancel" );
 eforms_test_assert(
-    ! empty( $deleted_manifest['tombstones']['remote_cancel']['capacity_release_started'] )
+    isset( $deleted_manifest['tombstones']['remote_cancel']['storage_identity'] )
+        && empty( $deleted_manifest['tombstones']['remote_cancel']['capacity_release_started'] )
         && empty( $deleted_manifest['tombstones']['remote_cancel']['capacity_released'] )
         && isset( $deleted_capacity['reservations'][ $deleted_reservation_id ] ),
-    'Remote removal must retain physical accounting until the remote lifecycle owner confirms exact-object absence.'
+    'Remote removal must retain exact cleanup authority and physical accounting until the remote lifecycle owner confirms exact-object absence.'
 );
-$late = $claims;
-$late['intent_id'] = $cancel_intent['intent_id'];
-$late['upload_id'] = 'remote_cancel';
-$late['ordinal'] = 1;
-$late['object_key'] = $cancel_intent['object_key'];
-$late['policy_fingerprint'] = $cancel_intent['policy_fingerprint'];
+$late_manifest = $manifest;
+$late_manifest['intents']['remote_cancel'] = $cancel_intent;
 $late_request = $completion_request;
 $late_request['params']['upload_id'] = 'remote_cancel';
-$late_request['params'][ FormProtocol::UPLOAD_RECEIPT_PARAM ] = eforms_test_worker_endpoint_receipt( $late, $worker_key );
+$late_request['params'][ FormProtocol::UPLOAD_RECEIPT_PARAM ] = eforms_test_worker_endpoint_receipt( $late_manifest, 'remote_cancel', 'remote-cancel-v1', 'remote-cancel-etag-v1', strlen( $png ) );
 eforms_test_assert( UploadBatchEndpoint::upload( $late_request )['status'] === 409, 'A late receipt after removal should fail against the tombstone.' );
 
 $multipart = eforms_test_worker_endpoint_request(

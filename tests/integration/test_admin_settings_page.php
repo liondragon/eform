@@ -18,6 +18,12 @@ require_once __DIR__ . '/../../src/Admin/SubmissionsAdmin.php';
 require_once __DIR__ . '/../../src/Admin/DeclinedReviewAdmin.php';
 require_once __DIR__ . '/../../src/Uploads/PrivateDir.php';
 
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return 'https://example.com';
+    }
+}
+
 if ( ! function_exists( 'wp_enqueue_style' ) ) {
     function wp_enqueue_style( $handle, $src, $deps = array(), $ver = false ) {
         $GLOBALS['eforms_test_styles'][] = array( 'handle' => $handle, 'src' => $src, 'deps' => $deps );

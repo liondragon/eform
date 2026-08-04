@@ -156,16 +156,23 @@ if ( ! function_exists( 'eforms_test_write_file' ) ) {
 }
 
 if ( ! function_exists( 'eforms_test_remove_tree' ) ) {
-function eforms_test_managed_capacity_record( $uploads_dir ) {
-    $path = rtrim( $uploads_dir, '/\\' ) . '/eforms-private/managed-capacity.json';
-    if ( ! is_file( $path ) ) {
-        return array( 'total_bytes' => 0, 'reservations' => array(), 'releases' => array() );
+    function eforms_test_managed_capacity_record( $uploads_dir ) {
+        $path = rtrim( $uploads_dir, '/\\' ) . '/eforms-private/managed-capacity.json';
+        if ( ! is_file( $path ) ) {
+            return array(
+                'version' => UploadBatchStore::CAPACITY_VERSION,
+                'total_bytes' => 0,
+                'store_bytes' => array( 'local' => 0, 'worker' => 0 ),
+                'reservations' => array(),
+                'releases' => array(),
+                'updated_at' => time(),
+            );
+        }
+        $record = json_decode( file_get_contents( $path ), true );
+        return is_array( $record ) ? $record : null;
     }
-    $record = json_decode( file_get_contents( $path ), true );
-    return is_array( $record ) ? $record : null;
-}
 
-function eforms_test_remove_tree( $path ) {
+    function eforms_test_remove_tree( $path ) {
         if ( ! is_string( $path ) || $path === '' || ! file_exists( $path ) ) {
             return;
         }

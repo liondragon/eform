@@ -24,6 +24,7 @@ class UploadBatchStore {
     private const AGGREGATE_CLEANUP_GC = 'gc';
     private const AGGREGATE_CLEANUP_OPERATOR_DELETE = 'operator_delete';
     private const REMOTE_PURGE_RESERVATIONS = 'reservations';
+    private const VALIDATION_RETIREMENT_DIR = 'validation-retirements';
 
     const STAGED_DIR = 'staged';
     const SUBMISSIONS_DIR = 'submissions';
@@ -36,8 +37,10 @@ class UploadBatchStore {
     const CAPACITY_LOCK_FILENAME = 'managed-capacity.lock';
     const REMOTE_PURGE_FILENAME = 'remote-purge.json';
     const MANIFEST_VERSION = 6;
-    const CAPACITY_VERSION = 6;
+    const WORKER_MANIFEST_VERSION = 7;
+    const CAPACITY_VERSION = 7;
     const REMOTE_PURGE_VERSION = 1;
+    const VALIDATION_RETIREMENT_VERSION = 1;
     const LOCAL_ARTIFACT_STORE_IDENTITY = 'local';
 
     public static function aggregate_lock_path( $family, $aggregate ) {
@@ -52,10 +55,6 @@ class UploadBatchStore {
             return dirname( $aggregate ) . '/.' . basename( $aggregate ) . self::LOCK_FILENAME;
         }
         return $family === self::SUBMISSIONS_DIR ? $aggregate . '/' . self::LOCK_FILENAME : '';
-    }
-
-    private static function legacy_staged_lock_path( $aggregate ) {
-        return rtrim( $aggregate, '/\\' ) . self::LOCK_FILENAME;
     }
 
     public static function acquire_purge_capacity_lock( $lifecycle ) {
@@ -73,7 +72,7 @@ class UploadBatchStore {
         return ManagedCapacityStore::acquire_lock( $path, true, true );
     }
 
-    public static function prelock_purge_aggregates( $lifecycle ) {
+    public static function prelock_purge_aggregates( $lifecycle, $repair_locks = true, $create_staged_locks = true ) {
         if ( ! $lifecycle instanceof PrivateDirLease || ! $lifecycle->exclusive() ) {
             return false;
         }
@@ -127,8 +126,8 @@ class UploadBatchStore {
                         continue;
                     }
                     $handle = $family === self::STAGED_DIR
-                        ? self::acquire_staged_lock( $aggregate_path, true, true )
-                        : self::acquire_existing_lock( self::aggregate_lock_path( $family, $aggregate_path ), true );
+                        ? self::acquire_staged_lock( $aggregate_path, $create_staged_locks, true, $repair_locks )
+                        : self::acquire_existing_lock( self::aggregate_lock_path( $family, $aggregate_path ), true, $repair_locks );
                     if ( $handle === false ) {
                         self::release_purge_locks( $handles );
                         return false;
@@ -150,11 +149,7 @@ class UploadBatchStore {
         }
     }
 
-    /**
-     * Establish the durable remote-upload barrier and its resumable drain record.
-     * The caller must hold the exclusive upload lifecycle lease.
-     */
-    public static function prepare_remote_purge( $lifecycle, $composition_fingerprint, $now = null ) {
+    public static function prepare_worker_remote_purge( $lifecycle, $composition_fingerprint, $now = null ) {
         if ( ! $lifecycle instanceof PrivateDirLease
             || ! $lifecycle->exclusive()
             || ! self::valid_composition_fingerprint( $composition_fingerprint )
@@ -174,7 +169,7 @@ class UploadBatchStore {
         if ( ! is_resource( $capacity_lock ) ) {
             return array( 'ok' => false, 'reason' => 'managed_capacity_lock_unavailable' );
         }
-        $aggregate_locks = self::prelock_purge_aggregates( $lifecycle );
+        $aggregate_locks = self::prelock_purge_aggregates( $lifecycle, false, false );
         if ( ! is_array( $aggregate_locks ) ) {
             self::release_purge_locks( $capacity_lock );
             return array( 'ok' => false, 'reason' => 'managed_aggregate_lock_unavailable' );
@@ -190,18 +185,12 @@ class UploadBatchStore {
             return array( 'ok' => true, 'ready' => false, 'safe_after' => $record['safe_after'], 'phase' => $record['phase'] );
         }
 
-        // If a crash left only the barrier, starting the drain clock now is
-        // conservative because no new upload-family writer can cross it.
-        if ( ! $marker_exists && ! PrivateDir::mark_purged( $lifecycle ) ) {
+        $safe_after = self::worker_remote_purge_safe_after( $private_dir, $now );
+        if ( $safe_after === null ) {
             self::release_purge_locks( $aggregate_locks );
             self::release_purge_locks( $capacity_lock );
-            return array( 'ok' => false, 'reason' => 'purge_barrier_unavailable' );
+            return array( 'ok' => false, 'reason' => 'worker_remote_purge_authority_invalid' );
         }
-        $safe_after = $now
-            + Anchors::get( 'WORKER_UPLOAD_GRANT_TTL_SECONDS' )
-            + Anchors::get( 'WORKER_UPLOAD_MAX_SECONDS' )
-            + Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' )
-            + 1;
         $record = array(
             'version' => self::REMOTE_PURGE_VERSION,
             'phase' => 'draining',
@@ -213,19 +202,22 @@ class UploadBatchStore {
             'updated_at' => $now,
             'last_failure_class' => '',
         );
-        $written = self::write_remote_purge_record( $record_path, $record );
+        $record_written = self::write_remote_purge_record( $record_path, $record );
+        $barrier_written = $record_written && ( $marker_exists || PrivateDir::mark_purged( $lifecycle ) );
+        if ( ! $record_written || ! $barrier_written ) {
+            self::release_purge_locks( $aggregate_locks );
+            self::release_purge_locks( $capacity_lock );
+            return array(
+                'ok' => false,
+                'reason' => $record_written ? 'purge_barrier_unavailable' : 'remote_purge_record_write_failed',
+            );
+        }
         self::release_purge_locks( $aggregate_locks );
         self::release_purge_locks( $capacity_lock );
-        return $written
-            ? array( 'ok' => true, 'ready' => false, 'safe_after' => $safe_after, 'phase' => 'draining' )
-            : array( 'ok' => false, 'reason' => 'remote_purge_record_write_failed' );
+        return array( 'ok' => true, 'ready' => false, 'safe_after' => $safe_after, 'phase' => 'draining' );
     }
 
-    /**
-     * Resume a barrier-backed remote purge after the upload-grant drain.
-     * Remote calls happen with neither the capacity lock nor aggregate locks held.
-     */
-    public static function resume_remote_purge( $lifecycle, $composition_fingerprint, $remote_delete, $now = null ) {
+    public static function resume_worker_remote_purge( $lifecycle, $composition_fingerprint, $remote_delete, $now = null ) {
         if ( ! $lifecycle instanceof PrivateDirLease
             || ! $lifecycle->exclusive()
             || ! self::valid_composition_fingerprint( $composition_fingerprint )
@@ -262,7 +254,7 @@ class UploadBatchStore {
         }
 
         if ( $record['next_family'] === self::REMOTE_PURGE_RESERVATIONS ) {
-            $purged = self::purge_remote_reservation_page( $remote_delete, $now, $lifecycle );
+            $purged = self::purge_worker_remote_reservation_page( $remote_delete, $now, $lifecycle );
             if ( empty( $purged['ok'] ) ) {
                 $record['updated_at'] = $now;
                 $record['last_failure_class'] = isset( $purged['reason'] ) && $purged['reason'] === 'remote_delete_failed'
@@ -286,7 +278,7 @@ class UploadBatchStore {
         $family_index = array_search( $record['next_family'], $families, true );
         $family_index = $family_index === false ? 0 : (int) $family_index;
         $family = $families[ $family_index ];
-        $purged = self::purge_remote_family(
+        $purged = self::purge_worker_remote_family(
             $family,
             $private_dir,
             $record['cursor'],
@@ -348,6 +340,7 @@ class UploadBatchStore {
                 break;
             }
         }
+        $worker_manifest_present = false;
         foreach ( array( self::STAGED_DIR, self::SUBMISSIONS_DIR ) as $root_name ) {
             $root = rtrim( $private_dir, '/\\' ) . '/' . $root_name;
             if ( is_link( $root ) || ( file_exists( $root ) && ! is_dir( $root ) ) ) {
@@ -358,7 +351,7 @@ class UploadBatchStore {
             }
             $cursor = array();
             do {
-                $page = self::aggregate_paths( $root, Anchors::get( 'MANAGED_REMOTE_PURGE_AGGREGATE_PAGE_SIZE' ), $cursor );
+                $page = self::aggregate_paths( $root, Anchors::get( 'MANAGED_REMOTE_PURGE_AGGREGATE_PAGE_SIZE' ), $cursor, false );
                 if ( empty( $page['ok'] ) ) {
                     return array( 'ok' => false, 'present' => false, 'reason' => 'aggregate_enumeration_failed' );
                 }
@@ -371,18 +364,107 @@ class UploadBatchStore {
                         return array( 'ok' => false, 'present' => false, 'reason' => 'manifest_invalid' );
                     }
                     $aggregate_family = $root_name === self::STAGED_DIR ? 'staged' : 'submission';
-                    $manifest = self::read_manifest( $manifest_path, $aggregate_family, basename( $path ) );
+                    $worker_version = self::worker_manifest_file_version( $manifest_path );
+                    if ( $worker_version === false ) {
+                        return array( 'ok' => false, 'present' => false, 'reason' => 'manifest_invalid' );
+                    }
+                    if ( $worker_version === self::WORKER_MANIFEST_VERSION ) {
+                        $manifest = self::read_worker_manifest( $manifest_path, $aggregate_family, basename( $path ), true, false );
+                    } else {
+                        $manifest = self::read_manifest( $manifest_path, $aggregate_family, basename( $path ), false );
+                    }
                     if ( $manifest === null ) {
                         return array( 'ok' => false, 'present' => false, 'reason' => 'manifest_invalid' );
                     }
+                    if ( $worker_version !== self::WORKER_MANIFEST_VERSION && $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+                        return array( 'ok' => false, 'present' => false, 'reason' => 'manifest_invalid' );
+                    }
                     if ( $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
-                        return array( 'ok' => true, 'present' => true, 'reason' => '' );
+                        $worker_manifest_present = true;
                     }
                 }
                 $cursor = $page['cursor'];
             } while ( ! empty( $cursor ) );
         }
-        return array( 'ok' => true, 'present' => $worker_reservation_present, 'reason' => '' );
+        if ( ( $worker_manifest_present || $worker_reservation_present )
+            && ! self::worker_capacity_globally_consistent( $private_dir, $capacity )
+        ) {
+            return array( 'ok' => false, 'present' => false, 'reason' => 'capacity_invalid' );
+        }
+        return array( 'ok' => true, 'present' => $worker_manifest_present || $worker_reservation_present, 'reason' => '' );
+    }
+
+    public static function purge_managed_storage_roots( $lifecycle, $remove_tree ) {
+        if ( ! $lifecycle instanceof PrivateDirLease || ! $lifecycle->exclusive() || ! is_callable( $remove_tree ) ) {
+            return array( 'ok' => false, 'removed' => false, 'reason' => 'upload_lifecycle_unavailable' );
+        }
+        foreach ( self::purge_managed_root_paths( $lifecycle ) as $path ) {
+            call_user_func( $remove_tree, $path );
+        }
+        if ( ! self::purge_managed_roots_absent( $lifecycle ) ) {
+            return array( 'ok' => false, 'removed' => false, 'reason' => 'upload_purge_incomplete' );
+        }
+        if ( ! self::finish_purged_capacity_state( $lifecycle, $remove_tree ) ) {
+            return array( 'ok' => false, 'removed' => true, 'reason' => 'capacity_purge_incomplete' );
+        }
+        return array( 'ok' => true, 'removed' => true, 'reason' => '' );
+    }
+
+    private static function purge_managed_root_paths( $lifecycle ) {
+        if ( ! $lifecycle instanceof PrivateDirLease || ! $lifecycle->exclusive() ) {
+            return array();
+        }
+        $private_dir = rtrim( $lifecycle->private_dir(), '/\\' );
+        return array(
+            'staged' => $private_dir . '/' . self::STAGED_DIR,
+            'submissions' => $private_dir . '/' . self::SUBMISSIONS_DIR,
+            'artifacts' => $private_dir . '/' . self::ARTIFACTS_DIR,
+            'preview_cache' => $private_dir . '/' . self::PREVIEW_CACHE_DIR,
+            'validation_retirements' => $private_dir . '/' . self::VALIDATION_RETIREMENT_DIR,
+        );
+    }
+
+    private static function purge_managed_roots_absent( $lifecycle ) {
+        $paths = self::purge_managed_root_paths( $lifecycle );
+        if ( empty( $paths ) ) {
+            return false;
+        }
+        foreach ( $paths as $path ) {
+            if ( file_exists( $path ) || is_link( $path ) ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static function finish_purged_capacity_state( $lifecycle, $remove_tree ) {
+        if ( ! $lifecycle instanceof PrivateDirLease || ! $lifecycle->exclusive() || ! is_callable( $remove_tree ) || ! self::purge_managed_roots_absent( $lifecycle ) ) {
+            return false;
+        }
+        $private_dir = rtrim( $lifecycle->private_dir(), '/\\' );
+        $capacity_path = $private_dir . '/' . self::CAPACITY_FILENAME;
+        $record_path = $private_dir . '/' . self::REMOTE_PURGE_FILENAME;
+        if ( is_link( $capacity_path ) || is_link( $record_path ) ) {
+            return false;
+        }
+        if ( ! is_file( $capacity_path ) ) {
+            return ! file_exists( $capacity_path ) && self::remove_purged_remote_record( $record_path, $remove_tree );
+        }
+        call_user_func( $remove_tree, $capacity_path );
+        if ( file_exists( $capacity_path ) || is_link( $capacity_path ) ) {
+            return false;
+        }
+        return self::remove_purged_remote_record( $record_path, $remove_tree );
+    }
+
+    private static function remove_purged_remote_record( $record_path, $remove_tree ) {
+        if ( is_link( $record_path ) || ( file_exists( $record_path ) && ! is_file( $record_path ) ) ) {
+            return false;
+        }
+        if ( is_file( $record_path ) ) {
+            call_user_func( $remove_tree, $record_path );
+        }
+        return ! file_exists( $record_path ) && ! is_link( $record_path );
     }
 
     public static function capacity_platform_supported( $integer_bytes = null ) {
@@ -493,7 +575,13 @@ class UploadBatchStore {
 
         $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
         if ( empty( $capacity['ok'] ) ) {
+            $lifecycle->release();
             return $capacity;
+        }
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
+        if ( ! is_array( $record ) ) {
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
         }
 
         $root = self::managed_root( $uploads_dir, self::STAGED_DIR, true, $lifecycle );
@@ -529,7 +617,9 @@ class UploadBatchStore {
 
         $manifest_path = $aggregate . '/' . self::MANIFEST_FILENAME;
         if ( is_file( $manifest_path ) ) {
-            $manifest = self::read_manifest( $manifest_path, 'staged', $batch_id );
+            $manifest = $artifact_store === FormProtocol::UPLOAD_TRANSPORT_WORKER
+                ? self::read_worker_manifest( $manifest_path, 'staged', $batch_id )
+                : self::read_manifest( $manifest_path, 'staged', $batch_id );
             self::release_lock( $lock );
             self::release_lock( $capacity['lock'] );
             if ( $manifest === null ) {
@@ -542,7 +632,7 @@ class UploadBatchStore {
             ) {
                 return self::failure( 'EFORMS_ERR_TOKEN', 'batch_conflict' );
             }
-            return self::success( array( 'batch' => self::batch_summary( $manifest ) ) );
+            return self::success( array( 'batch' => self::manifest_summary( $manifest ) ) );
         }
 
         if ( ( ! $created && ! self::initializable_partial_batch( $aggregate ) )
@@ -554,7 +644,7 @@ class UploadBatchStore {
         }
 
         $manifest = array(
-            'version' => self::MANIFEST_VERSION,
+            'version' => $artifact_store === FormProtocol::UPLOAD_TRANSPORT_WORKER ? self::WORKER_MANIFEST_VERSION : self::MANIFEST_VERSION,
             'batch_id' => $batch_id,
             'state' => 'open',
             'artifact_store' => $artifact_store,
@@ -583,17 +673,21 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
         }
 
-        return self::success( array( 'batch' => self::batch_summary( $manifest ) ) );
+        return self::success( array( 'batch' => self::manifest_summary( $manifest ) ) );
     }
 
     public static function status( $batch_id, $batch_secret, $uploads_dir, $now = null ) {
-        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, true );
+        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, true, false );
         if ( empty( $locked['ok'] ) ) {
             return $locked;
         }
 
-        $manifest = self::read_manifest( $locked['manifest_path'], 'staged', $batch_id );
+        $worker_manifest = self::read_worker_manifest( $locked['manifest_path'], 'staged', $batch_id, true, false );
+        $manifest = $worker_manifest;
         if ( $manifest === null ) {
+            $manifest = self::read_manifest( $locked['manifest_path'], 'staged', $batch_id, false );
+        }
+        if ( $manifest === null || ( $worker_manifest === null && $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) ) {
             self::release_lock( $locked['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_invalid' );
         }
@@ -606,7 +700,7 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_TOKEN', 'batch_secret_mismatch' );
         }
 
-        $summary = self::batch_summary( $manifest );
+        $summary = self::manifest_summary( $manifest );
         self::release_lock( $locked['lock'] );
         return self::success( array( 'batch' => $summary ) );
     }
@@ -625,13 +719,17 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_TOKEN', 'binding_mismatch' );
         }
 
-        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, true );
+        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, true, false );
         if ( empty( $locked['ok'] ) ) {
             return $locked;
         }
-        $manifest = self::read_manifest( $locked['manifest_path'], 'staged', $batch_id );
-        $now = self::now( $now );
+        $worker_manifest = self::read_worker_manifest( $locked['manifest_path'], 'staged', $batch_id, true, false );
+        $manifest = $worker_manifest;
         if ( $manifest === null ) {
+            $manifest = self::read_manifest( $locked['manifest_path'], 'staged', $batch_id, false );
+        }
+        $now = self::now( $now );
+        if ( $manifest === null || ( $worker_manifest === null && $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) ) {
             self::release_lock( $locked['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_invalid' );
         }
@@ -655,8 +753,8 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_TOKEN', 'binding_mismatch' );
         }
 
-        $items = self::resolved_items( $manifest );
-        $summary = self::batch_summary( $manifest );
+        $items = $worker_manifest === null ? self::resolved_items( $manifest ) : self::worker_resolved_items( $manifest );
+        $summary = self::manifest_summary( $manifest );
         self::release_lock( $locked['lock'] );
         return self::success( array( 'batch' => $summary, 'items' => $items ) );
     }
@@ -684,9 +782,15 @@ class UploadBatchStore {
         if ( empty( $capacity['ok'] ) ) {
             return $capacity;
         }
+        $authorization_record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
+        if ( ! is_array( $authorization_record ) ) {
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
         $locked = self::lock_staged_batch( $batch_id, $uploads_dir );
         if ( empty( $locked['ok'] ) ) {
             self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
             return $locked;
         }
 
@@ -698,8 +802,7 @@ class UploadBatchStore {
             self::release_lock( $capacity['lock'] );
             return $check;
         }
-        $artifact_store = isset( $options['artifact_store'] ) ? $options['artifact_store'] : FormProtocol::UPLOAD_TRANSPORT_LOCAL;
-        if ( ! self::valid_artifact_store( $artifact_store ) || $manifest['artifact_store'] !== $artifact_store ) {
+        if ( $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_LOCAL ) {
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'artifact_store_mismatch' );
@@ -843,7 +946,7 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'max_total_bytes_exceeded' );
         }
 
-        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+        $record = $authorization_record;
         $reservation_id = self::reservation_id( $batch_id, $upload_id );
         $reservation = is_array( $record )
             ? self::reserve_capacity(
@@ -857,7 +960,7 @@ class UploadBatchStore {
                 $transient_bytes,
                 $manifest['artifact_store_identity'],
                 $capacity['private_dir'],
-                $options,
+                array_replace( $options, array( 'artifact_store' => FormProtocol::UPLOAD_TRANSPORT_LOCAL ) ),
                 $now
             )
             : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
@@ -895,35 +998,495 @@ class UploadBatchStore {
             : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
     }
 
-    public static function complete_intent( $batch_id, $batch_secret, $upload_id, $intent_id, $facts, $uploads_dir, $now = null ) {
-        return self::complete_intent_transition( $batch_id, $batch_secret, $upload_id, $intent_id, $facts, $uploads_dir, $now, null );
+    public static function worker_authorize_intent( $batch_id, $batch_secret, $upload_id, $ordinal, $display_name, $declared_bytes, $declared_mime, $uploads_dir, $options = array() ) {
+        $ordinal = is_numeric( $ordinal ) ? (int) $ordinal : -1;
+        $declared_bytes = is_numeric( $declared_bytes ) ? (int) $declared_bytes : 0;
+        $display_name = UploadValue::sanitize_display_name( $display_name );
+        $declared_mime = is_string( $declared_mime ) ? strtolower( trim( $declared_mime ) ) : '';
+        $now = self::now( isset( $options['now'] ) ? $options['now'] : null );
+        $storage_identity = self::string_value( $options, 'storage_identity' );
+        $validation_contract_version = self::string_value( $options, 'validation_contract_version' );
+        $upload_until = self::int_value( $options, 'upload_until' );
+        $accept_until = self::int_value( $options, 'accept_until' );
+        $validation_until = self::int_value( $options, 'validation_until' );
+        $staged_delete_after = self::int_value( $options, 'staged_delete_after' );
+        $committed_only = ! empty( $options['committed_only'] );
+
+        if ( ( $committed_only
+                ? ! self::worker_committed_retry_deadlines_ordered( $now, $upload_until, $accept_until, $validation_until, $staged_delete_after )
+                : ! self::worker_deadlines_ordered( $now, $upload_until, $accept_until, $validation_until, $staged_delete_after ) )
+            || ! self::valid_artifact_store_identity( FormProtocol::UPLOAD_TRANSPORT_WORKER, $storage_identity )
+            || ! self::valid_validation_contract_version( $validation_contract_version )
+        ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'worker_deadlines_invalid' );
+        }
+        if ( ! self::valid_upload_id( $upload_id )
+            || $ordinal < 0
+            || $display_name === ''
+            || $declared_bytes < 1
+        ) {
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'item_identity_invalid' );
+        }
+
+        $lifecycle = PrivateDir::acquire_write_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
+        }
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            $lifecycle->release();
+            return $capacity;
+        }
+        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, false, false );
+        if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
+            return $locked;
+        }
+
+        $manifest = self::read_worker_authorization_manifest( $locked['manifest_path'], $batch_id, false );
+        $check = self::check_worker_item_mutation( $manifest, $batch_secret, $now, $accept_until, $staged_delete_after );
+        if ( empty( $check['ok'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return $check;
+        }
+        if ( $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || ! hash_equals( $manifest['artifact_store_identity'], $storage_identity )
+        ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'artifact_store_mismatch' );
+        }
+        if ( ! self::worker_policy_within_staged_ceiling( $manifest['policy'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'staged_max_files_exceeded' );
+        }
+
+        $declared_mime = self::declared_mime( array( 'type' => $declared_mime ), $display_name, $manifest['policy'] );
+        $extension = UploadPolicy::extension_from_name( $display_name );
+        $mime_policy = UploadPolicy::policy_for_tokens( $manifest['policy']['accept'], 'staged' );
+        if ( $declared_bytes > $manifest['policy']['max_file_bytes']
+            || $declared_bytes > Anchors::get( 'MANAGED_ARTIFACT_MAX_BYTES' )
+            || ! UploadPolicy::mime_allowed( $declared_mime, $extension, $mime_policy )
+        ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'artifact_declaration_invalid' );
+        }
+
+        $intent_id = self::derive_intent_id(
+            $batch_id,
+            $upload_id,
+            $ordinal,
+            $display_name,
+            $declared_bytes,
+            $declared_mime,
+            $manifest['binding']['policy_fingerprint']
+        );
+        $object_key = ManagedArtifactKey::create( $batch_id, $ordinal, $intent_id, $declared_mime );
+        if ( $intent_id === '' || $object_key === '' ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'intent_identity_failed' );
+        }
+
+        if ( isset( $manifest['items'][ $upload_id ] ) ) {
+            $item = $manifest['items'][ $upload_id ];
+            $matches = $item['intent_id'] === $intent_id
+                && $item['ordinal'] === $ordinal
+                && $item['display_name'] === $display_name
+                && $item['bytes'] === $declared_bytes
+                && $item['object_key'] === $object_key
+                && $item['policy_fingerprint'] === $manifest['binding']['policy_fingerprint']
+                && $item['storage_identity'] === $storage_identity
+                && $item['validation_contract_version'] === $validation_contract_version
+                && $item['validation_until'] === $validation_until
+                && $item['staged_delete_after'] === $staged_delete_after;
+            if ( $matches ) {
+                $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+                $settled = self::settle_worker_committed_capacity(
+                    $record,
+                    $capacity['path'],
+                    $capacity['private_dir'],
+                    $upload_id,
+                    $manifest,
+                    $item,
+                    $now,
+                    'staged'
+                );
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return $settled
+                    ? self::success( array( 'committed' => true, 'item' => self::worker_item_summary( $item ) ) )
+                    : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_settlement_failed' );
+            }
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'upload_id_conflict' );
+        }
+        if ( isset( $manifest['tombstones'][ $upload_id ] ) ) {
+            if ( ! self::worker_cancellation_tombstone_valid( $manifest['tombstones'][ $upload_id ] ) ) {
+                $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+                if ( self::worker_capacity_invalid_for_manifest( $capacity['private_dir'], $record, $manifest, 'staged' ) ) {
+                    self::release_lock( $locked['lock'] );
+                    self::release_lock( $capacity['lock'] );
+                    return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+                }
+            }
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'item_deleted' );
+        }
+        if ( $committed_only ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'worker_grants_unavailable' );
+        }
+        $retirement = self::validation_retirement_marker_status( $lifecycle->private_dir(), $validation_contract_version );
+        if ( empty( $retirement['ok'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'validation_retirement_marker_invalid' );
+        }
+        if ( ! empty( $retirement['retiring'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'validation_contract_retiring' );
+        }
+        if ( isset( $manifest['intents'][ $upload_id ] ) ) {
+            $intent = $manifest['intents'][ $upload_id ];
+            $matches = $intent['intent_id'] === $intent_id
+                && $intent['ordinal'] === $ordinal
+                && $intent['display_name'] === $display_name
+                && $intent['declared_bytes'] === $declared_bytes
+                && $intent['declared_mime'] === $declared_mime
+                && $intent['object_key'] === $object_key
+                && $intent['storage_identity'] === $storage_identity
+                && $intent['validation_contract_version'] === $validation_contract_version
+                && $intent['accept_until'] === $accept_until
+                && $intent['validation_until'] === $validation_until
+                && $intent['staged_delete_after'] === $staged_delete_after;
+            if ( ! $matches ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_TOKEN', 'upload_id_conflict' );
+            }
+            $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+            if ( ! is_array( $record ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
+            $authority = self::worker_intent_capacity_authority( $manifest, $upload_id, $intent );
+            $reservation_id = self::reservation_id( $batch_id, $upload_id );
+            if ( $authority === null
+                || ! isset( $record['reservations'][ $reservation_id ] )
+                || ! ManagedCapacityStore::matches_intent_reservation(
+                    $record,
+                    $reservation_id,
+                    $intent['intent_id'],
+                    $intent['object_key'],
+                    $batch_id,
+                    $upload_id,
+                    $intent['reserved_bytes'],
+                    $intent['created_at'],
+                    $manifest['artifact_store'],
+                    $manifest['artifact_store_identity']
+                )
+                || ! ManagedCapacityStore::remote_reservation_matches( $record['reservations'][ $reservation_id ], $authority )
+            ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reservation_missing' );
+            }
+            if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $record, $manifest, 'staged' ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::success( array( 'committed' => false, 'intent' => self::worker_intent_summary( $intent ) ) );
+        }
+
+        if ( count( $manifest['intents'] ) + count( $manifest['items'] ) + count( $manifest['tombstones'] ) >= self::tombstone_limit( $manifest['policy'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'upload_lifetime_exceeded' );
+        }
+        foreach ( array_merge( $manifest['intents'], $manifest['items'] ) as $existing ) {
+            if ( $existing['ordinal'] === $ordinal ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'ordinal_conflict' );
+            }
+        }
+        if ( count( $manifest['intents'] ) + count( $manifest['items'] ) >= $manifest['policy']['max_files'] ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'max_files_exceeded' );
+        }
+        if ( self::active_artifact_bytes( $manifest ) > $manifest['policy']['max_total_bytes'] - $declared_bytes ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_UPLOAD_TYPE', 'max_total_bytes_exceeded' );
+        }
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+        if ( self::worker_capacity_invalid_for_manifest( $capacity['private_dir'], $record, $manifest, 'staged' ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+
+        $capacity_before_reservation = is_array( $record ) ? $record : null;
+        $reservation_id = self::reservation_id( $batch_id, $upload_id );
+        $reservation = is_array( $record )
+            ? self::reserve_capacity(
+                $record,
+                $reservation_id,
+                $intent_id,
+                $object_key,
+                $batch_id,
+                $upload_id,
+                $declared_bytes,
+                0,
+                $manifest['artifact_store_identity'],
+                $capacity['private_dir'],
+                array(
+                    'artifact_store' => FormProtocol::UPLOAD_TRANSPORT_WORKER,
+                    'worker_cleanup' => array(
+                        'validation_contract_version' => $validation_contract_version,
+                        'policy_fingerprint' => $manifest['binding']['policy_fingerprint'],
+                        'validation_until' => $validation_until,
+                    ),
+                ),
+                $now
+            )
+            : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        if ( empty( $reservation['ok'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return $reservation;
+        }
+        if ( ! ManagedCapacityStore::write( $capacity['path'], $reservation['record'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_write_failed' );
+        }
+
+        $intent = array(
+            'intent_id' => $intent_id,
+            'upload_id' => $upload_id,
+            'ordinal' => $ordinal,
+            'display_name' => $display_name,
+            'declared_bytes' => $declared_bytes,
+            'declared_mime' => $declared_mime,
+            'object_key' => $object_key,
+            'policy_fingerprint' => $manifest['binding']['policy_fingerprint'],
+            'storage_identity' => $storage_identity,
+            'validation_contract_version' => $validation_contract_version,
+            'created_at' => $now,
+            'upload_until' => $upload_until,
+            'accept_until' => $accept_until,
+            'validation_until' => $validation_until,
+            'staged_delete_after' => $staged_delete_after,
+            'reserved_bytes' => $declared_bytes,
+        );
+        $manifest['version'] = self::WORKER_MANIFEST_VERSION;
+        $manifest['intents'][ $upload_id ] = $intent;
+        $written = empty( $options['worker_fail_before_manifest_write'] )
+            && self::write_json_atomic( $locked['manifest_path'], $manifest );
+        if ( ! $written ) {
+            $rolled_back = is_array( $capacity_before_reservation )
+                && ManagedCapacityStore::write( $capacity['path'], $capacity_before_reservation );
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return $rolled_back
+                ? self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' )
+                : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_rollback_failed' );
+        }
+        self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
+        return self::success( array( 'committed' => false, 'intent' => self::worker_intent_summary( $intent ) ) );
     }
 
-    public static function complete_receipt( $batch_id, $batch_secret, $upload_id, $receipt, $uploads_dir, $now = null ) {
-        if ( ! self::valid_receipt_claims( $receipt, $batch_id, $upload_id ) ) {
+    public static function complete_intent( $batch_id, $batch_secret, $upload_id, $intent_id, $facts, $uploads_dir, $now = null ) {
+        return self::complete_intent_transition( $batch_id, $batch_secret, $upload_id, $intent_id, $facts, $uploads_dir, $now );
+    }
+
+    public static function worker_complete_stored_receipt( $batch_id, $batch_secret, $upload_id, $receipt, $uploads_dir, $now = null, $options = array() ) {
+        if ( ! self::valid_worker_stored_receipt_claims( $receipt, $batch_id, $upload_id ) ) {
             return self::failure( 'EFORMS_ERR_TOKEN', 'completion_invalid' );
         }
-        $facts = array(
+        if ( $receipt['batch_id'] !== $batch_id || $receipt['upload_id'] !== $upload_id ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'completion_invalid' );
+        }
+
+        $lifecycle = PrivateDir::acquire_write_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
+        }
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            $lifecycle->release();
+            return $capacity;
+        }
+        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, false, false );
+        if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
+            return $locked;
+        }
+
+        $manifest = self::read_worker_manifest( $locked['manifest_path'], 'staged', $batch_id, true, false );
+        $now = self::now( $now );
+        if ( $manifest === null
+            || $manifest['state'] !== 'open'
+            || $now >= $manifest['accept_until']
+            || $now >= $manifest['delete_after']
+            || ! self::secret_matches( $manifest, $batch_secret )
+        ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'completion_denied' );
+        }
+        if ( isset( $manifest['tombstones'][ $upload_id ] ) ) {
+            $record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
+            if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $record, $manifest, 'staged' ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'item_deleted' );
+        }
+        if ( isset( $manifest['items'][ $upload_id ] ) ) {
+            $existing = $manifest['items'][ $upload_id ];
+            if ( ! self::worker_receipt_matches_item( $receipt, $manifest, $existing, $now ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_TOKEN', 'completion_conflict' );
+            }
+            if ( self::worker_capacity_missing_for_remote_state( $capacity['path'], $manifest ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
+            $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+            $settled = self::settle_worker_committed_capacity(
+                $record,
+                $capacity['path'],
+                $capacity['private_dir'],
+                $upload_id,
+                $manifest,
+                $existing,
+                $now,
+                'staged'
+            );
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return $settled
+                ? self::success( array( 'item' => self::worker_item_summary( $existing ) ) )
+                : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_settlement_failed' );
+        }
+
+        $intent = isset( $manifest['intents'][ $upload_id ] ) ? $manifest['intents'][ $upload_id ] : null;
+        if ( ! is_array( $intent )
+            || ! self::worker_receipt_matches_intent( $receipt, $manifest, $intent, $now )
+        ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'completion_conflict' );
+        }
+
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+        if ( ! is_array( $record ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+        $stored = array(
+            'upload_id' => $upload_id,
+            'intent_id' => $intent['intent_id'],
+            'ordinal' => $intent['ordinal'],
+            'display_name' => $intent['display_name'],
+            'bytes' => $receipt['bytes'],
             'object_key' => $receipt['object_key'],
             'object_version' => $receipt['object_version'],
-            'bytes' => $receipt['bytes'],
-            'mime' => $receipt['mime'],
-            'width' => $receipt['width'],
-            'height' => $receipt['height'],
+            'etag' => $receipt['etag'],
+            'policy_fingerprint' => $receipt['policy_fingerprint'],
+            'storage_identity' => $receipt['storage_identity'],
+            'validation_contract_version' => $receipt['validation_contract_version'],
+            'validation_until' => $intent['validation_until'],
+            'staged_delete_after' => $intent['staged_delete_after'],
         );
-        return self::complete_intent_transition(
-            $batch_id,
-            $batch_secret,
+        $authority = self::worker_committed_item_capacity_authority( $manifest, $upload_id, $stored );
+        $reservation_id = self::reservation_id( $batch_id, $upload_id );
+        if ( $authority === null
+            || ! ManagedCapacityStore::matches_intent_reservation(
+                $record,
+                $reservation_id,
+                $intent['intent_id'],
+                $intent['object_key'],
+                $batch_id,
+                $upload_id,
+                $intent['reserved_bytes'],
+                $intent['created_at'],
+                $manifest['artifact_store'],
+                $manifest['artifact_store_identity']
+            )
+            || ! isset( $record['reservations'][ $reservation_id ] )
+            || ! ManagedCapacityStore::remote_reservation_matches( $record['reservations'][ $reservation_id ], $authority )
+        ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reservation_missing' );
+        }
+        if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $record, $manifest, 'staged' ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+        if ( ! empty( $options['worker_fail_before_completion_manifest_write'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
+        }
+        unset( $manifest['intents'][ $upload_id ] );
+        $manifest['items'][ $upload_id ] = $stored;
+        $manifest['artifact_bytes'] += $stored['bytes'];
+        if ( ! self::write_json_atomic( $locked['manifest_path'], $manifest ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
+        }
+        if ( ! empty( $options['worker_fail_after_completion_manifest_write_before_capacity'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_settlement_failed' );
+        }
+
+        $settled = self::settle_worker_committed_capacity(
+            $record,
+            $capacity['path'],
+            $capacity['private_dir'],
             $upload_id,
-            $receipt['intent_id'],
-            $facts,
-            $uploads_dir,
+            $manifest,
+            $stored,
             $now,
-            $receipt
+            'staged'
         );
+        self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
+        return $settled
+            ? self::success( array( 'item' => self::worker_item_summary( $stored ) ) )
+            : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_settlement_failed' );
     }
 
-    private static function complete_intent_transition( $batch_id, $batch_secret, $upload_id, $intent_id, $facts, $uploads_dir, $now, $receipt ) {
+    private static function complete_intent_transition( $batch_id, $batch_secret, $upload_id, $intent_id, $facts, $uploads_dir, $now ) {
         if ( ! self::valid_upload_id( $upload_id ) || ! is_string( $intent_id ) || $intent_id === '' || ! is_array( $facts ) ) {
             return self::failure( 'EFORMS_ERR_TOKEN', 'completion_invalid' );
         }
@@ -946,7 +1509,7 @@ class UploadBatchStore {
             || $manifest['state'] !== 'open'
             || $now >= $manifest['delete_after']
             || ! self::secret_matches( $manifest, $batch_secret )
-            || $manifest['artifact_store'] !== ( $receipt === null ? FormProtocol::UPLOAD_TRANSPORT_LOCAL : FormProtocol::UPLOAD_TRANSPORT_WORKER )
+            || $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_LOCAL
         ) {
             self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
@@ -960,8 +1523,7 @@ class UploadBatchStore {
         if ( isset( $manifest['items'][ $upload_id ] ) ) {
             $existing = $manifest['items'][ $upload_id ];
             $matches = self::facts_match_item( $facts, $existing )
-                && ManagedArtifactKey::matches( $existing['object_key'], $batch_id, $existing['ordinal'], $existing['mime'] )
-                && ( $receipt === null || self::receipt_matches_item( $receipt, $manifest, $existing, $now ) );
+                && ManagedArtifactKey::matches( $existing['object_key'], $batch_id, $existing['ordinal'], $existing['mime'] );
             if ( $matches ) {
                 $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
                 $settled = self::settle_committed_capacity( $record, $capacity['path'], $batch_id, $upload_id, $existing['object_key'], $existing['bytes'], $now );
@@ -976,8 +1538,7 @@ class UploadBatchStore {
         $intent = isset( $manifest['intents'][ $upload_id ] ) ? $manifest['intents'][ $upload_id ] : null;
         if ( ! is_array( $intent )
             || ! hash_equals( $intent['intent_id'], $intent_id )
-            || ( $receipt === null && $now >= $intent['expires_at'] )
-            || ( $receipt !== null && ! self::receipt_matches_intent( $receipt, $manifest, $intent, $now ) )
+            || $now >= $intent['expires_at']
             || ! self::valid_artifact_facts( $facts, $intent, $manifest['policy'] )
         ) {
             self::release_lock( $locked['lock'] );
@@ -1149,6 +1710,89 @@ class UploadBatchStore {
 
     public static function delete_item( $batch_id, $batch_secret, $upload_id, $uploads_dir, $now = null ) {
         return self::delete_item_transition( $batch_id, $batch_secret, $upload_id, $uploads_dir, $now );
+    }
+
+    public static function worker_delete_item( $batch_id, $batch_secret, $upload_id, $uploads_dir, $now = null ) {
+        if ( ! self::valid_upload_id( $upload_id ) ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'item_identity_invalid' );
+        }
+
+        $lifecycle = PrivateDir::acquire_write_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
+        }
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            return $capacity;
+        }
+        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, false, false );
+        if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            return $locked;
+        }
+
+        $manifest = self::read_worker_manifest( $locked['manifest_path'], 'staged', $batch_id, true, false );
+        $now = self::now( $now );
+        if ( $manifest === null
+            || $manifest['state'] !== 'open'
+            || $now >= $manifest['delete_after']
+            || ! self::secret_matches( $manifest, $batch_secret )
+        ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'batch_not_open' );
+        }
+
+        if ( isset( $manifest['tombstones'][ $upload_id ] ) ) {
+            $tombstone = $manifest['tombstones'][ $upload_id ];
+            if ( self::worker_cancellation_tombstone_valid( $tombstone ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return self::success( array( 'deleted' => true ) );
+            }
+        } else {
+            $tombstone = null;
+        }
+        $stored = isset( $manifest['items'][ $upload_id ] ) ? $manifest['items'][ $upload_id ] : null;
+        $intent = isset( $manifest['intents'][ $upload_id ] ) ? $manifest['intents'][ $upload_id ] : null;
+        $lifetime_count = count( $manifest['intents'] ) + count( $manifest['items'] ) + count( $manifest['tombstones'] );
+        if ( ! is_array( $tombstone ) && ! is_array( $stored ) && ! is_array( $intent ) && $lifetime_count >= self::tombstone_limit( $manifest['policy'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::success();
+        }
+        $record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+        if ( self::worker_capacity_invalid_for_manifest( $capacity['private_dir'], $record, $manifest, 'staged' ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+        if ( is_array( $tombstone ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::success( array( 'deleted' => true ) );
+        }
+
+        if ( is_array( $stored ) || is_array( $intent ) ) {
+            $source = is_array( $stored ) ? $stored : $intent;
+            $manifest['tombstones'][ $upload_id ] = self::worker_tombstone_from_source( $source, $now );
+            if ( is_array( $stored ) ) {
+                unset( $manifest['items'][ $upload_id ] );
+                $manifest['artifact_bytes'] -= (int) $stored['bytes'];
+            }
+            if ( is_array( $intent ) ) {
+                unset( $manifest['intents'][ $upload_id ] );
+            }
+        } else {
+            $manifest['tombstones'][ $upload_id ] = self::worker_cancellation_tombstone( $manifest, $now );
+        }
+
+        $written = self::write_json_atomic( $locked['manifest_path'], $manifest );
+        self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
+        return $written
+            ? self::success( array( 'deleted' => true ) )
+            : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
     }
 
     private static function delete_item_transition( $batch_id, $batch_secret, $upload_id, $uploads_dir, $now ) {
@@ -1388,6 +2032,105 @@ class UploadBatchStore {
             : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
     }
 
+    public static function worker_claim_finalization( $batch_id, $batch_secret, $binding, $field, $expected_items, $submission_id, $uploads_dir, $now = null ) {
+        if ( ! self::valid_submission_id( $submission_id ) ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'submission_id_invalid' );
+        }
+        $binding = is_array( $binding ) ? $binding : array();
+        $raw_token = self::string_value( $binding, 'raw_token' );
+        $expected_id = self::derive_batch_id(
+            $raw_token,
+            self::string_value( $binding, 'form_id' ),
+            self::string_value( $binding, 'instance_id' ),
+            self::string_value( $binding, 'field_key' ),
+            self::policy_fingerprint( $field )
+        );
+        if ( $expected_id === '' || ! is_string( $batch_id ) || ! hash_equals( $expected_id, $batch_id ) ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'binding_mismatch' );
+        }
+
+        $lifecycle = PrivateDir::acquire_write_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
+        }
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            return $capacity;
+        }
+        $capacity_record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+        if ( $capacity_record === null ) {
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, false, false );
+        if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            return $locked;
+        }
+        $manifest = self::read_worker_manifest( $locked['manifest_path'], 'staged', $batch_id, true, false );
+        $now = self::now( $now );
+        if ( $manifest === null ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_invalid' );
+        }
+        if ( $now >= $manifest['accept_until']
+            || ! self::secret_matches( $manifest, $batch_secret )
+            || ! self::binding_matches(
+                $manifest,
+                self::string_value( $binding, 'form_id' ),
+                self::string_value( $binding, 'instance_id' ),
+                hash( 'sha256', $raw_token ),
+                self::string_value( $binding, 'field_key' ),
+                self::policy_fingerprint( $field )
+            )
+        ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'claim_denied' );
+        }
+        if ( ! is_array( $expected_items ) || self::worker_resolved_items( $manifest ) !== UploadValue::review_staged_items( $expected_items ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'batch_items_changed' );
+        }
+        if ( ! empty( $manifest['intents'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'batch_uploads_pending' );
+        }
+        if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $capacity_record, $manifest, 'staged' ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+
+        if ( $manifest['state'] === 'finalizing' ) {
+            $matches = isset( $manifest['claim']['submission_id'] ) && hash_equals( $manifest['claim']['submission_id'], $submission_id );
+            $summary = self::worker_batch_summary( $manifest );
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return $matches
+                ? self::success( array( 'batch' => $summary, 'recovered' => true ) )
+                : self::failure( 'EFORMS_ERR_TOKEN', 'claim_conflict' );
+        }
+        if ( $manifest['state'] !== 'open' ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'claim_denied' );
+        }
+
+        $manifest['state'] = 'finalizing';
+        $manifest['claim'] = array( 'submission_id' => $submission_id, 'claimed_at' => $now );
+        $written = self::write_json_atomic( $locked['manifest_path'], $manifest );
+        $summary = self::worker_batch_summary( $manifest );
+        self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
+        return $written
+            ? self::success( array( 'batch' => $summary, 'recovered' => false ) )
+            : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
+    }
+
     public static function resolve_recovery( $batch_id, $batch_secret, $binding, $field, $submission_id, $uploads_dir, $now = null ) {
         if ( ! self::valid_submission_id( $submission_id ) ) {
             return self::failure( 'EFORMS_ERR_TOKEN', 'recovery_denied' );
@@ -1422,11 +2165,19 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_TOKEN', 'recovery_denied' );
         }
 
-        $manifest = self::read_manifest(
+        $manifest = self::read_worker_manifest(
             $locked['manifest_path'],
             $aggregate_family,
             $aggregate_family === 'staged' ? $batch_id : $submission_id
         );
+        $worker_manifest = $manifest !== null;
+        if ( $manifest === null ) {
+            $manifest = self::read_manifest(
+                $locked['manifest_path'],
+                $aggregate_family,
+                $aggregate_family === 'staged' ? $batch_id : $submission_id
+            );
+        }
         if ( $manifest !== null && $manifest['state'] === 'finalized' ) {
             $phase = 'finalized';
         }
@@ -1437,7 +2188,7 @@ class UploadBatchStore {
             && isset( $manifest['claim']['submission_id'] )
             && hash_equals( $manifest['claim']['submission_id'], $submission_id )
             && ! isset( $manifest['email_attempted_at'] )
-            && $now < (int) $manifest['delete_after']
+            && ( $manifest['delete_after'] === null ? $manifest['state'] === 'finalized' : $now < (int) $manifest['delete_after'] )
             && self::secret_matches( $manifest, $batch_secret )
             && self::binding_matches( $manifest, $form_id, $instance_id, hash( 'sha256', $raw_token ), $field_key, $policy_fingerprint );
         if ( ! $valid ) {
@@ -1445,13 +2196,14 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_TOKEN', 'recovery_denied' );
         }
 
-        $items = self::resolved_items( $manifest );
+        $items = $worker_manifest ? self::worker_resolved_items( $manifest ) : self::resolved_items( $manifest );
         self::release_lock( $locked['lock'] );
         return self::success(
             array(
                 'phase' => $phase,
                 'items' => $items,
                 'accept_expired' => $now >= (int) $manifest['accept_until'],
+                'batch' => self::manifest_summary( $manifest ),
             )
         );
     }
@@ -1461,11 +2213,22 @@ class UploadBatchStore {
         if ( ! $lifecycle instanceof PrivateDirLease ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
         }
-        $locked = self::lock_staged_batch( $batch_id, $uploads_dir );
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            $lifecycle->release();
+            return $capacity;
+        }
+        $locked = self::lock_staged_batch( $batch_id, $uploads_dir, false, false );
         if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
             return $locked;
         }
-        $manifest = self::read_manifest( $locked['manifest_path'], 'staged', $batch_id );
+        $manifest = self::read_worker_manifest( $locked['manifest_path'], 'staged', $batch_id, true, false );
+        $worker_manifest = $manifest !== null;
+        if ( $manifest === null ) {
+            $manifest = self::read_manifest( $locked['manifest_path'], 'staged', $batch_id, false );
+        }
         $now = self::now( $now );
         if ( $manifest === null
             || $manifest['state'] !== 'finalizing'
@@ -1475,12 +2238,25 @@ class UploadBatchStore {
             || $now >= (int) $manifest['delete_after']
         ) {
             self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
             return self::failure( 'EFORMS_ERR_TOKEN', 'claim_reopen_denied' );
+        }
+        if ( $worker_manifest ) {
+            $capacity_record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
+            if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $capacity_record, $manifest, 'staged' ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                $lifecycle->release();
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
         }
         $manifest['state'] = 'open';
         unset( $manifest['claim'] );
         $written = self::write_json_atomic( $locked['manifest_path'], $manifest );
         self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
+        $lifecycle->release();
         return $written ? self::success() : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
     }
 
@@ -1510,10 +2286,45 @@ class UploadBatchStore {
         return $result;
     }
 
+    public static function worker_finalize( $batch_id, $submission_id, $uploads_dir, $now = null ) {
+        if ( ! is_string( $batch_id ) || preg_match( FormProtocol::upload_batch_id_pattern(), $batch_id ) !== 1 || ! self::valid_submission_id( $submission_id ) ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_identity_invalid' );
+        }
+        $lifecycle = PrivateDir::acquire_write_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
+        }
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            return $capacity;
+        }
+        $capacity_record = self::read_capacity( $capacity['path'], $capacity['private_dir'] );
+        if ( $capacity_record === null ) {
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+        $result = self::worker_finalize_with_capacity_lock( $batch_id, $submission_id, $uploads_dir, $lifecycle, $now, $capacity_record );
+        self::release_lock( $capacity['lock'] );
+        return $result;
+    }
+
+    public static function worker_submission( $submission_id, $uploads_dir, $now = null ) {
+        $locked = self::lock_submission( $submission_id, $uploads_dir, true );
+        if ( empty( $locked['ok'] ) ) {
+            return $locked;
+        }
+        $manifest = self::read_worker_manifest( $locked['manifest_path'], 'submission', $submission_id );
+        if ( ! self::finalized_available( $manifest, self::now( $now ) ) ) {
+            self::release_submission_lock( $locked );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
+        }
+        $summary = self::worker_submission_summary( $manifest );
+        self::release_submission_lock( $locked );
+        return self::success( array( 'submission' => $summary ) );
+    }
+
     private static function finalize_with_capacity_lock( $batch_id, $submission_id, $uploads_dir, $lifecycle, $now, $review_snapshot ) {
         $now = self::now( $now );
-        $staged_root = self::managed_root( $uploads_dir, self::STAGED_DIR, false );
-        $source = $staged_root === '' ? '' : $staged_root . '/' . Helpers::h2( $batch_id ) . '/' . $batch_id;
         $submission_root = self::managed_root( $uploads_dir, self::SUBMISSIONS_DIR, true, $lifecycle );
         if ( $submission_root === '' ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_root_unavailable' );
@@ -1523,13 +2334,12 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_shard_unavailable' );
         }
         $destination = $destination_shard . '/' . $submission_id;
+        $staged = self::lock_staged_batch( $batch_id, $uploads_dir, true, false );
 
-        if ( is_dir( $source ) ) {
-            $lock = self::acquire_staged_lock( $source );
-            if ( $lock === false ) {
-                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'batch_lock_failed' );
-            }
-            $manifest = self::read_manifest( $source . '/' . self::MANIFEST_FILENAME, 'staged', $batch_id );
+        if ( ! empty( $staged['ok'] ) ) {
+            $source = $staged['path'];
+            $lock = $staged['lock'];
+            $manifest = self::read_manifest( $staged['manifest_path'], 'staged', $batch_id );
             $matches = $manifest !== null
                 && $manifest['state'] === 'finalizing'
                 && isset( $manifest['claim']['submission_id'] )
@@ -1539,7 +2349,10 @@ class UploadBatchStore {
                 self::release_lock( $lock );
                 return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_claim_mismatch' );
             }
-            if ( file_exists( $destination ) || ! @rename( $source, $destination ) ) {
+            if ( ! self::staged_batch_paths_valid( $staged )
+                || file_exists( $destination )
+                || ! @rename( $source, $destination )
+            ) {
                 self::release_lock( $lock );
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'aggregate_rename_failed' );
             }
@@ -1548,13 +2361,10 @@ class UploadBatchStore {
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_permissions_failed' );
             }
             self::release_lock( $lock );
-            self::remove_staged_lock_file( $source );
-            @rmdir( dirname( $source ) );
+        } elseif ( empty( $staged['gone'] ) ) {
+            return $staged;
         } elseif ( ! is_dir( $destination ) ) {
             return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_unavailable' );
-        } else {
-            self::remove_staged_lock_file( $source );
-            @rmdir( dirname( $source ) );
         }
 
         if ( ! PrivateDir::ensure_existing_review_directory( $destination ) ) {
@@ -1568,6 +2378,7 @@ class UploadBatchStore {
         $manifest_path = $destination . '/' . self::MANIFEST_FILENAME;
         $manifest = self::read_manifest( $manifest_path, 'submission', $submission_id );
         if ( $manifest === null
+            || ! hash_equals( $manifest['batch_id'], $batch_id )
             || ! isset( $manifest['claim']['submission_id'] )
             || ! hash_equals( $manifest['claim']['submission_id'], $submission_id )
             || $now >= (int) $manifest['delete_after']
@@ -1575,6 +2386,7 @@ class UploadBatchStore {
             self::release_lock( $lock );
             return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_claim_mismatch' );
         }
+        self::remove_staged_lock_file_for_batch( $batch_id, $uploads_dir );
         if ( $manifest['state'] !== 'finalized' ) {
             $finalized_at = $now;
             $manifest['state'] = 'finalized';
@@ -1602,6 +2414,118 @@ class UploadBatchStore {
         return self::success( array( 'submission' => $summary ) );
     }
 
+    private static function worker_finalize_with_capacity_lock( $batch_id, $submission_id, $uploads_dir, $lifecycle, $now, $capacity_record ) {
+        $now = self::now( $now );
+        $private_dir = $lifecycle->private_dir();
+        $staged = self::lock_staged_batch( $batch_id, $uploads_dir, true, false );
+        $source = '';
+        $destination = '';
+
+        if ( ! empty( $staged['ok'] ) ) {
+            $source = $staged['path'];
+            $lock = $staged['lock'];
+            $manifest = self::read_worker_manifest( $staged['manifest_path'], 'staged', $batch_id, true, false );
+            $matches = $manifest !== null
+                && $manifest['state'] === 'finalizing'
+                && isset( $manifest['claim']['submission_id'] )
+                && hash_equals( $manifest['claim']['submission_id'], $submission_id )
+                && $now < (int) $manifest['delete_after'];
+            if ( ! $matches ) {
+                self::release_lock( $lock );
+                return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_claim_mismatch' );
+            }
+            if ( ! self::worker_capacity_consistent_for_manifest( $private_dir, $capacity_record, $manifest, 'staged' ) ) {
+                self::release_lock( $lock );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
+            $submission_root = self::managed_root( $uploads_dir, self::SUBMISSIONS_DIR, true, $lifecycle );
+            if ( $submission_root === '' ) {
+                self::release_lock( $lock );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_root_unavailable' );
+            }
+            $destination_shard = $submission_root . '/' . Helpers::h2( $submission_id );
+            if ( ! self::ensure_dir( $destination_shard, PrivateDir::REVIEW_DIRECTORY_MODE ) ) {
+                self::release_lock( $lock );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_shard_unavailable' );
+            }
+            $destination = $destination_shard . '/' . $submission_id;
+            if ( ! self::staged_batch_paths_valid( $staged )
+                || file_exists( $destination )
+                || ! @rename( $source, $destination )
+            ) {
+                self::release_lock( $lock );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'aggregate_rename_failed' );
+            }
+            if ( ! @chmod( $destination, PrivateDir::REVIEW_DIRECTORY_MODE ) ) {
+                self::release_lock( $lock );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_permissions_failed' );
+            }
+            self::release_lock( $lock );
+        } elseif ( empty( $staged['gone'] ) ) {
+            return $staged;
+        } else {
+            $submission_root = rtrim( $private_dir, '/\\' ) . '/' . self::SUBMISSIONS_DIR;
+            if ( is_link( $submission_root ) || ! is_dir( $submission_root ) ) {
+                return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_unavailable' );
+            }
+            $destination_shard = $submission_root . '/' . Helpers::h2( $submission_id );
+            $destination = $destination_shard . '/' . $submission_id;
+            if ( is_link( $destination_shard ) || is_link( $destination ) || ! is_dir( $destination ) ) {
+                return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_unavailable' );
+            }
+            $manifest = self::read_worker_manifest( $destination . '/' . self::MANIFEST_FILENAME, 'submission', $submission_id, true, false );
+            if ( $manifest === null
+                || ! hash_equals( $manifest['batch_id'], $batch_id )
+                || ! isset( $manifest['claim']['submission_id'] )
+                || ! hash_equals( $manifest['claim']['submission_id'], $submission_id )
+                || $now >= (int) $manifest['delete_after']
+            ) {
+                return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_claim_mismatch' );
+            }
+            if ( ! self::worker_capacity_consistent_for_manifest( $private_dir, $capacity_record, $manifest, 'submission' ) ) {
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
+        }
+
+        if ( ! PrivateDir::ensure_existing_review_directory( $destination ) ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_permissions_failed' );
+        }
+
+        $lock = self::acquire_lock( self::aggregate_lock_path( self::SUBMISSIONS_DIR, $destination ) );
+        if ( $lock === false ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_lock_failed' );
+        }
+        $manifest_path = $destination . '/' . self::MANIFEST_FILENAME;
+        $manifest = self::read_worker_manifest( $manifest_path, 'submission', $submission_id );
+        if ( $manifest === null
+            || ! hash_equals( $manifest['batch_id'], $batch_id )
+            || ! isset( $manifest['claim']['submission_id'] )
+            || ! hash_equals( $manifest['claim']['submission_id'], $submission_id )
+            || $now >= (int) $manifest['delete_after']
+        ) {
+            self::release_lock( $lock );
+            return self::failure( 'EFORMS_ERR_TOKEN', 'finalize_claim_mismatch' );
+        }
+        if ( ! self::worker_capacity_consistent_for_manifest( $private_dir, $capacity_record, $manifest, 'submission' ) ) {
+            self::release_lock( $lock );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+        self::remove_staged_lock_file_for_batch( $batch_id, $uploads_dir );
+        if ( $manifest['state'] !== 'finalized' ) {
+            $finalized_at = $now;
+            $manifest['state'] = 'finalized';
+            $manifest['finalized_at'] = $finalized_at;
+            $manifest['delete_after'] = $finalized_at + Anchors::get( 'MANAGED_FINALIZED_TTL_SECONDS' );
+            if ( ! self::write_json_atomic( $manifest_path, $manifest ) ) {
+                self::release_lock( $lock );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
+            }
+        }
+        $summary = self::worker_submission_summary( $manifest );
+        self::release_lock( $lock );
+        return self::success( array( 'submission' => $summary ) );
+    }
+
     public static function store_review_snapshot( $submission_id, $uploads_dir, $review_snapshot ) {
         if ( ! self::valid_review_snapshot_for_submission( $review_snapshot, $submission_id ) ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'review_snapshot_invalid' );
@@ -1610,24 +2534,45 @@ class UploadBatchStore {
         if ( ! $lifecycle instanceof PrivateDirLease ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
         }
-        $locked = self::lock_submission( $submission_id, $uploads_dir );
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            $lifecycle->release();
+            return $capacity;
+        }
+        $locked = self::lock_submission( $submission_id, $uploads_dir, false, false );
         if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
             $lifecycle->release();
             return $locked;
         }
-        $manifest = self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
+        $is_worker = self::worker_manifest_file_version( $locked['manifest_path'] ) === self::WORKER_MANIFEST_VERSION;
+        $manifest = $is_worker
+            ? self::read_worker_manifest( $locked['manifest_path'], 'submission', $submission_id, true, false )
+            : self::read_manifest( $locked['manifest_path'], 'submission', $submission_id, false );
         if ( $manifest === null || $manifest['state'] !== 'finalized' || isset( $manifest['email_attempted_at'] ) ) {
             self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
             $lifecycle->release();
             return self::failure( 'EFORMS_ERR_TOKEN', 'review_snapshot_denied' );
         }
+        if ( $is_worker ) {
+            $capacity_record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
+            if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $capacity_record, $manifest, 'submission' ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                $lifecycle->release();
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
+        }
         if ( ! self::review_snapshot_matches_manifest( $review_snapshot, $manifest, $submission_id ) ) {
             self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
             $lifecycle->release();
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'review_snapshot_invalid' );
         }
         $written = self::write_review_snapshot_locked( $locked['path'], self::review_snapshot_for_manifest( $review_snapshot, $manifest ) );
         self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
         $lifecycle->release();
         return $written ? self::success() : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'review_snapshot_write_failed' );
     }
@@ -1652,7 +2597,10 @@ class UploadBatchStore {
         if ( empty( $locked['ok'] ) ) {
             return $locked;
         }
-        $manifest = self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
+        $is_worker = self::worker_manifest_file_version( $locked['manifest_path'] ) === self::WORKER_MANIFEST_VERSION;
+        $manifest = $is_worker
+            ? self::read_worker_manifest( $locked['manifest_path'], 'submission', $submission_id )
+            : self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
         if ( $manifest === null || $manifest['state'] !== 'finalized' ) {
             self::release_submission_lock( $locked );
             return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
@@ -1753,13 +2701,280 @@ class UploadBatchStore {
         );
     }
 
+    public static function begin_validation_contract_retirement( $uploads_dir, $validation_contract_version, $now = null ) {
+        $validation_contract_version = is_string( $validation_contract_version ) ? $validation_contract_version : '';
+        if ( ! self::valid_validation_contract_version( $validation_contract_version ) ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'validation_contract_version_invalid' );
+        }
+        $lifecycle = PrivateDir::acquire_exclusive_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
+        }
+        $marker_path = self::validation_retirement_marker_path_for_lease( $lifecycle, $validation_contract_version, true );
+        if ( $marker_path === '' ) {
+            $lifecycle->release();
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'validation_retirement_marker_unavailable' );
+        }
+        $existing = self::read_validation_retirement_marker( $marker_path, $validation_contract_version );
+        if ( $existing !== null ) {
+            $lifecycle->release();
+            return self::success(
+                array(
+                    'validation_contract_version' => $validation_contract_version,
+                    'state' => $existing['state'],
+                    'marker' => $existing,
+                )
+            );
+        }
+        if ( file_exists( $marker_path ) || is_link( $marker_path ) ) {
+            $lifecycle->release();
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'validation_retirement_marker_invalid' );
+        }
+
+        $now = self::now( $now );
+        $marker = array(
+            'version' => self::VALIDATION_RETIREMENT_VERSION,
+            'validation_contract_version' => $validation_contract_version,
+            'state' => 'active',
+            'started_at' => $now,
+            'updated_at' => $now,
+        );
+        $written = self::write_json_atomic( $marker_path, $marker );
+        $lifecycle->release();
+        return $written
+            ? self::success(
+                array(
+                    'validation_contract_version' => $validation_contract_version,
+                    'state' => 'active',
+                    'marker' => $marker,
+                )
+            )
+            : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'validation_retirement_marker_write_failed' );
+    }
+
+    public static function validation_contract_retirement_status( $uploads_dir, $validation_contract_version, $now = null ) {
+        $validation_contract_version = is_string( $validation_contract_version ) ? $validation_contract_version : '';
+        $result = array(
+            'ok' => false,
+            'blocked' => false,
+            'reason' => '',
+            'validation_contract_version' => $validation_contract_version,
+            'scanned' => 0,
+            'references' => 0,
+            'accepted_artifacts' => 0,
+            'pending' => 0,
+            'tombstones' => 0,
+            'by_family' => array(
+                'staged' => 0,
+                'finalized' => 0,
+                'capacity' => 0,
+            ),
+        );
+        if ( ! self::valid_validation_contract_version( $validation_contract_version ) ) {
+            $result['reason'] = 'validation_contract_version_invalid';
+            return $result;
+        }
+        $lifecycle = PrivateDir::acquire_exclusive_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            $result['reason'] = 'upload_lifecycle_unavailable';
+            return $result;
+        }
+        $marker_path = self::validation_retirement_marker_path_for_lease( $lifecycle, $validation_contract_version, false );
+        $marker = $marker_path === '' ? null : self::read_validation_retirement_marker( $marker_path, $validation_contract_version );
+        if ( $marker === null ) {
+            $lifecycle->release();
+            $result['reason'] = ( $marker_path !== '' && ( file_exists( $marker_path ) || is_link( $marker_path ) ) )
+                ? 'validation_retirement_marker_invalid'
+                : 'retirement_marker_missing';
+            return $result;
+        }
+
+        $scanned = self::scan_validation_contract_references( $uploads_dir, $validation_contract_version, $result );
+        if ( empty( $scanned['ok'] ) ) {
+            $lifecycle->release();
+            return $result;
+        }
+
+        $result['ok'] = true;
+        $result['blocked'] = $result['references'] > 0;
+        $result['reason'] = $result['blocked'] ? 'retained_validation_contract_references' : 'ready';
+        if ( ! $result['blocked'] ) {
+            $now = self::now( $now );
+            $marker['state'] = 'ready';
+            $marker['ready_at'] = $now;
+            $marker['updated_at'] = $now;
+            $marker['ready'] = self::validation_retirement_marker_ready_summary( $result );
+            if ( ! self::write_json_atomic( $marker_path, $marker ) ) {
+                $lifecycle->release();
+                $result['ok'] = false;
+                $result['blocked'] = false;
+                $result['reason'] = 'validation_retirement_marker_write_failed';
+                return $result;
+            }
+        }
+        $result['marker_state'] = $marker['state'];
+        $lifecycle->release();
+        return $result;
+    }
+
+    public static function complete_validation_contract_retirement( $uploads_dir, $validation_contract_version ) {
+        $validation_contract_version = is_string( $validation_contract_version ) ? $validation_contract_version : '';
+        if ( ! self::valid_validation_contract_version( $validation_contract_version ) ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'validation_contract_version_invalid' );
+        }
+        $lifecycle = PrivateDir::acquire_exclusive_lease( $uploads_dir );
+        if ( ! $lifecycle instanceof PrivateDirLease ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
+        }
+        $marker_path = self::validation_retirement_marker_path_for_lease( $lifecycle, $validation_contract_version, false );
+        $marker = $marker_path === '' ? null : self::read_validation_retirement_marker( $marker_path, $validation_contract_version );
+        if ( $marker === null ) {
+            $lifecycle->release();
+            return self::failure(
+                'EFORMS_ERR_STORAGE_UNAVAILABLE',
+                ( $marker_path !== '' && ( file_exists( $marker_path ) || is_link( $marker_path ) ) )
+                    ? 'validation_retirement_marker_invalid'
+                    : 'retirement_marker_missing'
+            );
+        }
+        if ( $marker['state'] !== 'ready' ) {
+            $lifecycle->release();
+            return self::failure( 'EFORMS_ERR_TOKEN', 'retirement_not_ready' );
+        }
+        if ( is_link( $marker_path ) || ! @unlink( $marker_path ) ) {
+            $lifecycle->release();
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'validation_retirement_marker_remove_failed' );
+        }
+        @rmdir( dirname( $marker_path ) );
+        $lifecycle->release();
+        return self::success(
+            array(
+                'validation_contract_version' => $validation_contract_version,
+                'state' => 'complete',
+            )
+        );
+    }
+
+    private static function scan_validation_contract_references( $uploads_dir, $validation_contract_version, &$result ) {
+        $uploads_dir = is_string( $uploads_dir ) ? rtrim( $uploads_dir, '/\\' ) : '';
+        if ( $uploads_dir === '' || ! is_dir( $uploads_dir ) ) {
+            $result['reason'] = 'uploads_dir_unavailable';
+            return array( 'ok' => false );
+        }
+
+        foreach ( array( self::STAGED_DIR => 'staged', self::SUBMISSIONS_DIR => 'submission' ) as $root_name => $manifest_family ) {
+            $family_key = $root_name === self::STAGED_DIR ? 'staged' : 'finalized';
+            $private_dir = PrivateDir::path( $uploads_dir );
+            $root = $private_dir === '' ? '' : rtrim( $private_dir, '/\\' ) . '/' . $root_name;
+            if ( $root === '' || is_link( $root ) || ( file_exists( $root ) && ! is_dir( $root ) ) ) {
+                if ( $root !== '' && ( file_exists( $root ) || is_link( $root ) ) ) {
+                    $result['reason'] = 'aggregate_enumeration_failed';
+                    return array( 'ok' => false );
+                }
+                continue;
+            }
+            if ( ! is_dir( $root ) ) {
+                continue;
+            }
+
+            $cursor = array();
+            do {
+                $page = self::aggregate_paths( $root, Anchors::get( 'GC_DEFAULT_BATCH_LIMIT' ), $cursor, false );
+                if ( empty( $page['ok'] ) ) {
+                    $result['reason'] = isset( $page['reason'] ) ? $page['reason'] : 'aggregate_enumeration_failed';
+                    return array( 'ok' => false );
+                }
+                foreach ( $page['paths'] as $path ) {
+                    $manifest_path = rtrim( $path, '/\\' ) . '/' . self::MANIFEST_FILENAME;
+                    $manifest_version = self::worker_manifest_file_version( $manifest_path );
+                    if ( $manifest_version === null ) {
+                        if ( $root_name === self::STAGED_DIR
+                            && ! file_exists( $manifest_path )
+                            && self::initializable_partial_batch( $path )
+                        ) {
+                            continue;
+                        }
+                        $unsupported_worker = self::unsupported_worker_manifest_file_version( $manifest_path );
+                        if ( $unsupported_worker === null ) {
+                            $result['reason'] = 'manifest_invalid';
+                            return array( 'ok' => false );
+                        }
+                        if ( $unsupported_worker ) {
+                            $result['reason'] = 'unsupported_worker_manifest_version';
+                            return array( 'ok' => false );
+                        }
+                        $local_manifest = self::read_manifest( $manifest_path, $manifest_family, basename( rtrim( $path, '/\\' ) ), false );
+                        if ( $local_manifest === null ) {
+                            $result['reason'] = 'manifest_invalid';
+                            return array( 'ok' => false );
+                        }
+                        continue;
+                    }
+                    if ( $manifest_version === false ) {
+                        $result['reason'] = 'manifest_invalid';
+                        return array( 'ok' => false );
+                    }
+                    $manifest = self::read_worker_manifest( $manifest_path, $manifest_family, basename( rtrim( $path, '/\\' ) ), true, false );
+                    if ( $manifest === null ) {
+                        $result['reason'] = 'manifest_invalid';
+                        return array( 'ok' => false );
+                    }
+                    ++$result['scanned'];
+                    $counts = self::validation_contract_reference_counts( $manifest, $validation_contract_version );
+                    if ( $counts['references'] < 1 ) {
+                        continue;
+                    }
+                    $result['references'] += $counts['references'];
+                    $result['accepted_artifacts'] += $counts['accepted_artifacts'];
+                    $result['pending'] += $counts['pending'];
+                    $result['tombstones'] += $counts['tombstones'];
+                    $result['by_family'][ $family_key ] += $counts['references'];
+                }
+                $cursor = isset( $page['cursor'] ) && is_array( $page['cursor'] ) ? $page['cursor'] : array();
+            } while ( ! empty( $cursor ) );
+        }
+
+        $private_dir = PrivateDir::path( $uploads_dir );
+        if ( $private_dir === '' ) {
+            $result['reason'] = 'upload_lifecycle_unavailable';
+            return array( 'ok' => false );
+        }
+        $capacity = ManagedCapacityStore::read(
+            rtrim( $private_dir, '/\\' ) . '/' . self::CAPACITY_FILENAME,
+            self::CAPACITY_VERSION
+        );
+        if ( $capacity === null ) {
+            $result['reason'] = 'capacity_invalid';
+            return array( 'ok' => false );
+        }
+        foreach ( $capacity['reservations'] as $reservation ) {
+            if ( $reservation['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+                continue;
+            }
+            if ( ! isset( $reservation['validation_contract_version'] ) || ! is_string( $reservation['validation_contract_version'] ) ) {
+                $result['reason'] = 'capacity_invalid';
+                return array( 'ok' => false );
+            }
+            if ( hash_equals( $reservation['validation_contract_version'], $validation_contract_version ) ) {
+                ++$result['references'];
+                ++$result['pending'];
+                ++$result['by_family']['capacity'];
+            }
+        }
+
+        return array( 'ok' => true );
+    }
+
     public static function submission_management_status( $submission_id, $uploads_dir, $now = null ) {
         $now = self::now( $now );
         $locked = self::lock_submission( $submission_id, $uploads_dir, true );
         if ( empty( $locked['ok'] ) ) {
             return $locked;
         }
-        $manifest = self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
+        $is_worker = self::worker_manifest_file_version( $locked['manifest_path'] ) === self::WORKER_MANIFEST_VERSION;
+        $manifest = $is_worker
+            ? self::read_worker_manifest( $locked['manifest_path'], 'submission', $submission_id )
+            : self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
         if ( $manifest === null || $manifest['state'] !== 'finalized' ) {
             self::release_submission_lock( $locked );
             return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
@@ -1770,6 +2985,8 @@ class UploadBatchStore {
             'finalized_at' => (int) $manifest['finalized_at'],
             'delete_after' => $delete_after === null ? null : (int) $delete_after,
             'expired' => ! self::finalized_available( $manifest, $now ),
+            'artifact_store' => isset( $manifest['artifact_store'] ) ? $manifest['artifact_store'] : '',
+            'artifact_store_identity' => isset( $manifest['artifact_store_identity'] ) ? $manifest['artifact_store_identity'] : '',
         );
         self::release_submission_lock( $locked );
         return self::success( array( 'submission' => $status ) );
@@ -1854,19 +3071,42 @@ class UploadBatchStore {
         if ( ! $lifecycle instanceof PrivateDirLease ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
         }
-        $locked = self::lock_submission( $submission_id, $uploads_dir );
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            $lifecycle->release();
+            return $capacity;
+        }
+        $locked = self::lock_submission( $submission_id, $uploads_dir, false, false );
         if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
             return $locked;
         }
-        $manifest = self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
+        $is_worker = self::worker_manifest_file_version( $locked['manifest_path'] ) === self::WORKER_MANIFEST_VERSION;
+        $manifest = $is_worker
+            ? self::read_worker_manifest( $locked['manifest_path'], 'submission', $submission_id, true, false )
+            : self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
         if ( ! self::finalized_available( $manifest, $now ) ) {
             self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
             return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
+        }
+        if ( $is_worker ) {
+            $capacity_record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
+            if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $capacity_record, $manifest, 'submission' ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                $lifecycle->release();
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
         }
         $manifest['delete_after'] = $delete_after;
         $written = self::write_json_atomic( $locked['manifest_path'], $manifest );
-        $summary = $written ? self::submission_summary( $manifest ) : null;
+        $summary = $written ? ( $is_worker ? self::worker_submission_summary( $manifest ) : self::submission_summary( $manifest ) ) : null;
         self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
+        $lifecycle->release();
         return $written
             ? self::success( array( 'submission' => $summary ) )
             : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
@@ -1877,18 +3117,41 @@ class UploadBatchStore {
         if ( ! $lifecycle instanceof PrivateDirLease ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'upload_lifecycle_unavailable' );
         }
-        $locked = self::lock_submission( $submission_id, $uploads_dir );
+        $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+        if ( empty( $capacity['ok'] ) ) {
+            $lifecycle->release();
+            return $capacity;
+        }
+        $locked = self::lock_submission( $submission_id, $uploads_dir, false, false );
         if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
             return $locked;
         }
-        $manifest = self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
+        $is_worker = self::worker_manifest_file_version( $locked['manifest_path'] ) === self::WORKER_MANIFEST_VERSION;
+        $manifest = $is_worker
+            ? self::read_worker_manifest( $locked['manifest_path'], 'submission', $submission_id, true, false )
+            : self::read_manifest( $locked['manifest_path'], 'submission', $submission_id, false );
         if ( $manifest === null || $manifest['state'] !== 'finalized' || isset( $manifest['email_attempted_at'] ) ) {
             self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            $lifecycle->release();
             return self::failure( 'EFORMS_ERR_TOKEN', 'email_attempt_denied' );
+        }
+        if ( $is_worker ) {
+            $capacity_record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
+            if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $capacity_record, $manifest, 'submission' ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                $lifecycle->release();
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+            }
         }
         $manifest['email_attempted_at'] = self::now( $now );
         $written = self::write_json_atomic( $locked['manifest_path'], $manifest );
         self::release_lock( $locked['lock'] );
+        self::release_lock( $capacity['lock'] );
+        $lifecycle->release();
         return $written ? self::success() : self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_write_failed' );
     }
 
@@ -1910,7 +3173,10 @@ class UploadBatchStore {
         if ( empty( $locked['ok'] ) ) {
             return $locked;
         }
-        $manifest = self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
+        $is_worker = self::worker_manifest_file_version( $locked['manifest_path'] ) === self::WORKER_MANIFEST_VERSION;
+        $manifest = $is_worker
+            ? self::read_worker_manifest( $locked['manifest_path'], 'submission', $submission_id )
+            : self::read_manifest( $locked['manifest_path'], 'submission', $submission_id );
         if ( $manifest === null || $manifest['state'] !== 'finalized' || isset( $manifest['email_attempted_at'] ) ) {
             self::release_lock( $locked['lock'] );
             return self::failure( 'EFORMS_ERR_TOKEN', 'synchronous_commit_denied' );
@@ -2044,10 +3310,27 @@ class UploadBatchStore {
         $now = self::now( $now );
         $previous_total_bytes = (int) $record['total_bytes'];
         $previous_reservation_count = count( $record['reservations'] );
-        $remote = self::remote_capacity_authorities( $capacity['private_dir'], $record );
+        $remote = self::remote_capacity_authorities( $capacity['private_dir'], $record, array(), false );
         if ( $remote === null ) {
             self::release_lock( $capacity['lock'] );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reconcile_failed' );
+        }
+        if ( self::worker_capacity_record_has_remote_state( $record, $remote )
+            && ! self::worker_capacity_globally_consistent( $capacity['private_dir'], $record )
+        ) {
+            self::release_lock( $capacity['lock'] );
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_invalid' );
+        }
+        foreach ( $remote['authorities'] as $reservation_id => $authority ) {
+            if ( empty( $authority['requires_reservation'] ) ) {
+                continue;
+            }
+            if ( ! isset( $record['reservations'][ $reservation_id ] )
+                || ! ManagedCapacityStore::remote_reservation_matches( $record['reservations'][ $reservation_id ], $authority )
+            ) {
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reconcile_failed' );
+            }
         }
 
         $local_reservations = array();
@@ -2090,8 +3373,7 @@ class UploadBatchStore {
                 continue;
             }
             if ( empty( $reservation['cleanup_started'] )
-                && ( $reservation['created_at'] > (int) $stale_reservation_before
-                    || ! self::remote_reservation_cleanup_ready( $reservation, $now ) )
+                && ! self::remote_reservation_cleanup_ready( $reservation, $now, $stale_reservation_before )
             ) {
                 $remote_reservations[ $reservation_id ] = $reservation;
                 if ( $remote_orphan_bytes > PHP_INT_MAX - $reservation['bytes'] ) {
@@ -2118,6 +3400,11 @@ class UploadBatchStore {
                 self::release_lock( $capacity['lock'] );
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'remote_capacity_reconcile_unsupported' );
             }
+            $authority = self::worker_remote_reservation_authority( $cleanup['reservation'] );
+            if ( $authority === null ) {
+                self::release_lock( $capacity['lock'] );
+                return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reconcile_failed' );
+            }
             $started = ManagedCapacityStore::begin_remote_reservation_cleanup(
                 $record,
                 $cleanup['id'],
@@ -2129,12 +3416,7 @@ class UploadBatchStore {
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_write_failed' );
             }
             self::release_lock( $capacity['lock'] );
-            $deleted = call_user_func(
-                $remote_delete,
-                $cleanup['reservation']['object_key'],
-                '',
-                $cleanup['reservation']['artifact_store_identity']
-            );
+            $deleted = call_user_func( $remote_delete, $authority );
             if ( ! is_array( $deleted ) || empty( $deleted['ok'] ) || empty( $deleted['absent'] ) ) {
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'remote_delete_failed' );
             }
@@ -2146,25 +3428,26 @@ class UploadBatchStore {
             $current_reservation = is_array( $current ) && isset( $current['reservations'][ $cleanup['id'] ] )
                 ? $current['reservations'][ $cleanup['id'] ]
                 : null;
+            $expected_remote = array(
+                'batch_id' => $cleanup['reservation']['batch_id'],
+                'upload_id' => $cleanup['reservation']['upload_id'],
+                'bytes' => $cleanup['reservation']['bytes'],
+                'artifact_store_identity' => $cleanup['reservation']['artifact_store_identity'],
+                'object_key' => $cleanup['reservation']['object_key'],
+            );
+            foreach ( array( 'validation_contract_version', 'policy_fingerprint', 'validation_until' ) as $worker_field ) {
+                if ( isset( $cleanup['reservation'][ $worker_field ] ) ) {
+                    $expected_remote[ $worker_field ] = $cleanup['reservation'][ $worker_field ];
+                }
+            }
             if ( ! is_array( $current_reservation )
                 || empty( $current_reservation['cleanup_started'] )
-                || ! ManagedCapacityStore::remote_reservation_matches( $current_reservation, array(
-                    'batch_id' => $cleanup['reservation']['batch_id'],
-                    'upload_id' => $cleanup['reservation']['upload_id'],
-                    'bytes' => $cleanup['reservation']['bytes'],
-                    'artifact_store_identity' => $cleanup['reservation']['artifact_store_identity'],
-                    'object_key' => $cleanup['reservation']['object_key'],
-                ) )
+                || ! ManagedCapacityStore::remote_reservation_matches( $current_reservation, $expected_remote )
             ) {
                 self::release_lock( $capacity['lock'] );
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_reconcile_failed' );
             }
-            $finished = ManagedCapacityStore::finish_item_release(
-                $current,
-                $current_reservation['batch_id'],
-                $current_reservation['upload_id'],
-                $now
-            );
+            $finished = self::finish_exact_remote_reservation_release( $current, $cleanup['id'], $expected_remote, $now );
             if ( empty( $finished['ok'] ) || ! ManagedCapacityStore::write( $capacity['path'], $finished['record'] ) ) {
                 self::release_lock( $capacity['lock'] );
                 return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'capacity_write_failed' );
@@ -2211,6 +3494,10 @@ class UploadBatchStore {
         $local_record = $record;
         $local_record['reservations'] = $local_reservations;
         $local_record['total_bytes'] = 0;
+        $local_record['store_bytes'] = array(
+            FormProtocol::UPLOAD_TRANSPORT_LOCAL => 0,
+            FormProtocol::UPLOAD_TRANSPORT_WORKER => 0,
+        );
         $local_record = ManagedCapacityStore::reconcile(
             $local_record,
             $materialization['committed'],
@@ -2228,6 +3515,8 @@ class UploadBatchStore {
         }
         $record['reservations'] = $local_record['reservations'] + $remote_reservations;
         $record['total_bytes'] = $local_record['total_bytes'] + $remote['bytes'] + $remote_orphan_bytes;
+        $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_LOCAL ] = $local_record['total_bytes'];
+        $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] = $remote['bytes'] + $remote_orphan_bytes;
         $record['updated_at'] = $now;
         foreach ( array_keys( $record['releases'] ) as $batch_id ) {
             if ( empty( $remote['batches'][ $batch_id ] ) ) {
@@ -2274,11 +3563,10 @@ class UploadBatchStore {
         if ( $root_name === '' || $limit < 1 ) {
             return $result;
         }
-        $root = self::managed_root( $uploads_dir, $root_name, false );
-        if ( $root === '' ) {
-            $private_dir = PrivateDir::path( $uploads_dir );
-            $expected_root = $private_dir === '' ? '' : rtrim( $private_dir, '/\\' ) . '/' . $root_name;
-            if ( $expected_root !== '' && ( file_exists( $expected_root ) || is_link( $expected_root ) ) ) {
+        $private_dir = PrivateDir::path( $uploads_dir );
+        $root = $private_dir === '' ? '' : rtrim( $private_dir, '/\\' ) . '/' . $root_name;
+        if ( $root === '' || is_link( $root ) || ( file_exists( $root ) && ! is_dir( $root ) ) ) {
+            if ( $root !== '' && ( file_exists( $root ) || is_link( $root ) ) ) {
                 $result['ok'] = false;
                 $result['errors'] = 1;
                 $result['reason'] = 'aggregate_enumeration_failed';
@@ -2290,7 +3578,7 @@ class UploadBatchStore {
             return $result;
         }
 
-        $discovered = self::aggregate_paths( $root, $limit, $cursor );
+        $discovered = self::aggregate_paths( $root, $limit, $cursor, false );
         if ( empty( $discovered['ok'] ) ) {
             $result['ok'] = false;
             $result['errors'] = 1;
@@ -2300,6 +3588,7 @@ class UploadBatchStore {
         }
         $result['cursor'] = $discovered['cursor'];
         $completed_cursor = is_array( $cursor ) ? $cursor : array();
+        $first_error_cursor = null;
         foreach ( $discovered['paths'] as $path ) {
             if ( $result['scanned'] >= $limit ) {
                 $result['reached_limit'] = true;
@@ -2309,6 +3598,9 @@ class UploadBatchStore {
             $one = self::gc_aggregate( $family, $path, $uploads_dir, $lifecycle, self::now( $now ), (bool) $dry_run, $remote_delete );
             if ( empty( $one['ok'] ) ) {
                 $result['errors']++;
+                if ( $first_error_cursor === null ) {
+                    $first_error_cursor = $completed_cursor;
+                }
                 if ( $result['reason'] === '' ) {
                     $result['reason'] = isset( $one['reason'] ) ? $one['reason'] : 'aggregate_gc_failed';
                 }
@@ -2317,11 +3609,12 @@ class UploadBatchStore {
                     $result['cursor'] = $completed_cursor;
                     break;
                 }
-                $completed_cursor = array( 'shard' => basename( dirname( $path ) ), 'aggregate' => basename( $path ) );
                 if ( ! empty( $one['fatal'] ) ) {
                     $result['ok'] = false;
+                    $result['cursor'] = $completed_cursor;
                     break;
                 }
+                $completed_cursor = array( 'shard' => basename( dirname( $path ) ), 'aggregate' => basename( $path ) );
                 continue;
             }
             $completed_cursor = array( 'shard' => basename( dirname( $path ) ), 'aggregate' => basename( $path ) );
@@ -2337,6 +3630,9 @@ class UploadBatchStore {
                 $result['deleted_bytes'] += $one['managed_bytes'];
                 $result['deleted_artifact_bytes'] += $one['artifact_bytes'];
             }
+        }
+        if ( $first_error_cursor !== null ) {
+            $result['cursor'] = $first_error_cursor;
         }
         return $result;
     }
@@ -2357,7 +3653,27 @@ class UploadBatchStore {
         if ( is_link( $path ) || ! is_dir( $path ) ) {
             return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
         }
-        $deleted = self::gc_aggregate( 'finalized', $path, $uploads_dir, $lifecycle, self::now( $now ), false, $remote_delete, self::AGGREGATE_CLEANUP_OPERATOR_DELETE );
+        $manifest_path = rtrim( $path, '/\\' ) . '/' . self::MANIFEST_FILENAME;
+        $is_worker = self::worker_manifest_file_version( $manifest_path ) === self::WORKER_MANIFEST_VERSION;
+        $now = self::now( $now );
+        if ( $is_worker ) {
+            $deleted = self::worker_gc_aggregate( 'finalized', $path, $uploads_dir, $lifecycle, $now, false, $remote_delete, self::AGGREGATE_CLEANUP_OPERATOR_DELETE );
+            if ( empty( $deleted['ok'] ) || ( empty( $deleted['deleted'] ) && empty( $deleted['candidate'] ) ) ) {
+                return self::failure(
+                    'EFORMS_ERR_STORAGE_UNAVAILABLE',
+                    isset( $deleted['reason'] ) && is_string( $deleted['reason'] ) ? $deleted['reason'] : 'submission_delete_failed'
+                );
+            }
+            return self::success(
+                array(
+                    'deleted' => true,
+                    'released_bytes' => isset( $deleted['released_bytes'] ) ? (int) $deleted['released_bytes'] : 0,
+                    'physical_delete_pending' => empty( $deleted['deleted'] ),
+                )
+            );
+        } else {
+            $deleted = self::gc_aggregate( 'finalized', $path, $uploads_dir, $lifecycle, $now, false, $remote_delete, self::AGGREGATE_CLEANUP_OPERATOR_DELETE );
+        }
         if ( empty( $deleted['ok'] ) || empty( $deleted['deleted'] ) ) {
             return self::failure(
                 'EFORMS_ERR_STORAGE_UNAVAILABLE',
@@ -2378,6 +3694,9 @@ class UploadBatchStore {
         if ( ! file_exists( $manifest_path ) ) {
             return self::gc_local_aggregate( $family, $path, $uploads_dir, $lifecycle, $now, $dry_run, $cleanup_mode );
         }
+        if ( self::worker_manifest_file_version( $manifest_path ) === self::WORKER_MANIFEST_VERSION ) {
+            return self::worker_gc_aggregate( $family, $path, $uploads_dir, $lifecycle, $now, $dry_run, $remote_delete, $cleanup_mode );
+        }
         $manifest = self::read_manifest(
             $manifest_path,
             $family === 'staged' ? 'staged' : 'submission',
@@ -2387,10 +3706,7 @@ class UploadBatchStore {
             return array( 'ok' => false, 'reason' => 'manifest_invalid' );
         }
         if ( $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
-            if ( ! is_callable( $remote_delete ) ) {
-                return array( 'ok' => false, 'reason' => 'remote_delete_unavailable' );
-            }
-            return self::gc_remote_aggregate( $family, $path, $uploads_dir, $lifecycle, $now, $dry_run, $remote_delete, $cleanup_mode );
+            return array( 'ok' => false, 'reason' => 'manifest_invalid' );
         }
         return self::gc_local_aggregate( $family, $path, $uploads_dir, $lifecycle, $now, $dry_run, $cleanup_mode );
     }
@@ -2515,87 +3831,84 @@ class UploadBatchStore {
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => true, 'candidate' => false );
         }
-        $parts = self::aggregate_byte_parts( $manifest );
-        if ( $parts === null ) {
+        $plan = self::local_aggregate_cleanup_plan( $manifest, $uploads_dir, $record, $now );
+        if ( empty( $plan['ok'] ) ) {
             self::release_lock( $lock );
             self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'reason' => 'manifest_bytes_invalid' );
+            return array(
+                'ok' => false,
+                'fatal' => ! empty( $plan['fatal'] ),
+                'reason' => isset( $plan['reason'] ) ? $plan['reason'] : 'capacity_inconsistent',
+            );
         }
         $out = array(
             'ok' => true,
             'candidate' => true,
             'deleted' => false,
-            'managed_bytes' => $parts['managed_bytes'],
-            'artifact_bytes' => $parts['artifact_bytes'],
+            'managed_bytes' => $plan['parts']['managed_bytes'],
+            'artifact_bytes' => $plan['parts']['artifact_bytes'],
             'released_bytes' => 0,
         );
-        $pending_tombstone_bytes = 0;
-        $already_released_bytes = array();
-        $attributed_bytes = array();
-        foreach ( $manifest['items'] as $upload_id => $item ) {
-            $attributed_bytes[ $upload_id ] = (int) $item['bytes'];
-        }
-        foreach ( $manifest['intents'] as $upload_id => $intent ) {
-            $attributed_bytes[ $upload_id ] = (int) $intent['reserved_bytes'];
-            $materialized = LocalArtifactStore::bytes_for_key( $uploads_dir, $intent['object_key'] );
-            if ( $materialized === 0 ) {
-                $already_released_bytes[ $upload_id ] = (int) $intent['reserved_bytes'];
-            } elseif ( $materialized === null ) {
-                self::release_lock( $lock );
-                self::release_lock( $capacity['lock'] );
-                return array( 'ok' => false, 'reason' => 'artifact_layout_invalid' );
-            }
-        }
-        foreach ( $manifest['tombstones'] as $upload_id => $tombstone ) {
-            if ( ! empty( $tombstone['capacity_released'] ) ) {
-                continue;
-            }
-            $pending_tombstone_bytes += (int) $tombstone['bytes'];
-            $attributed_bytes[ $upload_id ] = (int) $tombstone['bytes'];
-            $materialized = $tombstone['object_key'] === '' ? 0 : LocalArtifactStore::bytes_for_key( $uploads_dir, $tombstone['object_key'] );
-            if ( $materialized === 0 ) {
-                $already_released_bytes[ $upload_id ] = (int) $tombstone['bytes'];
-            } elseif ( $materialized === null ) {
-                self::release_lock( $lock );
-                self::release_lock( $capacity['lock'] );
-                return array( 'ok' => false, 'reason' => 'artifact_layout_invalid' );
-            }
-        }
-        $intent_bytes = self::active_artifact_bytes( $manifest ) - $manifest['artifact_bytes'];
-        $manifest_capacity_bytes = $parts['managed_bytes'] + $intent_bytes + $pending_tombstone_bytes;
-        $released = ManagedCapacityStore::release_aggregate(
-            $record,
-            $manifest['batch_id'],
-            $manifest_capacity_bytes,
-            $attributed_bytes,
-            $already_released_bytes,
-            $now
-        );
-        if ( empty( $released['ok'] ) ) {
-            self::release_lock( $lock );
-            self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
-        }
         if ( $dry_run ) {
             self::release_lock( $lock );
             self::release_lock( $capacity['lock'] );
             return $out;
         }
-        $objects = array();
-        foreach ( array( $manifest['items'], $manifest['intents'], $manifest['tombstones'] ) as $records ) {
-            foreach ( $records as $artifact ) {
-                if ( ! empty( $artifact['object_key'] ) ) {
-                    $objects[ $artifact['object_key'] ] = isset( $artifact['object_version'] ) ? $artifact['object_version'] : '';
+        if ( $cleanup_mode === self::AGGREGATE_CLEANUP_GC ) {
+            $manifest_fingerprint = self::local_gc_manifest_fingerprint( $manifest );
+            self::release_lock( $lock );
+            self::release_lock( $capacity['lock'] );
+            foreach ( $plan['objects'] as $object_key => $object_version ) {
+                if ( ! self::delete_local_artifact( $lifecycle, $object_key, $object_version ) ) {
+                    return array( 'ok' => false, 'reason' => 'artifact_delete_failed' );
+                }
+            }
+
+            $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
+            if ( empty( $capacity['ok'] ) ) {
+                return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_lock_failed' );
+            }
+            $lock = $lock_family === self::STAGED_DIR
+                ? self::acquire_staged_lock( $path )
+                : self::acquire_lock( $lock_path );
+            if ( $lock === false ) {
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
+            }
+            $current = self::read_manifest(
+                $manifest_path,
+                $family === 'staged' ? 'staged' : 'submission',
+                basename( rtrim( $path, '/\\' ) )
+            );
+            $record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
+            if ( $current === null
+                || $record === null
+                || ! hash_equals( $manifest_fingerprint, self::local_gc_manifest_fingerprint( $current ) )
+            ) {
+                self::release_lock( $lock );
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'reason' => $record === null ? 'capacity_invalid' : 'aggregate_changed' );
+            }
+            $plan = self::local_aggregate_cleanup_plan( $current, $uploads_dir, $record, $now );
+            if ( empty( $plan['ok'] ) ) {
+                self::release_lock( $lock );
+                self::release_lock( $capacity['lock'] );
+                return array(
+                    'ok' => false,
+                    'fatal' => ! empty( $plan['fatal'] ),
+                    'reason' => isset( $plan['reason'] ) ? $plan['reason'] : 'capacity_inconsistent',
+                );
+            }
+        } else {
+            foreach ( $plan['objects'] as $object_key => $object_version ) {
+                if ( ! self::delete_local_artifact( $lifecycle, $object_key, $object_version ) ) {
+                    self::release_lock( $lock );
+                    self::release_lock( $capacity['lock'] );
+                    return array( 'ok' => false, 'reason' => 'artifact_delete_failed' );
                 }
             }
         }
-        foreach ( $objects as $object_key => $object_version ) {
-            if ( ! self::delete_local_artifact( $lifecycle, $object_key, $object_version ) ) {
-                self::release_lock( $lock );
-                self::release_lock( $capacity['lock'] );
-                return array( 'ok' => false, 'reason' => 'artifact_delete_failed' );
-            }
-        }
+        $released = $plan['released'];
         if ( ! self::delete_locked_aggregate( $path, $lock ) ) {
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'aggregate_delete_failed' );
@@ -2614,196 +3927,475 @@ class UploadBatchStore {
         return $out;
     }
 
-    private static function gc_remote_aggregate( $family, $path, $uploads_dir, $lifecycle, $now, $dry_run, $remote_delete, $cleanup_mode = self::AGGREGATE_CLEANUP_GC ) {
-        $cleanup_mode = self::aggregate_cleanup_mode( $cleanup_mode );
-        $path = rtrim( $path, '/\\' );
-        $manifest_path = $path . '/' . self::MANIFEST_FILENAME;
-        if ( ! file_exists( $manifest_path ) ) {
-            // A pre-manifest partial aggregate cannot own a remote object.
-            return self::gc_local_aggregate( $family, $path, $uploads_dir, $lifecycle, $now, $dry_run, $cleanup_mode );
+    private static function local_aggregate_cleanup_plan( $manifest, $uploads_dir, $record, $now ) {
+        $parts = self::aggregate_byte_parts( $manifest );
+        if ( $parts === null ) {
+            return array( 'ok' => false, 'reason' => 'manifest_bytes_invalid' );
         }
+        $pending_tombstone_bytes = 0;
+        $already_released_bytes = array();
+        $attributed_bytes = array();
+        $objects = array();
+        foreach ( $manifest['items'] as $upload_id => $item ) {
+            $attributed_bytes[ $upload_id ] = (int) $item['bytes'];
+            if ( ! empty( $item['object_key'] ) ) {
+                $objects[ $item['object_key'] ] = isset( $item['object_version'] ) ? $item['object_version'] : '';
+            }
+        }
+        foreach ( $manifest['intents'] as $upload_id => $intent ) {
+            $attributed_bytes[ $upload_id ] = (int) $intent['reserved_bytes'];
+            if ( ! empty( $intent['object_key'] ) ) {
+                $objects[ $intent['object_key'] ] = '';
+            }
+            $materialized = LocalArtifactStore::bytes_for_key( $uploads_dir, $intent['object_key'] );
+            if ( $materialized === 0 ) {
+                $already_released_bytes[ $upload_id ] = (int) $intent['reserved_bytes'];
+            } elseif ( $materialized === null ) {
+                return array( 'ok' => false, 'reason' => 'artifact_layout_invalid' );
+            }
+        }
+        foreach ( $manifest['tombstones'] as $upload_id => $tombstone ) {
+            if ( ! empty( $tombstone['object_key'] ) ) {
+                $objects[ $tombstone['object_key'] ] = isset( $tombstone['object_version'] ) ? $tombstone['object_version'] : '';
+            }
+            if ( ! empty( $tombstone['capacity_released'] ) ) {
+                continue;
+            }
+            $pending_tombstone_bytes += (int) $tombstone['bytes'];
+            $attributed_bytes[ $upload_id ] = (int) $tombstone['bytes'];
+            $materialized = $tombstone['object_key'] === '' ? 0 : LocalArtifactStore::bytes_for_key( $uploads_dir, $tombstone['object_key'] );
+            if ( $materialized === 0 ) {
+                $already_released_bytes[ $upload_id ] = (int) $tombstone['bytes'];
+            } elseif ( $materialized === null ) {
+                return array( 'ok' => false, 'reason' => 'artifact_layout_invalid' );
+            }
+        }
+        $intent_bytes = self::active_artifact_bytes( $manifest ) - $manifest['artifact_bytes'];
+        $manifest_capacity_bytes = $parts['managed_bytes'] + $intent_bytes + $pending_tombstone_bytes;
+        $released = ManagedCapacityStore::release_aggregate(
+            $record,
+            $manifest['batch_id'],
+            $manifest_capacity_bytes,
+            $attributed_bytes,
+            $already_released_bytes,
+            FormProtocol::UPLOAD_TRANSPORT_LOCAL,
+            $now
+        );
+        if ( empty( $released['ok'] ) ) {
+            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
+        }
+        return array(
+            'ok' => true,
+            'parts' => $parts,
+            'objects' => $objects,
+            'released' => $released,
+        );
+    }
+
+    private static function local_gc_manifest_fingerprint( $manifest ) {
+        $encoded = json_encode( $manifest, JSON_UNESCAPED_SLASHES );
+        return is_string( $encoded ) ? hash( 'sha256', $encoded ) : '';
+    }
+
+    private static function worker_gc_context( $family, $path ) {
+        $path = is_string( $path ) ? rtrim( $path, '/\\' ) : '';
+        if ( $path === '' ) {
+            return null;
+        }
+        $normalized_family = null;
+        if ( $family === self::STAGED_DIR || $family === 'staged' ) {
+            $normalized_family = self::STAGED_DIR;
+            $manifest_family = 'staged';
+            $aggregate_id = basename( $path );
+            $staged_lock_cleanup = true;
+            $expiry_states = array( 'open', 'finalizing' );
+        } elseif ( $family === self::SUBMISSIONS_DIR || $family === 'finalized' ) {
+            $normalized_family = self::SUBMISSIONS_DIR;
+            $manifest_family = 'submission';
+            $aggregate_id = basename( $path );
+            $staged_lock_cleanup = false;
+            $expiry_states = array( 'finalizing', 'finalized', 'operator_deleted' );
+        } else {
+            return null;
+        }
+        $manifest_path = $path . '/' . self::MANIFEST_FILENAME;
+        $lock_path = self::aggregate_lock_path( $normalized_family, $path );
+        if ( $lock_path === ''
+            || is_link( $path )
+            || is_link( dirname( $path ) )
+            || is_link( $manifest_path )
+            || is_link( $lock_path )
+        ) {
+            return null;
+        }
+        return array(
+            'family' => $normalized_family,
+            'path' => $path,
+            'manifest_path' => $manifest_path,
+            'lock_path' => $lock_path,
+            'manifest_family' => $manifest_family,
+            'aggregate_id' => $aggregate_id,
+            'staged_lock_cleanup' => $staged_lock_cleanup,
+            'expiry_states' => $expiry_states,
+        );
+    }
+
+    private static function worker_gc_lock_context( $context, $uploads_dir, $repair_lock = true ) {
+        if ( ! is_array( $context ) || ! isset( $context['family'], $context['path'], $context['manifest_path'], $context['lock_path'], $context['aggregate_id'] ) ) {
+            return array( 'ok' => false, 'reason' => 'aggregate_layout_invalid' );
+        }
+        if ( $context['family'] === self::STAGED_DIR ) {
+            clearstatcache( true, $context['path'] );
+            if ( is_link( $context['path'] ) || ! is_dir( $context['path'] ) ) {
+                return array( 'ok' => false, 'gone' => true );
+            }
+            $lock = self::acquire_staged_lock( $context['path'], false, false, $repair_lock );
+            if ( $lock === false ) {
+                clearstatcache( true, $context['path'] );
+                if ( is_link( $context['path'] ) || ! is_dir( $context['path'] ) ) {
+                    return array( 'ok' => false, 'gone' => true );
+                }
+                return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
+            }
+            clearstatcache( true, $context['manifest_path'] );
+            if ( ! is_dir( $context['path'] ) || ! is_file( $context['manifest_path'] ) ) {
+                self::release_lock( $lock );
+                return array( 'ok' => false, 'gone' => true );
+            }
+            return array(
+                'ok' => true,
+                'path' => $context['path'],
+                'manifest_path' => $context['manifest_path'],
+                'lock' => $lock,
+            );
+        }
+        if ( $context['family'] !== self::SUBMISSIONS_DIR ) {
+            return array( 'ok' => false, 'reason' => 'aggregate_layout_invalid' );
+        }
+        clearstatcache( true, $context['path'] );
+        if ( is_link( $context['path'] ) || ! is_dir( $context['path'] ) ) {
+            return array( 'ok' => false, 'gone' => true );
+        }
+        $lock = self::acquire_existing_lock( $context['lock_path'], false, $repair_lock );
+        if ( $lock === false ) {
+            clearstatcache( true, $context['path'] );
+            if ( is_link( $context['path'] ) || ! is_dir( $context['path'] ) ) {
+                return array( 'ok' => false, 'gone' => true );
+            }
+            return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
+        }
+        clearstatcache( true, $context['manifest_path'] );
+        if ( ! is_dir( $context['path'] ) || ! is_file( $context['manifest_path'] ) ) {
+            self::release_lock( $lock );
+            return array( 'ok' => false, 'gone' => true );
+        }
+        if ( self::managed_purged( $uploads_dir ) ) {
+            self::release_lock( $lock );
+            return array( 'ok' => false, 'reason' => 'managed_purged' );
+        }
+        return array(
+            'ok' => true,
+            'path' => $context['path'],
+            'manifest_path' => $context['manifest_path'],
+            'lock' => $lock,
+        );
+    }
+
+    private static function worker_purge_lock_context( $context, $uploads_dir, $repair_lock = true ) {
+        if ( ! is_array( $context ) || ! isset( $context['family'], $context['path'], $context['manifest_path'], $context['lock_path'], $context['aggregate_id'] ) ) {
+            return array( 'ok' => false, 'reason' => 'aggregate_layout_invalid' );
+        }
+        if ( $context['family'] === self::STAGED_DIR ) {
+            clearstatcache( true, $context['path'] );
+            if ( is_link( $context['path'] ) || ! is_dir( $context['path'] ) ) {
+                return array( 'ok' => false, 'gone' => true );
+            }
+            $lock = self::acquire_staged_lock( $context['path'], false, false, $repair_lock );
+            if ( $lock === false ) {
+                clearstatcache( true, $context['path'] );
+                if ( is_link( $context['path'] ) || ! is_dir( $context['path'] ) ) {
+                    return array( 'ok' => false, 'gone' => true );
+                }
+                return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
+            }
+            clearstatcache( true, $context['manifest_path'] );
+            if ( ! is_dir( $context['path'] ) || ! is_file( $context['manifest_path'] ) ) {
+                self::release_lock( $lock );
+                return array( 'ok' => false, 'gone' => true );
+            }
+            return array(
+                'ok' => true,
+                'path' => $context['path'],
+                'manifest_path' => $context['manifest_path'],
+                'lock' => $lock,
+            );
+        }
+        if ( $context['family'] !== self::SUBMISSIONS_DIR ) {
+            return array( 'ok' => false, 'reason' => 'aggregate_layout_invalid' );
+        }
+        clearstatcache( true, $context['path'] );
+        if ( is_link( $context['path'] ) || ! is_dir( $context['path'] ) ) {
+            return array( 'ok' => false, 'gone' => true );
+        }
+        $lock = self::acquire_existing_lock( $context['lock_path'], false, $repair_lock );
+        if ( $lock === false ) {
+            clearstatcache( true, $context['path'] );
+            if ( is_link( $context['path'] ) || ! is_dir( $context['path'] ) ) {
+                return array( 'ok' => false, 'gone' => true );
+            }
+            return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
+        }
+        clearstatcache( true, $context['manifest_path'] );
+        if ( ! is_dir( $context['path'] ) || ! is_file( $context['manifest_path'] ) ) {
+            self::release_lock( $lock );
+            return array( 'ok' => false, 'gone' => true );
+        }
+        return array(
+            'ok' => true,
+            'path' => $context['path'],
+            'manifest_path' => $context['manifest_path'],
+            'lock' => $lock,
+        );
+    }
+
+    private static function cleanup_deleted_worker_aggregate_context( $context ) {
+        if ( ! empty( $context['staged_lock_cleanup'] ) ) {
+            self::remove_staged_lock_file( $context['path'] );
+        }
+        @rmdir( dirname( $context['path'] ) );
+    }
+
+    private static function worker_gc_aggregate( $family, $path, $uploads_dir, $lifecycle, $now, $dry_run, $remote_delete, $cleanup_mode = self::AGGREGATE_CLEANUP_GC ) {
+        $context = self::worker_gc_context( $family, $path );
+        if ( $context === null ) {
+            return array( 'ok' => false, 'reason' => 'aggregate_layout_invalid' );
+        }
+        $cleanup_mode = self::aggregate_cleanup_mode( $cleanup_mode );
+        if ( $cleanup_mode === self::AGGREGATE_CLEANUP_OPERATOR_DELETE ) {
+            $context['expiry_states'] = array( 'finalized', 'operator_deleted' );
+        }
+        $path = $context['path'];
 
         $capacity = self::lock_capacity( $uploads_dir, $lifecycle );
         if ( empty( $capacity['ok'] ) ) {
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_lock_failed' );
         }
+        $locked = self::worker_gc_lock_context( $context, $uploads_dir, false );
+        if ( empty( $locked['ok'] ) ) {
+            self::release_lock( $capacity['lock'] );
+            return ! empty( $locked['gone'] )
+                ? array( 'ok' => true, 'candidate' => false )
+                : array( 'ok' => false, 'reason' => isset( $locked['reason'] ) ? $locked['reason'] : 'aggregate_lock_failed' );
+        }
+
+        $manifest = self::read_worker_manifest( $locked['manifest_path'], $context['manifest_family'], $context['aggregate_id'], true, false );
+        if ( $manifest === null || $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return array( 'ok' => true, 'candidate' => false );
+        }
         $record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
         if ( $record === null ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_invalid' );
         }
-        $lock_family = $family === 'staged' ? self::STAGED_DIR : self::SUBMISSIONS_DIR;
-        $lock_path = self::aggregate_lock_path( $lock_family, $path );
-        if ( is_link( $path ) || is_link( dirname( $path ) ) || is_link( $manifest_path ) || is_link( $lock_path ) ) {
-            self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'reason' => 'aggregate_layout_invalid' );
-        }
-        $lock = $lock_family === self::STAGED_DIR
-            ? self::acquire_staged_lock( $path )
-            : self::acquire_lock( $lock_path );
-        if ( $lock === false ) {
-            self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
-        }
-        $manifest = self::read_manifest(
-            $manifest_path,
-            $family === 'staged' ? 'staged' : 'submission',
-            basename( $path )
-        );
-        if ( $manifest === null ) {
-            self::release_lock( $lock );
-            self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'reason' => 'manifest_invalid' );
-        }
-        $batch_reservations = self::remote_batch_reservations( $record, $manifest );
-        if ( $batch_reservations === null ) {
-            self::release_lock( $lock );
+
+        $force_expired = $cleanup_mode === self::AGGREGATE_CLEANUP_OPERATOR_DELETE;
+        $aggregate_converted = self::worker_gc_convert_expired_aggregate( $context, $manifest, $record, $now, $force_expired );
+        if ( $aggregate_converted === null ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
         }
-        if ( ! self::aggregate_cleanup_state_eligible( $family, $manifest, $cleanup_mode ) ) {
-            self::release_lock( $lock );
+        if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $record, $aggregate_converted['manifest'], $context['manifest_family'] ) ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
-            return array( 'ok' => true, 'candidate' => false );
+            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
         }
-
-        $aggregate_expired = self::aggregate_cleanup_time_eligible( $manifest, $now, $cleanup_mode );
-        $orphan_grace = Anchors::get( 'MANAGED_ORPHAN_CLEANUP_GRACE_SECONDS' );
-        $drain_seconds = Anchors::get( 'WORKER_UPLOAD_GRANT_TTL_SECONDS' )
-            + Anchors::get( 'WORKER_UPLOAD_MAX_SECONDS' )
-            + Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' );
-        $eligible_intents = array();
-        foreach ( $manifest['intents'] as $upload_id => $intent ) {
-            if ( (int) $intent['expires_at'] + $orphan_grace <= $now ) {
-                $eligible_intents[ $upload_id ] = $intent;
-            }
-        }
-        if ( $aggregate_expired && count( $eligible_intents ) !== count( $manifest['intents'] ) ) {
-            self::release_lock( $lock );
-            self::release_lock( $capacity['lock'] );
-            return array( 'ok' => true, 'candidate' => false );
-        }
-
-        $new_tombstones = array();
-        if ( ! $dry_run ) {
-            foreach ( $eligible_intents as $upload_id => $intent ) {
-                if ( ! ManagedCapacityStore::matches_intent_reservation(
-                    $record,
-                    self::reservation_id( $manifest['batch_id'], $upload_id ),
-                    $intent['intent_id'],
-                    $intent['object_key'],
-                    $manifest['batch_id'],
-                    $upload_id,
-                    $intent['reserved_bytes'],
-                    $intent['created_at'],
-                    $manifest['artifact_store'],
-                    $manifest['artifact_store_identity']
-                ) ) {
-                    self::release_lock( $lock );
-                    self::release_lock( $capacity['lock'] );
-                    return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
-                }
-                // Aggregate expiry is the logical removal boundary even when
-                // the physical GC pass runs later.
-                $deleted_at = $aggregate_expired
-                    ? (int) $manifest['delete_after']
-                    : $now;
-                $manifest['tombstones'][ $upload_id ] = array(
-                    'deleted_at' => $deleted_at,
-                    'bytes' => (int) $intent['reserved_bytes'],
-                    'object_key' => $intent['object_key'],
-                    'object_version' => '',
-                    'capacity_release_started' => true,
-                    'capacity_released' => false,
-                );
-                unset( $manifest['intents'][ $upload_id ] );
-                $new_tombstones[ $upload_id ] = true;
-            }
-            if ( ! empty( $eligible_intents ) && ! self::write_json_atomic( $manifest_path, $manifest ) ) {
-                self::release_lock( $lock );
+        if ( ! empty( $aggregate_converted['changed'] ) ) {
+            $manifest = $aggregate_converted['manifest'];
+            if ( ! $dry_run && ! self::write_json_atomic( $locked['manifest_path'], $manifest ) ) {
+                self::release_lock( $locked['lock'] );
                 self::release_lock( $capacity['lock'] );
                 return array( 'ok' => false, 'reason' => 'manifest_write_failed' );
             }
         }
 
-        $objects = array();
-        $target_tombstones = array();
-        if ( $aggregate_expired ) {
-            $objects = self::remote_deletion_targets( $manifest, $batch_reservations );
-        } else {
-            if ( $dry_run ) {
-                foreach ( $eligible_intents as $upload_id => $intent ) {
-                    $target_tombstones[ $upload_id ] = array( 'bytes' => (int) $intent['reserved_bytes'], 'object_key' => $intent['object_key'], 'object_version' => '' );
-                }
-            }
-            foreach ( $manifest['tombstones'] as $upload_id => $tombstone ) {
-                if ( ! empty( $tombstone['capacity_released'] ) ) {
-                    $repair = ManagedCapacityStore::finish_item_release( $record, $manifest['batch_id'], $upload_id, $now );
-                    if ( empty( $repair['ok'] ) ) {
-                        self::release_lock( $lock );
-                        self::release_lock( $capacity['lock'] );
-                        return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
-                    }
-                    if ( ! empty( $repair['changed'] ) ) {
-                        $target_tombstones[ $upload_id ] = $tombstone;
-                    }
-                    continue;
-                }
-                if ( empty( $new_tombstones[ $upload_id ]) && (int) $tombstone['deleted_at'] + $drain_seconds >= $now ) {
-                    continue;
-                }
-                $target_tombstones[ $upload_id ] = $tombstone;
-            }
-            foreach ( $target_tombstones as $tombstone ) {
-                if ( empty( $tombstone['capacity_released'] ) && ! empty( $tombstone['object_key'] ) ) {
-                    $version = isset( $tombstone['object_version'] ) && $tombstone['object_version'] !== '' ? $tombstone['object_version'] : '';
-                    $objects[ $tombstone['object_key'] . "\0" . $version ] = array( $tombstone['object_key'], $version );
-                }
+        $converted = self::worker_gc_convert_expired_intents( $manifest, $record, $now );
+        if ( $converted === null ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
+        }
+        if ( ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $record, $converted['manifest'], $context['manifest_family'] ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
+        }
+        if ( ! empty( $converted['changed'] ) && ! $dry_run ) {
+            $manifest = $converted['manifest'];
+            if ( ! self::write_json_atomic( $locked['manifest_path'], $manifest ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'reason' => 'manifest_write_failed' );
             }
         }
 
-        $parts = self::aggregate_byte_parts( $manifest );
-        if ( $parts === null ) {
-            self::release_lock( $lock );
+        $selected = self::worker_gc_targets( $manifest, $record, $now );
+        if ( $selected === null ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'reason' => 'manifest_bytes_invalid' );
+            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
         }
-        $managed_bytes = $aggregate_expired ? $parts['managed_bytes'] : 0;
-        foreach ( $target_tombstones as $tombstone ) {
-            if ( $managed_bytes > PHP_INT_MAX - (int) $tombstone['bytes'] ) {
-                self::release_lock( $lock );
+        $converted_bytes = self::worker_gc_unselected_converted_bytes( $aggregate_converted, $selected )
+            + self::worker_gc_unselected_converted_bytes( $converted, $selected );
+        $out = array(
+            'ok' => true,
+            'candidate' => ! empty( $selected ) || ! empty( $aggregate_converted['changed'] ) || ! empty( $converted['changed'] ),
+            'deleted' => false,
+            'managed_bytes' => self::worker_gc_target_bytes( $selected ) + $converted_bytes,
+            'artifact_bytes' => self::worker_gc_target_bytes( $selected ) + $converted_bytes,
+            'released_bytes' => 0,
+        );
+        $ready = self::worker_gc_delete_ready( $context, $manifest, $record, $now, $force_expired );
+        if ( $ready === null ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
+        }
+        if ( empty( $selected ) && $ready ) {
+            $parts = self::aggregate_byte_parts( $manifest );
+            if ( $parts === null ) {
+                self::release_lock( $locked['lock'] );
                 self::release_lock( $capacity['lock'] );
                 return array( 'ok' => false, 'reason' => 'manifest_bytes_invalid' );
             }
-            $managed_bytes += (int) $tombstone['bytes'];
+            $out['candidate'] = true;
+            $out['managed_bytes'] = $parts['managed_bytes'];
+            $out['artifact_bytes'] = $parts['artifact_bytes'];
+            if ( $dry_run ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return $out;
+            }
+            $released = self::release_remote_aggregate_capacity( $record, $manifest, $now );
+            if ( empty( $released['ok'] ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
+            }
+            if ( ! ManagedCapacityStore::write( $capacity['path'], $released['record'] ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_write_failed' );
+            }
+            if ( ! self::delete_locked_aggregate( $path, $locked['lock'] ) ) {
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'reason' => 'aggregate_delete_failed' );
+            }
+            $finished = ManagedCapacityStore::finish_remote_aggregate_release(
+                $released['record'],
+                $manifest['batch_id'],
+                $manifest['artifact_store_identity'],
+                $now
+            );
+            if ( ! is_array( $finished ) ) {
+                self::release_lock( $capacity['lock'] );
+                self::cleanup_deleted_worker_aggregate_context( $context );
+                return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
+            }
+            if ( ! ManagedCapacityStore::write( $capacity['path'], $finished ) ) {
+                self::release_lock( $capacity['lock'] );
+                self::cleanup_deleted_worker_aggregate_context( $context );
+                return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_write_failed' );
+            }
+            self::release_lock( $capacity['lock'] );
+            self::cleanup_deleted_worker_aggregate_context( $context );
+            $out['deleted'] = true;
+            $out['released_bytes'] = ! empty( $released['changed'] ) ? (int) $released['released_bytes'] : 0;
+            return $out;
         }
-        $candidate = $aggregate_expired || ! empty( $target_tombstones );
-        $out = array(
-            'ok' => true,
-            'candidate' => $candidate,
-            'deleted' => false,
-            'managed_bytes' => $managed_bytes,
-            'artifact_bytes' => $aggregate_expired ? $parts['artifact_bytes'] : $managed_bytes,
-            'released_bytes' => 0,
-        );
-        if ( ! $candidate || $dry_run ) {
-            self::release_lock( $lock );
+        if ( empty( $selected ) || $dry_run ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return $out;
         }
-        $encoded_manifest = json_encode( $manifest, JSON_UNESCAPED_SLASHES );
-        if ( ! is_string( $encoded_manifest ) ) {
-            self::release_lock( $lock );
+
+        $remote_targets = array();
+        $manifest_changed = false;
+        $capacity_changed = false;
+        foreach ( $selected as $upload_id => $target ) {
+            if ( ! empty( $target['repair_only'] ) ) {
+                continue;
+            }
+            $tombstone = $manifest['tombstones'][ $upload_id ];
+            $prepared = ManagedCapacityStore::prepare_item_release(
+                $record,
+                $manifest['batch_id'],
+                $upload_id,
+                (int) $tombstone['bytes'],
+                $tombstone['object_key'],
+                $tombstone['deleted_at'],
+                empty( $tombstone['capacity_release_started'] ),
+                $now,
+                $manifest['artifact_store'],
+                $manifest['artifact_store_identity'],
+                array(
+                    'validation_contract_version' => $tombstone['validation_contract_version'],
+                    'policy_fingerprint' => $tombstone['policy_fingerprint'],
+                    'validation_until' => $tombstone['validation_until'],
+                )
+            );
+            if ( empty( $prepared['ok'] ) ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'fatal' => true, 'reason' => isset( $prepared['reason'] ) ? $prepared['reason'] : 'capacity_inconsistent' );
+            }
+            if ( (int) $tombstone['bytes'] > 0
+                && ! empty( $tombstone['capacity_release_started'] )
+                && (int) $prepared['matching_reservations'] !== 1
+            ) {
+                self::release_lock( $locked['lock'] );
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
+            }
+            $record = $prepared['record'];
+            if ( ! empty( $prepared['changed'] ) ) {
+                $capacity_changed = true;
+            }
+            if ( empty( $manifest['tombstones'][ $upload_id ]['capacity_release_started'] ) ) {
+                $manifest['tombstones'][ $upload_id ]['capacity_release_started'] = true;
+                $manifest_changed = true;
+            }
+            $remote_targets[ $upload_id ] = $target['authority'];
+        }
+        if ( $capacity_changed && ! ManagedCapacityStore::write( $capacity['path'], $record ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_write_failed' );
+        }
+        if ( $manifest_changed && ! self::write_json_atomic( $locked['manifest_path'], $manifest ) ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return array( 'ok' => false, 'reason' => 'manifest_write_failed' );
+        }
+
+        $manifest_fingerprint = self::worker_gc_manifest_fingerprint( $manifest );
+        $capacity_fingerprint = self::worker_gc_capacity_fingerprint( $record, $manifest['batch_id'], array_keys( $selected ) );
+        if ( $manifest_fingerprint === '' || $capacity_fingerprint === '' ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'manifest_invalid' );
         }
-        $fingerprint = hash( 'sha256', $encoded_manifest );
-        self::release_lock( $lock );
+        self::release_lock( $locked['lock'] );
         self::release_lock( $capacity['lock'] );
 
-        // Remote work is intentionally outside both accounting and aggregate locks.
-        foreach ( $objects as $object ) {
-            $deleted = call_user_func( $remote_delete, $object[0], $object[1], $manifest['artifact_store_identity'] );
+        if ( ! empty( $remote_targets ) && ! is_callable( $remote_delete ) ) {
+            return array( 'ok' => false, 'reason' => 'remote_delete_unavailable' );
+        }
+        foreach ( $remote_targets as $authority ) {
+            $deleted = call_user_func( $remote_delete, $authority );
             if ( ! is_array( $deleted ) || empty( $deleted['ok'] ) || empty( $deleted['absent'] ) ) {
                 return array( 'ok' => false, 'reason' => 'remote_delete_failed' );
             }
@@ -2813,101 +4405,64 @@ class UploadBatchStore {
         if ( empty( $capacity['ok'] ) ) {
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_lock_failed' );
         }
-        $lock = self::acquire_lock( $lock_path );
-        if ( $lock === false ) {
+        $locked = self::worker_gc_lock_context( $context, $uploads_dir, false );
+        if ( empty( $locked['ok'] ) ) {
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
         }
-        $current = self::read_manifest(
-            $manifest_path,
-            $family === 'staged' ? 'staged' : 'submission',
-            basename( $path )
-        );
-        $encoded_current = is_array( $current ) ? json_encode( $current, JSON_UNESCAPED_SLASHES ) : false;
-        if ( ! is_string( $encoded_current ) || ! hash_equals( $fingerprint, hash( 'sha256', $encoded_current ) ) ) {
-            self::release_lock( $lock );
-            self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'reason' => 'remote_state_changed' );
-        }
+        $current = self::read_worker_manifest( $locked['manifest_path'], $context['manifest_family'], $context['aggregate_id'], true, false );
         $record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
-        if ( $record === null ) {
-            self::release_lock( $lock );
+        if ( $current === null || $record === null ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_invalid' );
+            return array( 'ok' => false, 'fatal' => true, 'reason' => $record === null ? 'capacity_invalid' : 'manifest_invalid' );
         }
-        $current_reservations = self::remote_batch_reservations( $record, $current );
-        if ( $current_reservations === null || $current_reservations !== $batch_reservations ) {
-            self::release_lock( $lock );
+        if ( ! hash_equals( $manifest_fingerprint, self::worker_gc_manifest_fingerprint( $current ) )
+            || ! hash_equals( $capacity_fingerprint, self::worker_gc_capacity_fingerprint( $record, $current['batch_id'], array_keys( $selected ) ) )
+            || ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $record, $current, $context['manifest_family'] )
+        ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'remote_state_changed' );
         }
 
-        if ( $aggregate_expired ) {
-            $released = self::release_remote_aggregate_capacity( $record, $current, $now );
-            if ( empty( $released['ok'] ) ) {
-                self::release_lock( $lock );
-                self::release_lock( $capacity['lock'] );
-                return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
-            }
-            if ( ! ManagedCapacityStore::write( $capacity['path'], $released['record'] ) ) {
-                self::release_lock( $lock );
-                self::release_lock( $capacity['lock'] );
-                return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_write_failed' );
-            }
-            if ( ! self::delete_locked_aggregate( $path, $lock ) ) {
-                self::release_lock( $capacity['lock'] );
-                return array( 'ok' => false, 'reason' => 'aggregate_delete_failed' );
-            }
-            $finished = ManagedCapacityStore::finish_remote_aggregate_release(
-                $released['record'],
-                $current['batch_id'],
-                $current['artifact_store_identity'],
-                $now
-            );
-            if ( is_array( $finished ) ) {
-                // The receipt is safe to retain if this best-effort compaction
-                // fails; health and retry paths treat it as the durable release.
-                ManagedCapacityStore::write( $capacity['path'], $finished );
-            }
-            $out['deleted'] = true;
-            $out['released_bytes'] = ! empty( $released['changed'] ) ? $released['released_bytes'] : 0;
-            self::release_lock( $capacity['lock'] );
-            if ( $family === 'staged' ) {
-                self::remove_staged_lock_file( $path );
-            }
-            @rmdir( dirname( $path ) );
-            return $out;
-        }
-
-        $released_bytes = 0;
-        $manifest_changed = false;
-        foreach ( $target_tombstones as $upload_id => $expected ) {
-            $tombstone = isset( $current['tombstones'][ $upload_id ] ) ? $current['tombstones'][ $upload_id ] : null;
-            if ( ! is_array( $tombstone )
-                || $tombstone['object_key'] !== $expected['object_key']
-                || $tombstone['object_version'] !== $expected['object_version']
-                || (bool) $tombstone['capacity_released'] !== (bool) $expected['capacity_released']
+        $current_changed = false;
+        foreach ( $selected as $upload_id => $target ) {
+            if ( ! isset( $current['tombstones'][ $upload_id ] )
+                || ! is_array( $current['tombstones'][ $upload_id ] )
+                || self::worker_tombstone_authority( $upload_id, $current['tombstones'][ $upload_id ] ) !== $target['authority']
             ) {
-                self::release_lock( $lock );
+                self::release_lock( $locked['lock'] );
                 self::release_lock( $capacity['lock'] );
                 return array( 'ok' => false, 'reason' => 'remote_state_changed' );
             }
-            if ( empty( $tombstone['capacity_released'] ) ) {
+            if ( empty( $current['tombstones'][ $upload_id ]['capacity_released'] ) ) {
                 $current['tombstones'][ $upload_id ]['capacity_released'] = true;
-                $manifest_changed = true;
+                $current_changed = true;
             }
         }
-        if ( $manifest_changed && ! self::write_json_atomic( $manifest_path, $current ) ) {
-            self::release_lock( $lock );
+        if ( $current_changed && ! self::write_json_atomic( $locked['manifest_path'], $current ) ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'manifest_write_failed' );
         }
-        foreach ( $target_tombstones as $upload_id => $expected ) {
-            $settled = ManagedCapacityStore::finish_item_release( $record, $current['batch_id'], $upload_id, $now );
+
+        $released_bytes = 0;
+        foreach ( $selected as $upload_id => $target ) {
+            $settled = self::finish_worker_tombstone_capacity_release(
+                $record,
+                $current,
+                $upload_id,
+                $current['tombstones'][ $upload_id ],
+                $now
+            );
+            $requires_item_release = $context['family'] !== self::SUBMISSIONS_DIR
+                && empty( $target['repair_only'] )
+                && (int) $target['bytes'] > 0;
             if ( empty( $settled['ok'] )
-                || ( (int) $expected['bytes'] > 0 && empty( $settled['changed'] ) )
+                || ( $requires_item_release && empty( $settled['changed'] ) )
             ) {
-                self::release_lock( $lock );
+                self::release_lock( $locked['lock'] );
                 self::release_lock( $capacity['lock'] );
                 return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_inconsistent' );
             }
@@ -2915,14 +4470,462 @@ class UploadBatchStore {
             $released_bytes += (int) $settled['released_bytes'];
         }
         if ( ! ManagedCapacityStore::write( $capacity['path'], $record ) ) {
-            self::release_lock( $lock );
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'fatal' => true, 'reason' => 'capacity_write_failed' );
         }
-        self::release_lock( $lock );
+        self::release_lock( $locked['lock'] );
         self::release_lock( $capacity['lock'] );
         $out['released_bytes'] = $released_bytes;
         return $out;
+    }
+
+    private static function worker_gc_convert_expired_aggregate( $context, $manifest, $record, $now, $force = false ) {
+        if ( ! is_array( $context ) || ! is_array( $manifest ) || ! is_array( $record ) ) {
+            return null;
+        }
+        $expiry_states = isset( $context['expiry_states'] ) && is_array( $context['expiry_states'] )
+            ? $context['expiry_states']
+            : array();
+        if ( ! isset( $manifest['state'], $manifest['delete_after'] )
+            || ! in_array( $manifest['state'], $expiry_states, true )
+            || ( ! $force && ( ! is_numeric( $manifest['delete_after'] ) || (int) $manifest['delete_after'] > (int) $now ) )
+        ) {
+            return array(
+                'changed' => false,
+                'bytes' => 0,
+                'converted' => array(),
+                'manifest' => $manifest,
+            );
+        }
+
+        $deleted_at = $force ? (int) $now : (int) $manifest['delete_after'];
+        $converted_bytes = 0;
+        $converted = array();
+        foreach ( $manifest['intents'] as $upload_id => $intent ) {
+            $upload_id = (string) $upload_id;
+            if ( ! ManagedCapacityStore::matches_intent_reservation(
+                $record,
+                self::reservation_id( $manifest['batch_id'], $upload_id ),
+                $intent['intent_id'],
+                $intent['object_key'],
+                $manifest['batch_id'],
+                $upload_id,
+                $intent['reserved_bytes'],
+                $intent['created_at'],
+                $manifest['artifact_store'],
+                $manifest['artifact_store_identity']
+            ) ) {
+                return null;
+            }
+            if ( $converted_bytes > PHP_INT_MAX - (int) $intent['reserved_bytes'] ) {
+                return null;
+            }
+            $converted_bytes += (int) $intent['reserved_bytes'];
+            $converted[ $upload_id ] = (int) $intent['reserved_bytes'];
+            $manifest['tombstones'][ $upload_id ] = array(
+                'deleted_at' => $deleted_at,
+                'bytes' => (int) $intent['reserved_bytes'],
+                'object_key' => $intent['object_key'],
+                'object_version' => '-',
+                'etag' => '-',
+                'policy_fingerprint' => $intent['policy_fingerprint'],
+                'storage_identity' => $intent['storage_identity'],
+                'validation_contract_version' => $intent['validation_contract_version'],
+                'validation_until' => (int) $intent['validation_until'],
+                'capacity_release_started' => false,
+                'capacity_released' => false,
+            );
+            unset( $manifest['intents'][ $upload_id ] );
+        }
+
+        $artifact_bytes = (int) $manifest['artifact_bytes'];
+        foreach ( $manifest['items'] as $upload_id => $item ) {
+            $upload_id = (string) $upload_id;
+            if ( $converted_bytes > PHP_INT_MAX - (int) $item['bytes'] || $artifact_bytes < (int) $item['bytes'] ) {
+                return null;
+            }
+            $converted_bytes += (int) $item['bytes'];
+            $converted[ $upload_id ] = (int) $item['bytes'];
+            $artifact_bytes -= (int) $item['bytes'];
+            $manifest['tombstones'][ $upload_id ] = array(
+                'deleted_at' => $deleted_at,
+                'bytes' => (int) $item['bytes'],
+                'object_key' => $item['object_key'],
+                'object_version' => $item['object_version'],
+                'etag' => $item['etag'],
+                'policy_fingerprint' => $item['policy_fingerprint'],
+                'storage_identity' => $item['storage_identity'],
+                'validation_contract_version' => $item['validation_contract_version'],
+                'validation_until' => (int) $item['validation_until'],
+                'capacity_release_started' => false,
+                'capacity_released' => false,
+            );
+            unset( $manifest['items'][ $upload_id ] );
+        }
+        $manifest['artifact_bytes'] = $artifact_bytes;
+        if ( $force && ! empty( $converted ) ) {
+            $manifest['state'] = 'operator_deleted';
+            $manifest['delete_after'] = self::worker_operator_delete_after( $manifest, $now );
+        }
+
+        return array(
+            'changed' => ! empty( $converted ),
+            'bytes' => $converted_bytes,
+            'converted' => $converted,
+            'manifest' => $manifest,
+        );
+    }
+
+    private static function worker_gc_convert_expired_intents( $manifest, $record, $now ) {
+        if ( ! is_array( $manifest ) || ! is_array( $record ) ) {
+            return null;
+        }
+        if ( ! isset( $manifest['state'] ) || $manifest['state'] !== 'open' ) {
+            return array(
+                'changed' => false,
+                'bytes' => 0,
+                'converted' => array(),
+                'manifest' => $manifest,
+            );
+        }
+        $converted_bytes = 0;
+        $changed = false;
+        $converted = array();
+        foreach ( $manifest['intents'] as $upload_id => $intent ) {
+            if ( (int) $now < (int) $intent['accept_until'] ) {
+                continue;
+            }
+            if ( ! ManagedCapacityStore::matches_intent_reservation(
+                $record,
+                self::reservation_id( $manifest['batch_id'], (string) $upload_id ),
+                $intent['intent_id'],
+                $intent['object_key'],
+                $manifest['batch_id'],
+                (string) $upload_id,
+                $intent['reserved_bytes'],
+                $intent['created_at'],
+                $manifest['artifact_store'],
+                $manifest['artifact_store_identity']
+            ) ) {
+                return null;
+            }
+            if ( $converted_bytes > PHP_INT_MAX - (int) $intent['reserved_bytes'] ) {
+                return null;
+            }
+            $converted_bytes += (int) $intent['reserved_bytes'];
+            $converted[ (string) $upload_id ] = (int) $intent['reserved_bytes'];
+            $manifest['tombstones'][ (string) $upload_id ] = array(
+                'deleted_at' => (int) $now,
+                'bytes' => (int) $intent['reserved_bytes'],
+                'object_key' => $intent['object_key'],
+                'object_version' => '-',
+                'etag' => '-',
+                'policy_fingerprint' => $intent['policy_fingerprint'],
+                'storage_identity' => $intent['storage_identity'],
+                'validation_contract_version' => $intent['validation_contract_version'],
+                'validation_until' => (int) $intent['validation_until'],
+                'capacity_release_started' => false,
+                'capacity_released' => false,
+            );
+            unset( $manifest['intents'][ (string) $upload_id ] );
+            $changed = true;
+        }
+        return array(
+            'changed' => $changed,
+            'bytes' => $converted_bytes,
+            'converted' => $converted,
+            'manifest' => $manifest,
+        );
+    }
+
+    private static function worker_gc_unselected_converted_bytes( $converted, $selected ) {
+        if ( ! is_array( $converted ) || ! isset( $converted['converted'] ) || ! is_array( $converted['converted'] ) ) {
+            return 0;
+        }
+        $bytes = 0;
+        foreach ( $converted['converted'] as $upload_id => $value ) {
+            if ( isset( $selected[ $upload_id ] ) ) {
+                continue;
+            }
+            if ( $bytes > PHP_INT_MAX - (int) $value ) {
+                return PHP_INT_MAX;
+            }
+            $bytes += (int) $value;
+        }
+        return $bytes;
+    }
+
+    private static function worker_gc_delete_ready( $context, $manifest, $record, $now, $force = false ) {
+        if ( ! is_array( $context ) || ! is_array( $manifest ) || ! is_array( $record ) ) {
+            return null;
+        }
+        $expiry_states = isset( $context['expiry_states'] ) && is_array( $context['expiry_states'] )
+            ? $context['expiry_states']
+            : array();
+        if ( ! isset( $manifest['state'], $manifest['delete_after'], $manifest['batch_id'] )
+            || ! in_array( $manifest['state'], $expiry_states, true )
+            || ( ! $force && ( ! is_numeric( $manifest['delete_after'] ) || (int) $manifest['delete_after'] > (int) $now ) )
+        ) {
+            return false;
+        }
+        if ( ! empty( $manifest['items'] ) || ! empty( $manifest['intents'] ) ) {
+            return false;
+        }
+        foreach ( $manifest['tombstones'] as $tombstone ) {
+            if ( empty( $tombstone['capacity_released'] ) ) {
+                return false;
+            }
+        }
+        $reservations = self::remote_batch_reservations( $record, $manifest );
+        return $reservations === null ? null : empty( $reservations );
+    }
+
+    private static function worker_gc_targets( $manifest, $record, $now ) {
+        $targets = array();
+        foreach ( $manifest['tombstones'] as $upload_id => $tombstone ) {
+            if ( self::worker_cancellation_tombstone_valid( $tombstone ) ) {
+                continue;
+            }
+            $authority = self::worker_tombstone_authority( (string) $upload_id, $tombstone );
+            if ( $authority === null ) {
+                return null;
+            }
+            if ( ! empty( $tombstone['capacity_released'] ) ) {
+                $settled = self::finish_worker_tombstone_capacity_release( $record, $manifest, (string) $upload_id, $tombstone, $now );
+                if ( empty( $settled['ok'] ) ) {
+                    return null;
+                }
+                if ( ! empty( $settled['changed'] ) ) {
+                    $targets[ (string) $upload_id ] = array(
+                        'authority' => $authority,
+                        'bytes' => (int) $tombstone['bytes'],
+                        'repair_only' => true,
+                    );
+                }
+                continue;
+            }
+            if ( self::worker_tombstone_remote_eligible( $tombstone, $now ) ) {
+                $targets[ (string) $upload_id ] = array(
+                    'authority' => $authority,
+                    'bytes' => (int) $tombstone['bytes'],
+                    'repair_only' => false,
+                );
+            }
+        }
+        ksort( $targets, SORT_STRING );
+        return $targets;
+    }
+
+    private static function finish_worker_tombstone_capacity_release( $record, $manifest, $upload_id, $tombstone, $now ) {
+        if ( ! is_array( $record ) || ! isset( $record['reservations'] ) || ! is_array( $record['reservations'] ) ) {
+            return array( 'ok' => false, 'reason' => 'capacity_invalid' );
+        }
+        $authority = self::worker_tombstone_capacity_authority( $manifest, $upload_id, $tombstone );
+        if ( $authority === null ) {
+            return array( 'ok' => false, 'reason' => 'capacity_invalid' );
+        }
+        $reservation_id = self::reservation_id( $manifest['batch_id'], $upload_id );
+        if ( ! isset( $record['reservations'][ $reservation_id ] ) ) {
+            return array(
+                'ok' => true,
+                'record' => $record,
+                'released_bytes' => 0,
+                'changed' => false,
+            );
+        }
+        $reservation = $record['reservations'][ $reservation_id ];
+        if ( ! ManagedCapacityStore::remote_reservation_matches( $reservation, $authority )
+            || $record['total_bytes'] < $reservation['bytes']
+            || $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] < $reservation['bytes']
+        ) {
+            return array( 'ok' => false, 'reason' => 'capacity_reservation_conflict' );
+        }
+        unset( $record['reservations'][ $reservation_id ] );
+        $record['total_bytes'] -= $reservation['bytes'];
+        $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] -= $reservation['bytes'];
+        $record['updated_at'] = (int) $now;
+        return array(
+            'ok' => true,
+            'record' => $record,
+            'released_bytes' => $reservation['bytes'],
+            'changed' => true,
+        );
+    }
+
+    private static function finish_exact_remote_reservation_release( $record, $reservation_id, $authority, $now ) {
+        if ( ! is_array( $record )
+            || ! isset( $record['reservations'] )
+            || ! is_array( $record['reservations'] )
+            || ! is_string( $reservation_id )
+            || $reservation_id === ''
+            || ! isset( $record['reservations'][ $reservation_id ] )
+            || ! is_array( $authority )
+        ) {
+            return array( 'ok' => false, 'reason' => 'capacity_invalid' );
+        }
+        $reservation = $record['reservations'][ $reservation_id ];
+        if ( ! ManagedCapacityStore::remote_reservation_matches( $reservation, $authority )
+            || $record['total_bytes'] < $reservation['bytes']
+            || $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] < $reservation['bytes']
+        ) {
+            return array( 'ok' => false, 'reason' => 'capacity_reservation_conflict' );
+        }
+        unset( $record['reservations'][ $reservation_id ] );
+        $record['total_bytes'] -= $reservation['bytes'];
+        $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] -= $reservation['bytes'];
+        $record['updated_at'] = (int) $now;
+        return array(
+            'ok' => true,
+            'record' => $record,
+            'released_bytes' => $reservation['bytes'],
+            'changed' => true,
+        );
+    }
+
+    private static function worker_tombstone_remote_eligible( $tombstone, $now ) {
+        $safe_after = self::worker_tombstone_safe_after( $tombstone );
+        return $safe_after !== null && (int) $now > $safe_after;
+    }
+
+    private static function worker_operator_delete_after( $manifest, $now ) {
+        $delete_after = (int) $now;
+        foreach ( $manifest['tombstones'] as $tombstone ) {
+            if ( ! is_array( $tombstone ) || ! empty( $tombstone['capacity_released'] ) ) {
+                continue;
+            }
+            $safe_after = self::worker_tombstone_safe_after( $tombstone );
+            if ( $safe_after === null || $safe_after >= PHP_INT_MAX ) {
+                return PHP_INT_MAX;
+            }
+            $delete_after = max( $delete_after, $safe_after + 1 );
+        }
+        return $delete_after;
+    }
+
+    private static function worker_tombstone_safe_after( $tombstone ) {
+        if ( ! is_array( $tombstone ) || ! isset( $tombstone['deleted_at'], $tombstone['validation_until'] ) ) {
+            return null;
+        }
+        $drain = Anchors::get( 'WORKER_UPLOAD_GRANT_TTL_SECONDS' )
+            + Anchors::get( 'WORKER_UPLOAD_MAX_SECONDS' )
+            + Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' );
+        $deleted_at = (int) $tombstone['deleted_at'];
+        $deleted_drain_until = $deleted_at > PHP_INT_MAX - $drain ? PHP_INT_MAX : $deleted_at + $drain;
+        $validation_drain = Anchors::get( 'WORKER_QUEUE_CONSUMER_MAX_WALL_SECONDS' )
+            + Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' );
+        $validation_until = (int) $tombstone['validation_until'];
+        $validation_drain_until = $validation_until > PHP_INT_MAX - $validation_drain
+            ? PHP_INT_MAX
+            : $validation_until + $validation_drain;
+        return max( $validation_drain_until, $deleted_drain_until );
+    }
+
+    private static function worker_tombstone_authority( $upload_id, $tombstone ) {
+        if ( ! self::valid_upload_id( $upload_id )
+            || ! is_array( $tombstone )
+            || ! isset(
+                $tombstone['storage_identity'],
+                $tombstone['validation_contract_version'],
+                $tombstone['object_key'],
+                $tombstone['object_version'],
+                $tombstone['etag'],
+                $tombstone['bytes'],
+                $tombstone['policy_fingerprint']
+            )
+            || ! self::valid_worker_tombstone_object_pair( $tombstone['object_key'], $tombstone['object_version'], $tombstone['etag'] )
+            || ! self::valid_artifact_store_identity( FormProtocol::UPLOAD_TRANSPORT_WORKER, $tombstone['storage_identity'] )
+            || ! self::valid_validation_contract_version( $tombstone['validation_contract_version'] )
+            || ! self::nonnegative_int( $tombstone['bytes'] )
+            || ! is_string( $tombstone['policy_fingerprint'] )
+            || preg_match( '/^[0-9a-f]{64}$/D', $tombstone['policy_fingerprint'] ) !== 1
+        ) {
+            return null;
+        }
+        return array(
+            'upload_id' => $upload_id,
+            'storage_identity' => $tombstone['storage_identity'],
+            'expected_composition_fingerprint' => $tombstone['storage_identity'],
+            'validation_contract_version' => $tombstone['validation_contract_version'],
+            'object_key' => $tombstone['object_key'],
+            'object_version' => $tombstone['object_version'],
+            'etag' => $tombstone['etag'],
+            'bytes' => (int) $tombstone['bytes'],
+            'policy_fingerprint' => $tombstone['policy_fingerprint'],
+        );
+    }
+
+    private static function worker_tombstone_capacity_authority( $manifest, $upload_id, $tombstone ) {
+        $authority = self::worker_tombstone_authority( $upload_id, $tombstone );
+        if ( $authority === null
+            || ! is_array( $manifest )
+            || ! isset( $manifest['batch_id'], $manifest['artifact_store_identity'] )
+            || ! is_string( $manifest['batch_id'] )
+            || ! is_string( $manifest['artifact_store_identity'] )
+            || ! isset( $tombstone['validation_until'] )
+            || ! is_int( $tombstone['validation_until'] )
+        ) {
+            return null;
+        }
+        $authority['batch_id'] = $manifest['batch_id'];
+        $authority['artifact_store_identity'] = $manifest['artifact_store_identity'];
+        $authority['validation_until'] = $tombstone['validation_until'];
+        return $authority;
+    }
+
+    private static function worker_cancellation_tombstone_valid( $tombstone ) {
+        return is_array( $tombstone )
+            && isset( $tombstone['bytes'], $tombstone['object_key'], $tombstone['object_version'], $tombstone['etag'], $tombstone['capacity_release_started'], $tombstone['capacity_released'] )
+            && $tombstone['bytes'] === 0
+            && $tombstone['object_key'] === ''
+            && $tombstone['object_version'] === '-'
+            && $tombstone['etag'] === '-'
+            && $tombstone['capacity_release_started'] === true
+            && $tombstone['capacity_released'] === true;
+    }
+
+    private static function worker_gc_manifest_fingerprint( $manifest ) {
+        $encoded = json_encode( $manifest, JSON_UNESCAPED_SLASHES );
+        return is_string( $encoded ) ? hash( 'sha256', $encoded ) : '';
+    }
+
+    private static function worker_gc_capacity_fingerprint( $record, $batch_id, $upload_ids ) {
+        if ( ! is_array( $record ) || ! is_string( $batch_id ) || ! is_array( $upload_ids ) ) {
+            return '';
+        }
+        $upload_map = array_fill_keys( $upload_ids, true );
+        $reservations = array();
+        foreach ( $record['reservations'] as $reservation_id => $reservation ) {
+            if ( ! is_array( $reservation )
+                || ! isset( $reservation['batch_id'], $reservation['upload_id'] )
+                || $reservation['batch_id'] !== $batch_id
+                || ! isset( $upload_map[ $reservation['upload_id'] ] )
+            ) {
+                continue;
+            }
+            $reservations[ $reservation_id ] = $reservation;
+        }
+        ksort( $reservations, SORT_STRING );
+        $encoded = json_encode(
+            array(
+                'version' => isset( $record['version'] ) ? $record['version'] : null,
+                'total_bytes' => isset( $record['total_bytes'] ) ? $record['total_bytes'] : null,
+                'reservations' => $reservations,
+            ),
+            JSON_UNESCAPED_SLASHES
+        );
+        return is_string( $encoded ) ? hash( 'sha256', $encoded ) : '';
+    }
+
+    private static function worker_gc_target_bytes( $targets ) {
+        $bytes = 0;
+        foreach ( $targets as $target ) {
+            if ( $bytes > PHP_INT_MAX - (int) $target['bytes'] ) {
+                return PHP_INT_MAX;
+            }
+            $bytes += (int) $target['bytes'];
+        }
+        return $bytes;
     }
 
     private static function release_remote_aggregate_capacity( $record, $manifest, $now ) {
@@ -2995,38 +4998,7 @@ class UploadBatchStore {
         return $reservations;
     }
 
-    /**
-     * Project every still-owned remote object exactly once. Capacity may be
-     * the only durable locator after a pre-manifest crash, while a manifest
-     * version remains the stronger target whenever both authorities exist.
-     */
-    private static function remote_deletion_targets( $manifest, $batch_reservations ) {
-        $objects = array();
-        foreach ( array( $manifest['items'], $manifest['intents'], $manifest['tombstones'] ) as $records ) {
-            foreach ( $records as $artifact ) {
-                if ( empty( $artifact['object_key'] ) || ! empty( $artifact['capacity_released'] ) ) {
-                    continue;
-                }
-                $version = isset( $artifact['object_version'] ) && $artifact['object_version'] !== '' ? $artifact['object_version'] : '';
-                $objects[ $artifact['object_key'] . "\0" . $version ] = array( $artifact['object_key'], $version );
-            }
-        }
-        foreach ( $batch_reservations as $reservation ) {
-            $object_owned = false;
-            foreach ( $objects as $object ) {
-                if ( hash_equals( $object[0], $reservation['object_key'] ) ) {
-                    $object_owned = true;
-                    break;
-                }
-            }
-            if ( ! $object_owned ) {
-                $objects[ $reservation['object_key'] . "\0" ] = array( $reservation['object_key'], '' );
-            }
-        }
-        return $objects;
-    }
-
-    private static function aggregate_paths( $root, $limit, $cursor ) {
+    private static function aggregate_paths( $root, $limit, $cursor, $repair_directories = true ) {
         $out = array();
         $limit = max( 1, (int) $limit );
         $shard_count = hexdec( str_repeat( 'f', Helpers::H2_LENGTH ) ) + 1;
@@ -3052,10 +5024,12 @@ class UploadBatchStore {
                 continue;
             }
             $shard_path = $root . '/' . $shard;
-            if ( ! ( $review_directories
-                ? PrivateDir::ensure_existing_review_directory( $shard_path )
-                : PrivateDir::ensure_existing_private_directory( $shard_path ) )
-            ) {
+            $valid_shard = $repair_directories
+                ? ( $review_directories
+                    ? PrivateDir::ensure_existing_review_directory( $shard_path )
+                    : PrivateDir::ensure_existing_private_directory( $shard_path ) )
+                : ( ! is_link( $shard_path ) && is_dir( $shard_path ) );
+            if ( ! $valid_shard ) {
                 return array( 'ok' => false, 'paths' => array(), 'cursor' => $cursor, 'reason' => 'aggregate_enumeration_failed' );
             }
             $after = $shard === $cursor_shard ? $cursor_aggregate : '';
@@ -3079,10 +5053,12 @@ class UploadBatchStore {
                     if ( ! is_dir( $path ) && ! is_link( $path ) ) {
                         continue;
                     }
-                    if ( ! ( $review_directories
-                        ? PrivateDir::ensure_existing_review_directory( $path )
-                        : PrivateDir::ensure_existing_private_directory( $path ) )
-                    ) {
+                    $valid_aggregate = $repair_directories
+                        ? ( $review_directories
+                            ? PrivateDir::ensure_existing_review_directory( $path )
+                            : PrivateDir::ensure_existing_private_directory( $path ) )
+                        : ( ! is_link( $path ) && is_dir( $path ) );
+                    if ( ! $valid_aggregate ) {
                         return array( 'ok' => false, 'paths' => array(), 'cursor' => $cursor, 'reason' => 'aggregate_enumeration_failed' );
                     }
                     $out[] = $path;
@@ -3112,7 +5088,116 @@ class UploadBatchStore {
         return '';
     }
 
-    private static function purge_remote_family( $family, $private_dir, $cursor, $remote_delete, $now, $lifecycle ) {
+    private static function worker_remote_purge_safe_after( $private_dir, $now ) {
+        $drain = Anchors::get( 'WORKER_UPLOAD_GRANT_TTL_SECONDS' )
+            + Anchors::get( 'WORKER_UPLOAD_MAX_SECONDS' )
+            + Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' )
+            + 1;
+        $validation_drain = Anchors::get( 'WORKER_QUEUE_CONSUMER_MAX_WALL_SECONDS' )
+            + Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' );
+        $max_validation_until = (int) $now;
+        foreach ( array( self::STAGED_DIR => 'staged', self::SUBMISSIONS_DIR => 'submission' ) as $root_name => $manifest_family ) {
+            $root = rtrim( $private_dir, '/\\' ) . '/' . $root_name;
+            if ( is_link( $root ) || ( file_exists( $root ) && ! is_dir( $root ) ) ) {
+                return null;
+            }
+            if ( ! is_dir( $root ) ) {
+                continue;
+            }
+            $cursor = array();
+            do {
+                $page = self::aggregate_paths( $root, Anchors::get( 'MANAGED_REMOTE_PURGE_AGGREGATE_PAGE_SIZE' ), $cursor, false );
+                if ( empty( $page['ok'] ) ) {
+                    return null;
+                }
+                foreach ( $page['paths'] as $path ) {
+                    $manifest_path = rtrim( $path, '/\\' ) . '/' . self::MANIFEST_FILENAME;
+                    $manifest_version = self::worker_manifest_file_version( $manifest_path );
+                    if ( $manifest_version === null ) {
+                        continue;
+                    }
+                    if ( $manifest_version === false ) {
+                        return null;
+                    }
+                    $manifest = self::read_worker_manifest( $manifest_path, $manifest_family, basename( rtrim( $path, '/\\' ) ), true, false );
+                    if ( $manifest === null ) {
+                        return null;
+                    }
+                    foreach ( array( $manifest['intents'], $manifest['items'], $manifest['tombstones'] ) as $records ) {
+                        foreach ( $records as $record ) {
+                            if ( isset( $record['validation_until'] ) && is_int( $record['validation_until'] ) ) {
+                                $max_validation_until = max( $max_validation_until, $record['validation_until'] );
+                            }
+                        }
+                    }
+                }
+                $cursor = isset( $page['cursor'] ) && is_array( $page['cursor'] ) ? $page['cursor'] : array();
+            } while ( ! empty( $cursor ) );
+        }
+
+        $capacity = ManagedCapacityStore::read(
+            rtrim( $private_dir, '/\\' ) . '/' . self::CAPACITY_FILENAME,
+            self::CAPACITY_VERSION,
+            $now
+        );
+        if ( ! is_array( $capacity ) ) {
+            return null;
+        }
+        if ( ! self::worker_capacity_globally_consistent( $private_dir, $capacity ) ) {
+            return null;
+        }
+        foreach ( $capacity['reservations'] as $reservation ) {
+            if ( $reservation['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+                || ! isset( $reservation['validation_until'] )
+            ) {
+                continue;
+            }
+            $authority = self::worker_remote_reservation_authority( $reservation );
+            if ( $authority === null ) {
+                return null;
+            }
+            $max_validation_until = max( $max_validation_until, (int) $reservation['validation_until'] );
+        }
+
+        $upload_safe_after = $max_validation_until > PHP_INT_MAX - $drain
+            ? PHP_INT_MAX
+            : $max_validation_until + $drain;
+        $validation_safe_after = $max_validation_until > PHP_INT_MAX - $validation_drain
+            ? PHP_INT_MAX
+            : $max_validation_until + $validation_drain;
+        return max( $upload_safe_after, $validation_safe_after );
+    }
+
+    private static function worker_manifest_file_version( $manifest_path ) {
+        if ( ! is_file( $manifest_path ) || is_link( $manifest_path ) ) {
+            return null;
+        }
+        $raw = @file_get_contents( $manifest_path );
+        $manifest = is_string( $raw ) && $raw !== '' ? json_decode( $raw, true ) : null;
+        if ( ! is_array( $manifest ) || ! isset( $manifest['version'] ) || ! is_int( $manifest['version'] ) ) {
+            return false;
+        }
+        return $manifest['version'] === self::WORKER_MANIFEST_VERSION ? self::WORKER_MANIFEST_VERSION : null;
+    }
+
+    private static function unsupported_worker_manifest_file_version( $manifest_path ) {
+        if ( ! is_file( $manifest_path ) || is_link( $manifest_path ) ) {
+            return false;
+        }
+        $raw = @file_get_contents( $manifest_path );
+        $manifest = is_string( $raw ) && $raw !== '' ? json_decode( $raw, true ) : null;
+        if ( ! is_array( $manifest )
+            || ! isset( $manifest['version'], $manifest['artifact_store'] )
+            || ! is_int( $manifest['version'] )
+            || ! is_string( $manifest['artifact_store'] )
+        ) {
+            return null;
+        }
+        return $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER
+            && $manifest['version'] !== self::WORKER_MANIFEST_VERSION;
+    }
+
+    private static function purge_worker_remote_family( $family, $private_dir, $cursor, $remote_delete, $now, $lifecycle ) {
         $root = rtrim( $private_dir, '/\\' ) . '/' . $family;
         if ( is_link( $root ) || ( file_exists( $root ) && ! is_dir( $root ) ) ) {
             return array( 'ok' => false, 'reason' => 'aggregate_enumeration_failed', 'cursor' => $cursor );
@@ -3121,13 +5206,12 @@ class UploadBatchStore {
             return array( 'ok' => true, 'complete' => true, 'cursor' => array() );
         }
 
-        $page_size = Anchors::get( 'MANAGED_REMOTE_PURGE_AGGREGATE_PAGE_SIZE' );
-        $page = self::aggregate_paths( $root, $page_size, $cursor );
+        $page = self::aggregate_paths( $root, Anchors::get( 'MANAGED_REMOTE_PURGE_AGGREGATE_PAGE_SIZE' ), $cursor, false );
         if ( empty( $page['ok'] ) ) {
             return array( 'ok' => false, 'reason' => 'aggregate_enumeration_failed', 'cursor' => $cursor );
         }
         foreach ( $page['paths'] as $path ) {
-            $one = self::purge_remote_aggregate( $family, $path, $remote_delete, $now, $lifecycle );
+            $one = self::purge_worker_remote_aggregate( $family, $path, $remote_delete, $now, $lifecycle );
             if ( empty( $one['ok'] ) ) {
                 return array( 'ok' => false, 'reason' => $one['reason'], 'cursor' => $cursor );
             }
@@ -3141,68 +5225,54 @@ class UploadBatchStore {
         return array( 'ok' => true, 'complete' => true, 'cursor' => array() );
     }
 
-    private static function purge_remote_aggregate( $family, $path, $remote_delete, $now, $lifecycle ) {
-        $path = rtrim( $path, '/\\' );
-        $manifest_path = $path . '/' . self::MANIFEST_FILENAME;
-        $lock_path = self::aggregate_lock_path( $family, $path );
-        if ( is_link( $path )
-            || is_link( dirname( $path ) )
-            || is_link( $manifest_path )
-            || is_link( $lock_path )
-        ) {
+    private static function purge_worker_remote_aggregate( $family, $path, $remote_delete, $now, $lifecycle ) {
+        $context = self::worker_gc_context( $family, $path );
+        if ( $context === null ) {
             return array( 'ok' => false, 'reason' => 'aggregate_layout_invalid' );
         }
-        $lock = $family === self::STAGED_DIR
-            ? self::acquire_staged_lock( $path )
-            : self::acquire_lock( $lock_path );
-        if ( $lock === false ) {
-            return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
+        $manifest_version = self::worker_manifest_file_version( $context['manifest_path'] );
+        if ( $manifest_version === null ) {
+            return array( 'ok' => true );
         }
-        $manifest = self::read_manifest(
-            $manifest_path,
-            $family === self::STAGED_DIR ? 'staged' : 'submission',
-            basename( $path )
-        );
-        if ( $manifest === null ) {
-            if ( $family === self::STAGED_DIR && ! file_exists( $manifest_path ) && self::initializable_partial_batch( $path ) ) {
-                $deleted = self::delete_locked_aggregate( $path, $lock, false );
-                if ( $deleted ) {
-                    self::remove_staged_lock_file( $path );
-                    @rmdir( dirname( $path ) );
-                }
-                return $deleted
-                    ? array( 'ok' => true )
-                    : array( 'ok' => false, 'reason' => 'aggregate_delete_failed' );
-            }
-            self::release_lock( $lock );
+        if ( $manifest_version === false ) {
             return array( 'ok' => false, 'reason' => 'manifest_invalid' );
         }
-        if ( $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_LOCAL ) {
-            self::release_lock( $lock );
+
+        $locked = self::worker_purge_lock_context( $context, dirname( $lifecycle->private_dir() ), false );
+        if ( empty( $locked['ok'] ) ) {
+            return ! empty( $locked['gone'] )
+                ? array( 'ok' => true )
+                : array( 'ok' => false, 'reason' => isset( $locked['reason'] ) ? $locked['reason'] : 'aggregate_lock_failed' );
+        }
+        $manifest = self::read_worker_manifest( $locked['manifest_path'], $context['manifest_family'], $context['aggregate_id'], true, false );
+        if ( $manifest === null ) {
+            self::release_lock( $locked['lock'] );
+            return array( 'ok' => false, 'reason' => 'manifest_invalid' );
+        }
+        if ( $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+            self::release_lock( $locked['lock'] );
             return array( 'ok' => true );
         }
         $encoded = json_encode( $manifest, JSON_UNESCAPED_SLASHES );
         if ( ! is_string( $encoded ) ) {
-            self::release_lock( $lock );
+            self::release_lock( $locked['lock'] );
             return array( 'ok' => false, 'reason' => 'manifest_invalid' );
         }
         $fingerprint = hash( 'sha256', $encoded );
-        self::release_lock( $lock );
+        self::release_lock( $locked['lock'] );
 
         $capacity = self::lock_capacity( dirname( $lifecycle->private_dir() ), $lifecycle, true );
         if ( empty( $capacity['ok'] ) ) {
             return array( 'ok' => false, 'reason' => 'capacity_lock_failed' );
         }
-        $lock = self::acquire_lock( $lock_path );
-        if ( $lock === false ) {
+        $locked = self::worker_purge_lock_context( $context, dirname( $lifecycle->private_dir() ), false );
+        if ( empty( $locked['ok'] ) ) {
             self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
+            return ! empty( $locked['gone'] )
+                ? array( 'ok' => true )
+                : array( 'ok' => false, 'reason' => isset( $locked['reason'] ) ? $locked['reason'] : 'aggregate_lock_failed' );
         }
-        $current = self::read_manifest(
-            $manifest_path,
-            $family === self::STAGED_DIR ? 'staged' : 'submission',
-            basename( $path )
-        );
+        $current = self::read_worker_manifest( $locked['manifest_path'], $context['manifest_family'], $context['aggregate_id'], true, false );
         $current_encoded = is_array( $current ) ? json_encode( $current, JSON_UNESCAPED_SLASHES ) : false;
         $capacity_record = self::read_capacity( $capacity['path'], $capacity['private_dir'], false );
         $batch_reservations = is_array( $capacity_record ) && is_array( $current )
@@ -3211,17 +5281,23 @@ class UploadBatchStore {
         if ( ! is_string( $current_encoded )
             || ! hash_equals( $fingerprint, hash( 'sha256', $current_encoded ) )
             || $batch_reservations === null
+            || ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $capacity_record, $current, $context['manifest_family'] )
         ) {
-            self::release_lock( $lock );
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'remote_state_changed' );
         }
-        $objects = self::remote_deletion_targets( $current, $batch_reservations );
-        self::release_lock( $lock );
+        $objects = self::worker_remote_deletion_targets( $current, $batch_reservations );
+        if ( $objects === null ) {
+            self::release_lock( $locked['lock'] );
+            self::release_lock( $capacity['lock'] );
+            return array( 'ok' => false, 'reason' => 'worker_remote_purge_authority_invalid' );
+        }
+        self::release_lock( $locked['lock'] );
         self::release_lock( $capacity['lock'] );
 
-        foreach ( $objects as $object ) {
-            $deleted = call_user_func( $remote_delete, $object[0], $object[1], $current['artifact_store_identity'] );
+        foreach ( $objects as $authority ) {
+            $deleted = call_user_func( $remote_delete, $authority );
             if ( ! is_array( $deleted ) || empty( $deleted['ok'] ) || empty( $deleted['absent'] ) ) {
                 return array( 'ok' => false, 'reason' => 'remote_delete_failed' );
             }
@@ -3231,19 +5307,17 @@ class UploadBatchStore {
         if ( empty( $capacity['ok'] ) ) {
             return array( 'ok' => false, 'reason' => 'capacity_lock_failed' );
         }
-        $lock = self::acquire_lock( $lock_path );
-        if ( $lock === false ) {
+        $locked = self::worker_purge_lock_context( $context, dirname( $lifecycle->private_dir() ), false );
+        if ( empty( $locked['ok'] ) ) {
             self::release_lock( $capacity['lock'] );
-            return array( 'ok' => false, 'reason' => 'aggregate_lock_failed' );
+            return ! empty( $locked['gone'] )
+                ? array( 'ok' => true )
+                : array( 'ok' => false, 'reason' => isset( $locked['reason'] ) ? $locked['reason'] : 'aggregate_lock_failed' );
         }
-        $current = self::read_manifest(
-            $manifest_path,
-            $family === self::STAGED_DIR ? 'staged' : 'submission',
-            basename( $path )
-        );
+        $current = self::read_worker_manifest( $locked['manifest_path'], $context['manifest_family'], $context['aggregate_id'], true, false );
         $current_encoded = is_array( $current ) ? json_encode( $current, JSON_UNESCAPED_SLASHES ) : false;
         if ( ! is_string( $current_encoded ) || ! hash_equals( $fingerprint, hash( 'sha256', $current_encoded ) ) ) {
-            self::release_lock( $lock );
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'remote_state_changed' );
         }
@@ -3251,8 +5325,11 @@ class UploadBatchStore {
         $current_reservations = is_array( $capacity_record ) && is_array( $current )
             ? self::remote_batch_reservations( $capacity_record, $current )
             : null;
-        if ( $current_reservations === null || $current_reservations !== $batch_reservations ) {
-            self::release_lock( $lock );
+        if ( $current_reservations === null
+            || $current_reservations !== $batch_reservations
+            || ! self::worker_capacity_consistent_for_manifest( $capacity['private_dir'], $capacity_record, $current, $context['manifest_family'] )
+        ) {
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'remote_state_changed' );
         }
@@ -3262,11 +5339,11 @@ class UploadBatchStore {
         if ( empty( $released['ok'] )
             || ! ManagedCapacityStore::write( $capacity['path'], $released['record'] )
         ) {
-            self::release_lock( $lock );
+            self::release_lock( $locked['lock'] );
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'capacity_write_failed' );
         }
-        if ( ! self::delete_locked_aggregate( $path, $lock ) ) {
+        if ( ! self::delete_locked_aggregate( $context['path'], $locked['lock'] ) ) {
             self::release_lock( $capacity['lock'] );
             return array( 'ok' => false, 'reason' => 'aggregate_delete_failed' );
         }
@@ -3276,18 +5353,103 @@ class UploadBatchStore {
             $current['artifact_store_identity'],
             $now
         );
-        if ( is_array( $finished ) ) {
-            ManagedCapacityStore::write( $capacity['path'], $finished );
+        if ( ! is_array( $finished ) ) {
+            self::release_lock( $capacity['lock'] );
+            self::cleanup_deleted_worker_aggregate_context( $context );
+            return array( 'ok' => false, 'reason' => 'capacity_inconsistent' );
+        }
+        if ( ! ManagedCapacityStore::write( $capacity['path'], $finished ) ) {
+            self::release_lock( $capacity['lock'] );
+            self::cleanup_deleted_worker_aggregate_context( $context );
+            return array( 'ok' => false, 'reason' => 'capacity_write_failed' );
         }
         self::release_lock( $capacity['lock'] );
-        if ( $family === self::STAGED_DIR ) {
-            self::remove_staged_lock_file( $path );
-        }
-        @rmdir( dirname( $path ) );
+        self::cleanup_deleted_worker_aggregate_context( $context );
         return array( 'ok' => true );
     }
 
-    private static function purge_remote_reservation_page( $remote_delete, $now, $lifecycle ) {
+    private static function worker_remote_deletion_targets( $manifest, $batch_reservations ) {
+        $objects = array();
+        foreach ( array( $manifest['items'], $manifest['intents'], $manifest['tombstones'] ) as $records ) {
+            foreach ( $records as $upload_id => $artifact ) {
+                if ( empty( $artifact['object_key'] ) || ! empty( $artifact['capacity_released'] ) ) {
+                    continue;
+                }
+                $authority = self::worker_remote_artifact_authority( (string) $upload_id, $artifact );
+                if ( $authority === null ) {
+                    return null;
+                }
+                $objects[ $authority['object_key'] . "\0" . $authority['object_version'] ] = $authority;
+            }
+        }
+        foreach ( $batch_reservations as $reservation ) {
+            $object_owned = false;
+            foreach ( $objects as $authority ) {
+                if ( hash_equals( $authority['object_key'], $reservation['object_key'] ) ) {
+                    $object_owned = true;
+                    break;
+                }
+            }
+            if ( ! $object_owned ) {
+                $authority = self::worker_remote_reservation_authority( $reservation );
+                if ( $authority === null ) {
+                    return null;
+                }
+                $objects[ $authority['object_key'] . "\0-" ] = $authority;
+            }
+        }
+        return $objects;
+    }
+
+    private static function worker_remote_artifact_authority( $upload_id, $artifact ) {
+        if ( ! is_array( $artifact ) ) {
+            return null;
+        }
+        if ( ! isset( $artifact['object_version'], $artifact['etag'] ) ) {
+            $artifact['object_version'] = '-';
+            $artifact['etag'] = '-';
+        }
+        return self::worker_tombstone_authority( $upload_id, $artifact );
+    }
+
+    private static function worker_remote_reservation_authority( $reservation ) {
+        if ( ! is_array( $reservation )
+            || ! isset(
+                $reservation['upload_id'],
+                $reservation['artifact_store_identity'],
+                $reservation['validation_contract_version'],
+                $reservation['object_key'],
+                $reservation['bytes'],
+                $reservation['policy_fingerprint'],
+                $reservation['validation_until']
+            )
+            || $reservation['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || ! self::valid_upload_id( $reservation['upload_id'] )
+            || ! self::valid_artifact_store_identity( FormProtocol::UPLOAD_TRANSPORT_WORKER, $reservation['artifact_store_identity'] )
+            || ! self::valid_validation_contract_version( $reservation['validation_contract_version'] )
+            || ! self::valid_worker_tombstone_object_pair( $reservation['object_key'], '-', '-' )
+            || ! self::nonnegative_int( $reservation['bytes'] )
+            || (int) $reservation['bytes'] < 1
+            || ! is_string( $reservation['policy_fingerprint'] )
+            || preg_match( '/^[0-9a-f]{64}$/D', $reservation['policy_fingerprint'] ) !== 1
+        ) {
+            return null;
+        }
+        return array(
+            'upload_id' => $reservation['upload_id'],
+            'storage_identity' => $reservation['artifact_store_identity'],
+            'expected_composition_fingerprint' => $reservation['artifact_store_identity'],
+            'validation_contract_version' => $reservation['validation_contract_version'],
+            'object_key' => $reservation['object_key'],
+            'object_version' => '-',
+            'etag' => '-',
+            'bytes' => (int) $reservation['bytes'],
+            'policy_fingerprint' => $reservation['policy_fingerprint'],
+            'validation_until' => (int) $reservation['validation_until'],
+        );
+    }
+
+    private static function purge_worker_remote_reservation_page( $remote_delete, $now, $lifecycle ) {
         $page_size = Anchors::get( 'MANAGED_REMOTE_PURGE_AGGREGATE_PAGE_SIZE' );
         for ( $processed = 0; $processed < $page_size; $processed++ ) {
             $capacity = self::lock_capacity( dirname( $lifecycle->private_dir() ), $lifecycle, true );
@@ -3299,11 +5461,16 @@ class UploadBatchStore {
                 self::release_lock( $capacity['lock'] );
                 return array( 'ok' => false, 'reason' => 'capacity_invalid' );
             }
+            if ( ! self::worker_capacity_globally_consistent( $capacity['private_dir'], $record ) ) {
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'reason' => 'capacity_invalid' );
+            }
 
             $candidate = null;
             foreach ( $record['reservations'] as $reservation_id => $reservation ) {
-                if ( $reservation['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
-                    $candidate = array( 'id' => $reservation_id, 'reservation' => $reservation );
+                $authority = self::worker_remote_reservation_authority( $reservation );
+                if ( $authority !== null ) {
+                    $candidate = array( 'id' => $reservation_id, 'reservation' => $reservation, 'authority' => $authority );
                     break;
                 }
             }
@@ -3326,12 +5493,7 @@ class UploadBatchStore {
             }
             self::release_lock( $capacity['lock'] );
 
-            $deleted = call_user_func(
-                $remote_delete,
-                $candidate['reservation']['object_key'],
-                '',
-                $candidate['reservation']['artifact_store_identity']
-            );
+            $deleted = call_user_func( $remote_delete, $candidate['authority'] );
             if ( ! is_array( $deleted ) || empty( $deleted['ok'] ) || empty( $deleted['absent'] ) ) {
                 return array( 'ok' => false, 'reason' => 'remote_delete_failed' );
             }
@@ -3352,10 +5514,17 @@ class UploadBatchStore {
                     'bytes' => $candidate['reservation']['bytes'],
                     'artifact_store_identity' => $candidate['reservation']['artifact_store_identity'],
                     'object_key' => $candidate['reservation']['object_key'],
+                    'validation_contract_version' => $candidate['reservation']['validation_contract_version'],
+                    'policy_fingerprint' => $candidate['reservation']['policy_fingerprint'],
+                    'validation_until' => $candidate['reservation']['validation_until'],
                 ) )
             ) {
                 self::release_lock( $capacity['lock'] );
                 return array( 'ok' => false, 'reason' => 'remote_state_changed' );
+            }
+            if ( ! self::worker_capacity_globally_consistent( $capacity['private_dir'], $current ) ) {
+                self::release_lock( $capacity['lock'] );
+                return array( 'ok' => false, 'reason' => 'capacity_invalid' );
             }
             $finished = ManagedCapacityStore::finish_remote_reservation_cleanup(
                 $current,
@@ -3562,6 +5731,64 @@ class UploadBatchStore {
             && ( $finished === $record || ManagedCapacityStore::write( $path, $finished ) );
     }
 
+    private static function settle_worker_committed_capacity( $record, $path, $private_dir, $upload_id, $manifest, $item, $now, $manifest_family ) {
+        if ( ! is_array( $record ) || ! is_array( $manifest ) || ! is_array( $item ) ) {
+            return false;
+        }
+        $reservation_id = self::reservation_id( $manifest['batch_id'], $upload_id );
+        $authority = self::worker_committed_item_capacity_authority( $manifest, $upload_id, $item );
+        if ( $authority === null ) {
+            return false;
+        }
+        if ( ! self::worker_capacity_consistent_for_manifest( $private_dir, $record, $manifest, $manifest_family ) ) {
+            return false;
+        }
+        if ( isset( $record['reservations'][ $reservation_id ] ) ) {
+            $finished = ManagedCapacityStore::finish_remote_committed(
+                $record,
+                $reservation_id,
+                $authority,
+                $item['bytes'],
+                $now
+            );
+            return is_array( $finished )
+                && ( $finished === $record || ManagedCapacityStore::write( $path, $finished ) );
+        }
+        return true;
+    }
+
+    private static function worker_intent_capacity_authority( $manifest, $upload_id, $intent ) {
+        return self::worker_capacity_authority_from_record( $manifest, $upload_id, $intent, 'reserved_bytes' );
+    }
+
+    private static function worker_committed_item_capacity_authority( $manifest, $upload_id, $item ) {
+        return self::worker_capacity_authority_from_record( $manifest, $upload_id, $item, 'bytes' );
+    }
+
+    private static function worker_capacity_authority_from_record( $manifest, $upload_id, $record, $bytes_field ) {
+        if ( ! is_array( $manifest )
+            || ! is_array( $record )
+            || ! is_string( $bytes_field )
+            || ! isset( $manifest['batch_id'], $manifest['artifact_store_identity'] )
+            || ! isset( $record[ $bytes_field ], $record['object_key'] )
+        ) {
+            return null;
+        }
+        $authority = array(
+            'batch_id' => $manifest['batch_id'],
+            'upload_id' => $upload_id,
+            'bytes' => $record[ $bytes_field ],
+            'artifact_store_identity' => $manifest['artifact_store_identity'],
+            'object_key' => $record['object_key'],
+        );
+        foreach ( array( 'validation_contract_version', 'policy_fingerprint', 'validation_until' ) as $field ) {
+            if ( isset( $record[ $field ] ) ) {
+                $authority[ $field ] = $record[ $field ];
+            }
+        }
+        return $authority;
+    }
+
     private static function reserve_capacity( $record, $reservation_id, $intent_id, $object_key, $batch_id, $upload_id, $bytes, $transient_bytes, $artifact_store_identity, $private_dir, $options, $now ) {
         $artifact_store = isset( $options['artifact_store'] ) ? $options['artifact_store'] : FormProtocol::UPLOAD_TRANSPORT_LOCAL;
         $materialized_transient_bytes = isset( $options['materialized_transient_bytes'] ) && is_int( $options['materialized_transient_bytes'] )
@@ -3583,7 +5810,8 @@ class UploadBatchStore {
             $now,
             $artifact_store,
             $artifact_store_identity,
-            $materialized_transient_bytes
+            $materialized_transient_bytes,
+            isset( $options['worker_cleanup'] ) ? $options['worker_cleanup'] : array()
         );
         return ! empty( $reserved['ok'] )
             ? self::success( array( 'record' => $reserved['record'] ) )
@@ -3637,10 +5865,62 @@ class UploadBatchStore {
         );
     }
 
-    private static function valid_receipt_claims( $receipt, $batch_id, $upload_id ) {
+    private static function worker_intent_summary( $intent ) {
+        return array(
+            'intent_id' => $intent['intent_id'],
+            'upload_id' => $intent['upload_id'],
+            'ordinal' => (int) $intent['ordinal'],
+            'display_name' => $intent['display_name'],
+            'declared_bytes' => (int) $intent['declared_bytes'],
+            'declared_mime' => $intent['declared_mime'],
+            'object_key' => $intent['object_key'],
+            'policy_fingerprint' => $intent['policy_fingerprint'],
+            'storage_identity' => $intent['storage_identity'],
+            'validation_contract_version' => $intent['validation_contract_version'],
+            'upload_until' => (int) $intent['upload_until'],
+            'accept_until' => (int) $intent['accept_until'],
+            'validation_until' => (int) $intent['validation_until'],
+            'staged_delete_after' => (int) $intent['staged_delete_after'],
+        );
+    }
+
+    private static function worker_tombstone_from_source( $source, $now ) {
+        $stored = isset( $source['object_version'], $source['etag'] );
+        return array(
+            'deleted_at' => $now,
+            'bytes' => $stored ? (int) $source['bytes'] : (int) $source['reserved_bytes'],
+            'object_key' => $source['object_key'],
+            'object_version' => $stored ? $source['object_version'] : '-',
+            'etag' => $stored ? $source['etag'] : '-',
+            'policy_fingerprint' => $source['policy_fingerprint'],
+            'storage_identity' => $source['storage_identity'],
+            'validation_contract_version' => $source['validation_contract_version'],
+            'validation_until' => $source['validation_until'],
+            'capacity_release_started' => false,
+            'capacity_released' => false,
+        );
+    }
+
+    private static function worker_cancellation_tombstone( $manifest, $now ) {
+        return array(
+            'deleted_at' => $now,
+            'bytes' => 0,
+            'object_key' => '',
+            'object_version' => '-',
+            'etag' => '-',
+            'policy_fingerprint' => $manifest['binding']['policy_fingerprint'],
+            'storage_identity' => $manifest['artifact_store_identity'],
+            'validation_contract_version' => WorkerProtocol::WORKER_VALIDATION_CONTRACT_VERSION,
+            'validation_until' => (int) $manifest['accept_until'],
+            'capacity_release_started' => true,
+            'capacity_released' => true,
+        );
+    }
+
+    private static function valid_worker_stored_receipt_claims( $receipt, $batch_id, $upload_id ) {
         $expected = array(
-            'batch_id', 'bytes', 'etag', 'expires_at', 'height', 'intent_id', 'mime', 'object_key',
-            'object_version', 'ordinal', 'policy_fingerprint', 'upload_id', 'width',
+            'batch_id', 'bytes', 'etag', 'expires_at', 'intent_id', 'object_key', 'object_version',
+            'ordinal', 'policy_fingerprint', 'storage_identity', 'upload_id', 'validation_contract_version',
         );
         $actual = is_array( $receipt ) ? array_keys( $receipt ) : array();
         sort( $actual, SORT_STRING );
@@ -3650,36 +5930,49 @@ class UploadBatchStore {
             && is_string( $upload_id )
             && $receipt['batch_id'] === $batch_id
             && $receipt['upload_id'] === $upload_id
+            && ! isset( $receipt['mime'], $receipt['width'], $receipt['height'], $receipt['accepted_at'], $receipt['outcome'] )
             && self::valid_intent_id( $receipt['intent_id'] )
             && self::nonnegative_int( $receipt['ordinal'] )
+            && self::valid_artifact_store_identity( FormProtocol::UPLOAD_TRANSPORT_WORKER, $receipt['storage_identity'] )
+            && self::valid_validation_contract_version( $receipt['validation_contract_version'] )
             && self::valid_object_identity( $receipt['object_key'], $receipt['object_version'] )
-            && is_string( $receipt['etag'] )
-            && preg_match( '/^[A-Za-z0-9._:-]{1,' . Anchors::get( 'WORKER_OPAQUE_MAX_CHARS' ) . '}$/D', $receipt['etag'] ) === 1
+            && self::valid_known_worker_provider_fact( $receipt['object_version'] )
+            && self::valid_known_worker_provider_fact( $receipt['etag'] )
             && is_int( $receipt['bytes'] )
             && $receipt['bytes'] > 0
-            && is_string( $receipt['mime'] )
-            && is_int( $receipt['width'] )
-            && is_int( $receipt['height'] )
             && is_string( $receipt['policy_fingerprint'] )
             && preg_match( '/^[0-9a-f]{64}$/D', $receipt['policy_fingerprint'] ) === 1
             && self::nonnegative_int( $receipt['expires_at'] );
     }
 
-    private static function receipt_matches_intent( $receipt, $manifest, $intent, $now ) {
+    private static function worker_receipt_matches_intent( $receipt, $manifest, $intent, $now ) {
         return $receipt['ordinal'] === $intent['ordinal']
             && hash_equals( $receipt['intent_id'], $intent['intent_id'] )
             && hash_equals( $receipt['object_key'], $intent['object_key'] )
             && hash_equals( $receipt['policy_fingerprint'], $intent['policy_fingerprint'] )
             && hash_equals( $receipt['policy_fingerprint'], $manifest['binding']['policy_fingerprint'] )
+            && hash_equals( $receipt['storage_identity'], $intent['storage_identity'] )
+            && hash_equals( $receipt['storage_identity'], $manifest['artifact_store_identity'] )
+            && hash_equals( $receipt['validation_contract_version'], $intent['validation_contract_version'] )
             && $receipt['bytes'] === $intent['declared_bytes']
+            && $now < $intent['accept_until']
+            && $now < $intent['staged_delete_after']
             && $receipt['expires_at'] >= $now - Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' )
-            && $receipt['expires_at'] <= $intent['expires_at'] + Anchors::get( 'WORKER_RECEIPT_TTL_SECONDS' );
+            && $receipt['expires_at'] <= $intent['accept_until'];
     }
 
-    private static function receipt_matches_item( $receipt, $manifest, $item, $now ) {
+    private static function worker_receipt_matches_item( $receipt, $manifest, $item, $now ) {
         return $receipt['ordinal'] === $item['ordinal']
+            && hash_equals( $receipt['intent_id'], $item['intent_id'] )
             && hash_equals( $receipt['object_key'], $item['object_key'] )
+            && hash_equals( $receipt['object_version'], $item['object_version'] )
+            && hash_equals( $receipt['etag'], $item['etag'] )
+            && hash_equals( $receipt['policy_fingerprint'], $item['policy_fingerprint'] )
             && hash_equals( $receipt['policy_fingerprint'], $manifest['binding']['policy_fingerprint'] )
+            && hash_equals( $receipt['storage_identity'], $item['storage_identity'] )
+            && hash_equals( $receipt['storage_identity'], $manifest['artifact_store_identity'] )
+            && hash_equals( $receipt['validation_contract_version'], $item['validation_contract_version'] )
+            && $receipt['bytes'] === $item['bytes']
             && $receipt['expires_at'] >= $now - Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' );
     }
 
@@ -3758,6 +6051,27 @@ class UploadBatchStore {
         return self::success();
     }
 
+    private static function check_worker_item_mutation( $manifest, $batch_secret, $now, $accept_until, $staged_delete_after ) {
+        if ( $manifest === null ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_invalid' );
+        }
+        if ( $manifest['version'] !== self::WORKER_MANIFEST_VERSION && ( ! empty( $manifest['intents'] ) || ! empty( $manifest['items'] ) || ! empty( $manifest['tombstones'] ) ) ) {
+            return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_invalid' );
+        }
+        if ( $now >= $manifest['delete_after'] ) {
+            return self::gone();
+        }
+        if ( ! self::secret_matches( $manifest, $batch_secret )
+            || $manifest['state'] !== 'open'
+            || $now >= $manifest['accept_until']
+            || $manifest['accept_until'] !== $accept_until
+            || $manifest['delete_after'] !== $staged_delete_after
+        ) {
+            return self::failure( 'EFORMS_ERR_TOKEN', 'batch_not_open' );
+        }
+        return self::success();
+    }
+
     private static function check_cleanup_mutation( $manifest, $batch_secret, $now ) {
         if ( $manifest === null ) {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'manifest_invalid' );
@@ -3771,13 +6085,22 @@ class UploadBatchStore {
         return self::success();
     }
 
-    private static function lock_staged_batch( $batch_id, $uploads_dir, $existing_only = false ) {
+    private static function lock_staged_batch( $batch_id, $uploads_dir, $existing_only = false, $repair_lock = true ) {
         if ( ! is_string( $batch_id ) || preg_match( FormProtocol::upload_batch_id_pattern(), $batch_id ) !== 1 ) {
             return self::gone();
         }
-        $root = $existing_only
-            ? PrivateDir::existing_protected_subdir( $uploads_dir, self::STAGED_DIR )
-            : self::managed_root( $uploads_dir, self::STAGED_DIR, false );
+        if ( ! $repair_lock ) {
+            $root = $existing_only
+                ? PrivateDir::existing_protected_subdir( $uploads_dir, self::STAGED_DIR )
+                : rtrim( PrivateDir::path( $uploads_dir ), '/\\' ) . '/' . self::STAGED_DIR;
+            if ( $root === '/' . self::STAGED_DIR || is_link( $root ) || ! is_dir( $root ) ) {
+                $root = '';
+            }
+        } else {
+            $root = $existing_only
+                ? PrivateDir::existing_protected_subdir( $uploads_dir, self::STAGED_DIR )
+                : self::managed_root( $uploads_dir, self::STAGED_DIR, false );
+        }
         if ( $root === '' ) {
             return self::gone();
         }
@@ -3789,7 +6112,7 @@ class UploadBatchStore {
         if ( is_link( $path ) || ! is_dir( $path ) ) {
             return self::gone();
         }
-        $lock = self::acquire_staged_lock( $path );
+        $lock = self::acquire_staged_lock( $path, false, false, $repair_lock );
         if ( $lock === false ) {
             clearstatcache( true, $path );
             if ( is_link( $path ) || ! is_dir( $path ) ) {
@@ -3798,8 +6121,12 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'batch_lock_failed' );
         }
         $manifest_path = $path . '/' . self::MANIFEST_FILENAME;
-        clearstatcache( true, $manifest_path );
-        if ( ! is_dir( $path ) || ! is_file( $manifest_path ) ) {
+        $locked_paths = array(
+            'shard' => $shard,
+            'path' => $path,
+            'manifest_path' => $manifest_path,
+        );
+        if ( ! self::staged_batch_paths_valid( $locked_paths ) ) {
             self::release_lock( $lock );
             return self::gone();
         }
@@ -3809,11 +6136,27 @@ class UploadBatchStore {
         }
         return self::success(
             array(
+                'shard' => $shard,
                 'path' => $path,
                 'manifest_path' => $manifest_path,
                 'lock' => $lock,
             )
         );
+    }
+
+    private static function staged_batch_paths_valid( $locked ) {
+        if ( ! is_array( $locked ) || ! isset( $locked['shard'], $locked['path'], $locked['manifest_path'] ) ) {
+            return false;
+        }
+        clearstatcache( true, $locked['shard'] );
+        clearstatcache( true, $locked['path'] );
+        clearstatcache( true, $locked['manifest_path'] );
+        return ! is_link( $locked['shard'] )
+            && is_dir( $locked['shard'] )
+            && ! is_link( $locked['path'] )
+            && is_dir( $locked['path'] )
+            && ! is_link( $locked['manifest_path'] )
+            && is_file( $locked['manifest_path'] );
     }
 
     private static function lock_capacity( $uploads_dir, $lifecycle, $allow_purged = false ) {
@@ -3930,7 +6273,7 @@ class UploadBatchStore {
         return PrivateDir::is_purged( $uploads_dir );
     }
 
-    private static function lock_submission( $submission_id, $uploads_dir, $existing_only = false ) {
+    private static function lock_submission( $submission_id, $uploads_dir, $existing_only = false, $repair_lock = true ) {
         if ( ! self::valid_submission_id( $submission_id ) ) {
             return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
         }
@@ -3944,9 +6287,17 @@ class UploadBatchStore {
                 );
             }
         }
-        $root = $existing_only
-            ? PrivateDir::existing_protected_review_subdir( $uploads_dir, self::SUBMISSIONS_DIR )
-            : self::managed_root( $uploads_dir, self::SUBMISSIONS_DIR, false );
+        if ( ! $repair_lock ) {
+            $private_dir = PrivateDir::path( $uploads_dir );
+            $root = $private_dir === '' ? '' : rtrim( $private_dir, '/\\' ) . '/' . self::SUBMISSIONS_DIR;
+            if ( is_link( $root ) || ! is_dir( $root ) ) {
+                $root = '';
+            }
+        } else {
+            $root = $existing_only
+                ? PrivateDir::existing_protected_review_subdir( $uploads_dir, self::SUBMISSIONS_DIR )
+                : self::managed_root( $uploads_dir, self::SUBMISSIONS_DIR, false );
+        }
         if ( $root === '' ) {
             self::release_submission_lock( array( 'lifecycle' => $lifecycle ) );
             return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
@@ -3962,14 +6313,17 @@ class UploadBatchStore {
             return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
         }
         $lock_path = self::aggregate_lock_path( self::SUBMISSIONS_DIR, $path );
-        $lock = $existing_only ? self::acquire_existing_lock( $lock_path ) : self::acquire_lock( $lock_path );
+        $lock = $existing_only
+            ? self::acquire_existing_lock( $lock_path, false, $repair_lock )
+            : ( $repair_lock ? self::acquire_lock( $lock_path ) : self::acquire_existing_lock( $lock_path, false, false ) );
         if ( $lock === false ) {
             self::release_submission_lock( array( 'lifecycle' => $lifecycle ) );
             return self::failure( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 'submission_lock_failed' );
         }
-        if ( ! PrivateDir::ensure_existing_review_directory( $shard )
-            || ! PrivateDir::ensure_existing_review_directory( $path )
-        ) {
+        $directories_ok = $repair_lock
+            ? ( PrivateDir::ensure_existing_review_directory( $shard ) && PrivateDir::ensure_existing_review_directory( $path ) )
+            : ( ! is_link( $shard ) && is_dir( $shard ) && ! is_link( $path ) && is_dir( $path ) );
+        if ( ! $directories_ok ) {
             self::release_submission_lock( array( 'lock' => $lock, 'lifecycle' => $lifecycle ) );
             return self::failure( 'EFORMS_ERR_TOKEN', 'submission_unavailable' );
         }
@@ -4010,8 +6364,12 @@ class UploadBatchStore {
             && hash_equals( $review_snapshot['submission_id'], $submission_id );
     }
 
-    private static function read_manifest( $path, $aggregate_family, $aggregate_id ) {
-        if ( ! PrivateDir::ensure_existing_private_file( $path ) ) {
+    private static function read_manifest( $path, $aggregate_family, $aggregate_id, $repair_file = true ) {
+        if ( $repair_file ) {
+            if ( ! PrivateDir::ensure_existing_private_file( $path ) ) {
+                return null;
+            }
+        } elseif ( ! is_string( $path ) || $path === '' || is_link( $path ) || ! is_file( $path ) ) {
             return null;
         }
         $manifest = self::read_json( $path );
@@ -4107,6 +6465,108 @@ class UploadBatchStore {
         return $manifest;
     }
 
+    private static function read_worker_authorization_manifest( $path, $batch_id, $repair_file = true ) {
+        $manifest = self::read_worker_manifest( $path, 'staged', $batch_id, false, $repair_file );
+        return is_array( $manifest ) && $manifest['state'] === 'open' ? $manifest : null;
+    }
+
+    private static function read_worker_manifest( $path, $aggregate_family, $aggregate_id, $enforce_worker_ceiling = true, $repair_file = true ) {
+        if ( $repair_file ) {
+            if ( ! PrivateDir::ensure_existing_private_file( $path ) ) {
+                return null;
+            }
+        } elseif ( ! is_string( $path ) || $path === '' || is_link( $path ) || ! is_file( $path ) ) {
+            return null;
+        }
+        $manifest = self::read_json( $path );
+        if ( ! is_array( $manifest )
+            || ! isset( $manifest['version'], $manifest['batch_id'], $manifest['state'], $manifest['artifact_store'], $manifest['artifact_store_identity'], $manifest['binding'], $manifest['batch_secret_digest'], $manifest['policy'] )
+            || ! is_int( $manifest['version'] )
+            || $manifest['version'] !== self::WORKER_MANIFEST_VERSION
+            || ! is_string( $manifest['batch_id'] )
+            || preg_match( FormProtocol::upload_batch_id_pattern(), $manifest['batch_id'] ) !== 1
+            || ! in_array( $manifest['state'], array( 'open', 'finalizing', 'finalized', 'operator_deleted' ), true )
+            || ! self::valid_manifest_keys( $manifest )
+            || $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || ! self::valid_artifact_store_identity( $manifest['artifact_store'], $manifest['artifact_store_identity'] )
+            || ! is_array( $manifest['binding'] )
+            || ! self::valid_manifest_binding( $manifest['binding'] )
+            || ! is_string( $manifest['batch_secret_digest'] )
+            || preg_match( '/^[0-9a-f]{64}$/', $manifest['batch_secret_digest'] ) !== 1
+            || ! is_array( $manifest['policy'] )
+            || ! self::valid_manifest_policy( $manifest['policy'] )
+            || ( $enforce_worker_ceiling && ! self::worker_policy_within_staged_ceiling( $manifest['policy'] ) )
+            || ! array_key_exists( 'delete_after', $manifest )
+            || ! isset( $manifest['accept_until'], $manifest['intents'], $manifest['items'], $manifest['tombstones'], $manifest['artifact_bytes'] )
+            || ! isset( $manifest['created_at'] )
+            || ! self::nonnegative_int( $manifest['created_at'] )
+            || ! self::nonnegative_int( $manifest['accept_until'] )
+            || $manifest['created_at'] > $manifest['accept_until']
+            || ! self::valid_manifest_delete_after( $manifest )
+            || ! is_array( $manifest['intents'] )
+            || ! is_array( $manifest['items'] )
+            || ! is_array( $manifest['tombstones'] )
+            || ! self::nonnegative_int( $manifest['artifact_bytes'] )
+        ) {
+            return null;
+        }
+
+        $ordinals = array();
+        foreach ( $manifest['intents'] as $upload_id => $intent ) {
+            $upload_id = (string) $upload_id;
+            if ( ! self::valid_worker_manifest_intent( $upload_id, $intent, $manifest )
+                || isset( $ordinals[ $intent['ordinal'] ] )
+            ) {
+                return null;
+            }
+            $ordinals[ $intent['ordinal'] ] = true;
+        }
+        foreach ( $manifest['items'] as $upload_id => $item ) {
+            $upload_id = (string) $upload_id;
+            if ( ! self::valid_worker_manifest_item( $upload_id, $item, $manifest )
+                || isset( $ordinals[ $item['ordinal'] ] )
+            ) {
+                return null;
+            }
+            $ordinals[ $item['ordinal'] ] = true;
+        }
+        foreach ( $manifest['tombstones'] as $upload_id => $tombstone ) {
+            if ( ! self::valid_worker_manifest_tombstone( (string) $upload_id, $tombstone, $manifest )
+                || $tombstone['deleted_at'] < $manifest['created_at']
+                || ( $manifest['delete_after'] !== null && $tombstone['deleted_at'] > $manifest['delete_after'] )
+            ) {
+                return null;
+            }
+        }
+        if ( count( $manifest['intents'] ) + count( $manifest['items'] ) > $manifest['policy']['max_files']
+            || count( $manifest['intents'] ) + count( $manifest['items'] ) + count( $manifest['tombstones'] ) > self::tombstone_limit( $manifest['policy'] )
+            || ! empty( array_intersect_key( $manifest['intents'], $manifest['items'] ) )
+            || ! empty( array_intersect_key( $manifest['intents'], $manifest['tombstones'] ) )
+            || ! empty( array_intersect_key( $manifest['items'], $manifest['tombstones'] ) )
+            || self::active_artifact_bytes( $manifest ) > $manifest['policy']['max_total_bytes']
+            || self::aggregate_byte_parts( $manifest ) === null
+            || ! hash_equals( $manifest['binding']['policy_fingerprint'], self::policy_fingerprint( $manifest['policy'] ) )
+            || ! self::valid_manifest_state( $manifest )
+        ) {
+            return null;
+        }
+        if ( $aggregate_family === 'staged' ) {
+            return is_string( $aggregate_id )
+                && preg_match( FormProtocol::upload_batch_id_pattern(), $aggregate_id ) === 1
+                && hash_equals( $manifest['batch_id'], $aggregate_id )
+                    ? $manifest
+                    : null;
+        }
+        if ( $aggregate_family === 'submission' ) {
+            return self::valid_submission_id( $aggregate_id )
+                && isset( $manifest['claim']['submission_id'] )
+                && hash_equals( $manifest['claim']['submission_id'], $aggregate_id )
+                    ? $manifest
+                    : null;
+        }
+        return null;
+    }
+
     private static function valid_manifest_keys( $manifest ) {
         $expected = array(
             'accept_until', 'artifact_bytes', 'artifact_store', 'artifact_store_identity', 'batch_id',
@@ -4116,7 +6576,7 @@ class UploadBatchStore {
         if ( isset( $manifest['state'] ) && $manifest['state'] !== 'open' ) {
             $expected[] = 'claim';
         }
-        if ( isset( $manifest['state'] ) && $manifest['state'] === 'finalized' ) {
+        if ( isset( $manifest['state'] ) && in_array( $manifest['state'], array( 'finalized', 'operator_deleted' ), true ) ) {
             $expected[] = 'finalized_at';
             if ( isset( $manifest['email_attempted_at'] ) ) {
                 $expected[] = 'email_attempted_at';
@@ -4129,7 +6589,7 @@ class UploadBatchStore {
         if ( ! is_array( $manifest ) || ! array_key_exists( 'delete_after', $manifest ) || ! isset( $manifest['state'], $manifest['accept_until'] ) ) {
             return false;
         }
-        if ( $manifest['state'] === 'finalized' ) {
+        if ( in_array( $manifest['state'], array( 'finalized', 'operator_deleted' ), true ) ) {
             return $manifest['delete_after'] === null || self::nonnegative_int( $manifest['delete_after'] );
         }
         return self::nonnegative_int( $manifest['delete_after'] ) && $manifest['accept_until'] <= $manifest['delete_after'];
@@ -4193,6 +6653,42 @@ class UploadBatchStore {
         return UploadPolicy::mime_allowed( $intent['declared_mime'], UploadPolicy::extension_from_name( $intent['display_name'] ), $mime_policy );
     }
 
+    private static function valid_worker_manifest_intent( $upload_id, $intent, $manifest ) {
+        $expected_keys = array(
+            'accept_until', 'created_at', 'declared_bytes', 'declared_mime', 'display_name', 'intent_id', 'object_key',
+            'ordinal', 'policy_fingerprint', 'reserved_bytes', 'staged_delete_after', 'storage_identity', 'upload_id',
+            'upload_until', 'validation_contract_version', 'validation_until',
+        );
+        if ( ! self::valid_upload_id( $upload_id )
+            || ! is_array( $intent )
+            || ! self::exact_keys( $intent, $expected_keys )
+            || $intent['upload_id'] !== $upload_id
+            || ! self::valid_intent_id( $intent['intent_id'] )
+            || ! self::nonnegative_int( $intent['ordinal'] )
+            || ! self::valid_display_name( $intent['display_name'] )
+            || ! self::nonnegative_int( $intent['declared_bytes'] )
+            || $intent['declared_bytes'] < 1
+            || $intent['declared_bytes'] > $manifest['policy']['max_file_bytes']
+            || $intent['reserved_bytes'] !== $intent['declared_bytes']
+            || ! is_string( $intent['declared_mime'] )
+            || ! is_string( $intent['object_key'] )
+            || ! hash_equals( ManagedArtifactKey::create( $manifest['batch_id'], $intent['ordinal'], $intent['intent_id'], $intent['declared_mime'] ), $intent['object_key'] )
+            || ! is_string( $intent['policy_fingerprint'] )
+            || ! hash_equals( $manifest['binding']['policy_fingerprint'], $intent['policy_fingerprint'] )
+            || ! hash_equals( $manifest['artifact_store_identity'], $intent['storage_identity'] )
+            || ! self::valid_validation_contract_version( $intent['validation_contract_version'] )
+            || ! self::nonnegative_int( $intent['created_at'] )
+            || ! self::worker_deadlines_ordered( $intent['created_at'], $intent['upload_until'], $intent['accept_until'], $intent['validation_until'], $intent['staged_delete_after'] )
+            || $intent['created_at'] < $manifest['created_at']
+            || $intent['accept_until'] !== $manifest['accept_until']
+            || $intent['staged_delete_after'] !== $manifest['delete_after']
+        ) {
+            return false;
+        }
+        $mime_policy = UploadPolicy::policy_for_tokens( $manifest['policy']['accept'], 'staged' );
+        return UploadPolicy::mime_allowed( $intent['declared_mime'], UploadPolicy::extension_from_name( $intent['display_name'] ), $mime_policy );
+    }
+
     private static function valid_manifest_item( $upload_id, $item, $manifest ) {
         $policy = isset( $manifest['policy'] ) && is_array( $manifest['policy'] ) ? $manifest['policy'] : array();
         $expected_keys = array( 'accepted_at', 'bytes', 'display_name', 'height', 'mime', 'object_key', 'object_version', 'ordinal', 'upload_id', 'width' );
@@ -4219,6 +6715,44 @@ class UploadBatchStore {
             && UploadPolicy::mime_allowed( $item['mime'], UploadPolicy::extension_from_name( $item['display_name'] ), $mime_policy );
     }
 
+    private static function valid_worker_manifest_item( $upload_id, $item, $manifest ) {
+        $expected_keys = array(
+            'bytes', 'display_name', 'etag', 'intent_id', 'object_key', 'object_version', 'ordinal',
+            'policy_fingerprint', 'staged_delete_after', 'storage_identity', 'upload_id',
+            'validation_contract_version', 'validation_until',
+        );
+        $parts = is_array( $item ) && isset( $item['object_key'] ) ? ManagedArtifactKey::parse( $item['object_key'] ) : null;
+        return self::valid_upload_id( $upload_id )
+            && is_array( $item )
+            && self::exact_keys( $item, $expected_keys )
+            && $item['upload_id'] === $upload_id
+            && ! isset( $item['mime'], $item['width'], $item['height'], $item['accepted_at'] )
+            && self::valid_intent_id( $item['intent_id'] )
+            && self::nonnegative_int( $item['ordinal'] )
+            && self::valid_display_name( $item['display_name'] )
+            && self::nonnegative_int( $item['bytes'] )
+            && $item['bytes'] > 0
+            && $item['bytes'] <= $manifest['policy']['max_file_bytes']
+            && self::valid_object_identity( $item['object_key'], $item['object_version'] )
+            && self::valid_known_worker_provider_fact( $item['object_version'] )
+            && is_array( $parts )
+            && $parts['namespace'] === $manifest['batch_id']
+            && $parts['ordinal'] === $item['ordinal']
+            && hash_equals( $parts['intent_id'], $item['intent_id'] )
+            && self::valid_known_worker_provider_fact( $item['etag'] )
+            && is_string( $item['policy_fingerprint'] )
+            && hash_equals( $manifest['binding']['policy_fingerprint'], $item['policy_fingerprint'] )
+            && hash_equals( $manifest['artifact_store_identity'], $item['storage_identity'] )
+            && self::valid_validation_contract_version( $item['validation_contract_version'] )
+            && self::nonnegative_int( $item['validation_until'] )
+            && self::nonnegative_int( $item['staged_delete_after'] )
+            && $item['validation_until'] < $item['staged_delete_after']
+            && (
+                $item['staged_delete_after'] === $manifest['delete_after']
+                || $manifest['state'] === 'finalized'
+            );
+    }
+
     private static function valid_manifest_tombstone( $upload_id, $tombstone, $manifest ) {
         $expected_keys = array( 'bytes', 'capacity_release_started', 'capacity_released', 'deleted_at', 'object_key', 'object_version' );
         if ( ! self::valid_upload_id( $upload_id )
@@ -4238,6 +6772,115 @@ class UploadBatchStore {
             return false;
         }
         return true;
+    }
+
+    private static function valid_worker_manifest_tombstone( $upload_id, $tombstone, $manifest ) {
+        $expected_keys = array(
+            'bytes', 'capacity_release_started', 'capacity_released', 'deleted_at', 'etag', 'object_key',
+            'object_version', 'policy_fingerprint', 'storage_identity', 'validation_contract_version', 'validation_until',
+        );
+        $parts = is_array( $tombstone ) && isset( $tombstone['object_key'] ) ? ManagedArtifactKey::parse( $tombstone['object_key'] ) : null;
+        $empty = is_array( $tombstone )
+            && isset( $tombstone['bytes'], $tombstone['object_key'], $tombstone['object_version'], $tombstone['etag'], $tombstone['capacity_release_started'], $tombstone['capacity_released'] )
+            && $tombstone['bytes'] === 0
+            && $tombstone['object_key'] === ''
+            && $tombstone['object_version'] === '-'
+            && $tombstone['etag'] === '-'
+            && $tombstone['capacity_release_started'] === true
+            && $tombstone['capacity_released'] === true;
+        if ( ! self::valid_upload_id( $upload_id )
+            || ! is_array( $tombstone )
+            || ! self::exact_keys( $tombstone, $expected_keys )
+            || ! self::nonnegative_int( $tombstone['deleted_at'] )
+            || ! self::nonnegative_int( $tombstone['bytes'] )
+            || ( ! $empty && $tombstone['bytes'] < 1 )
+            || $tombstone['bytes'] > $manifest['policy']['max_file_bytes']
+            || ( ! $empty && ( ! is_array( $parts ) || $parts['namespace'] !== $manifest['batch_id'] ) )
+            || ( ! $empty && ! self::valid_worker_tombstone_object_pair( $tombstone['object_key'], $tombstone['object_version'], $tombstone['etag'] ) )
+            || ! is_string( $tombstone['policy_fingerprint'] )
+            || ! hash_equals( $manifest['binding']['policy_fingerprint'], $tombstone['policy_fingerprint'] )
+            || ! is_string( $tombstone['storage_identity'] )
+            || ! hash_equals( $manifest['artifact_store_identity'], $tombstone['storage_identity'] )
+            || ! self::valid_validation_contract_version( $tombstone['validation_contract_version'] )
+            || ! self::nonnegative_int( $tombstone['validation_until'] )
+            || $tombstone['validation_until'] <= $manifest['created_at']
+            || (
+                $manifest['delete_after'] !== null
+                && in_array( $manifest['state'], array( 'open', 'finalizing' ), true )
+                && $tombstone['validation_until'] >= $manifest['delete_after']
+            )
+            || ! is_bool( $tombstone['capacity_release_started'] )
+            || ! is_bool( $tombstone['capacity_released'] )
+            || ( $tombstone['capacity_released'] && ! $tombstone['capacity_release_started'] )
+        ) {
+            return false;
+        }
+        return true;
+    }
+
+    private static function valid_worker_tombstone_object_pair( $object_key, $object_version, $etag ) {
+        if ( ! ManagedArtifactKey::valid( $object_key ) || ! is_string( $object_version ) || ! is_string( $etag ) ) {
+            return false;
+        }
+        if ( $object_version === '-' || $etag === '-' ) {
+            return $object_version === '-' && $etag === '-';
+        }
+        return self::valid_known_worker_provider_fact( $object_version )
+            && self::valid_known_worker_provider_fact( $etag );
+    }
+
+    private static function valid_known_worker_provider_fact( $value ) {
+        return is_string( $value )
+            && $value !== '-'
+            && preg_match( '/^[A-Za-z0-9._:-]{1,' . Anchors::get( 'WORKER_OPAQUE_MAX_CHARS' ) . '}$/D', $value ) === 1;
+    }
+
+    private static function worker_capacity_missing_for_remote_state( $capacity_path, $manifest ) {
+        if ( ! is_array( $manifest )
+            || ! isset( $manifest['artifact_store'] )
+            || $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || ! is_string( $capacity_path )
+            || $capacity_path === ''
+        ) {
+            return false;
+        }
+        if ( ! is_link( $capacity_path ) && is_file( $capacity_path ) ) {
+            return false;
+        }
+        return ! empty( $manifest['intents'] )
+            || ! empty( $manifest['items'] )
+            || ! empty( $manifest['tombstones'] );
+    }
+
+    private static function worker_capacity_invalid_for_manifest( $private_dir, $record, $manifest, $manifest_family ) {
+        return ! is_array( $record )
+            || ! self::worker_capacity_consistent_for_manifest( $private_dir, $record, $manifest, $manifest_family );
+    }
+
+    private static function worker_capacity_globally_consistent( $private_dir, $record ) {
+        if ( ! is_array( $record ) ) {
+            return false;
+        }
+        $health = self::mixed_capacity_health( $private_dir, $record, array(), false );
+        return is_array( $health ) && ! empty( $health['consistent'] );
+    }
+
+    private static function worker_capacity_record_has_remote_state( $record, $remote ) {
+        if ( is_array( $remote ) && ! empty( $remote['authorities'] ) ) {
+            return true;
+        }
+        if ( ! is_array( $record ) || ! isset( $record['reservations'] ) || ! is_array( $record['reservations'] ) ) {
+            return false;
+        }
+        foreach ( $record['reservations'] as $reservation ) {
+            if ( is_array( $reservation )
+                && isset( $reservation['artifact_store'] )
+                && $reservation['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function valid_manifest_state( $manifest ) {
@@ -4261,6 +6904,9 @@ class UploadBatchStore {
             return empty( $manifest['intents'] )
                 && ! isset( $manifest['finalized_at'] )
                 && ! isset( $manifest['email_attempted_at'] );
+        }
+        if ( $manifest['state'] === 'operator_deleted' && ! empty( $manifest['items'] ) ) {
+            return false;
         }
         return empty( $manifest['intents'] )
             && isset( $manifest['finalized_at'] )
@@ -4286,17 +6932,8 @@ class UploadBatchStore {
         return is_int( $value ) && $value >= 0;
     }
 
-    private static function read_capacity( $path, $private_dir, $require_empty_consistency = true ) {
-        $record = ManagedCapacityStore::read( $path, self::CAPACITY_VERSION );
-        if ( ! $require_empty_consistency
-            || ! is_array( $record )
-            || $record['total_bytes'] !== 0
-            || $record['reservations'] !== array()
-        ) {
-            return $record;
-        }
-        $file_bytes = self::managed_file_bytes( $private_dir );
-        return $file_bytes === 0 ? $record : null;
+    private static function read_capacity( $path, $_private_dir = '', $_require_empty_consistency = false ) {
+        return ManagedCapacityStore::read( $path, self::CAPACITY_VERSION );
     }
 
     private static function batch_summary( $manifest ) {
@@ -4332,6 +6969,12 @@ class UploadBatchStore {
         );
     }
 
+    private static function manifest_summary( $manifest ) {
+        return isset( $manifest['version'] ) && $manifest['version'] === self::WORKER_MANIFEST_VERSION
+            ? self::worker_batch_summary( $manifest )
+            : self::batch_summary( $manifest );
+    }
+
     private static function item_summaries( $manifest ) {
         $items = array();
         foreach ( $manifest['items'] as $item ) {
@@ -4357,10 +7000,80 @@ class UploadBatchStore {
         );
     }
 
+    private static function worker_batch_summary( $manifest ) {
+        $intents = array();
+        foreach ( $manifest['intents'] as $intent ) {
+            if ( is_array( $intent ) ) {
+                $intents[] = self::worker_intent_summary( $intent );
+            }
+        }
+        usort( $intents, function ( $left, $right ) {
+            return $left['ordinal'] <=> $right['ordinal'];
+        } );
+
+        return array(
+            'batch_id' => $manifest['batch_id'],
+            'artifact_store' => $manifest['artifact_store'],
+            'artifact_store_identity' => $manifest['artifact_store_identity'],
+            'state' => $manifest['state'] === 'open' ? 'open' : 'finalizing',
+            'accept_until' => (int) $manifest['accept_until'],
+            'delete_after' => (int) $manifest['delete_after'],
+            'items' => self::worker_item_summaries( $manifest ),
+            'intents' => $intents,
+            'limits' => array(
+                'max_file_bytes' => (int) $manifest['policy']['max_file_bytes'],
+                'max_files' => (int) $manifest['policy']['max_files'],
+                'max_total_bytes' => (int) $manifest['policy']['max_total_bytes'],
+            ),
+        );
+    }
+
+    private static function worker_item_summaries( $manifest ) {
+        $items = array();
+        foreach ( $manifest['items'] as $item ) {
+            if ( is_array( $item ) ) {
+                $items[] = self::worker_item_summary( $item );
+            }
+        }
+        usort( $items, function ( $left, $right ) {
+            return $left['ordinal'] <=> $right['ordinal'];
+        } );
+        return $items;
+    }
+
+    private static function worker_item_summary( $item ) {
+        return array(
+            'upload_id' => $item['upload_id'],
+            'intent_id' => $item['intent_id'],
+            'ordinal' => (int) $item['ordinal'],
+            'display_name' => $item['display_name'],
+            'bytes' => (int) $item['bytes'],
+            'object_key' => $item['object_key'],
+            'object_version' => $item['object_version'],
+            'etag' => $item['etag'],
+            'policy_fingerprint' => $item['policy_fingerprint'],
+            'storage_identity' => $item['storage_identity'],
+            'validation_contract_version' => $item['validation_contract_version'],
+            'validation_until' => (int) $item['validation_until'],
+            'staged_delete_after' => (int) $item['staged_delete_after'],
+        );
+    }
+
     private static function resolved_items( $manifest ) {
         $items = array();
         foreach ( self::item_summaries( $manifest ) as $item ) {
             $value = UploadValue::staged_item( $item );
+            if ( ! empty( $value ) ) {
+                $items[] = $value;
+            }
+        }
+        return $items;
+    }
+
+    private static function worker_resolved_items( $manifest ) {
+        $items = array();
+        foreach ( self::worker_item_summaries( $manifest ) as $item ) {
+            $value = UploadValue::review_staged_item( $item );
             if ( ! empty( $value ) ) {
                 $items[] = $value;
             }
@@ -4380,6 +7093,169 @@ class UploadBatchStore {
         );
     }
 
+    private static function worker_submission_summary( $manifest ) {
+        return array(
+            'submission_id' => $manifest['claim']['submission_id'],
+            'artifact_store' => $manifest['artifact_store'],
+            'artifact_store_identity' => $manifest['artifact_store_identity'],
+            'finalized_at' => (int) $manifest['finalized_at'],
+            'delete_after' => $manifest['delete_after'] === null ? null : (int) $manifest['delete_after'],
+            'items' => self::worker_item_summaries( $manifest ),
+            'email_attempted_at' => isset( $manifest['email_attempted_at'] ) ? (int) $manifest['email_attempted_at'] : null,
+        );
+    }
+
+    private static function validation_contract_reference_counts( $manifest, $validation_contract_version ) {
+        $counts = array(
+            'references' => 0,
+            'accepted_artifacts' => 0,
+            'pending' => 0,
+            'tombstones' => 0,
+        );
+        foreach ( array(
+            'intents' => 'pending',
+            'items' => 'accepted_artifacts',
+            'tombstones' => 'tombstones',
+        ) as $source => $counter ) {
+            $records = isset( $manifest[ $source ] ) && is_array( $manifest[ $source ] ) ? $manifest[ $source ] : array();
+            foreach ( $records as $record ) {
+                if ( $source === 'tombstones' && self::worker_cancellation_tombstone_valid( $record ) ) {
+                    continue;
+                }
+                if ( isset( $record['validation_contract_version'] )
+                    && is_string( $record['validation_contract_version'] )
+                    && hash_equals( $record['validation_contract_version'], $validation_contract_version )
+                ) {
+                    ++$counts['references'];
+                    ++$counts[ $counter ];
+                }
+            }
+        }
+        return $counts;
+    }
+
+    private static function validation_retirement_marker_ready_summary( $result ) {
+        return array(
+            'scanned' => isset( $result['scanned'] ) ? (int) $result['scanned'] : 0,
+            'references' => isset( $result['references'] ) ? (int) $result['references'] : 0,
+            'accepted_artifacts' => isset( $result['accepted_artifacts'] ) ? (int) $result['accepted_artifacts'] : 0,
+            'pending' => isset( $result['pending'] ) ? (int) $result['pending'] : 0,
+            'tombstones' => isset( $result['tombstones'] ) ? (int) $result['tombstones'] : 0,
+            'by_family' => isset( $result['by_family'] ) && is_array( $result['by_family'] )
+                ? array(
+                    'staged' => isset( $result['by_family']['staged'] ) ? (int) $result['by_family']['staged'] : 0,
+                    'finalized' => isset( $result['by_family']['finalized'] ) ? (int) $result['by_family']['finalized'] : 0,
+                    'capacity' => isset( $result['by_family']['capacity'] ) ? (int) $result['by_family']['capacity'] : 0,
+                )
+                : array( 'staged' => 0, 'finalized' => 0, 'capacity' => 0 ),
+        );
+    }
+
+    private static function validation_retirement_marker_status( $private_dir, $validation_contract_version ) {
+        if ( ! self::valid_validation_contract_version( $validation_contract_version )
+            || ! is_string( $private_dir )
+            || $private_dir === ''
+            || is_link( $private_dir )
+            || ! is_dir( $private_dir )
+        ) {
+            return array( 'ok' => false, 'retiring' => true );
+        }
+        $dir = rtrim( $private_dir, '/\\' ) . '/' . self::VALIDATION_RETIREMENT_DIR;
+        if ( ! file_exists( $dir ) && ! is_link( $dir ) ) {
+            return array( 'ok' => true, 'retiring' => false );
+        }
+        if ( is_link( $dir ) || ! is_dir( $dir ) ) {
+            return array( 'ok' => false, 'retiring' => true );
+        }
+        $path = self::validation_retirement_marker_path( $private_dir, $validation_contract_version );
+        if ( $path === '' ) {
+            return array( 'ok' => false, 'retiring' => true );
+        }
+        if ( ! file_exists( $path ) && ! is_link( $path ) ) {
+            return array( 'ok' => true, 'retiring' => false );
+        }
+        if ( is_link( $path ) || ! is_file( $path ) ) {
+            return array( 'ok' => false, 'retiring' => true );
+        }
+        return array( 'ok' => true, 'retiring' => true );
+    }
+
+    private static function validation_retirement_marker_path_for_lease( $lifecycle, $validation_contract_version, $create ) {
+        if ( ! $lifecycle instanceof PrivateDirLease || ! $lifecycle->exclusive() || ! self::valid_validation_contract_version( $validation_contract_version ) ) {
+            return '';
+        }
+        $dir = PrivateDir::leased_subdir( $lifecycle, self::VALIDATION_RETIREMENT_DIR, $create );
+        if ( $dir === '' ) {
+            return '';
+        }
+        return rtrim( $dir, '/\\' ) . '/' . hash( 'sha256', $validation_contract_version ) . '.json';
+    }
+
+    private static function validation_retirement_marker_path( $private_dir, $validation_contract_version ) {
+        if ( ! self::valid_validation_contract_version( $validation_contract_version )
+            || ! is_string( $private_dir )
+            || $private_dir === ''
+            || is_link( $private_dir )
+            || ! is_dir( $private_dir )
+        ) {
+            return '';
+        }
+        return rtrim( $private_dir, '/\\' ) . '/' . self::VALIDATION_RETIREMENT_DIR . '/' . hash( 'sha256', $validation_contract_version ) . '.json';
+    }
+
+    private static function read_validation_retirement_marker( $path, $validation_contract_version ) {
+        $marker = self::read_json( $path );
+        if ( ! is_array( $marker )
+            || ! isset( $marker['version'], $marker['validation_contract_version'], $marker['state'], $marker['started_at'], $marker['updated_at'] )
+            || $marker['version'] !== self::VALIDATION_RETIREMENT_VERSION
+            || ! is_string( $marker['validation_contract_version'] )
+            || ! hash_equals( $marker['validation_contract_version'], $validation_contract_version )
+            || ! in_array( $marker['state'], array( 'active', 'ready' ), true )
+            || ! self::nonnegative_int( $marker['started_at'] )
+            || ! self::nonnegative_int( $marker['updated_at'] )
+            || $marker['updated_at'] < $marker['started_at']
+        ) {
+            return null;
+        }
+        if ( $marker['state'] === 'ready' ) {
+            if ( ! isset( $marker['ready_at'], $marker['ready'] )
+                || ! self::nonnegative_int( $marker['ready_at'] )
+                || $marker['ready_at'] < $marker['started_at']
+                || ! self::valid_validation_retirement_ready_marker( $marker['ready'] )
+            ) {
+                return null;
+            }
+        }
+        return $marker;
+    }
+
+    private static function valid_validation_retirement_ready_marker( $ready ) {
+        if ( ! is_array( $ready )
+            || array_keys( $ready ) !== array( 'scanned', 'references', 'accepted_artifacts', 'pending', 'tombstones', 'by_family' )
+            || ! self::nonnegative_int( $ready['scanned'] )
+            || ! self::nonnegative_int( $ready['references'] )
+            || ! self::nonnegative_int( $ready['accepted_artifacts'] )
+            || ! self::nonnegative_int( $ready['pending'] )
+            || ! self::nonnegative_int( $ready['tombstones'] )
+            || ! is_array( $ready['by_family'] )
+            || array_keys( $ready['by_family'] ) !== array( 'staged', 'finalized', 'capacity' )
+        ) {
+            return false;
+        }
+        foreach ( $ready['by_family'] as $count ) {
+            if ( ! self::nonnegative_int( $count ) ) {
+                return false;
+            }
+        }
+        return $ready['references'] === 0
+            && $ready['accepted_artifacts'] === 0
+            && $ready['pending'] === 0
+            && $ready['tombstones'] === 0
+            && $ready['by_family']['staged'] === 0
+            && $ready['by_family']['finalized'] === 0
+            && $ready['by_family']['capacity'] === 0;
+    }
+
     private static function retained_photo_submission_row( $path, $now ) {
         $path = is_string( $path ) ? rtrim( $path, '/\\' ) : '';
         if ( $path === '' || is_link( $path ) || ! is_dir( $path ) ) {
@@ -4392,7 +7268,7 @@ class UploadBatchStore {
             return null;
         }
 
-        $manifest = self::read_manifest( $path . '/' . self::MANIFEST_FILENAME, 'submission', $submission_id );
+        $manifest = self::read_aggregate_manifest( $path . '/' . self::MANIFEST_FILENAME, 'submission', $submission_id );
         if ( $manifest === null || $manifest['state'] !== 'finalized' ) {
             self::release_lock( $lock );
             return null;
@@ -4427,9 +7303,19 @@ class UploadBatchStore {
             ),
             'summary' => $summary['summary'],
         );
-
         self::release_lock( $lock );
         return $row;
+    }
+
+    private static function read_aggregate_manifest( $path, $aggregate_family, $aggregate_id ) {
+        $worker_version = self::worker_manifest_file_version( $path );
+        if ( $worker_version === self::WORKER_MANIFEST_VERSION ) {
+            return self::read_worker_manifest( $path, $aggregate_family, $aggregate_id );
+        }
+        $manifest = self::read_manifest( $path, $aggregate_family, $aggregate_id );
+        return is_array( $manifest ) && $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_LOCAL
+            ? $manifest
+            : null;
     }
 
     private static function timestamp_label( $timestamp ) {
@@ -4484,6 +7370,13 @@ class UploadBatchStore {
             && $policy['max_total_bytes'] <= $policy['max_file_bytes'] * $policy['max_files'];
     }
 
+    private static function worker_policy_within_staged_ceiling( $policy ) {
+        return is_array( $policy )
+            && isset( $policy['max_files'] )
+            && is_int( $policy['max_files'] )
+            && $policy['max_files'] <= Anchors::get( 'MANAGED_STAGED_MAX_FILES' );
+    }
+
     private static function valid_artifact_store( $artifact_store ) {
         return in_array(
             $artifact_store,
@@ -4517,6 +7410,33 @@ class UploadBatchStore {
         return $artifact_store === FormProtocol::UPLOAD_TRANSPORT_LOCAL
             ? $identity === self::LOCAL_ARTIFACT_STORE_IDENTITY
             : preg_match( '/^[0-9a-f]{64}$/', $identity ) === 1;
+    }
+
+    private static function valid_validation_contract_version( $version ) {
+        return is_string( $version )
+            && preg_match( '/^[A-Za-z0-9._:-]{1,' . Anchors::get( 'WORKER_OPAQUE_MAX_CHARS' ) . '}$/D', $version ) === 1;
+    }
+
+    private static function worker_deadlines_ordered( $now, $upload_until, $accept_until, $validation_until, $staged_delete_after ) {
+        return self::nonnegative_int( $now )
+            && self::nonnegative_int( $upload_until )
+            && self::nonnegative_int( $accept_until )
+            && self::nonnegative_int( $validation_until )
+            && self::nonnegative_int( $staged_delete_after )
+            && $now < $upload_until
+            && $upload_until < min( $accept_until, $validation_until )
+            && $validation_until < $staged_delete_after;
+    }
+
+    private static function worker_committed_retry_deadlines_ordered( $now, $upload_until, $accept_until, $validation_until, $staged_delete_after ) {
+        return self::nonnegative_int( $now )
+            && self::nonnegative_int( $upload_until )
+            && self::nonnegative_int( $accept_until )
+            && self::nonnegative_int( $validation_until )
+            && self::nonnegative_int( $staged_delete_after )
+            && $now < $accept_until
+            && $upload_until < min( $accept_until, $validation_until )
+            && $validation_until < $staged_delete_after;
     }
 
     private static function valid_upload_id( $upload_id ) {
@@ -4669,8 +7589,8 @@ class UploadBatchStore {
         return array( 'committed' => $committed, 'orphaned' => $orphaned );
     }
 
-    private static function mixed_capacity_health( $private_dir, $record ) {
-        $remote = self::remote_capacity_authorities( $private_dir, $record );
+    private static function mixed_capacity_health( $private_dir, $record, $manifest_overrides = array(), $repair_directories = true ) {
+        $remote = self::remote_capacity_authorities( $private_dir, $record, $manifest_overrides, $repair_directories );
         if ( $remote === null ) {
             return null;
         }
@@ -4754,6 +7674,8 @@ class UploadBatchStore {
             return null;
         }
         $consistent = $consistent
+            && (int) $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_LOCAL ] === $local_expected_bytes
+            && (int) $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] === $remote_authority_bytes
             && (int) $record['total_bytes'] === $local_expected_bytes + $remote_authority_bytes;
         $artifact_stores = array_keys( $artifact_stores );
         sort( $artifact_stores, SORT_STRING );
@@ -4772,7 +7694,94 @@ class UploadBatchStore {
         );
     }
 
-    private static function remote_capacity_authorities( $private_dir, $record ) {
+    private static function worker_capacity_consistent_for_manifest( $private_dir, $record, $manifest, $manifest_family ) {
+        if ( ! is_array( $record )
+            || ! is_array( $manifest )
+            || ! isset( $manifest['batch_id'], $manifest['artifact_store'], $manifest['artifact_store_identity'] )
+            || $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+            || ! isset( $record['reservations'], $record['releases'] )
+            || ! is_array( $record['reservations'] )
+            || ! is_array( $record['releases'] )
+            || ! isset( $record['total_bytes'], $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] )
+            || ! is_int( $record['total_bytes'] )
+            || ! is_int( $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] )
+        ) {
+            return false;
+        }
+        if ( isset( $record['releases'][ $manifest['batch_id'] ] ) ) {
+            $release = $record['releases'][ $manifest['batch_id'] ];
+            if ( ! hash_equals( $release['artifact_store_identity'], $manifest['artifact_store_identity'] ) ) {
+                return false;
+            }
+            $probe = $record;
+            unset( $probe['releases'][ $manifest['batch_id'] ] );
+            $probe['total_bytes'] = PHP_INT_MAX;
+            $probe['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] = PHP_INT_MAX;
+            $expected = self::release_remote_aggregate_capacity( $probe, $manifest, $release['created_at'] );
+            return ! empty( $expected['ok'] ) && $release['bytes'] === $expected['released_bytes'];
+        }
+
+        $manifest_capacity = self::worker_manifest_capacity_authorities( $manifest );
+        if ( $manifest_capacity === null ) {
+            return false;
+        }
+        $worker_floor = 0;
+        foreach ( $record['reservations'] as $reservation ) {
+            if ( $reservation['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+                continue;
+            }
+            if ( $worker_floor > PHP_INT_MAX - $reservation['bytes'] ) {
+                return false;
+            }
+            $worker_floor += $reservation['bytes'];
+        }
+        foreach ( $manifest_capacity['authorities'] as $reservation_id => $authority ) {
+            if ( isset( $record['reservations'][ $reservation_id ] ) ) {
+                if ( ! ManagedCapacityStore::remote_reservation_matches( $record['reservations'][ $reservation_id ], $authority ) ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( $authority['requires_reservation'] || $worker_floor > PHP_INT_MAX - $authority['bytes'] ) {
+                return false;
+            }
+            $worker_floor += $authority['bytes'];
+        }
+        return $worker_floor <= $record['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ];
+    }
+
+    private static function worker_manifest_capacity_authorities( $manifest ) {
+        if ( ! is_array( $manifest )
+            || ! isset( $manifest['batch_id'], $manifest['artifact_store'], $manifest['artifact_store_identity'] )
+            || $manifest['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER
+        ) {
+            return null;
+        }
+        $authorities = array();
+        $bytes = 0;
+        foreach ( $manifest['items'] as $upload_id => $item ) {
+            if ( ! self::add_remote_capacity_authority( $authorities, $bytes, $manifest['batch_id'], $upload_id, $item['bytes'], $item['object_key'], $manifest['artifact_store_identity'], false, 'item', self::worker_cleanup_fields_from_record( $item ) ) ) {
+                return null;
+            }
+        }
+        foreach ( $manifest['intents'] as $upload_id => $intent ) {
+            if ( ! self::add_remote_capacity_authority( $authorities, $bytes, $manifest['batch_id'], $upload_id, $intent['reserved_bytes'], $intent['object_key'], $manifest['artifact_store_identity'], true, 'intent', self::worker_cleanup_fields_from_record( $intent ) ) ) {
+                return null;
+            }
+        }
+        foreach ( $manifest['tombstones'] as $upload_id => $tombstone ) {
+            if ( self::worker_cancellation_tombstone_valid( $tombstone ) || ! empty( $tombstone['capacity_released'] ) ) {
+                continue;
+            }
+            $requires_reservation = (int) $tombstone['bytes'] > 0 && ! empty( $tombstone['capacity_release_started'] );
+            if ( ! self::add_remote_capacity_authority( $authorities, $bytes, $manifest['batch_id'], $upload_id, $tombstone['bytes'], $tombstone['object_key'], $manifest['artifact_store_identity'], $requires_reservation, 'tombstone', self::worker_cleanup_fields_from_record( $tombstone ) ) ) {
+                return null;
+            }
+        }
+        return array( 'authorities' => $authorities, 'bytes' => $bytes );
+    }
+
+    private static function remote_capacity_authorities( $private_dir, $record, $manifest_overrides = array(), $repair_directories = true ) {
         $authorities = array();
         $bytes = 0;
         $artifact_stores = array();
@@ -4792,7 +7801,7 @@ class UploadBatchStore {
             }
             $cursor = array();
             do {
-                $page = self::aggregate_paths( $root, Anchors::get( 'MANAGED_REMOTE_PURGE_AGGREGATE_PAGE_SIZE' ), $cursor );
+                $page = self::aggregate_paths( $root, Anchors::get( 'MANAGED_REMOTE_PURGE_AGGREGATE_PAGE_SIZE' ), $cursor, $repair_directories );
                 if ( empty( $page['ok'] ) ) {
                     return null;
                 }
@@ -4804,15 +7813,32 @@ class UploadBatchStore {
                         }
                         return null;
                     }
-                    $lock = $root_name === self::STAGED_DIR
-                        ? self::acquire_staged_lock( $path )
-                        : self::acquire_lock( self::aggregate_lock_path( $root_name, $path ) );
-                    if ( $lock === false ) {
+                    $aggregate_id = basename( $path );
+                    $override_key = self::remote_capacity_authority_override_key( $root_name, $aggregate_id );
+                    if ( isset( $manifest_overrides[ $override_key ] ) && is_array( $manifest_overrides[ $override_key ] ) ) {
+                        $manifest = $manifest_overrides[ $override_key ];
+                    } else {
+                        $lock = null;
+                        if ( $repair_directories ) {
+                            $lock = $root_name === self::STAGED_DIR
+                                ? self::acquire_staged_lock( $path )
+                                : self::acquire_lock( self::aggregate_lock_path( $root_name, $path ) );
+                            if ( $lock === false ) {
+                                return null;
+                            }
+                        }
+                        $manifest = self::read_worker_manifest( $manifest_path, $manifest_family, $aggregate_id, true, $repair_directories );
+                        if ( $manifest === null ) {
+                            $manifest = self::read_manifest( $manifest_path, $manifest_family, $aggregate_id, $repair_directories );
+                        }
+                        if ( is_resource( $lock ) ) {
+                            self::release_lock( $lock );
+                        }
+                    }
+                    if ( ! is_array( $manifest ) ) {
                         return null;
                     }
-                    $manifest = self::read_manifest( $manifest_path, $manifest_family, basename( $path ) );
-                    self::release_lock( $lock );
-                    if ( ! is_array( $manifest ) ) {
+                    if ( $manifest['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER && $manifest['version'] !== self::WORKER_MANIFEST_VERSION ) {
                         return null;
                     }
                     $artifact_stores[ $manifest['artifact_store'] ] = true;
@@ -4831,6 +7857,7 @@ class UploadBatchStore {
                         $probe = $record;
                         unset( $probe['releases'][ $manifest['batch_id'] ] );
                         $probe['total_bytes'] = PHP_INT_MAX;
+                        $probe['store_bytes'][ FormProtocol::UPLOAD_TRANSPORT_WORKER ] = PHP_INT_MAX;
                         $expected = self::release_remote_aggregate_capacity(
                             $probe,
                             $manifest,
@@ -4843,25 +7870,17 @@ class UploadBatchStore {
                         }
                         continue;
                     }
-                    foreach ( $manifest['items'] as $upload_id => $item ) {
-                        if ( ! self::add_remote_capacity_authority( $authorities, $bytes, $manifest['batch_id'], $upload_id, $item['bytes'], $item['object_key'], $manifest['artifact_store_identity'], false, 'item' ) ) {
+                    $manifest_capacity = self::worker_manifest_capacity_authorities( $manifest );
+                    if ( $manifest_capacity === null || $bytes > PHP_INT_MAX - $manifest_capacity['bytes'] ) {
+                        return null;
+                    }
+                    foreach ( $manifest_capacity['authorities'] as $reservation_id => $authority ) {
+                        if ( isset( $authorities[ $reservation_id ] ) ) {
                             return null;
                         }
+                        $authorities[ $reservation_id ] = $authority;
                     }
-                    foreach ( $manifest['intents'] as $upload_id => $intent ) {
-                        if ( ! self::add_remote_capacity_authority( $authorities, $bytes, $manifest['batch_id'], $upload_id, $intent['reserved_bytes'], $intent['object_key'], $manifest['artifact_store_identity'], true, 'intent' ) ) {
-                            return null;
-                        }
-                    }
-                    foreach ( $manifest['tombstones'] as $upload_id => $tombstone ) {
-                        if ( ! empty( $tombstone['capacity_released'] ) ) {
-                            continue;
-                        }
-                        $requires_reservation = (int) $tombstone['bytes'] > 0 && ! empty( $tombstone['capacity_release_started'] );
-                        if ( ! self::add_remote_capacity_authority( $authorities, $bytes, $manifest['batch_id'], $upload_id, $tombstone['bytes'], $tombstone['object_key'], $manifest['artifact_store_identity'], $requires_reservation, 'tombstone' ) ) {
-                            return null;
-                        }
-                    }
+                    $bytes += $manifest_capacity['bytes'];
                 }
                 $cursor = $page['cursor'];
             } while ( ! empty( $cursor ) );
@@ -4873,6 +7892,10 @@ class UploadBatchStore {
             'artifact_store_identities' => $artifact_store_identities,
             'batches' => $batches,
         );
+    }
+
+    private static function remote_capacity_authority_override_key( $root_name, $aggregate_id ) {
+        return (string) $root_name . "\0" . (string) $aggregate_id;
     }
 
     private static function valid_preview_allocation_path( $lifecycle, $path ) {
@@ -4915,13 +7938,13 @@ class UploadBatchStore {
         return $ok;
     }
 
-    private static function add_remote_capacity_authority( &$authorities, &$total, $batch_id, $upload_id, $bytes, $object_key, $artifact_store_identity, $requires_reservation, $kind ) {
+    private static function add_remote_capacity_authority( &$authorities, &$total, $batch_id, $upload_id, $bytes, $object_key, $artifact_store_identity, $requires_reservation, $kind, $worker_cleanup = array() ) {
         $reservation_id = self::reservation_id( $batch_id, $upload_id );
         $bytes = (int) $bytes;
         if ( isset( $authorities[ $reservation_id ] ) || $bytes < 0 || $total > PHP_INT_MAX - $bytes ) {
             return false;
         }
-        $authorities[ $reservation_id ] = array(
+        $authority = array(
             'batch_id' => $batch_id,
             'upload_id' => $upload_id,
             'bytes' => $bytes,
@@ -4931,23 +7954,51 @@ class UploadBatchStore {
             'reserved' => false,
             'kind' => $kind,
         );
+        if ( ! empty( $worker_cleanup ) ) {
+            $authority = array_merge( $authority, $worker_cleanup );
+        }
+        $authorities[ $reservation_id ] = $authority;
         $total += $bytes;
         return true;
     }
 
-    private static function remote_reservation_cleanup_ready( $reservation, $now ) {
+    private static function worker_cleanup_fields_from_record( $record ) {
+        if ( ! is_array( $record )
+            || ! isset( $record['validation_contract_version'], $record['policy_fingerprint'], $record['validation_until'] )
+        ) {
+            return array();
+        }
+        return array(
+            'validation_contract_version' => $record['validation_contract_version'],
+            'policy_fingerprint' => $record['policy_fingerprint'],
+            'validation_until' => $record['validation_until'],
+        );
+    }
+
+    private static function remote_reservation_cleanup_ready( $reservation, $now, $stale_reservation_before ) {
         if ( ! is_array( $reservation )
             || ! isset( $reservation['created_at'] )
             || ! is_int( $reservation['created_at'] )
             || ! is_int( $now )
+            || ! isset( $reservation['validation_until'] )
+            || ! is_int( $reservation['validation_until'] )
         ) {
             return false;
         }
         $drain = Anchors::get( 'MANAGED_UPLOAD_INTENT_TTL_SECONDS' )
             + Anchors::get( 'WORKER_UPLOAD_MAX_SECONDS' )
             + Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' );
+        $validation_drain = Anchors::get( 'WORKER_QUEUE_CONSUMER_MAX_WALL_SECONDS' )
+            + Anchors::get( 'WORKER_CLOCK_SKEW_SECONDS' );
+        if ( $reservation['created_at'] > (int) $stale_reservation_before ) {
+            return false;
+        }
         return $reservation['created_at'] <= PHP_INT_MAX - $drain
-            && $now > $reservation['created_at'] + $drain;
+            && $reservation['validation_until'] <= PHP_INT_MAX - $validation_drain
+            && $now > max(
+                $reservation['validation_until'] + $validation_drain,
+                $reservation['created_at'] + $drain
+            );
     }
 
     private static function managed_file_bytes( $private_dir ) {
@@ -5051,7 +8102,7 @@ class UploadBatchStore {
         return $handle;
     }
 
-    private static function acquire_existing_lock( $path, $nonblocking = false ) {
+    private static function acquire_existing_lock( $path, $nonblocking = false, $repair_permissions = true ) {
         if ( is_link( $path ) || ! is_file( $path ) ) {
             return false;
         }
@@ -5063,38 +8114,22 @@ class UploadBatchStore {
             fclose( $handle );
             return false;
         }
-        if ( ! @chmod( $path, PrivateDir::FILE_MODE ) ) {
+        if ( $repair_permissions && ! @chmod( $path, PrivateDir::FILE_MODE ) ) {
             self::release_lock( $handle );
             return false;
         }
         return $handle;
     }
 
-    private static function acquire_staged_lock( $aggregate, $create = false, $nonblocking = false ) {
+    private static function acquire_staged_lock( $aggregate, $create = false, $nonblocking = false, $repair_permissions = true ) {
         $lock_path = self::aggregate_lock_path( self::STAGED_DIR, $aggregate );
         if ( $lock_path === '' || is_link( $lock_path ) || ( file_exists( $lock_path ) && ! is_file( $lock_path ) ) ) {
             return false;
         }
         if ( is_file( $lock_path ) ) {
-            return self::acquire_existing_lock( $lock_path, $nonblocking );
+            return self::acquire_existing_lock( $lock_path, $nonblocking, $repair_permissions );
         }
 
-        // Existing aggregates from the previous layout keep their internal
-        // lock. Serialize the one-time sibling-lock creation through it, then
-        // release it before any rename can occur.
-        $legacy_path = self::legacy_staged_lock_path( $aggregate );
-        if ( is_link( $legacy_path ) || ( file_exists( $legacy_path ) && ! is_file( $legacy_path ) ) ) {
-            return false;
-        }
-        if ( is_file( $legacy_path ) ) {
-            $legacy_lock = self::acquire_existing_lock( $legacy_path, $nonblocking );
-            if ( $legacy_lock === false ) {
-                return false;
-            }
-            $lock = self::acquire_lock( $lock_path, $nonblocking );
-            self::release_lock( $legacy_lock );
-            return $lock;
-        }
         return $create ? self::acquire_lock( $lock_path, $nonblocking ) : false;
     }
 
@@ -5103,9 +8138,22 @@ class UploadBatchStore {
         if ( is_file( $path ) && ! is_link( $path ) ) {
             @unlink( $path );
         }
-        $legacy_path = self::legacy_staged_lock_path( $aggregate );
-        if ( is_file( $legacy_path ) && ! is_link( $legacy_path ) ) {
-            @unlink( $legacy_path );
+    }
+
+    private static function remove_staged_lock_file_for_batch( $batch_id, $uploads_dir ) {
+        $root = PrivateDir::existing_protected_subdir( $uploads_dir, self::STAGED_DIR );
+        if ( $root === '' ) {
+            return;
+        }
+        $shard = $root . '/' . Helpers::h2( $batch_id );
+        if ( is_link( $shard ) || ! is_dir( $shard ) ) {
+            return;
+        }
+        $lock_path = $shard . '/.' . $batch_id . self::LOCK_FILENAME;
+        clearstatcache( true, $lock_path );
+        if ( is_file( $lock_path ) && ! is_link( $lock_path ) ) {
+            @unlink( $lock_path );
+            @rmdir( $shard );
         }
     }
 

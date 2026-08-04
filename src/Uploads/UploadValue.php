@@ -65,6 +65,23 @@ class UploadValue {
         return $items;
     }
 
+    public static function review_staged_items( $value ) {
+        if ( self::is_review_staged_item( $value ) ) {
+            return array( $value );
+        }
+        if ( ! is_array( $value ) ) {
+            return array();
+        }
+
+        $items = array();
+        foreach ( $value as $item ) {
+            if ( self::is_review_staged_item( $item ) ) {
+                $items[] = $item;
+            }
+        }
+        return $items;
+    }
+
     public static function items_with_single( $value ) {
         if ( $value === null ) {
             return array( 'items' => array(), 'single' => false );
@@ -240,6 +257,31 @@ class UploadValue {
         );
     }
 
+    public static function review_staged_item( $item ) {
+        if ( self::is_staged_item( $item ) ) {
+            return $item;
+        }
+        if ( ! is_array( $item ) ) {
+            return array();
+        }
+
+        $required = array( 'upload_id', 'ordinal', 'display_name', 'bytes' );
+        foreach ( $required as $key ) {
+            if ( ! array_key_exists( $key, $item ) ) {
+                return array();
+            }
+        }
+
+        return array(
+            'staged' => true,
+            'review_reference' => true,
+            'upload_id' => (string) $item['upload_id'],
+            'ordinal' => (int) $item['ordinal'],
+            'original_name_safe' => self::sanitize_display_name( $item['display_name'] ),
+            'size' => max( 0, (int) $item['bytes'] ),
+        );
+    }
+
     public static function is_staged_item( $item ) {
         return is_array( $item )
             && isset( $item['staged'] )
@@ -256,6 +298,25 @@ class UploadValue {
             && $item['width'] > 0
             && is_int( $item['height'] )
             && $item['height'] > 0
+            && isset( $item['size'] )
+            && is_int( $item['size'] )
+            && $item['size'] >= 0;
+    }
+
+    public static function is_review_staged_item( $item ) {
+        if ( self::is_staged_item( $item ) ) {
+            return true;
+        }
+        return is_array( $item )
+            && isset( $item['staged'], $item['review_reference'] )
+            && $item['staged'] === true
+            && $item['review_reference'] === true
+            && isset( $item['upload_id'], $item['original_name_safe'], $item['ordinal'], $item['size'] )
+            && is_string( $item['upload_id'] )
+            && $item['upload_id'] !== ''
+            && is_string( $item['original_name_safe'] )
+            && $item['original_name_safe'] !== ''
+            && is_int( $item['ordinal'] )
             && isset( $item['size'] )
             && is_int( $item['size'] )
             && $item['size'] >= 0;

@@ -184,24 +184,22 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
                 ) {
                     $remote_delete = isset( $options['remote_delete'] ) && is_callable( $options['remote_delete'] )
                         ? $options['remote_delete']
-                        : function ( $object_key, $object_version, $artifact_store_identity ) use ( $now ) {
-                            return WorkerClient::delete_object(
-                                $object_key,
-                                $object_version,
-                                $artifact_store_identity,
+                        : function ( $authority ) use ( $now ) {
+                            return WorkerClient::worker_delete_object(
+                                $authority,
                                 $now,
                                 null,
                                 'uninstall_drain'
                             );
                         };
-                    $remote = UploadBatchStore::resume_remote_purge(
+                    $remote = UploadBatchStore::resume_worker_remote_purge(
                         $lifecycle,
                         $fingerprint,
                         $remote_delete,
                         $now
                     );
                 } else {
-                    $remote = UploadBatchStore::prepare_remote_purge( $lifecycle, $fingerprint, $now );
+                    $remote = UploadBatchStore::prepare_worker_remote_purge( $lifecycle, $fingerprint, $now );
                 }
                 if ( empty( $remote['ok'] ) || empty( $remote['ready'] ) ) {
                     $lifecycle->release();
@@ -219,10 +217,6 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
                 $lifecycle->release();
                 return array( 'ok' => false, 'reason' => 'managed_capacity_lock_unavailable' );
             }
-            $staged_dir = $private_dir . '/' . UploadBatchStore::STAGED_DIR;
-            $submissions_dir = $private_dir . '/' . UploadBatchStore::SUBMISSIONS_DIR;
-            $artifacts_dir = $private_dir . '/' . UploadBatchStore::ARTIFACTS_DIR;
-            $preview_cache_dir = $private_dir . '/' . UploadBatchStore::PREVIEW_CACHE_DIR;
             $aggregate_locks = UploadBatchStore::prelock_purge_aggregates( $lifecycle );
             if ( ! is_array( $aggregate_locks ) ) {
                 UploadBatchStore::release_purge_locks( $managed_lock );
@@ -243,21 +237,13 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
             call_user_func( $remove_tree, $private_dir . '/ledger' );
             call_user_func( $remove_tree, $private_dir . '/uploads' );
             call_user_func( $remove_tree, $private_dir . '/throttle' );
-            call_user_func( $remove_tree, $staged_dir );
-            call_user_func( $remove_tree, $submissions_dir );
-            call_user_func( $remove_tree, $artifacts_dir );
-            call_user_func( $remove_tree, $preview_cache_dir );
-            $managed_roots_removed = ! file_exists( $staged_dir ) && ! is_link( $staged_dir )
-                && ! file_exists( $submissions_dir ) && ! is_link( $submissions_dir )
-                && ! file_exists( $artifacts_dir ) && ! is_link( $artifacts_dir )
-                && ! file_exists( $preview_cache_dir ) && ! is_link( $preview_cache_dir );
-            if ( $managed_roots_removed ) {
-                call_user_func( $remove_tree, $private_dir . '/' . UploadBatchStore::CAPACITY_FILENAME );
-                call_user_func( $remove_tree, $private_dir . '/' . UploadBatchStore::REMOTE_PURGE_FILENAME );
-            }
+            $managed_purge = UploadBatchStore::purge_managed_storage_roots(
+                $lifecycle,
+                $remove_tree
+            );
             UploadBatchStore::release_purge_locks( $managed_lock );
             $lifecycle->release();
-            if ( ! $managed_roots_removed
+            if ( empty( $managed_purge['ok'] )
                 || file_exists( $private_dir . '/tokens' )
                 || is_link( $private_dir . '/tokens' )
                 || file_exists( $private_dir . '/ledger' )
@@ -271,7 +257,10 @@ if ( ! function_exists( 'eforms_uninstall_run' ) ) {
                 || file_exists( $private_dir . '/' . UploadBatchStore::REMOTE_PURGE_FILENAME )
                 || is_link( $private_dir . '/' . UploadBatchStore::REMOTE_PURGE_FILENAME )
             ) {
-                return array( 'ok' => false, 'reason' => 'upload_purge_incomplete' );
+                return array(
+                    'ok' => false,
+                    'reason' => 'upload_purge_incomplete',
+                );
             }
         }
 

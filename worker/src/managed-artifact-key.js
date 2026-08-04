@@ -3,7 +3,7 @@ import { MANAGED_BATCH_ID_CHARS } from './anchors.js';
 
 const DIGEST_PATTERN = `[A-Za-z0-9_-]{${MANAGED_BATCH_ID_CHARS}}`;
 const VALID_DIGEST_PATTERN = new RegExp(`^${DIGEST_PATTERN}$`);
-const OBJECT_KEY_PATTERN = new RegExp(`^artifacts/([0-9a-f]{2})/(${DIGEST_PATTERN})/(?:0|[1-9][0-9]*)-${DIGEST_PATTERN}\\.([a-z0-9]{1,16})$`);
+const OBJECT_KEY_PATTERN = new RegExp(`^artifacts/([0-9a-f]{2})/(${DIGEST_PATTERN})/((?:0|[1-9][0-9]*))-(${DIGEST_PATTERN})\\.([a-z0-9]{1,16})$`);
 
 export async function createManagedArtifactKey(batchId, ordinal, intentId, mime) {
   const extension = extensionForMime(mime);
@@ -18,10 +18,24 @@ export function validManagedDigest(value) {
 }
 
 export async function validManagedArtifactKey(value) {
-  if (typeof value !== 'string') return false;
+  return await parseManagedArtifactKey(value) !== null;
+}
+
+export async function parseManagedArtifactKey(value) {
+  if (typeof value !== 'string') return null;
   const matches = value.match(OBJECT_KEY_PATTERN);
-  if (!matches || !supportedExtension(matches[3])) return false;
-  return matches[1] === await batchShard(matches[2]);
+  if (!matches || !supportedExtension(matches[5])) return null;
+  const ordinal = Number(matches[3]);
+  if (!Number.isSafeInteger(ordinal) || String(ordinal) !== matches[3]) return null;
+  if (matches[1] !== await batchShard(matches[2])) return null;
+  return {
+    shard: matches[1],
+    namespace: matches[2],
+    ordinal,
+    intent_id: matches[4],
+    extension: matches[5],
+    filename: `${matches[3]}-${matches[4]}.${matches[5]}`,
+  };
 }
 
 async function batchShard(batchId) {

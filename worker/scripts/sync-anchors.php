@@ -3,18 +3,27 @@
  * Generate or verify the Worker subset of the authoritative PHP Anchors.
  */
 
-require_once __DIR__ . '/../../src/Anchors.php';
+require_once __DIR__ . '/deployment-preflight.php';
 
 $names = array(
     'WORKER_INTEGRATION_KEY_BYTES',
     'WORKER_CLOCK_SKEW_SECONDS',
     'WORKER_ENVELOPE_MAX_CHARS',
+    'WORKER_QUEUE_JOB_MAX_BYTES',
+    'WORKER_TERMINAL_RESULT_MAX_BYTES',
+    'WORKER_GALLERY_STATUS_REQUEST_MAX_BYTES',
+    'WORKER_GALLERY_STATUS_RESPONSE_MAX_BYTES',
     'MANAGED_ID_MAX_CHARS',
     'MANAGED_BATCH_ID_CHARS',
+    'MANAGED_STAGED_MAX_FILES',
     'WORKER_OPAQUE_MAX_CHARS',
     'MANAGED_FINALIZED_TTL_SECONDS',
     'WORKER_UPLOAD_RATE_LIMIT_REQUESTS',
     'WORKER_UPLOAD_RATE_LIMIT_PERIOD_SECONDS',
+    'WORKER_QUEUE_CONSUMER_MAX_BATCH_SIZE',
+    'WORKER_QUEUE_CONSUMER_MAX_BATCH_TIMEOUT_SECONDS',
+    'WORKER_QUEUE_CONSUMER_MAX_RETRIES',
+    'WORKER_QUEUE_CONSUMER_MAX_CONCURRENCY',
     'REVIEW_PREVIEW_MAX_EDGE',
     'REVIEW_PREVIEW_MAX_BYTES',
     'REVIEW_PREVIEW_JPEG_QUALITY_INITIAL',
@@ -35,6 +44,12 @@ if ( ! is_array( $rate_limit )
     || $rate_limit['period'] !== Anchors::get( 'WORKER_UPLOAD_RATE_LIMIT_PERIOD_SECONDS' )
 ) {
     fwrite( STDERR, "Worker rate-limit binding is stale relative to src/Anchors.php.\n" );
+    exit( 1 );
+}
+
+$queue = is_array( $config ) ? eforms_worker_deployment_preflight_evaluate_queue( $config ) : eforms_worker_deployment_preflight_result( false, 'wrangler_invalid' );
+if ( empty( $queue['ok'] ) ) {
+    fwrite( STDERR, "Worker Queue producer/consumer/DLQ binding is stale relative to src/Anchors.php.\n" );
     exit( 1 );
 }
 

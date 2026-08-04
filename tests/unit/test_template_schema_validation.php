@@ -378,7 +378,7 @@ $staged_template['fields'][] = array(
     'accept' => array( 'image' ),
     'upload_mode' => 'staged',
     'max_file_bytes' => 20971520,
-    'max_files' => 24,
+    'max_files' => Anchors::get( 'MANAGED_STAGED_MAX_FILES' ),
     'max_total_bytes' => 314572800,
     'email_attach' => false,
 );

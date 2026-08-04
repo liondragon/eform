@@ -3,6 +3,9 @@
   "name": "eforms-media",
   "main": "src/index.js",
   "compatibility_date": "2026-07-22",
+  "vars": {
+    "EFORMS_VALIDATION_CONTRACT_VERSION": "managed-image-v1"
+  },
   "r2_buckets": [
     {
       "binding": "ARTIFACTS",
@@ -22,6 +25,24 @@
       }
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "VALIDATION_QUEUE",
+        "queue": "eforms-validation"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "eforms-validation",
+        "dead_letter_queue": "eforms-validation-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30,
+        "max_retries": 3,
+        "max_concurrency": 4
+      }
+    ]
+  },
   "cache": {
     "enabled": true
   }

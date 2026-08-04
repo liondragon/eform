@@ -121,7 +121,7 @@ $staged = $field;
 $staged['key'] = 'project_photos';
 $staged['upload_mode'] = 'staged';
 $staged['max_file_bytes'] = 20971520;
-$staged['max_files'] = 24;
+$staged['max_files'] = Anchors::get( 'MANAGED_STAGED_MAX_FILES' );
 $staged['max_total_bytes'] = 314572800;
 $control = $method->invoke( null, $descriptor, $staged, 'demo', 'demo-project_photos', false, null, array() );
 
@@ -129,7 +129,7 @@ eforms_test_assert( strpos( $control, 'id="demo-project_photos"' ) !== false, 'S
 eforms_test_assert( strpos( $control, 'disabled="disabled"' ) !== false, 'Staged picker should render disabled before enhancement.' );
 eforms_test_assert( strpos( $control, 'name=' ) === false, 'Staged picker should never submit a multipart photo body.' );
 eforms_test_assert( substr_count( $control, FormProtocol::DATA_UPLOAD_MOUNT . '="1"' ) === 1, 'Staged field should emit one canonical managed mount.' );
-eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_FILES . '="24"' ) !== false, 'Managed mount should disclose the count bound.' );
+eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_FILES . '="' . Anchors::get( 'MANAGED_STAGED_MAX_FILES' ) . '"' ) !== false, 'Managed mount should disclose the count bound.' );
 eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_FILE_BYTES . '="' . Anchors::get( 'MANAGED_ARTIFACT_MAX_BYTES' ) . '"' ) !== false, 'Managed mount should disclose the effective managed-artifact bound.' );
 eforms_test_assert( strpos( $control, FormProtocol::DATA_UPLOAD_MAX_TOTAL_BYTES . '="314572800"' ) !== false, 'Managed mount should disclose the total-original-byte bound.' );
 eforms_test_assert( strpos( $control, 'accept="image/*"' ) !== false, 'Staged picker should use the broad image hint for native mobile photo pickers.' );

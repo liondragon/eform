@@ -7,6 +7,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Admin/AdminSettingsStore.php';
 require_once __DIR__ . '/../../src/Gc/GcRunner.php';
@@ -35,7 +36,7 @@ if ( ! function_exists( 'eforms_test_uninstall_seed_runtime' ) ) {
         eforms_test_assert( is_array( $private ) && ! empty( $private['ok'] ), 'Test setup should create private directory.' );
         $private_dir = $private['path'];
         $now = 1700000000;
-        $secret = rtrim( strtr( base64_encode( str_repeat( 'P', Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ), '=' );
+        $secret = eforms_test_managed_batch_secret( 'P' );
         $field = array(
             'type' => 'files',
             'upload_mode' => 'staged',
@@ -121,6 +122,7 @@ if ( ! function_exists( 'eforms_test_uninstall_seed_runtime' ) ) {
                 array(
                     'version' => UploadBatchStore::CAPACITY_VERSION,
                     'total_bytes' => 0,
+                    'store_bytes' => array( 'local' => 0, 'worker' => 0 ),
                     'reservations' => array(),
                     'releases' => array(),
                     'updated_at' => $now + 2,

@@ -142,7 +142,7 @@ eforms_protocol_guard_assert_protocol_owner( $upload_endpoint, 'UPLOAD_ITEM_PARA
 eforms_test_assert( strpos( $upload_endpoint, 'UploadValue::file_item_from_payload' ) !== false, 'UploadBatchEndpoint should delegate raw file payload shaping to UploadValue.' );
 eforms_test_assert( strpos( $bootstrap, 'FormProtocol::upload_batch_id_pattern' ) !== false && strpos( $bootstrap, 'FormProtocol::managed_id_pattern' ) !== false, 'REST routes should derive managed path shapes from FormProtocol.' );
 eforms_test_assert( strpos( $emailer, 'ReviewController::email_gallery_reference' ) !== false, 'Emailer should request validated gallery context from ReviewController.' );
-eforms_test_assert( strpos( $emailer, 'UploadValue::staged_items' ) !== false, 'Emailer should use UploadValue for staged list shaping.' );
+eforms_test_assert( strpos( $emailer, 'UploadValue::review_staged_items' ) !== false, 'Emailer should use UploadValue for staged review list shaping.' );
 
 eforms_test_assert( strpos( $jsonl_logger, 'FileSink::append_dated_jsonl' ) !== false, 'JsonlLogger should delegate dated JSONL append mechanics to FileSink.' );
 eforms_test_assert( strpos( $jsonl_logger, 'FileSink::prune_old_files' ) !== false, 'JsonlLogger should delegate generic pruning mechanics to FileSink.' );

@@ -108,7 +108,7 @@ $alternative_message = 'Please provide a listing URL or upload at least one phot
 $alternative_context = array(
     'fields' => array(
         array( 'key' => 'listing_url', 'type' => 'url' ),
-        array( 'key' => 'project_photos', 'type' => 'files', 'upload_mode' => 'staged', 'max_files' => 24, 'max_total_bytes' => 314572800 ),
+        array( 'key' => 'project_photos', 'type' => 'files', 'upload_mode' => 'staged', 'max_files' => Anchors::get( 'MANAGED_STAGED_MAX_FILES' ), 'max_total_bytes' => 314572800 ),
     ),
     'descriptors' => array(
         array( 'key' => 'listing_url', 'type' => 'url', 'is_multivalue' => false ),

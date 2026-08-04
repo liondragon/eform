@@ -24,6 +24,7 @@ require_once __DIR__ . '/../Spam/ContentFilter.php';
 require_once __DIR__ . '/../Email/Emailer.php';
 require_once __DIR__ . '/../Uploads/UploadStore.php';
 require_once __DIR__ . '/../Uploads/UploadBatchStore.php';
+require_once __DIR__ . '/../Uploads/WorkerClient.php';
 require_once __DIR__ . '/Ledger.php';
 require_once __DIR__ . '/SubmissionReviewSnapshot.php';
 require_once __DIR__ . '/Success.php';
@@ -323,6 +324,11 @@ class SubmitHandler {
             self::log_content_filter_suspect( $resolved_form_id, $security, $request );
         }
 
+        if ( ! self::staged_worker_identity_matches_current_composition( $staged ) ) {
+            self::reopen_new_claims_if_unused( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request );
+            return self::fail( 'EFORMS_ERR_STORAGE_UNAVAILABLE', 500, $trace, $trace_on, array(), true );
+        }
+
         $freeze = self::freeze_staged_uploads( $staged, $security['submission_id'], $uploads_dir );
         if ( empty( $freeze['ok'] ) ) {
             self::reopen_new_claims_if_unused( $staged, $resolved_form_id, $security['submission_id'], $uploads_dir, $request );
@@ -505,6 +511,12 @@ class SubmitHandler {
                             'binding' => $binding,
                             'field' => $field,
                             'items' => isset( $resolved['items'] ) && is_array( $resolved['items'] ) ? $resolved['items'] : array(),
+                            'artifact_store' => isset( $resolved['batch']['artifact_store'] ) && is_string( $resolved['batch']['artifact_store'] )
+                                ? $resolved['batch']['artifact_store']
+                                : '',
+                            'artifact_store_identity' => isset( $resolved['batch']['artifact_store_identity'] ) && is_string( $resolved['batch']['artifact_store_identity'] )
+                                ? $resolved['batch']['artifact_store_identity']
+                                : '',
                             'phase' => $phase,
                             'accept_expired' => ! empty( $resolved['accept_expired'] ),
                             'preexisting_recovery' => $phase !== 'open',
@@ -581,20 +593,41 @@ class SubmitHandler {
         return $normalized;
     }
 
+    private static function staged_worker_identity_matches_current_composition( $staged ) {
+        $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
+        if ( ! is_array( $state ) || ! isset( $state['artifact_store'] ) || $state['artifact_store'] !== FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+            return true;
+        }
+        $identity = isset( $state['artifact_store_identity'] ) && is_string( $state['artifact_store_identity'] )
+            ? $state['artifact_store_identity']
+            : '';
+        return WorkerClient::composition_matches( $identity );
+    }
+
     private static function freeze_staged_uploads( &$staged, $submission_id, $uploads_dir ) {
         $state = isset( $staged['state'] ) && is_array( $staged['state'] ) ? $staged['state'] : null;
         if ( ! is_array( $state ) || $state['phase'] === 'finalized' || $state['phase'] === 'finalizing' ) {
             return array( 'ok' => true );
         }
-        $claim = UploadBatchStore::claim_finalization(
-            $state['batch_id'],
-            $state['batch_secret'],
-            $state['binding'],
-            $state['field'],
-            $state['items'],
-            $submission_id,
-            $uploads_dir
-        );
+        $claim = isset( $state['artifact_store'] ) && $state['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER
+            ? UploadBatchStore::worker_claim_finalization(
+                $state['batch_id'],
+                $state['batch_secret'],
+                $state['binding'],
+                $state['field'],
+                $state['items'],
+                $submission_id,
+                $uploads_dir
+            )
+            : UploadBatchStore::claim_finalization(
+                $state['batch_id'],
+                $state['batch_secret'],
+                $state['binding'],
+                $state['field'],
+                $state['items'],
+                $submission_id,
+                $uploads_dir
+            );
         if ( empty( $claim['ok'] ) ) {
             return is_array( $claim )
                 ? $claim
@@ -681,9 +714,20 @@ class SubmitHandler {
         if ( $state['phase'] === 'finalized' ) {
             return $review_snapshot === null
                 ? array( 'ok' => true )
-                : UploadBatchStore::store_review_snapshot( $submission_id, $uploads_dir, $review_snapshot );
+                : UploadBatchStore::store_review_snapshot(
+                    $submission_id,
+                    $uploads_dir,
+                    $review_snapshot
+                );
         }
-        $result = UploadBatchStore::finalize( $state['batch_id'], $submission_id, $uploads_dir, null, $review_snapshot );
+        if ( isset( $state['artifact_store'] ) && $state['artifact_store'] === FormProtocol::UPLOAD_TRANSPORT_WORKER ) {
+            $result = UploadBatchStore::worker_finalize( $state['batch_id'], $submission_id, $uploads_dir );
+            if ( ! empty( $result['ok'] ) && $review_snapshot !== null ) {
+                $result = UploadBatchStore::store_review_snapshot( $submission_id, $uploads_dir, $review_snapshot );
+            }
+        } else {
+            $result = UploadBatchStore::finalize( $state['batch_id'], $submission_id, $uploads_dir, null, $review_snapshot );
+        }
         if ( empty( $result['ok'] ) ) {
             return array( 'ok' => false );
         }
@@ -843,12 +887,17 @@ class SubmitHandler {
         $attempt = null;
         $before_transport = null;
         if ( ! empty( $staged['state'] ) ) {
-            $before_transport = function () use ( $overrides, $submission_id, $uploads_dir, &$attempt ) {
+            $state = is_array( $staged['state'] ) ? $staged['state'] : array();
+            $before_transport = function () use ( $overrides, $submission_id, $uploads_dir, $state, &$attempt ) {
                 $before_marker = self::override_callable( $overrides, 'before_email_attempt_marker' );
                 if ( $before_marker ) {
                     call_user_func( $before_marker, $submission_id, $uploads_dir );
                 }
-                $attempt = UploadBatchStore::mark_email_attempted( $submission_id, $uploads_dir );
+                $attempt = UploadBatchStore::mark_email_attempted(
+                    $submission_id,
+                    $uploads_dir,
+                    null
+                );
                 if ( empty( $attempt['ok'] ) ) {
                     return false;
                 }
@@ -986,7 +1035,6 @@ class SubmitHandler {
             'submission_id' => isset( $security['submission_id'] ) && is_string( $security['submission_id'] ) ? $security['submission_id'] : '',
             'transport' => isset( $email['transport'] ) ? $email['transport'] : 'wp_mail',
             'error_class' => isset( $email['error_class'] ) ? $email['error_class'] : '',
-            'error_message' => isset( $email['error_message'] ) ? $email['error_message'] : '',
             'reason' => isset( $email['reason'] ) ? $email['reason'] : 'send_failed',
         );
 
@@ -1027,8 +1075,7 @@ class SubmitHandler {
             'Transport: ' . ( isset( $email['transport'] ) && is_string( $email['transport'] ) ? $email['transport'] : 'wp_mail' ),
             'Reason: ' . ( isset( $email['reason'] ) && is_string( $email['reason'] ) ? $email['reason'] : 'send_failed' ),
             'Error class: ' . ( isset( $email['error_class'] ) && is_string( $email['error_class'] ) ? $email['error_class'] : '' ),
-            'Error message: ' . ( isset( $email['error_message'] ) && is_string( $email['error_message'] ) ? $email['error_message'] : '' ),
-            'Request URI: ' . self::request_uri_for_admin_notice( $request ),
+            'Request URI: ' . Helpers::filtered_uri( $request ),
         );
 
         if ( function_exists( 'home_url' ) ) {
@@ -1044,18 +1091,6 @@ class SubmitHandler {
             '[eForms] Site mail delivery failed',
             implode( "\n", $lines )
         );
-    }
-
-    private static function request_uri_for_admin_notice( $request ) {
-        if ( is_array( $request ) && isset( $request['uri'] ) && is_string( $request['uri'] ) ) {
-            return $request['uri'];
-        }
-
-        if ( isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ) {
-            return $_SERVER['REQUEST_URI'];
-        }
-
-        return '';
     }
 
     private static function spam_short_circuit_result( $trace_label, $error_code, $response, $files, $overrides, $form_id, $security, $security_meta, $uploads_dir, $request, $config, &$trace, $trace_on ) {

@@ -13,6 +13,12 @@ require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Diagnostics/SpamSmokeDiagnostic.php';
 require_once __DIR__ . '/../../src/Cli/SpamSmokeCommand.php';
 
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return 'https://example.com';
+    }
+}
+
 $_SERVER['HTTP_HOST'] = 'example.com';
 $_SERVER['HTTPS'] = 'on';
 $_SERVER['SERVER_PORT'] = 443;

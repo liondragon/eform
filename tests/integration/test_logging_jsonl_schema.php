@@ -11,6 +11,14 @@ require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../../src/Config.php';
 require_once __DIR__ . '/../../src/Logging/JsonlLogger.php';
 
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url() {
+        return isset( $GLOBALS['eforms_test_home_url'] ) && is_string( $GLOBALS['eforms_test_home_url'] )
+            ? $GLOBALS['eforms_test_home_url']
+            : 'https://example.test';
+    }
+}
+
 $uploads_dir = eforms_test_tmp_root( 'eforms-logging-jsonl' );
 mkdir( $uploads_dir, 0700, true );
 $GLOBALS['eforms_test_uploads_dir'] = $uploads_dir;
@@ -128,6 +136,88 @@ eforms_test_assert( $payload['code'] === 'EFORMS_ERR_TOKEN', 'JSONL payload shou
 eforms_test_assert( $payload['form_id'] === 'contact', 'JSONL payload should include form_id.' );
 eforms_test_assert( $payload['submission_id'] === 'subm-1', 'JSONL payload should include submission_id.' );
 eforms_test_assert( $payload['uri'] === '/contact?eforms_a=1&eforms_b=2', 'JSONL payload should include filtered request URI.' );
+eforms_test_assert( Helpers::filtered_uri( '/public/[redacted]?foo=1&eforms_b=2&eforms_a=1' ) === '/public/[redacted]?eforms_a=1&eforms_b=2', 'Filtered logging URI should not treat a literal non-review redaction marker as review redaction.' );
+eforms_test_assert( Helpers::filtered_uri( '/review?eforms_review_upload=SECRET' ) === '/review/[redacted]', 'Filtered logging URI should redact exact review-route query bearers.' );
+eforms_test_assert( Helpers::filtered_uri( '/review/opaqueBearer_123?foo=1&eforms_action=view' ) === '/review/[redacted]', 'Filtered logging URI should redact gallery bearer tokens and query fields.' );
+eforms_test_assert( Helpers::filtered_uri( '/review/file/opaqueBearer+456/extra?foo=1&eforms_review_upload=SECRET' ) === '/review/file/[redacted]', 'Filtered logging URI should redact member bearer paths and attacker-controlled suffixes.' );
+$GLOBALS['eforms_test_home_url'] = 'https://example.test/blog';
+eforms_test_assert( Helpers::filtered_uri( '/review/opaqueBearer_root?foo=1&eforms_action=view' ) === '/review/opaqueBearer_root?eforms_action=view', 'Filtered logging URI should not redact unrelated root review-shaped paths when WordPress is installed under a subdirectory.' );
+eforms_test_assert( Helpers::filtered_uri( '/blog/review/opaqueBearer_789?foo=1&eforms_action=view' ) === '/blog/review/[redacted]', 'Filtered logging URI should redact gallery bearer tokens under a WordPress subdirectory.' );
+unset( $GLOBALS['eforms_test_home_url'] );
+
+$new_log_path = $stale_dir . '/new-mode.jsonl';
+$new_write = FileSink::append_with_rotation(
+    $new_log_path,
+    "{\"new\":true}\n",
+    1048576,
+    function ( $current ) {
+        return $current . '.1';
+    }
+);
+eforms_test_assert( $new_write === true, 'FileSink should write a new log file.' );
+eforms_test_assert( ( fileperms( $new_log_path ) & 0777 ) === 0600, 'FileSink should create new log files with mode 0600.' );
+
+$unsafe_rotation_path = $stale_dir . '/unsafe-full.jsonl';
+file_put_contents( $unsafe_rotation_path, str_repeat( 'x', 20 ) );
+chmod( $unsafe_rotation_path, 0644 );
+$fchmod_repairs_existing = false;
+if ( function_exists( 'fchmod' ) ) {
+    $fchmod_probe_path = $stale_dir . '/fchmod-probe.jsonl';
+    file_put_contents( $fchmod_probe_path, "{}\n" );
+    chmod( $fchmod_probe_path, 0644 );
+    $fchmod_probe_handle = fopen( $fchmod_probe_path, 'ab' );
+    if ( $fchmod_probe_handle !== false ) {
+        $fchmod_result = @fchmod( $fchmod_probe_handle, 0600 );
+        clearstatcache( true, $fchmod_probe_path );
+        $fchmod_repairs_existing = $fchmod_result && ( ( fileperms( $fchmod_probe_path ) & 0777 ) === 0600 );
+        fclose( $fchmod_probe_handle );
+    }
+}
+$unsafe_rotation = FileSink::append_with_rotation(
+    $unsafe_rotation_path,
+    "{\"unsafe\":true}\n",
+    1,
+    function ( $current ) {
+        return $current . '.1';
+    }
+);
+if ( $fchmod_repairs_existing ) {
+    eforms_test_assert( $unsafe_rotation === true, 'FileSink should repair an insecure existing file through fchmod before rotating when fchmod is available.' );
+    eforms_test_assert( ( fileperms( $unsafe_rotation_path ) & 0777 ) === 0600, 'FileSink should repair existing log file mode to 0600 before rotation when fchmod is available.' );
+    eforms_test_assert( ( fileperms( $unsafe_rotation_path . '.1' ) & 0777 ) === 0600, 'FileSink should create rotated log files with mode 0600.' );
+} else {
+    eforms_test_assert( $unsafe_rotation === false, 'FileSink rotation should fail closed before rotating an existing insecure log file when fchmod is unavailable.' );
+    eforms_test_assert( ! file_exists( $unsafe_rotation_path . '.1' ), 'FileSink should not rotate an insecure existing log file when fchmod is unavailable.' );
+}
+
+if ( function_exists( 'posix_mkfifo' ) ) {
+    $fifo_rotation_path = $stale_dir . '/fifo-log.jsonl';
+    if ( @posix_mkfifo( $fifo_rotation_path, 0600 ) ) {
+        if ( function_exists( 'pcntl_signal' ) && function_exists( 'pcntl_alarm' ) && function_exists( 'pcntl_async_signals' ) ) {
+            pcntl_async_signals( true );
+            pcntl_signal(
+                SIGALRM,
+                function () {
+                    throw new RuntimeException( 'FileSink FIFO rejection timed out.' );
+                }
+            );
+            pcntl_alarm( 1 );
+        }
+        $fifo_rotation = FileSink::append_with_rotation(
+            $fifo_rotation_path,
+            "{\"fifo\":true}\n",
+            1048576,
+            function ( $current ) {
+                return $current . '.1';
+            }
+        );
+        if ( function_exists( 'pcntl_alarm' ) ) {
+            pcntl_alarm( 0 );
+        }
+        eforms_test_assert( $fifo_rotation === false, 'FileSink should reject non-regular existing log targets before opening.' );
+        @unlink( $fifo_rotation_path );
+    }
+}
 eforms_test_assert( $payload['ip'] === '198.51.100.0', 'JSONL payload should redact IP when pii=false and privacy.ip_mode=full.' );
 eforms_test_assert( isset( $payload['request_id'] ) && is_string( $payload['request_id'] ) && $payload['request_id'] !== '', 'JSONL payload should include request_id.' );
 
@@ -147,6 +237,7 @@ $race_dir = eforms_test_tmp_root( 'eforms-logging-jsonl-race' );
 mkdir( $race_dir, 0700, true );
 $race_primary = $race_dir . '/events-' . gmdate( 'Ymd' ) . '.jsonl';
 file_put_contents( $race_primary, str_repeat( 'x', 20 ) );
+chmod( $race_primary, 0600 );
 $race_ok = FileSink::append_dated_jsonl( $race_dir, JsonlLogger::FILE_PREFIX, JsonlLogger::FILE_EXT, "{\"race\":true}\n", 1 );
 eforms_test_assert( $race_ok === true, 'JSONL locked rotation should succeed when the selected primary is already full.' );
 eforms_test_assert( file_exists( $race_dir . '/events-' . gmdate( 'Ymd' ) . '-1.jsonl' ), 'JSONL locked rotation should preserve the date prefix for primary-file races.' );

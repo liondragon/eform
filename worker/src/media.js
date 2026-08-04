@@ -3,7 +3,15 @@ import { detectedMime, mimeMatches } from './media-policy.js';
 
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
+export class MediaInspectionRejection extends Error {
+  constructor(reason) {
+    super('inspection_rejected');
+    this.reason = reason;
+  }
+}
+
 export async function inspectArtifact(bucket, images, object, claims) {
+  await validateDeclaredContainer(bucket, object, claims);
   const infoObject = await exactObject(bucket, object.key, object.version, object.etag);
   const info = await images.info(infoObject.body);
   const mime = detectedMime(info && info.format);
@@ -16,30 +24,54 @@ export async function inspectArtifact(bucket, images, object, claims) {
       new Uint8Array(await new Response(containerObject.body).arrayBuffer()),
       claims.container_entry_limit,
     );
-    if (!container) throw new Error('inspection_rejected');
+    if (!container) throw new MediaInspectionRejection('invalid_media');
     width = container.width;
     height = container.height;
   }
-  if (!mime || bytes !== object.size || bytes !== claims.declared_bytes
-    || width < 1 || height < 1 || Math.max(width, height) > claims.max_edge
-    || width > Math.floor(claims.max_pixels / height)) {
-    throw new Error('inspection_rejected');
+  if (!mime || !mimeMatches(mime, claims.declared_mime)) throw new MediaInspectionRejection('unsupported_media');
+  if (bytes !== object.size || bytes !== claims.declared_bytes || width < 1 || height < 1) {
+    throw new MediaInspectionRejection('invalid_media');
   }
-  if (!mimeMatches(mime, claims.declared_mime)) throw new Error('inspection_rejected');
-
+  if (Math.max(width, height) > claims.max_edge || width > Math.floor(claims.max_pixels / height)) {
+    throw new MediaInspectionRejection('policy_rejected');
+  }
   if (mime === 'image/png' || mime === 'image/webp') {
-    const scanObject = await exactObject(bucket, object.key, object.version, object.etag);
-    const animated = mime === 'image/png'
-      ? await pngIsAnimated(scanObject.body, claims.container_entry_limit)
-      : await webpIsAnimated(scanObject.body);
-    if (animated) throw new Error('inspection_rejected');
+    await headExactObject(bucket, object.key, object.version, object.etag);
   }
   return { bytes, mime, width, height };
+}
+
+async function validateDeclaredContainer(bucket, object, claims) {
+  if (claims.declared_mime !== 'image/png' && claims.declared_mime !== 'image/webp') return;
+  const scanObject = await exactObject(bucket, object.key, object.version, object.etag);
+  const animated = await inspectAnimation(scanObject.body, claims.declared_mime, claims.container_entry_limit);
+  if (animated) throw new MediaInspectionRejection('unsupported_media');
+}
+
+async function inspectAnimation(body, mime, entryLimit) {
+  try {
+    return mime === 'image/png'
+      ? await pngIsAnimated(body, entryLimit)
+      : await webpIsAnimated(body);
+  } catch (error) {
+    if (error && ['invalid_png', 'invalid_webp', 'truncated_media', 'container_limit'].includes(error.message)) {
+      throw new MediaInspectionRejection('invalid_media');
+    }
+    throw error;
+  }
 }
 
 async function exactObject(bucket, key, version, etag) {
   const object = await bucket.get(key, { onlyIf: { etagMatches: etag } });
   if (!object || object.version !== version || object.etag !== etag || !object.body) {
+    throw new Error('object_changed');
+  }
+  return object;
+}
+
+async function headExactObject(bucket, key, version, etag) {
+  const object = await bucket.head(key);
+  if (!object || object.version !== version || object.etag !== etag) {
     throw new Error('object_changed');
   }
   return object;

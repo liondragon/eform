@@ -85,7 +85,7 @@ New Artifact Budget:
 - Allowed: private helper(s) inside `UploadBatchStore` for finalized availability checks and availability mutation; private helper(s)/constants inside `ReviewController` for availability actions; Anchor constants for fixed choices.
 
 Contract Carrier Sync:
-- Update `docs/contracts/Public_Contracts.md`, `docs/contracts/Runtime_Storage.md`, `docs/overview.md`, and `docs/Owner_Index.md`.
+- Update `docs/contracts/Public_Contracts.md`, `docs/contracts/Runtime_Storage.md`, and `docs/Owner_Index.md`.
 - `docs/Architecture_Router.md` should remain unchanged unless implementation discovers a changed runtime center or dependency direction.
 
 Owner_Index Change: update the managed review verification hook from `gallery_expires_at` to the new `delete_after`/signed-URL contract.
@@ -141,7 +141,7 @@ Goals: Replace the stale dual-lifetime contract with `delete_after: int|null` as
 
 - [x] P1.T1 Update active carriers for one availability authority (Source: AI Conversation + active carriers)
   - Type: standard
-  - Artifacts: `docs/contracts/Public_Contracts.md`, `docs/contracts/Runtime_Storage.md`, `docs/overview.md`, `docs/Owner_Index.md`
+  - Artifacts: `docs/contracts/Public_Contracts.md`, `docs/contracts/Runtime_Storage.md`, `docs/Owner_Index.md`
   - Interfaces: public managed review link contract, finalized manifest contract, operator-facing review-gallery behavior
   - Owner: active contract carriers listed in `Artifacts`
   - Depends On: none
@@ -224,7 +224,7 @@ Goals: Let operators update `delete_after` from the review gallery without expos
 
 - [x] P4.T1 Run seam closure and broad gates (Source: prior tasks)
   - Type: standard
-  - Artifacts: `docs/contracts/Public_Contracts.md`, `docs/contracts/Runtime_Storage.md`, `docs/overview.md`, `docs/Owner_Index.md`, `src/Uploads/UploadBatchStore.php`, `src/Uploads/ReviewController.php`, `src/Email/Emailer.php`, `templates/pages/review-gallery.php`, `templates/email/*`, tests
+  - Artifacts: `docs/contracts/Public_Contracts.md`, `docs/contracts/Runtime_Storage.md`, `docs/Owner_Index.md`, `src/Uploads/UploadBatchStore.php`, `src/Uploads/ReviewController.php`, `src/Email/Emailer.php`, `templates/pages/review-gallery.php`, `templates/email/*`, tests
   - Interfaces: finalized photo availability, review URLs, operator update/delete actions, email review links, GC
   - Owner: changed owners listed above
   - Depends On: P1.T1, P1.T2, P2.T1, P2.T2, P3.T1, P3.T2

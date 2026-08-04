@@ -32,6 +32,12 @@ touch /path/to/disposable-wordpress/.eforms-uninstall-drain-disposable
 EFORMS_WP_PATH=/path/to/disposable-wordpress php tests/wp-runtime/uninstall-drain.php
 ```
 
+Do not point this proof at a real local development site just because the
+eForms plugin is symlinked there. Runtime sites such as a paired
+`flooringartists.home` install are appropriate for browser/provider smoke, but
+this proof installs and deletes fixture plugins and must use a disposable
+WordPress target.
+
 The harness installs only disposable fixture plugins and exercises the real
 wp-admin AJAX deletion handler, both JavaScript-queue and server-fallback bulk
 orders, the plugins REST endpoint, and WP-CLI with normal deletion and
@@ -80,4 +86,4 @@ npm ci --prefix tests/e2e
 npm test --prefix tests/e2e
 ```
 
-The staged suite is self-contained and covers retry-safe batch creation, three-concurrent-item queueing, Uploading versus Finishing states, stable item retry/removal, serialized Clear all cleanup, timer-driven expiry rendering, final-submit blocking and label restoration, hidden credential transport, authenticated validation-rerender status restoration without authoritative-artifact rereads, terminal/finalizing/expired behavior, responsive three/two/one-column geometry, accessibility, teardown, and multi-form isolation. The review-gallery suite proves one-at-a-time preview admission plus explicit retry and download fallback. The older live mint checks remain environment-dependent and skip when their configured URLs are absent.
+The staged suite is self-contained and covers retry-safe batch creation, three-transfer/four-pipeline scheduling, Uploading and Processing states, stable item retry/removal, serialized Clear all cleanup, timer-driven expiry rendering, final-submit blocking and label restoration, hidden credential transport, authenticated validation-rerender status restoration without authoritative-artifact rereads, terminal/finalizing/expired behavior, responsive three/two/one-column geometry, accessibility, teardown, and multi-form isolation. The review-gallery suite proves one-at-a-time preview admission plus explicit retry and download fallback. The older live mint checks remain environment-dependent and skip when their configured URLs are absent.

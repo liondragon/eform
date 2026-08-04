@@ -12,6 +12,7 @@
 
 require_once __DIR__ . '/../Errors.php';
 require_once __DIR__ . '/../FormProtocol.php';
+require_once __DIR__ . '/../Anchors.php';
 require_once __DIR__ . '/FieldTypeRegistry.php';
 require_once __DIR__ . '/FieldTypes/TextLike.php';
 require_once __DIR__ . '/ValidatorRegistry.php';
@@ -420,6 +421,13 @@ class TemplateValidator {
         if ( $max_file <= 0 || $max_files <= 0 || $max_total <= 0 ) {
             $errors->add_global( 'EFORMS_ERR_SCHEMA_OBJECT' );
             return;
+        }
+
+        if ( $max_files > Anchors::get( 'MANAGED_STAGED_MAX_FILES' ) ) {
+            $errors->add_global(
+                'EFORMS_ERR_SCHEMA_OBJECT',
+                sprintf( 'Staged upload max_files must be %d or fewer.', Anchors::get( 'MANAGED_STAGED_MAX_FILES' ) )
+            );
         }
 
         if ( $max_total < $max_file ) {

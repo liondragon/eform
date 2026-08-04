@@ -209,7 +209,7 @@ class Emailer {
     }
 
     public static function handle_wp_mail_failed( $wp_error ) {
-        if ( ! is_object( $wp_error ) || ! method_exists( $wp_error, 'get_error_message' ) ) {
+        if ( ! is_object( $wp_error ) ) {
             return;
         }
 
@@ -218,7 +218,6 @@ class Emailer {
             'submission_id' => isset( self::$last_context['submission_id'] ) ? self::$last_context['submission_id'] : '',
             'transport' => 'wp_mail_failed',
             'error_class' => get_class( $wp_error ),
-            'error_message' => $wp_error->get_error_message(),
         );
 
         Logging::event( 'error', 'EFORMS_ERR_EMAIL_SEND', $meta, isset( self::$last_context['request'] ) ? self::$last_context['request'] : null );
@@ -290,7 +289,7 @@ class Emailer {
             ? $context['staged_field']
             : null;
         $key = is_array( $field ) && isset( $field['key'] ) && is_string( $field['key'] ) ? $field['key'] : '';
-        $items = $key !== '' && array_key_exists( $key, $values ) ? UploadValue::staged_items( $values[ $key ] ) : array();
+        $items = $key !== '' && array_key_exists( $key, $values ) ? UploadValue::review_staged_items( $values[ $key ] ) : array();
         if ( empty( $items ) ) {
             return array( 'ok' => true, 'fields' => array() );
         }

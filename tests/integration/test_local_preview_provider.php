@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../support/managed_upload_fixtures.php';
 require_once __DIR__ . '/../../src/Uploads/LocalPreviewProvider.php';
 require_once __DIR__ . '/../../src/Uploads/UploadBatchStore.php';
 
@@ -86,7 +87,9 @@ eforms_test_assert(
     ! empty( $progress_second['ok'] )
         && $progress_second['scanned'] === 1
         && $progress_second['candidates'] === 1
+        && $progress_second['candidate_bytes'] === strlen( "deleted\n" )
         && $progress_second['deleted'] === 1
+        && $progress_second['deleted_bytes'] === strlen( "deleted\n" )
         && ! file_exists( $eligible_path ),
     'The next bounded pass should advance beyond a live prefix and reclaim the eligible fence.'
 );
@@ -168,10 +171,7 @@ $claim_uploads_dir = eforms_test_setup_uploads( 'eforms-local-preview-capacity' 
 $claim_lease = PrivateDir::acquire_write_lease( $claim_uploads_dir );
 eforms_test_assert( $claim_lease instanceof PrivateDirLease, 'The preview-capacity fixture should acquire its own lifecycle lease.' );
 $claim_now = time();
-$claim_secret = rtrim(
-    strtr( base64_encode( str_repeat( "\x6a", Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ) ) ), '+/', '-_' ),
-    '='
-);
+$claim_secret = eforms_test_managed_batch_secret( "\x6a" );
 $claim_field = array(
     'type' => 'files',
     'upload_mode' => 'staged',

@@ -776,7 +776,7 @@ class Validator {
                 return;
             }
             foreach ( $value as $entry ) {
-                if ( ! UploadValue::is_staged_item( $entry ) ) {
+                if ( ! UploadValue::is_review_staged_item( $entry ) ) {
                     $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
                     return;
                 }
@@ -880,7 +880,7 @@ class Validator {
         $total = 0;
         $max_total = isset( $field['max_total_bytes'] ) && is_numeric( $field['max_total_bytes'] ) ? (int) $field['max_total_bytes'] : 0;
         foreach ( $items as $item ) {
-            if ( ! UploadValue::is_staged_item( $item ) ) {
+            if ( ! UploadValue::is_review_staged_item( $item ) ) {
                 $entries[] = self::upload_error_entry( 'File upload failed. Please try again.' );
                 return;
             }

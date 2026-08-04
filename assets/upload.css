@@ -38,7 +38,7 @@ input[aria-invalid="true"] + .eforms-upload .eforms-upload-controls::after { con
 .eforms-upload-media { position:relative; aspect-ratio:4/3; background:#eef1f4; }
 .eforms-upload-preview { display:block; width:100%; height:100%; object-fit:cover; }
 .eforms-upload-item[data-eforms-upload-state="uploading"] .eforms-upload-media::after,
-.eforms-upload-item[data-eforms-upload-state="verifying"] .eforms-upload-media::after { content:""; position:absolute; z-index:1; inset:0; background:rgba(0,0,0,.38); }
+.eforms-upload-item[data-eforms-upload-state="processing"] .eforms-upload-media::after { content:""; position:absolute; z-index:1; inset:0; background:rgba(0,0,0,.38); }
 .eforms-upload-progress { position:absolute; z-index:2; inset:50% auto auto 50%; place-items:center; width:54px; height:54px; transform:translate(-50%,-50%); border-radius:50%; box-shadow:0 1px 5px rgba(0,0,0,.25); color:#fff; font-size:.82rem; font-weight:700; }
 .eforms-upload-progress:not([hidden]) { display:grid; }
 .eforms-upload-progress::after { content:""; position:absolute; z-index:-1; inset:7px; border-radius:50%; background:rgba(0,0,0,.78); }

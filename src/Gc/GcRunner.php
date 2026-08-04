@@ -146,11 +146,9 @@ class GcRunner {
 
     private static function reconcile_managed_capacity( $uploads_dir, &$summary ) {
         $now = (int) $summary['now'];
-        $remote_delete = function ( $object_key, $object_version, $artifact_store_identity ) use ( $now ) {
-            return WorkerClient::delete_object(
-                $object_key,
-                $object_version,
-                $artifact_store_identity,
+        $remote_delete = function ( $authority ) use ( $now ) {
+            return WorkerClient::worker_delete_object(
+                $authority,
                 $now,
                 null,
                 'capacity_reconciliation'
@@ -251,19 +249,18 @@ class GcRunner {
         if ( $budget <= 0 ) {
             return;
         }
-        $remote_delete = function ( $object_key, $object_version, $artifact_store_identity ) use ( $now ) {
-            return WorkerClient::delete_object(
-                $object_key,
-                $object_version,
-                $artifact_store_identity,
+        $remote_delete = function ( $authority ) use ( $now ) {
+            return WorkerClient::worker_delete_object(
+                $authority,
                 $now,
                 null,
                 'aggregate_gc'
             );
         };
+        $uploads_dir = self::uploads_dir( $config );
         $result = UploadBatchStore::gc_aggregates(
             $family,
-            self::uploads_dir( $config ),
+            $uploads_dir,
             $now,
             $budget,
             ! empty( $summary['dry_run'] ),

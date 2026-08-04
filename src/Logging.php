@@ -352,6 +352,7 @@ class Logging {
             'desc_sha1',
             'content_filter',
             'operation',
+            'operation_category',
             'outcome_class',
             'latency_bucket',
             'retry',

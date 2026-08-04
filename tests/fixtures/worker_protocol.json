@@ -1,86 +1,297 @@
 {
-  "version": "2",
-  "environment": "production-fixture",
-  "active_key_id": "key-2026-07",
-  "active_key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
-  "verification_now": 2000000000,
-  "claims": {
-    "upload_grant": {
-      "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
-      "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "upload_id": "upload_fixture_01",
-      "ordinal": 2,
-      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
-      "declared_bytes": 1234,
-      "declared_mime": "image/png",
-      "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "max_bytes": 18874368,
-      "max_edge": 12000,
-      "max_pixels": 60000000,
-      "container_entry_limit": 4096,
-      "intent_expires_at": 2000001800,
-      "grant_expires_at": 2000000900,
-      "upload_max_seconds": 1800,
-      "receipt_ttl_seconds": 900
+    "version": "3",
+    "environment": "production-fixture",
+    "active_key_id": "key-2026-07",
+    "active_key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "verification_now": 2000000000,
+    "claims": {
+        "health_request": {
+            "request_id": "health_fixture_01",
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "expires_at": 2000000060
+        },
+        "health_result": {
+            "request_id": "health_fixture_01",
+            "storage_ready": 1,
+            "inspection_ready": 1,
+            "queue_producer_ready": 1,
+            "limiter_ready": 1,
+            "keys_ready": 1,
+            "storage_identity_ready": 1,
+            "validation_contract_ready": 1,
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "checked_at": 2000000000,
+            "expires_at": 2000000060
+        }
     },
-    "upload_receipt": {
-      "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
-      "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "upload_id": "upload_fixture_01",
-      "ordinal": 2,
-      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
-      "object_version": "0123456789abcdef0123456789abcdef",
-      "etag": "abcdefabcdefabcdefabcdefabcdefab",
-      "bytes": 1234,
-      "mime": "image/png",
-      "width": 32,
-      "height": 24,
-      "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "expires_at": 2000000900
+    "worker_claims": {
+        "upload_grant": {
+            "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "upload_id": "upload_fixture_01",
+            "ordinal": 2,
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "declared_bytes": 1234,
+            "declared_mime": "image/png",
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "max_bytes": 18874368,
+            "max_edge": 12000,
+            "max_pixels": 60000000,
+            "container_entry_limit": 4096,
+            "upload_until": 2000000900,
+            "accept_until": 2000001200,
+            "validation_until": 2000001800,
+            "staged_delete_after": 2000086400,
+            "grant_expires_at": 2000000900
+        },
+        "stored_receipt": {
+            "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "upload_id": "upload_fixture_01",
+            "ordinal": 2,
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "0123456789abcdef0123456789abcdef",
+            "etag": "abcdefabcdefabcdefabcdefabcdefab",
+            "bytes": 1234,
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "expires_at": 2000001200
+        },
+        "queue_job": {
+            "job_version": 1,
+            "protocol_version": 3,
+            "environment_id": "production-fixture",
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "upload_id": "upload_fixture_01",
+            "ordinal": 2,
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "0123456789abcdef0123456789abcdef",
+            "etag": "abcdefabcdefabcdefabcdefabcdefab",
+            "bytes": 1234,
+            "declared_mime": "image/png",
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "max_bytes": 18874368,
+            "max_edge": 12000,
+            "max_pixels": 60000000,
+            "container_entry_limit": 4096,
+            "validation_until": 2000001800
+        },
+        "terminal_result_accepted": {
+            "result_version": 1,
+            "protocol_version": 3,
+            "environment_id": "production-fixture",
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "upload_id": "upload_fixture_01",
+            "ordinal": 2,
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "0123456789abcdef0123456789abcdef",
+            "etag": "abcdefabcdefabcdefabcdefabcdefab",
+            "bytes": 1234,
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "outcome": "accepted",
+            "validated_at": 2000001000,
+            "mime": "image/png",
+            "width": 32,
+            "height": 24
+        },
+        "terminal_result_rejected": {
+            "result_version": 1,
+            "protocol_version": 3,
+            "environment_id": "production-fixture",
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "upload_id": "upload_fixture_01",
+            "ordinal": 2,
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "0123456789abcdef0123456789abcdef",
+            "etag": "abcdefabcdefabcdefabcdefabcdefab",
+            "bytes": 1234,
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "outcome": "rejected",
+            "validated_at": 2000001000,
+            "reason": "unsupported_media"
+        },
+        "gallery_items": [
+            {
+                "upload_id": "upload_fixture_01",
+                "ordinal": 2,
+                "validation_contract_version": "managed-image-v1",
+                "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+                "object_version": "0123456789abcdef0123456789abcdef",
+                "etag": "abcdefabcdefabcdefabcdefabcdefab",
+                "bytes": 1234,
+                "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "validation_until": 2000001800
+            }
+        ],
+        "gallery_statuses": [
+            {
+                "upload_id": "upload_fixture_01",
+                "status": "accepted",
+                "mime": "image/png",
+                "width": 32,
+                "height": 24
+            }
+        ],
+        "gallery_status_pending": {
+            "upload_id": "upload_fixture_02",
+            "status": "pending"
+        },
+        "gallery_status_unavailable": {
+            "upload_id": "upload_fixture_03",
+            "status": "unavailable"
+        },
+        "gallery_hashes": {
+            "items_sha256": "e2295157eef2b3a097a0296bf5411cab3dee99d894a40b0c0348ef543440495a",
+            "statuses_sha256": "f692463f5dde98e149bbe1369da63e04442697e04338a046523eba807e8e4629"
+        },
+        "gallery_status_request": {
+            "request_id": "gallery_status_request_01",
+            "submission_id": "submission_fixture_01",
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "items_sha256": "e2295157eef2b3a097a0296bf5411cab3dee99d894a40b0c0348ef543440495a",
+            "item_count": 1,
+            "expires_at": 2000000900
+        },
+        "gallery_status_result": {
+            "request_id": "gallery_status_request_01",
+            "submission_id": "submission_fixture_01",
+            "items_sha256": "e2295157eef2b3a097a0296bf5411cab3dee99d894a40b0c0348ef543440495a",
+            "statuses_sha256": "f692463f5dde98e149bbe1369da63e04442697e04338a046523eba807e8e4629",
+            "item_count": 1,
+            "checked_at": 2000000600,
+            "expires_at": 2000000900
+        },
+        "review_grant": {
+            "submission_id": "submission_fixture_01",
+            "upload_id": "upload_fixture_01",
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "0123456789abcdef0123456789abcdef",
+            "etag": "abcdefabcdefabcdefabcdefabcdefab",
+            "bytes": 1234,
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "validation_until": 2000001800,
+            "action": "preview",
+            "recipe_version": "review-jpeg-v1",
+            "expires_at": 2000000900
+        },
+        "object_request_known_delete": {
+            "request_id": "object_worker_known_delete",
+            "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "upload_id": "upload_fixture_01",
+            "ordinal": 2,
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "0123456789abcdef0123456789abcdef",
+            "etag": "abcdefabcdefabcdefabcdefabcdefab",
+            "bytes": 1234,
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "action": "delete",
+            "expires_at": 2000000900
+        },
+        "object_request_unknown_delete": {
+            "request_id": "object_worker_unknown_delete",
+            "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "upload_id": "upload_fixture_01",
+            "ordinal": 2,
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "-",
+            "etag": "-",
+            "bytes": 1234,
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "action": "delete",
+            "expires_at": 2000000900
+        },
+        "object_request_known_inspect": {
+            "request_id": "object_worker_known_inspect",
+            "batch_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "intent_id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+            "upload_id": "upload_fixture_01",
+            "ordinal": 2,
+            "storage_identity": "7fdd1c34449d3d714466a537846091ad4c8d2b8e9880563ec819ccbcb0151dcb",
+            "validation_contract_version": "managed-image-v1",
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "0123456789abcdef0123456789abcdef",
+            "etag": "abcdefabcdefabcdefabcdefabcdefab",
+            "bytes": 1234,
+            "policy_fingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "action": "inspect",
+            "expires_at": 2000000900
+        },
+        "object_result": {
+            "request_id": "object_worker_known_delete",
+            "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
+            "object_version": "0123456789abcdef0123456789abcdef",
+            "status": "absent",
+            "expires_at": 2000000900
+        }
     },
-    "review_grant": {
-      "submission_id": "submission_fixture_01",
-      "upload_id": "upload_fixture_01",
-      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
-      "object_version": "0123456789abcdef0123456789abcdef",
-      "action": "preview",
-      "recipe_version": "review-jpeg-v1",
-      "expires_at": 2000000300
+    "vectors": {
+        "health_request": {
+            "payload_sha256": "f9a485ab6f6a5fadfd97657c4cbecb829e48d1fc6d97ffb3c51b7d5dbe4bcd52",
+            "signature_b64": "Kka9gjwe8Jq29VkNbl1I2h7PvwKyyhWsfoaBYk09KtM"
+        },
+        "health_result": {
+            "payload_sha256": "1c5e9d59c8f107bd27606e47c5a73f9c057d76b1957abb4e6c94d9011f15122a",
+            "signature_b64": "oqnL8F9cvSaDf5mq_jSM2PjEWRkhKXlN6iQ-9ISxK48"
+        }
     },
-    "object_request": {
-      "request_id": "object_fixture_01",
-      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
-      "object_version": "0123456789abcdef0123456789abcdef",
-      "action": "delete",
-      "expires_at": 2000000060
-    },
-    "object_result": {
-      "request_id": "object_fixture_01",
-      "object_key": "artifacts/f0/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2-iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii.png",
-      "object_version": "0123456789abcdef0123456789abcdef",
-      "status": "absent",
-      "expires_at": 2000000060
-    },
-    "health_request": {
-      "request_id": "health_fixture_01",
-      "expires_at": 2000000060
-    },
-    "health_result": {
-      "request_id": "health_fixture_01",
-      "storage_ready": 1,
-      "inspection_ready": 1,
-      "checked_at": 2000000000,
-      "expires_at": 2000000060
+    "worker_vectors": {
+        "upload_grant": {
+            "payload_sha256": "7803478455cd445e6847238bb3591a8825787f8982cac8f0f37049d451ae21c1",
+            "signature_b64": "ilwLiZDL9sW3X09z2t9zG89v5GOBb-l5m8qIVXyr5G0"
+        },
+        "stored_receipt": {
+            "payload_sha256": "c51bdac9653480370c240987d2de3faffb92f95e499aba5e21a71c10f751d1b6",
+            "signature_b64": "GLdp5nbzoeh_sdrQtn_UfS5Wuuy7i4jd4kI8f9nbQ6I"
+        },
+        "gallery_status_request": {
+            "payload_sha256": "a857fb462bc0937754c26a66c1ee0553e1ef48968ad060505aebf7ecbe42c392",
+            "signature_b64": "b1AOU_1r_UH3fIGO1IGM4ixJC5y6ReUfDgRFGbLh6xo"
+        },
+        "gallery_status_result": {
+            "payload_sha256": "ee1df070702f5782ca3ad48ab270da1e00ce9cfb2d767c387086c0e54bdb95a9",
+            "signature_b64": "NjotG_FopyzmBqhJsDVDTxcwISAisRgY3L5BmVdYOWc"
+        },
+        "review_grant": {
+            "payload_sha256": "c89ddddbc28c2f0a35133e24508e99bed3d5fe4fe6a629709dd9c1a40976bb8c",
+            "signature_b64": "9EVkt-MgASNcKpnkldfCN-PyCvCAW0xjVl4VuTbsK4E"
+        },
+        "object_request_known_delete": {
+            "payload_sha256": "fd6774194b8c1fcac2cddde08971a74e4214607c66b926830d73a70767cb4810",
+            "signature_b64": "uZrzt0cwACHfFHSytchFAnHKlKKH6iolSz8r1gJLPk8"
+        },
+        "object_request_unknown_delete": {
+            "payload_sha256": "f91f0cb89c51540ad9681da22430d3f188dfed94d9f52948069850ed6ff2b1b2",
+            "signature_b64": "whiqVfDpHmAolNjO7tkFlVjwmCyYsvbKHoSA-Rd8Se4"
+        },
+        "object_request_known_inspect": {
+            "payload_sha256": "c2844ddfb960c05fed3186ccbbba181bf7b5e8cab079cf15eb7ab39014bfa6a1",
+            "signature_b64": "TBvHqP3rbGZZFGKXeRHZI-slgjfVPtTdqZUwGZtevJw"
+        },
+        "object_result": {
+            "payload_sha256": "b359ed078af8a7113ecdf63bc5e8a4f0078617468550435964f53434d36cd129",
+            "signature_b64": "hDx8I-pnzfJZv7XRKJnEkmQ3ZhBc_MQvLiiSNZH-BfQ"
+        }
     }
-  },
-  "vectors": {
-    "upload_grant": { "payload_sha256": "d364017c07e8d7ed84038724935933d4f5e5892359b997cdc6ecb125a0f9a850", "signature_b64": "c5CdWxzBzM783RcUgj-UFTUeq7BJxShEifMMEf3hdHU" },
-    "upload_receipt": { "payload_sha256": "acaefb4989fb7b351f7728ceb869b156b6cc0080a32e525e2db28007ec9dffa8", "signature_b64": "VGZBdHg1SINaJGVtcdvQ8B-gRrSeUB1ZzuhpgGfpgLA" },
-    "review_grant": { "payload_sha256": "6295aea96a6969a4756e18113335051651f9400b3704b56733eb8c8516aa245b", "signature_b64": "SAIbdiRuHgGLsThNX3QJPyqBV6xYdGk_WKMtpCS9ypE" },
-    "object_request": { "payload_sha256": "80782c343849e89de11650883ccf6459e2a07dc4f379af596323039b035217cd", "signature_b64": "sib6IVfNkSmgKx6wmUvz0Sbq0TbpWzYOq2_BpyTnK-s" },
-    "object_result": { "payload_sha256": "dedd7179e154fee538d2a65fd6f1d8b8699dad204f2fea123c394a1c014d3cc5", "signature_b64": "Lf-TXgUa6plH1k3wQNkcSehb4OzNJhmCiclu1FvdBVo" },
-    "health_request": { "payload_sha256": "2c158a26b13bf9638f4b7bc7b006d624d965fe4bbcec33710860d8b4a7624667", "signature_b64": "knZDDvvhDVlZ8EzN6bzF1wx8XjTp5R5B0h_xKX5iBuY" },
-    "health_result": { "payload_sha256": "5a43121723b13d6dd81910987a513d5ec4e23884f8572ebd80a4d8a893963677", "signature_b64": "PYe9Fu7OPW9Hx_DTtA-UpU_k6DTDFUbkvsXEOSp3bJA" },
-    "declared_over_limit_grant": { "payload_sha256": "e6cc5a5349ec2be9041855c03690aa8a591ccd3ec1a6806f5226e90b1927e2aa", "signature_b64": "2uqZ9ACyNVVxY_BvnMq7mtCF3ZEVHG1IaJG6X62ac8U" }
-  }
 }

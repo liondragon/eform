@@ -199,9 +199,13 @@ class RuntimeHealthDiagnostic {
                     isset( $observations['worker_requester'] ) ? $observations['worker_requester'] : null,
                     'runtime_readiness'
                 );
-            if ( empty( $worker['ok'] ) ) {
+            if ( empty( $worker['ok'] ) || empty( $worker['worker_ready'] ) ) {
                 $outcome = isset( $worker['outcome'] ) && is_string( $worker['outcome'] ) ? $worker['outcome'] : 'unavailable';
-                return self::check( 'staged-artifact-readiness', 'FAIL', $outcome, 'all new and retained artifact stores ready', 'repair deployment wiring or Worker dependencies; no local fallback' );
+                $missing = self::missing_worker_readiness( $worker );
+                if ( ! empty( $missing ) || array_key_exists( 'worker_ready', $worker ) ) {
+                    $outcome = empty( $missing ) ? 'candidate dependencies unavailable' : 'missing ' . implode( ', ', $missing );
+                }
+                return self::check( 'staged-artifact-readiness', 'FAIL', $outcome, 'all new and retained artifact stores ready', 'repair deployment wiring, Queue producer, or Worker dependencies; no local fallback' );
             }
         }
         if ( $requires_local ) {
@@ -225,6 +229,24 @@ class RuntimeHealthDiagnostic {
             ? 'non-customer fixture; lifecycle configuration is operator-verified separately'
             : 'Optional preview encoding is not an upload prerequisite';
         return self::check( 'staged-artifact-readiness', 'PASS', $observed, 'all new and retained artifact stores ready', $notes );
+    }
+
+    private static function missing_worker_readiness( $worker ) {
+        $missing = array();
+        foreach ( array(
+            'storage_ready' => 'R2 storage',
+            'inspection_ready' => 'image inspection',
+            'queue_producer_ready' => 'Queue producer',
+            'limiter_ready' => 'rate limiter',
+            'keys_ready' => 'signing/config',
+            'storage_identity_ready' => 'storage identity',
+            'validation_contract_ready' => 'validation contract',
+        ) as $field => $label ) {
+            if ( array_key_exists( $field, $worker ) && empty( $worker[ $field ] ) ) {
+                $missing[] = $label;
+            }
+        }
+        return $missing;
     }
 
     private static function check_review_preview_readiness( $observations ) {

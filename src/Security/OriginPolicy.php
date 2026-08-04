@@ -9,8 +9,6 @@ require_once __DIR__ . '/../Config.php';
 
 class OriginPolicy
 {
-    const DEFAULT_SCHEME = 'http';
-
     /**
      * Evaluate origin policy for the current request.
      *
@@ -103,12 +101,7 @@ class OriginPolicy
 
     private static function same_origin()
     {
-        $site_origin = self::site_origin();
-        if ($site_origin !== null) {
-            return $site_origin;
-        }
-
-        return self::server_origin();
+        return self::site_origin();
     }
 
     private static function site_origin()
@@ -122,68 +115,20 @@ class OriginPolicy
             return null;
         }
 
-        return self::normalize_origin($home);
-    }
-
-    private static function server_origin()
-    {
-        $scheme = self::server_scheme();
-        if ($scheme === '') {
-            return null;
-        }
-
-        $host_raw = self::header_value(null, 'Host');
-        if ($host_raw === '' && isset($_SERVER['SERVER_NAME']) && is_string($_SERVER['SERVER_NAME'])) {
-            $host_raw = $_SERVER['SERVER_NAME'];
-        }
-
-        $host = self::parse_host_port($host_raw);
-        if ($host === null) {
-            return null;
-        }
-
-        $port = $host['port'];
-        if ($port === null) {
-            $port = self::default_port($scheme);
-        }
-
-        return array(
-            'scheme' => $scheme,
-            'host' => $host['host'],
-            'port' => $port,
-        );
-    }
-
-    private static function server_scheme()
-    {
-        if (isset($_SERVER['HTTPS']) && is_string($_SERVER['HTTPS'])) {
-            $value = strtolower($_SERVER['HTTPS']);
-            if ($value !== '' && $value !== 'off' && $value !== '0') {
-                return 'https';
-            }
-        }
-
-        if (isset($_SERVER['REQUEST_SCHEME']) && is_string($_SERVER['REQUEST_SCHEME'])) {
-            $scheme = strtolower($_SERVER['REQUEST_SCHEME']);
-            if ($scheme === 'http' || $scheme === 'https') {
-                return $scheme;
-            }
-        }
-
-        if (isset($_SERVER['SERVER_PORT'])) {
-            $port = (int) $_SERVER['SERVER_PORT'];
-            if ($port === 443) {
-                return 'https';
-            }
-            if ($port === 80) {
-                return 'http';
-            }
-        }
-
-        return self::DEFAULT_SCHEME;
+        return self::normalize_site_origin($home);
     }
 
     private static function normalize_origin($origin)
+    {
+        return self::normalize_origin_value($origin, false);
+    }
+
+    private static function normalize_site_origin($origin)
+    {
+        return self::normalize_origin_value($origin, true);
+    }
+
+    private static function normalize_origin_value($origin, $allow_path)
     {
         if (!is_string($origin)) {
             return null;
@@ -198,6 +143,12 @@ class OriginPolicy
         if (!is_array($parts) || !isset($parts['scheme']) || !isset($parts['host'])) {
             return null;
         }
+        if (isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) {
+            return null;
+        }
+        if (!$allow_path && isset($parts['path']) && $parts['path'] !== '') {
+            return null;
+        }
 
         $scheme = strtolower($parts['scheme']);
         if ($scheme !== 'http' && $scheme !== 'https') {
@@ -209,57 +160,13 @@ class OriginPolicy
             return null;
         }
 
-        $port = null;
-        if (isset($parts['port'])) {
-            $port = (int) $parts['port'];
-            if ($port <= 0) {
-                return null;
-            }
-        }
-
-        if ($port === null) {
-            $port = self::default_port($scheme);
+        $port = isset($parts['port']) ? (int) $parts['port'] : self::default_port($scheme);
+        if ($port <= 0) {
+            return null;
         }
 
         return array(
             'scheme' => $scheme,
-            'host' => $host,
-            'port' => $port,
-        );
-    }
-
-    private static function parse_host_port($host_raw)
-    {
-        if (!is_string($host_raw)) {
-            return null;
-        }
-
-        $host_raw = trim($host_raw);
-        if ($host_raw === '') {
-            return null;
-        }
-
-        $host_raw = preg_replace('/\\s+/', '', $host_raw);
-
-        $parts = parse_url(self::DEFAULT_SCHEME . '://' . $host_raw);
-        if (!is_array($parts) || !isset($parts['host'])) {
-            return null;
-        }
-
-        $host = strtolower($parts['host']);
-        if ($host === '') {
-            return null;
-        }
-
-        $port = null;
-        if (isset($parts['port'])) {
-            $port = (int) $parts['port'];
-            if ($port <= 0) {
-                $port = null;
-            }
-        }
-
-        return array(
             'host' => $host,
             'port' => $port,
         );

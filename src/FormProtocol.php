@@ -243,7 +243,9 @@ class FormProtocol {
             'batchSecretBytes' => Anchors::get( 'MANAGED_BATCH_SECRET_BYTES' ),
             'uploadIdBytes' => Anchors::get( 'MANAGED_UPLOAD_ID_BYTES' ),
             'uploadIdMaxChars' => Anchors::get( 'MANAGED_ID_MAX_CHARS' ),
-            'concurrency' => Anchors::get( 'MANAGED_UPLOAD_CONCURRENCY' ),
+            'transferConcurrency' => Anchors::get( 'MANAGED_UPLOAD_TRANSFER_CONCURRENCY' ),
+            'workerPipelineConcurrency' => Anchors::get( 'MANAGED_UPLOAD_WORKER_PIPELINE_CONCURRENCY' ),
+            'localPipelineConcurrency' => Anchors::get( 'MANAGED_UPLOAD_LOCAL_PIPELINE_CONCURRENCY' ),
             'displayNameMaxChars' => Anchors::get( 'MANAGED_DISPLAY_NAME_MAX_CHARS' ),
         );
     }

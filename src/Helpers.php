@@ -168,6 +168,11 @@ class Helpers
         $path = parse_url($raw, PHP_URL_PATH);
         $query = parse_url($raw, PHP_URL_QUERY);
         $path = is_string($path) ? $path : '';
+        $redacted = self::redact_review_uri_path($path);
+        $path = $redacted['path'];
+        if (!empty($redacted['redacted'])) {
+            return $path;
+        }
         if (!is_string($query) || $query === '') {
             return $path;
         }
@@ -184,6 +189,29 @@ class Helpers
         }
 
         return empty($filtered) ? $path : $path . '?' . http_build_query($filtered, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    private static function redact_review_uri_path(string $path): array
+    {
+        $home_path = '';
+        if (function_exists('home_url')) {
+            $parsed = parse_url((string) home_url(), PHP_URL_PATH);
+            $home_path = is_string($parsed) ? rtrim($parsed, '/') : '';
+        }
+        $routes = array($home_path !== '' ? $home_path . '/review' : '/review');
+        foreach (array_unique($routes) as $route) {
+            $quoted = preg_quote($route, '#');
+            if ($path === $route) {
+                return array('path' => $route . '/[redacted]', 'redacted' => true);
+            }
+            if (preg_match('#^' . $quoted . '/(file|preview)(?:/.*)?$#', $path, $matches) === 1) {
+                return array('path' => $route . '/' . $matches[1] . '/[redacted]', 'redacted' => true);
+            }
+            if (preg_match('#^' . $quoted . '/.*$#', $path) === 1) {
+                return array('path' => $route . '/[redacted]', 'redacted' => true);
+            }
+        }
+        return array('path' => $path, 'redacted' => false);
     }
 
     /**

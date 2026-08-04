@@ -152,7 +152,7 @@ class SubmissionReviewSnapshot {
             $value = array_key_exists( $key, $values ) ? $values[ $key ] : null;
 
             if ( $type === 'file' || $type === 'files' ) {
-                $staged_items = UploadValue::staged_items( $value );
+                $staged_items = UploadValue::review_staged_items( $value );
                 if ( ! empty( $staged_items ) ) {
                     $count = count( $staged_items );
                     $fields[ $key ] = $count . ( $count === 1 ? ' photo' : ' photos' );
