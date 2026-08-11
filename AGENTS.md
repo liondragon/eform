@@ -64,7 +64,7 @@ When the user asks for your opinion on an idea (including feedback from others),
 - **Rule:** Never delete files, overwrite files without reading them first, or remove/replace entire file contents unless the user explicitly requests that specific destructive action for that specific file path.
 - **Refactors:** When refactoring, prefer surgical edits (small, focused patches) over full-file rewrites wherever possible.
 - **No parallel authority docs:** Do not create alternate master specs, plan ledgers, or duplicate narrative files (for example `Canonical_Spec_v2.md`, `Implementation_Plan_draft.md`, or `master_spec.md`) unless the user explicitly requests a separate document.
-- **Prompt files:** Treat `agent_docs/prompts/*.md` as configuration prompts; do not edit them unless the user explicitly asks to change prompt behavior.
+- **Workflow files:** Treat `agent_docs/workflows/*.md` as workflow instructions; do not edit them unless the user explicitly asks to change workflow behavior.
 
 ### Documentation Hygiene (Markdown)
 - Preserve existing indentation style within a file in `docs/*.md` to minimize diff churn.
@@ -90,7 +90,7 @@ When the user asks for your opinion on an idea (including feedback from others),
 
 ### Negative Constraints
 - **Never edit system docs as a side effect:** Do not modify `AGENTS.md` or any file under `agent_docs/` (guides, standards, templates, prompts) during coding, testing, or documentation tasks unless the user's request is explicitly about updating documentation standards or guides.
-- **Never edit prompt files:** See §2 File Safety for the `agent_docs/prompts/` rule.
+- **Never edit workflow files:** See §2 File Safety for the `agent_docs/workflows/` rule.
 
 ## 3. Interaction Protocol & Triggers
 *You must actively load the required guidelines for your task.*
@@ -102,26 +102,26 @@ When the user asks for your opinion on an idea (including feedback from others),
   - Only when you cannot infer a mode from the request, ask once: "Which mode should I use: coding, tests, documentation, or review?" for that top-level task.
 - **Context budget & routing (canonical):**
   - For any single LLM task or run, keep additional docs minimal: in addition to `AGENTS.md` and one primary guide or prompt, load at most one helper standards/guide doc at a time, and only when the primary explicitly calls for it; consult other specs or guides briefly on demand instead of keeping many large docs loaded at once. If you need information from a second helper doc, finish or summarize the current one before loading the next.
-  - When using a prompt under `agent_docs/prompts/` (for example `agent_docs_review.md`), treat that prompt + `AGENTS.md` as your primary context; any extra standards/guide docs must still follow the same “at most one helper at a time” rule.
+  - When using a workflow under `agent_docs/workflows/` (for example `agent_docs_review.md`), treat that workflow + `AGENTS.md` as your primary context; any extra standards/guide docs must still follow the same “at most one helper at a time” rule.
   - Individual guides or prompts may impose stricter, task-specific limits (for example, reviewing at most two target docs per run) **only** to control context size or keep outputs focused, and they must state this explicitly as a narrower rule that still defers to this section.
-- **User-specified guides (`@docs` override):** If the user mentions one or more `/docs` files explicitly (for example `@agent_docs/Coding_Guidelines.md`), treat that list as the complete set of guides for the task and do not apply any routing heuristics beyond the context-budget rules in this section.
+- **User-specified guides (`@docs` override):** If the user mentions one or more `/docs` files explicitly (for example `@agent_docs/guides/Coding_Guidelines.md`), treat that list as the complete set of guides for the task and do not apply any routing heuristics beyond the context-budget rules in this section.
 - **Explicit user override vs heuristics:** When an explicit user request conflicts with these routing or context-budget heuristics (for example, “review all docs in `agent_docs/` in this run”), treat the user request as primary and use the heuristics only to decide *how* to fulfill it (chunking, summarizing, or warning) rather than whether to do it. Do not silently narrow scope or refuse a safe, explicit request solely because it exceeds the default heuristics. Even with an explicit override, do not try to load all large docs at once; process them in chunks and say so.
 - **Quick routing (pick your mode guide):**
-  - Editing or reviewing code files (for example `*.py`, `*.ts`, `*.rs`)? → `agent_docs/Coding_Guidelines.md` (🔵)
-  - Editing test files? → `agent_docs/Test_Guidelines.md` (🟡)
-  - Editing `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, or other docs? → `agent_docs/Documentation_Standards.md` (🔴)
-  - Creating or editing guides under `agent_docs/`? → `agent_docs/Doc_Bootstrap_Guide.md`
+  - Editing or reviewing code files (for example `*.py`, `*.ts`, `*.rs`)? → `agent_docs/guides/Coding_Guidelines.md` (🔵)
+  - Editing test files? → `agent_docs/guides/Test_Guidelines.md` (🟡)
+  - Editing `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, or other docs? → `agent_docs/guides/Documentation_Standards.md` (🔴)
+  - Creating or editing guides under `agent_docs/`? → `agent_docs/guides/Doc_Bootstrap_Guide.md`
 - Load `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests on demand when you need to verify behavior or ownership.
 - **No mixed-mode heuristics:** For tasks that span multiple modes (for example, docs + code), rely on user-specified guides via `@agent_docs/...` or a single clarifying question instead of inferring multi-stage workflows (for example, Strategy then Coding) yourself.
 - **When to ask:** Only ask "Which mode should I use?" when the task is genuinely ambiguous (for example, "improve the system" with no file mentioned). If the user mentions specific files, infer the mode from file type per the Quick routing rules above instead of asking repeatedly.
 
 ### Micro-Beading (Canonical Trigger)
 
-- **Purpose:** Use `agent_docs/micro_beading_pattern.md` to keep multi-step, load-bearing work small and explicit. **Summary:** break large work into beads (extract current state → surface TODOs → implement → check).
+- **Purpose:** Use `agent_docs/guides/micro_beading_pattern.md` to keep multi-step, load-bearing work small and explicit. **Summary:** break large work into beads (extract current state → surface TODOs → implement → check).
 - **When to consider micro-beading (any):**
   - 4+ code files included for one feature/refactor, or
   - 2+ active contract carriers modified for one behavior across `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, `docs/contracts/*`, owner docs/READMEs, code, and tests, or
-  - Core subsystem/API design under Co-founder stance (see §1 in `agent_docs/Documentation_Standards.md`).
+  - Core subsystem/API design under Co-founder stance (see §1 in `agent_docs/guides/Documentation_Standards.md`).
 - **Skip micro-beading when (any):**
   - ≤3 files in one area, or
   - Small doc edits (typos, wording, ≤3 sentences), or
@@ -130,28 +130,28 @@ When the user asks for your opinion on an idea (including feedback from others),
 
 ### 🔴 Trigger: Editing, Writing, or Strategy
 - **Condition:** User asks to design features, ask "how/why", review/audit docs, process external feedback about docs, or edit them.
-- **Action:** Load **`agent_docs/Documentation_Standards.md`**.
-- **Mode:** **STRATEGY Mode** (Explore options, but do not change code yet). For `/docs` guides, also consult `agent_docs/Doc_Bootstrap_Guide.md`.
-- **For feedback-driven doc work:** Before proposing changes, apply `agent_docs/Documentation_Standards.md` §3 (Feedback Triage and Anti-Churn); output at minimum the `Category` and `Decision` for each item.
-- **For major refactors:** When changes span multiple active contract carriers or core APIs, apply **`agent_docs/Cross_Cutting_Concerns.md`** and `agent_docs/Documentation_Standards.md` §5 (Cross-Carrier Consistency).
+- **Action:** Load **`agent_docs/guides/Documentation_Standards.md`**.
+- **Mode:** **STRATEGY Mode** (Explore options, but do not change code yet). For `/docs` guides, also consult `agent_docs/guides/Doc_Bootstrap_Guide.md`.
+- **For feedback-driven doc work:** Before proposing changes, apply `agent_docs/guides/Documentation_Standards.md` §3 (Feedback Triage and Anti-Churn); output at minimum the `Category` and `Decision` for each item.
+- **For major refactors:** When changes span multiple active contract carriers or core APIs, apply **`agent_docs/guides/Cross_Cutting_Concerns.md`** and `agent_docs/guides/Documentation_Standards.md` §5 (Cross-Carrier Consistency).
 - **For new or changed core subsystems/APIs (co‑founder mode):**
-  - Before drafting or rewriting active contract docs for a major subsystem/API, propose at least two viable design options with trade‑offs and a clear recommendation, following the Co-founder stance rules in §1 of `agent_docs/Documentation_Standards.md`.
+  - Before drafting or rewriting active contract docs for a major subsystem/API, propose at least two viable design options with trade‑offs and a clear recommendation, following the Co-founder stance rules in §1 of `agent_docs/guides/Documentation_Standards.md`.
   - **Micro-beading:** When designing a core subsystem/API, you **SHOULD** use the **Micro-Beading (Canonical Trigger)** above to structure the design work.
   - Call out when a user‑proposed design conflicts with stated goals or existing invariants, and suggest the design that best balances Safety, Simplicity, and Velocity when appropriate.
 - **Doc feedback (self‑evolving docs):**
-  - After a non‑trivial task, if you encounter repeated or load‑bearing friction following a guide or active contract doc as described in the Doc Feedback Protocol in `agent_docs/Doc_Bootstrap_Guide.md`, you may surface a short doc‑improvement suggestion to the user and log it to `self-iprov.md`.
+  - After a non‑trivial task, if you encounter repeated or load‑bearing friction following a guide or active contract doc as described in the Doc Feedback Protocol in `agent_docs/guides/Doc_Bootstrap_Guide.md`, you may surface a short doc‑improvement suggestion to the user and log it to `self-iprov.md`.
   - Do **not** edit docs proactively in this mode; only draft or apply doc diffs when the user explicitly asks for them.
 
 ### 🔵 Trigger: Coding & Implementation
 - **Condition:** User asks for code or fixes, or includes tests in the same request as code.
-- **Action:** Load **`agent_docs/Coding_Guidelines.md`** as your primary guide; if it is missing, stop and surface a configuration error instead of coding without guidelines.
+- **Action:** Load **`agent_docs/guides/Coding_Guidelines.md`** as your primary guide; if it is missing, stop and surface a configuration error instead of coding without guidelines.
 - **Mode:** **EDIT Mode** (strict adherence to active owner/routing docs, code contracts, and tests).
 - **Reference:** Load `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `README.md`, `docs/contracts/*`, affected owner docs/READMEs, code, and tests on demand when you need to verify behavior or ownership.
-- **Micro-beading:** When a coding task meets the **Micro-Beading (Canonical Trigger)** above, you **SHOULD** use `agent_docs/micro_beading_pattern.md` (beads → questions/TODOs → implement → check).
+- **Micro-beading:** When a coding task meets the **Micro-Beading (Canonical Trigger)** above, you **SHOULD** use `agent_docs/guides/micro_beading_pattern.md` (beads → questions/TODOs → implement → check).
 
 ### 🟡 Trigger: Test-Only Work
 - **Condition:** User explicitly focuses on test design, coverage, or debugging tests without requesting code changes.
-- **Action:** Load **`agent_docs/Test_Guidelines.md`** as your primary guide for this task.
+- **Action:** Load **`agent_docs/guides/Test_Guidelines.md`** as your primary guide for this task.
 - **Mode:** **VERIFY Mode** (tests are code that enforce active contracts).
 - **Reference:** Load active owner/routing docs, code, and existing tests on demand when you need to verify behavior or invariants; consult the coding guide only when the testing guide or user explicitly calls for it.
 - **Precedence:** If both 🔵 and 🟡 could match a request, prefer 🔵.

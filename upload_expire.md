@@ -60,7 +60,7 @@ Existing Owner Evidence:
 - `docs/contracts/Runtime_Storage.md` currently states finalization sets `gallery_expires_at` and `delete_after`; this is the stale contract to replace.
 - `docs/contracts/Public_Contracts.md` currently states anonymous review access ends at the earlier of signed expiry and `gallery_expires_at`; this is the stale contract to replace.
 
-Docs Consulted: `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `docs/contracts/Public_Contracts.md`, `docs/contracts/Runtime_Storage.md`, `agent_docs/Cross_Cutting_Concerns.md`, `agent_docs/ui_surface_preflight.md`.
+Docs Consulted: `docs/Architecture_Router.md`, `docs/Owner_Index.md`, `docs/contracts/Public_Contracts.md`, `docs/contracts/Runtime_Storage.md`, `agent_docs/guides/Cross_Cutting_Concerns.md`, `agent_docs/guides/ui_surface_preflight.md`.
 
 Reuse Decision: extend existing owners.
 
