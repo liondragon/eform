@@ -15,7 +15,7 @@ When the user asks for your opinion on an idea (including feedback from others),
 - `README.md` provides user narrative (what, not how).
 - **docs/PAST_DECISIONS.md** records non‑normative Architecture Decision Records (ADRs); use it for rationale only, not as a source of behavior.
 - **Conflict Precedence:** safety/security invariants → active owner/routing docs → tests/code behavior → implementation notes.
-- **Shared guidance:** `agent_docs/` is a machine-local, Git-excluded symlink to `/home/zhenya/projects/agent-workflows/agent_docs`. Keep the link present and readable so users and agents can reference its files with `@`, but never stage or commit the link as project content. Edit shared guidance only at its canonical source, and only when the user explicitly requests that work; no project-local copy, pull, or sync step is required.
+- **Shared guidance:** `agent_docs/` is a machine-local, untracked, and intentionally unignored symlink to `/home/zhenya/projects/agent-workflows/agent_docs`. Keep the link present and visible so users and agents can reference its files with `@`, but never stage or commit the link as project content; exclude it explicitly from broad staging operations. Edit shared guidance only at its canonical source, and only when the user explicitly requests that work; no project-local copy, pull, or sync step is required.
 
 ## 1.5 Project Lifecycle & Compatibility (Canonical)
 - **Current phase: GREENFIELD / PRE-RELEASE.** This is an explicit, human-maintained project state. It remains authoritative until the user explicitly changes it; agents MUST NOT infer a phase change from versions, branches, deployments, or elapsed time.
